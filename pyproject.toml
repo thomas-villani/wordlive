@@ -1,0 +1,33 @@
+[project]
+name = "wordlive"
+version = "0.1.0"
+description = "Drive a running Microsoft Word instance from Python — xlwings, but for Word, and LLM-friendly."
+readme = "README.md"
+authors = [
+    { name = "Thomas.Villani", email = "thomas.villani@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "click>=8.1",
+    "pywin32>=306 ; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-mock>=3.12",
+]
+
+[project.scripts]
+wordlive = "wordlive.cli.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "smoke: requires a running Microsoft Word installation",
+]
+addopts = "-m 'not smoke'"
