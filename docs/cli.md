@@ -13,7 +13,7 @@ wordlive [--json|--text] [--doc DOC_NAME] <subcommand> [args]
 
 | Flag             | Default     | Purpose                                                |
 | ---------------- | ----------- | ------------------------------------------------------ |
-| `--json/--text`  | `--json`    | Output format. `--text` falls back to a human-readable repr. |
+| `--json/--text`  | `--json`    | Output format. `--text` prints a per-command human form (indented outline tree, bare text for reads, one-line acks for writes); JSON stays the LLM-friendly default. |
 | `--doc DOC_NAME` | active doc  | Target a specific open document by name (e.g. `Report.docx`). |
 | `-h`, `--help`   | —           | Show help for the command or subgroup.                  |
 
@@ -27,9 +27,10 @@ mode without parsing strings:
 | ---- | ---------------------- | -------------------------- |
 | `0`  | OK                     | —                          |
 | `1`  | Other / unclassified   | `WordliveError` (default), `DocumentNotFoundError` |
-| `2`  | Anchor not found       | `AnchorNotFoundError`      |
+| `2`  | Anchor not found       | `AnchorNotFoundError` (also used for zero-match `find`/`replace --find`) |
 | `3`  | Word busy / modal      | `WordBusyError` (retryable) |
 | `4`  | Word not running       | `WordNotRunningError`      |
+| `5`  | Ambiguous match        | `AmbiguousMatchError` (multiple `find` hits without `--all`/`--occurrence`) |
 
 See the [Errors page](errors.md) for the full exception taxonomy and
 retry guidance.
@@ -103,6 +104,34 @@ $ wordlive read cc Signatory
 
 Failures: `2` if no content control with that Title/Tag exists.
 
+## `read section HEADING`
+
+```
+wordlive read section HEADING                [--doc DOC_NAME]
+wordlive read section --anchor-id heading:N  [--doc DOC_NAME]
+```
+
+Read the body text under a heading — from the end of the heading paragraph up
+to the next heading whose level is **less than or equal to** this one's (or to
+the end of the document if there's no such boundary).
+
+```bash
+$ wordlive read section "Introduction"
+{"heading": "Introduction",
+ "anchor_id": "heading:1",
+ "level": 1,
+ "text": "This document covers the Q2 risk register …"}
+
+$ wordlive --text read section "Introduction"
+This document covers the Q2 risk register …
+```
+
+`--text` mode emits only the section body — handy for piping into an LLM
+prompt without ceremony. Use `--anchor-id heading:N` to disambiguate when the
+same visible heading text appears more than once.
+
+Failures: `2` heading not found.
+
 ## `write bookmark NAME --text "…"`
 
 ```
@@ -152,14 +181,52 @@ $ wordlive insert --after-heading "Risks" --text "New risk identified."
 `--style` is optional; if given it must be a Word style name that exists in
 the document. Failures: `2` heading not found, `3` Word busy.
 
-## `replace --anchor-id ID --text "…"`
+## `find --text "…"`
 
 ```
-wordlive replace --anchor-id ID --text "..." [--doc DOC_NAME]
+wordlive find --text "..." [--in ANCHOR_ID] [--doc DOC_NAME]
 ```
+
+Locate every fuzzy occurrence of the given text in the document (read-only).
+Matching is forgiving of cosmetic differences that show up when LLMs re-emit
+text — whitespace runs collapse, smart quotes/dashes fold to ASCII, NBSPs
+become spaces, and the strings are NFKC-normalized before comparison.
+
+```bash
+$ wordlive find --text "the risk register"
+[{"anchor_id": "range:412-429",
+  "start": 412,
+  "end": 429,
+  "text": "the risk register"}]
+```
+
+Use `--in ANCHOR_ID` to restrict the search. Headings expand to their
+*section* (the body under the heading), which is the common case for
+"replace this phrase, but only inside the Risks section":
+
+```bash
+$ wordlive find --text "Q1" --in heading:8
+```
+
+`text` in each match is the actual original substring (with smart quotes,
+NBSP, etc.) — that's the form Word will preserve when you replace it.
+
+Failures: returns `[]` with exit `0` for no matches; `2` if `--in ANCHOR_ID`
+refers to a missing anchor.
+
+## `replace`
+
+```
+wordlive replace --anchor-id ID --text "..."                            [--doc DOC_NAME]   # anchor mode
+wordlive replace --find OLD --text NEW [--in ID] [--all|--occurrence N] [--doc DOC_NAME]   # fuzzy mode
+```
+
+Two modes share the verb:
+
+### Anchor mode — replace an entire range
 
 Replace the text at an anchor identified by [anchor ID](concepts.md#anchor-ids).
-Works across all three anchor kinds — this is the general-purpose write.
+Works across all three anchor kinds.
 
 ```bash
 $ wordlive replace --anchor-id heading:3 --text "Updated section text"
@@ -168,11 +235,44 @@ $ wordlive replace --anchor-id heading:3 --text "Updated section text"
  "anchor": {"kind": "heading", "name": "Context"}}
 ```
 
-The response's `anchor.name` resolves the ID back to a human-readable name
-(the heading text, bookmark name, or content control title) — useful for
-logging.
-
+The response's `anchor.name` resolves the ID back to a human-readable name.
 Failures: `2` anchor not found, `3` Word busy.
+
+### Fuzzy mode — find + replace a substring
+
+Locate `--find OLD` (same fuzzy match as `find`) and replace with `--text NEW`.
+Word's native range replacement preserves the *character formatting* of the
+matched range — bold stays bold, italics stay italic — so you don't need to
+re-state formatting on the replacement.
+
+```bash
+$ wordlive replace --find "Q1 2025" --text "Q2 2025"
+{"ok": true,
+ "replacements": [{"anchor_id": "range:412-419",
+                   "start": 412, "end": 419, "text": "Q1 2025"}]}
+```
+
+| Flag           | Meaning                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------- |
+| `--in ID`      | Restrict search to the given anchor's range (headings expand to their section).               |
+| `--all`        | Replace every match. Mutually exclusive with `--occurrence`.                                  |
+| `--occurrence N` | Replace only the Nth match (1-based). Mutually exclusive with `--all`.                      |
+
+Failures:
+
+- **Exit `2`** — zero matches. Same code as anchor-not-found because the
+  agent's recovery is identical: re-fetch state and retry.
+- **Exit `5`** — multiple matches and neither `--all` nor `--occurrence` was
+  given. Stdout still emits a JSON payload listing all matches so the agent
+  can pick an occurrence and retry:
+
+  ```json
+  {"ok": false, "error": "ambiguous_match", "find": "Q1",
+   "matches": [{"start": 412, "end": 414, "text": "Q1"},
+               {"start": 887, "end": 889, "text": "Q1"}]}
+  ```
+
+- **Exit `3`** — Word busy.
 
 ## `go-to --anchor-id ID`
 
@@ -221,12 +321,18 @@ Script shape:
 
 ### Supported ops
 
-| `op`                   | Required fields                            | Optional       |
-| ---------------------- | ------------------------------------------ | -------------- |
-| `write_bookmark`       | `name`, `text`                             | —              |
-| `write_cc`             | `name`, `text`                             | —              |
-| `insert_after_heading` | `heading`, `text`                          | `style`        |
-| `replace`              | `anchor_id`, `text`                        | —              |
+| `op`                   | Required fields                            | Optional                          |
+| ---------------------- | ------------------------------------------ | --------------------------------- |
+| `write_bookmark`       | `name`, `text`                             | —                                 |
+| `write_cc`             | `name`, `text`                             | —                                 |
+| `insert_after_heading` | `heading`, `text`                          | `style`                           |
+| `replace`              | `anchor_id`, `text`                        | —                                 |
+| `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
+
+The `find_replace` op mirrors `wordlive replace --find …` — fuzzy whitespace
++ smart-quote match, optional `in` anchor to scope it, and either `all` or
+`occurrence` to handle multi-match. Ambiguous-match failures surface in the
+batch response's `failure.matches` so the LLM can rewrite the op and retry.
 
 ### Behaviour on partial failure
 

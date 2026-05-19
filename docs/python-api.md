@@ -63,6 +63,8 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 
 ::: wordlive.AnchorNotFoundError
 
+::: wordlive.AmbiguousMatchError
+
 ::: wordlive.WordBusyError
 
 ::: wordlive.ComError

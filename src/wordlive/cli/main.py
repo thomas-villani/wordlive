@@ -9,6 +9,7 @@ from typing import Any
 import click
 
 from ..exceptions import (
+    AmbiguousMatchError,
     AnchorNotFoundError,
     DocumentNotFoundError,
     WordBusyError,
@@ -23,12 +24,21 @@ EXIT_OTHER = 1
 EXIT_ANCHOR_NOT_FOUND = 2
 EXIT_WORD_BUSY = 3
 EXIT_WORD_NOT_RUNNING = 4
+EXIT_AMBIGUOUS_MATCH = 5
 
 
-def emit(payload: Any, *, as_text: bool = False) -> None:
-    """One JSON object on stdout, period. (`--text` falls back to repr for humans.)"""
+def emit(payload: Any, *, as_text: bool = False, text: str | None = None) -> None:
+    """One JSON object on stdout per invocation.
+
+    With `--json` (default), `payload` is dumped as JSON. With `--text`, `text`
+    (if given) is echoed verbatim; otherwise we fall back to pretty-printed
+    JSON of `payload` so machines and humans see the same data.
+    """
     if as_text:
-        click.echo(payload if isinstance(payload, str) else json.dumps(payload, indent=2))
+        if text is not None:
+            click.echo(text)
+        else:
+            click.echo(payload if isinstance(payload, str) else json.dumps(payload, indent=2))
     else:
         click.echo(json.dumps(payload, ensure_ascii=False))
 
@@ -36,6 +46,8 @@ def emit(payload: Any, *, as_text: bool = False) -> None:
 def _exit_for(exc: WordliveError) -> int:
     if isinstance(exc, AnchorNotFoundError):
         return EXIT_ANCHOR_NOT_FOUND
+    if isinstance(exc, AmbiguousMatchError):
+        return EXIT_AMBIGUOUS_MATCH
     if isinstance(exc, WordBusyError):
         return EXIT_WORD_BUSY
     if isinstance(exc, WordNotRunningError):

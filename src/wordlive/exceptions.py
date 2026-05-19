@@ -30,6 +30,21 @@ class AnchorNotFoundError(WordliveError):
         self.name = name
 
 
+class AmbiguousMatchError(WordliveError):
+    """A find/replace pattern matched more than one occurrence without disambiguation.
+
+    Carries the list of matches so callers (notably LLM drivers) can pick an
+    `occurrence` index and retry.
+    """
+
+    def __init__(self, find: str, matches: list[dict[str, Any]]) -> None:
+        super().__init__(
+            f"{len(matches)} matches for {find!r}; pass --all or --occurrence N to disambiguate"
+        )
+        self.find = find
+        self.matches = matches
+
+
 class WordBusyError(WordliveError):
     """Word rejected the RPC — typically a modal dialog or a transient busy state.
 

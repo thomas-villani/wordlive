@@ -13,6 +13,7 @@ Exception
     ├── WordNotRunningError
     ├── DocumentNotFoundError
     ├── AnchorNotFoundError
+    ├── AmbiguousMatchError
     ├── WordBusyError
     └── ComError
 ```
@@ -38,10 +39,19 @@ The requested document isn't open. Raised by `word.documents[name]` and by
 the exception's `.name` attribute.
 
 ### `AnchorNotFoundError`
-A bookmark, content control, or heading you asked for doesn't exist. The
-exception carries both `.kind` (e.g. `"bookmark"`, `"heading"`) and `.name`.
-**Retryable after refreshing the outline / bookmark list** — the document
-may have changed since you last looked.
+A bookmark, content control, or heading you asked for doesn't exist — or a
+`find`/`replace --find` pattern matched zero occurrences (in that case
+`.kind == "find"` and `.name` is the search string). The exception always
+carries both `.kind` and `.name`. **Retryable after refreshing the outline /
+bookmark list or reading the current content** — the document may have
+changed since you last looked.
+
+### `AmbiguousMatchError`
+A fuzzy `find_replace` matched more than one occurrence and the caller didn't
+say `all=True` or pass an `occurrence`. The exception carries `.find` (the
+search string) and `.matches` (a list of `{anchor_id, start, end, text}`
+dicts) so an agent can pick a specific occurrence and retry. **Retryable** by
+narrowing the call with `occurrence=N` or `all=True`.
 
 ### `WordBusyError`
 Word rejected the COM RPC. This usually means a modal dialog is open (Save
@@ -74,16 +84,17 @@ If you find a code that should be treated as busy/retryable, it goes in the
 
 ## CLI exit codes
 
-The CLI maps the exception hierarchy onto five exit codes, defined in
+The CLI maps the exception hierarchy onto six exit codes, defined in
 [`src/wordlive/cli/main.py`](https://github.com/thomas-villani/wordlive/blob/main/src/wordlive/cli/main.py):
 
 | Exit | Exception(s)                                | Meaning                          | Retry?                |
 | ---- | ------------------------------------------- | -------------------------------- | --------------------- |
 | `0`  | —                                           | success                          | —                     |
 | `1`  | `WordliveError` (default), `DocumentNotFoundError` | other / unclassified      | depends on cause      |
-| `2`  | `AnchorNotFoundError`                        | bookmark / cc / heading missing | yes, after re-reading outline |
+| `2`  | `AnchorNotFoundError`                        | bookmark / cc / heading missing, or `find` had zero matches | yes, after re-reading content |
 | `3`  | `WordBusyError`                              | modal dialog or busy RPC         | **yes**, with back-off |
 | `4`  | `WordNotRunningError`                        | no Word instance                 | only if user launches Word |
+| `5`  | `AmbiguousMatchError`                        | `replace --find` matched more than one occurrence | **yes**, after picking `--occurrence N` or passing `--all` |
 
 ## Retry guidance
 

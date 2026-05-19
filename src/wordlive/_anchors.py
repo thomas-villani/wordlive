@@ -44,6 +44,16 @@ class Anchor:
         with _com.translate_com_errors():
             return str(self._range().Text or "")
 
+    @property
+    def anchor_id(self) -> str:
+        """Stable string identifier for this anchor (e.g. `bookmark:Address`).
+
+        Subclasses override; the base falls back to `{kind}:{name}` which is
+        only useful for built-in kinds whose `kind` matches the anchor-id
+        scheme.
+        """
+        return f"{self.kind}:{self.name}"
+
     def set_text(self, text: str) -> None:
         raise NotImplementedError
 
@@ -74,6 +84,10 @@ class Anchor:
 
 class Bookmark(Anchor):
     kind = "bookmark"
+
+    @property
+    def anchor_id(self) -> str:
+        return f"bookmark:{self.name}"
 
     def _range(self) -> Any:
         doc_com = self._doc.com
@@ -137,6 +151,10 @@ def _cc_by_name(doc_com: Any, name: str) -> Any | None:
 
 class ContentControl(Anchor):
     kind = "content control"
+
+    @property
+    def anchor_id(self) -> str:
+        return f"cc:{self.name}"
 
     def _cc(self) -> Any:
         cc = _cc_by_name(self._doc.com, self.name)
@@ -213,6 +231,44 @@ def _find_heading_paragraph(doc_com: Any, name: str) -> tuple[Any, int] | None:
     return None
 
 
+def _section_range(doc_com: Any, target_para: Any, target_level: int) -> Any:
+    """COM Range from the end of `target_para` to the next paragraph whose
+    OutlineLevel is a heading and `<= target_level` — or to the end of the
+    document's last paragraph if no such boundary exists.
+    """
+    paragraphs = list(doc_com.Paragraphs)
+    target_start = int(target_para.Range.Start)
+
+    idx: int | None = None
+    for i, p in enumerate(paragraphs):
+        try:
+            if int(p.Range.Start) == target_start:
+                idx = i
+                break
+        except Exception:
+            continue
+    if idx is None:
+        end = int(target_para.Range.End)
+        return doc_com.Range(end, end)
+
+    section_start = int(target_para.Range.End)
+    section_end: int | None = None
+    for p in paragraphs[idx + 1:]:
+        try:
+            lvl = int(p.OutlineLevel)
+        except Exception:
+            continue
+        if lvl < 10 and lvl <= target_level:
+            section_end = int(p.Range.Start)
+            break
+    if section_end is None:
+        try:
+            section_end = int(paragraphs[-1].Range.End)
+        except Exception:
+            section_end = section_start
+    return doc_com.Range(section_start, section_end)
+
+
 class Heading(Anchor):
     kind = "heading"
 
@@ -221,6 +277,41 @@ class Heading(Anchor):
         if found is None:
             raise AnchorNotFoundError("heading", self.name)
         return found[0]
+
+    def _paragraph_and_index(self) -> tuple[Any, int]:
+        """Default lookup goes by visible text; subclasses can override."""
+        found = _find_heading_paragraph(self._doc.com, self.name)
+        if found is None:
+            raise AnchorNotFoundError("heading", self.name)
+        return found
+
+    @property
+    def anchor_id(self) -> str:
+        with _com.translate_com_errors():
+            _, idx = self._paragraph_and_index()
+        return f"heading:{idx}"
+
+    @property
+    def level(self) -> int:
+        with _com.translate_com_errors():
+            return int(self._paragraph().OutlineLevel)
+
+    def section_range(self) -> Any:
+        """COM Range covering the body under this heading.
+
+        Spans from the end of the heading paragraph to the start of the next
+        heading whose level is `<=` this one's (or to the end of the document
+        if no such heading exists). Excludes the heading paragraph itself.
+        """
+        with _com.translate_com_errors():
+            para = self._paragraph()
+            level = int(para.OutlineLevel)
+            return _section_range(self._doc.com, para, level)
+
+    def section_text(self) -> str:
+        """Plain text of the body under this heading."""
+        with _com.translate_com_errors():
+            return str(self.section_range().Text or "")
 
     def _range(self) -> Any:
         return self._paragraph().Range
@@ -264,6 +355,10 @@ class _IndexedHeading(Heading):
         super().__init__(doc, name=f"heading:{paragraph_index}")
         self._paragraph_index = paragraph_index
 
+    @property
+    def anchor_id(self) -> str:
+        return f"heading:{self._paragraph_index}"
+
     def _paragraph(self) -> Any:
         for idx, para in enumerate(self._doc.com.Paragraphs, start=1):
             if idx != self._paragraph_index:
@@ -277,3 +372,6 @@ class _IndexedHeading(Heading):
             self.name = _paragraph_text(para) or self.name
             return para
         raise AnchorNotFoundError("heading", f"heading:{self._paragraph_index}")
+
+    def _paragraph_and_index(self) -> tuple[Any, int]:
+        return self._paragraph(), self._paragraph_index

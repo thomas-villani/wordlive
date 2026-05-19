@@ -98,7 +98,8 @@ with wordlive.connect(launch_if_missing=True, visible=True) as word:
 | ------------------------ | ------------------------------------------------------- |
 | `WordNotRunningError`    | no instance, `launch_if_missing=False`                  |
 | `DocumentNotFoundError`  | named or active document missing                        |
-| `AnchorNotFoundError`    | bookmark / content control / heading not present        |
+| `AnchorNotFoundError`    | bookmark / content control / heading not present; also raised for zero matches in fuzzy `find_replace` |
+| `AmbiguousMatchError`    | fuzzy `find_replace` matched more than one occurrence without disambiguation |
 | `WordBusyError`          | Word in modal dialog or rejected the RPC (retryable)    |
 | `ComError`               | generic wrap of `pywintypes.com_error` w/ decoded HRESULT |
 
@@ -156,18 +157,23 @@ wordlive status                            # which docs are open, which active
 wordlive outline [--doc NAME]              # JSON: [{level, text, anchor_id}]
 wordlive read bookmark NAME [--doc NAME]
 wordlive read cc NAME [--doc NAME]
+wordlive read section HEADING              # body under a heading
 wordlive write bookmark NAME --text "..."
 wordlive write cc NAME --text "..."
 wordlive insert --after-heading "Intro" --text "..." [--style "Body Text"]
+wordlive find --text "..." [--in ANCHOR_ID]
 wordlive replace --anchor-id ID --text "..."
+wordlive replace --find OLD --text NEW [--in ID] [--all|--occurrence N]
 wordlive exec --script ops.json            # batch a list of ops in one UndoRecord
 ```
 
 Conventions:
 
-- `--json` (default) or `--text` for the rare human use.
-- Exit codes: `0` ok, `2` anchor-not-found, `3` Word-busy, `4` Word-not-running,
-  `1` other.
+- `--json` (default) or `--text` for the human / piping case (each command
+  emits its own format: indented outline tree, bare text for reads, one-line
+  acks for writes).
+- Exit codes: `0` ok, `2` anchor-not-found (incl. zero `find` matches), `3`
+  Word-busy, `4` Word-not-running, `5` ambiguous match, `1` other.
 - One JSON object on stdout per invocation; logs go to stderr.
 
 This makes wiring it up as an LLM tool trivial:

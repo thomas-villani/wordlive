@@ -106,6 +106,32 @@ Word object model under it.
 The CLI does not currently surface live selection reads; for now this is a
 Python-only flow.
 
+### Variant: read a whole section by heading
+
+When the user's request is "summarize the Risks section", you don't want the
+selection — you want every paragraph under a heading. Use
+`Heading.section_text()` (or `wordlive read section`):
+
+```python
+with wl.attach() as word:
+    doc = word.documents.active
+    section = doc.heading("Risks").section_text()
+    # section is the body from after the Risks heading up to the next heading
+    # at level ≤ Risks's level (or end of document).
+```
+
+```bash
+$ wordlive --text read section "Risks"
+The operational risks identified this quarter are …
+```
+
+`--text` mode prints just the body — perfect for piping into a prompt:
+
+```bash
+prompt=$(wordlive --text read section "Risks")
+claude -p "Summarize these risks in two bullets: $prompt"
+```
+
 ## 3. Add text to a document
 
 Three patterns, picked by *where* you want the text to land. All three use
@@ -182,7 +208,94 @@ For "replace the user's current selection with X" (e.g. an LLM-rewrite of
 highlighted text), `Selection.TypeText` already does the right thing: if a
 range is selected it replaces it, otherwise it inserts at the caret.
 
-## 4. LLM tool-use loop
+## 4. Fuzzy find + replace (LLM-friendly)
+
+The classic LLM editing flow: the model sees the document, decides "replace
+*this* sentence with *that*", and emits a `(find, replace)` pair. Naïve
+substring matching breaks the moment the model normalizes the source text
+through its tokenizer — smart quotes get straightened, NBSPs become spaces,
+em-dashes turn into hyphens. `wordlive.find_replace()` normalizes both sides
+the same way so cosmetic drift doesn't blow up the match:
+
+```python
+import wordlive as wl
+
+with wl.attach() as word:
+    doc = word.documents.active
+
+    with doc.edit("Apply LLM-suggested rewrite"):
+        # The LLM said: replace "Q1 2025" with "Q2 2025".
+        # The doc actually contains "Q1 2025" with a NBSP between Q1 and 2025.
+        applied = doc.find_replace("Q1 2025", "Q2 2025")
+
+    print(f"replaced {len(applied)} occurrence(s)")
+```
+
+What's preserved automatically:
+
+- **Character formatting.** Word's range-replace inherits the formatting of
+  the first character of the matched span, so a bold "Q1 2025" becomes a bold
+  "Q2 2025". You don't need to teach the LLM to write markdown.
+- **The user's cursor.** `doc.edit()` snapshots and restores selection +
+  scroll position, just like every other polite write.
+
+### Disambiguating multiple matches
+
+If `find` matches more than one occurrence and you didn't pass `all=True` or
+`occurrence=N`, you get an [`AmbiguousMatchError`](errors.md#ambiguousmatcherror)
+carrying every match's offsets. The CLI version returns the same payload
+on stdout with exit code `5`:
+
+```bash
+$ wordlive replace --find "Q1" --text "Q2"
+{"ok": false, "error": "ambiguous_match", "find": "Q1",
+ "matches": [{"anchor_id": "range:412-414", "start": 412, "end": 414, "text": "Q1"},
+             {"anchor_id": "range:887-889", "start": 887, "end": 889, "text": "Q1"}]}
+$ echo $?
+5
+```
+
+The agent's recovery is a fresh call with `--occurrence N` (or `--all`):
+
+```bash
+$ wordlive replace --find "Q1" --text "Q2" --occurrence 2
+{"ok": true, "replacements": [{"anchor_id": "range:887-889", "start": 887, "end": 889, "text": "Q1"}]}
+```
+
+### Scoping the search
+
+For "replace this phrase, but only inside the Risks section":
+
+```python
+with doc.edit("Targeted rewrite"):
+    doc.find_replace(
+        "needs review",
+        "approved",
+        scope=doc.heading("Risks"),
+        all=True,
+    )
+```
+
+When `scope` is a `Heading`, wordlive expands it to the heading's section
+(the body up to the next same-or-higher heading) — so the replacement won't
+accidentally touch identical phrasing in unrelated parts of the document.
+
+CLI equivalent: `wordlive replace --find "..." --text "..." --in heading:N --all`.
+
+### Read-only locate first
+
+If the agent isn't sure whether its match will be unique, use `wordlive find`
+to peek without writing:
+
+```bash
+$ wordlive find --text "the risk register" --in heading:3
+[{"anchor_id": "range:412-429", "start": 412, "end": 429, "text": "the risk register"}]
+```
+
+This is the same matcher as `replace --find`, but read-only — useful as a
+pre-flight check or to enumerate candidates for an `--occurrence` pick.
+
+## 5. LLM tool-use loop
 
 The CLI's JSON-in / JSON-out shape is designed to drop straight into a
 tool-use loop. The pattern is:
@@ -281,7 +394,7 @@ The key property: every failure is *labelled* (anchor name, op index) so the
 next iteration's prompt can include `result["failure"]` as feedback. The
 model corrects itself instead of looping blindly.
 
-## 5. Insert a section without disturbing the user
+## 6. Insert a section without disturbing the user
 
 You want to add a new "Action items" paragraph after the *Risks* heading
 without moving the user's cursor or scroll position — even if they're
@@ -323,7 +436,7 @@ with doc.edit("Add and jump") as scope:
     doc.go_to(risks)
 ```
 
-## 6. Multi-document workflows
+## 7. Multi-document workflows
 
 When several documents are open, `--doc NAME` picks the target:
 

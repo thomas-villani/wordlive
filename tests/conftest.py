@@ -100,6 +100,7 @@ def _make_document(
     bookmarks: dict[str, tuple[int, int]] | None = None,
     content_controls: list[dict[str, Any]] | None = None,
     paragraphs: list[dict[str, Any]] | None = None,
+    content: str = "",
 ) -> MagicMock:
     doc = MagicMock(name=f"Document[{name}]")
     doc.Name = name
@@ -112,7 +113,16 @@ def _make_document(
 
     doc.ContentControls = _FakeContentControls(content_controls or [])
     doc.Paragraphs = _FakeParagraphs(paragraphs or [])
+
+    # `Range(start, end)` returns a fresh range whose `.Text` can be set/read
+    # by the caller; default `_make_range` sets `.Text = ""`.
     doc.Range.side_effect = _make_range
+
+    # `Content` is the full document range; find/replace reads `.Text` from it.
+    content_range = _make_range(0, len(content))
+    content_range.Text = content
+    doc.Content = content_range
+
     return doc
 
 
@@ -143,13 +153,15 @@ def _make_application(documents: list[MagicMock]) -> MagicMock:
 def fake_word(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     """A MagicMock Application with one document, one bookmark, one heading, one CC."""
     doc = _make_document(
-        bookmarks={"Address": (10, 25)},
-        content_controls=[{"title": "Signatory", "tag": "sig", "start": 30, "end": 40, "text": "Jane Doe"}],
+        bookmarks={"Address": (13, 24)},
+        content_controls=[{"title": "Signatory", "tag": "sig", "start": 29, "end": 35, "text": "Jane Doe"}],
         paragraphs=[
-            {"level": 1, "text": "Introduction", "start": 0, "end": 14},
-            {"level": 10, "text": "Body text here.", "start": 14, "end": 30},
-            {"level": 2, "text": "Risks", "start": 30, "end": 37},
+            {"level": 1, "text": "Introduction", "start": 0, "end": 13},
+            {"level": 10, "text": "Body text here.", "start": 13, "end": 29},
+            {"level": 2, "text": "Risks", "start": 29, "end": 35},
         ],
+        # Self-consistent text — paragraph offsets above index into this string.
+        content="Introduction\rBody text here.\rRisks\r",
     )
     app = _make_application([doc])
 

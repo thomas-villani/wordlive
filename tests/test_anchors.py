@@ -161,3 +161,85 @@ def test_anchor_by_id_missing_bookmark(fake_word):
         doc = word.documents.active
         with pytest.raises(AnchorNotFoundError):
             doc.anchor_by_id("bookmark:Nope")
+
+
+# ---------------------------------------------------------------------------
+# anchor_id properties
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_anchor_id(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert doc.bookmarks["Address"].anchor_id == "bookmark:Address"
+
+
+def test_content_control_anchor_id(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert doc.content_controls["Signatory"].anchor_id == "cc:Signatory"
+
+
+def test_heading_anchor_id_resolves_by_text(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        # Introduction is paragraph 1 in the fixture.
+        assert doc.heading("Introduction").anchor_id == "heading:1"
+
+
+def test_indexed_heading_anchor_id(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        anchor = doc.anchor_by_id("heading:1")
+        assert anchor.anchor_id == "heading:1"
+
+
+# ---------------------------------------------------------------------------
+# Heading.level + Heading.section_range / section_text
+# ---------------------------------------------------------------------------
+
+
+def test_heading_level(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert doc.heading("Introduction").level == 1
+        assert doc.heading("Risks").level == 2
+
+
+def test_heading_section_text_runs_to_next_same_or_higher(fake_word):
+    """Introduction (level 1) section runs until the next level-<=1 heading or end of doc.
+    Since Risks is level 2 (not <=1), the Introduction section runs to the end.
+    """
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        rng = doc.heading("Introduction").section_range()
+        # End of Introduction paragraph is 13; end of last paragraph is 35.
+        assert int(rng.Start) == 13
+        assert int(rng.End) == 35
+
+
+def test_heading_section_text_stops_at_same_level(fake_word, monkeypatch):
+    """When a sibling heading exists, the section stops before it."""
+    # Add a sibling level-1 heading after Risks so Introduction's section
+    # boundary is exercised.
+    from tests.conftest import _make_application, _make_document
+
+    doc_com = _make_document(
+        paragraphs=[
+            {"level": 1, "text": "Introduction", "start": 0, "end": 13},
+            {"level": 10, "text": "Body 1", "start": 13, "end": 20},
+            {"level": 1, "text": "Conclusion", "start": 20, "end": 31},
+            {"level": 10, "text": "Body 2", "start": 31, "end": 38},
+        ],
+        content="Introduction\rBody 1\rConclusion\rBody 2\r",
+    )
+    app = _make_application([doc_com])
+    from wordlive import _com as _com_module
+    monkeypatch.setattr(_com_module, "get_active_word", lambda: app)
+
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        rng = doc.heading("Introduction").section_range()
+        # Body 1 starts at 13, Conclusion starts at 20 — section is [13, 20).
+        assert int(rng.Start) == 13
+        assert int(rng.End) == 20

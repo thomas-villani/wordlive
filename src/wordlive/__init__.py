@@ -19,6 +19,7 @@ from ._document import Document, DocumentCollection
 from ._edit import EditScope
 from ._selection import Selection, SelectionSnapshot
 from .exceptions import (
+    AmbiguousMatchError,
     AnchorNotFoundError,
     ComError,
     DocumentNotFoundError,
@@ -28,6 +29,7 @@ from .exceptions import (
 )
 
 __all__ = [
+    "AmbiguousMatchError",
     "Anchor",
     "AnchorNotFoundError",
     "Bookmark",

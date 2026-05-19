@@ -8,6 +8,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from wordlive.cli.main import (
+    EXIT_AMBIGUOUS_MATCH,
     EXIT_ANCHOR_NOT_FOUND,
     EXIT_OK,
     EXIT_WORD_NOT_RUNNING,
@@ -198,6 +199,191 @@ def test_exec_stops_at_first_failure_and_reports_partial(fake_word, tmp_path: Pa
     assert data["ops_run"] == 1
     assert data["failure"]["index"] == 1
     assert data["failure"]["type"] == "AnchorNotFoundError"
+
+
+# ---------------------------------------------------------------------------
+# --text human-readable output
+# ---------------------------------------------------------------------------
+
+
+def test_outline_text_mode_indents_by_level(fake_word):
+    code, out, _ = _invoke(["--text", "outline"])
+    assert code == EXIT_OK
+    lines = out.splitlines()
+    # Level 1 has no indent; level 2 has two spaces.
+    assert lines[0].startswith("Introduction")
+    assert "[heading:" in lines[0]
+    assert lines[1].startswith("  Risks")
+
+
+def test_status_text_mode_marks_active(fake_word):
+    code, out, _ = _invoke(["--text", "status"])
+    assert code == EXIT_OK
+    # Active doc is prefixed with `*`.
+    assert out.lstrip().startswith("* Test.docx")
+
+
+def test_read_bookmark_text_mode_emits_only_text(fake_word):
+    code, out, _ = _invoke(["--text", "read", "bookmark", "Address"])
+    assert code == EXIT_OK
+    # Text mode emits the raw bookmark text — not JSON.
+    assert not out.strip().startswith("{")
+
+
+def test_write_bookmark_text_mode_is_one_line(fake_word):
+    code, out, _ = _invoke(["--text", "write", "bookmark", "Address", "--text", "X"])
+    assert code == EXIT_OK
+    assert out.strip() == "wrote bookmark:Address"
+
+
+# ---------------------------------------------------------------------------
+# read section
+# ---------------------------------------------------------------------------
+
+
+def test_read_section_by_heading(fake_word):
+    code, out, _ = _invoke(["read", "section", "Introduction"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["heading"] == "Introduction"
+    assert data["anchor_id"] == "heading:1"
+    assert data["level"] == 1
+    assert "text" in data
+
+
+def test_read_section_by_anchor_id(fake_word):
+    code, out, _ = _invoke(["read", "section", "--anchor-id", "heading:1"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["anchor_id"] == "heading:1"
+
+
+def test_read_section_missing_heading(fake_word):
+    code, _, err = _invoke(["read", "section", "Nope"])
+    assert code == EXIT_ANCHOR_NOT_FOUND
+    assert "heading" in err.lower()
+
+
+def test_read_section_rejects_non_heading_anchor(fake_word):
+    code, _, err = _invoke(["read", "section", "--anchor-id", "bookmark:Address"])
+    assert code != EXIT_OK
+    assert "heading" in err.lower()
+
+
+def test_read_section_requires_one_of(fake_word):
+    code, _, _ = _invoke(["read", "section"])
+    assert code != EXIT_OK
+    code, _, _ = _invoke(["read", "section", "Introduction", "--anchor-id", "heading:1"])
+    assert code != EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# find / fuzzy replace
+# ---------------------------------------------------------------------------
+
+
+def test_find_locates_match(fake_word):
+    code, out, _ = _invoke(["find", "--text", "Body text here"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert len(data) == 1
+    assert data[0]["start"] == 13
+
+
+def test_find_no_match_returns_empty(fake_word):
+    code, out, _ = _invoke(["find", "--text", "nope"])
+    assert code == EXIT_OK
+    assert json.loads(out) == []
+
+
+def test_replace_fuzzy_single_match(fake_word):
+    code, out, _ = _invoke(
+        ["replace", "--find", "Body text here", "--text", "Replaced"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert len(data["replacements"]) == 1
+
+
+def test_replace_fuzzy_zero_matches_is_anchor_not_found(fake_word):
+    code, _, _ = _invoke(["replace", "--find", "no such phrase", "--text", "x"])
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
+def test_replace_fuzzy_ambiguous_returns_exit_5(fake_word):
+    fake_word.ActiveDocument.Content.Text = "alpha beta alpha beta"
+    fake_word.ActiveDocument.Content.End = len("alpha beta alpha beta")
+
+    code, out, _ = _invoke(["replace", "--find", "alpha", "--text", "X"])
+    assert code == EXIT_AMBIGUOUS_MATCH
+    data = json.loads(out)
+    assert data["error"] == "ambiguous_match"
+    assert len(data["matches"]) == 2
+
+
+def test_replace_fuzzy_all_succeeds(fake_word):
+    fake_word.ActiveDocument.Content.Text = "alpha beta alpha beta"
+    fake_word.ActiveDocument.Content.End = len("alpha beta alpha beta")
+
+    code, out, _ = _invoke(["replace", "--find", "alpha", "--text", "X", "--all"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert len(data["replacements"]) == 2
+
+
+def test_replace_fuzzy_occurrence_picks_second(fake_word):
+    fake_word.ActiveDocument.Content.Text = "alpha beta alpha beta"
+    fake_word.ActiveDocument.Content.End = len("alpha beta alpha beta")
+
+    code, out, _ = _invoke(
+        ["replace", "--find", "alpha", "--text", "X", "--occurrence", "2"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert len(data["replacements"]) == 1
+    assert data["replacements"][0]["start"] == 11
+
+
+def test_replace_rejects_both_anchor_and_find(fake_word):
+    code, _, _ = _invoke(
+        [
+            "replace",
+            "--anchor-id", "heading:1",
+            "--find", "alpha",
+            "--text", "x",
+        ]
+    )
+    assert code != EXIT_OK
+
+
+def test_replace_rejects_all_with_anchor_id(fake_word):
+    code, _, _ = _invoke(
+        ["replace", "--anchor-id", "heading:1", "--text", "x", "--all"]
+    )
+    assert code != EXIT_OK
+
+
+def test_exec_supports_find_replace_op(fake_word, tmp_path: Path):
+    fake_word.ActiveDocument.Content.Text = "alpha beta alpha beta"
+    fake_word.ActiveDocument.Content.End = len("alpha beta alpha beta")
+
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "ops": [
+                    {"op": "find_replace", "find": "alpha", "text": "X", "all": True},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["ops_run"] == 1
 
 
 def test_exec_unknown_op_is_click_error(fake_word, tmp_path: Path):

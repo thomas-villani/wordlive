@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Any, Iterator, TYPE_CHECKING
 
-from . import _com
+from . import _com, _findreplace
 from ._anchors import (
     BookmarkCollection,
     ContentControlCollection,
@@ -15,7 +15,11 @@ from ._anchors import (
 )
 from ._edit import EditScope
 from ._selection import Selection
-from .exceptions import AnchorNotFoundError, DocumentNotFoundError
+from .exceptions import (
+    AmbiguousMatchError,
+    AnchorNotFoundError,
+    DocumentNotFoundError,
+)
 
 if TYPE_CHECKING:
     from ._app import Word
@@ -83,6 +87,115 @@ class Document:
         if kind == "cc":
             return self.content_controls[value]
         raise AnchorNotFoundError("anchor", anchor_id)
+
+    def _scope_range(self, scope: "Anchor | None") -> tuple[Any, int]:
+        """Return (COM Range, absolute_start_offset) for a find/replace scope.
+
+        Headings expand to their *section* (body under the heading); other
+        anchor kinds use their own range. `None` means the whole document.
+        """
+        with _com.translate_com_errors():
+            if scope is None:
+                rng = self._doc.Content
+            elif isinstance(scope, Heading):
+                rng = scope.section_range()
+            else:
+                rng = scope.com
+            return rng, int(rng.Start)
+
+    def find(
+        self,
+        text: str,
+        *,
+        scope: "Anchor | None" = None,
+    ) -> list[dict[str, Any]]:
+        """Locate every fuzzy occurrence of `text` within `scope` (or the whole doc).
+
+        Matching is whitespace- and Unicode-normalized (NFKC, smart quotes,
+        dashes, NBSP). Returns a list of `{anchor_id, start, end, text}` where
+        offsets are absolute document positions and `text` is the actual
+        original substring (not the normalized form).
+
+        `anchor_id` for each match is `range:START-END` — a synthetic id usable
+        with `anchor_by_id` is not provided (matches are ephemeral by nature).
+        """
+        with _com.translate_com_errors():
+            rng, base = self._scope_range(scope)
+            haystack = str(rng.Text or "")
+
+        matches = _findreplace.find_matches(haystack, text)
+        return [
+            {
+                "anchor_id": f"range:{base + m.start}-{base + m.end}",
+                "start": base + m.start,
+                "end": base + m.end,
+                "text": m.text,
+            }
+            for m in matches
+        ]
+
+    def find_replace(
+        self,
+        find: str,
+        replace: str,
+        *,
+        scope: "Anchor | None" = None,
+        all: bool = False,
+        occurrence: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fuzzy plain-text replace. See `find()` for matching semantics.
+
+        Args:
+            find: the text to look for (fuzzy-matched).
+            replace: the replacement text.
+            scope: optional anchor to restrict the search to. Headings expand
+                to their body section.
+            all: replace every match.
+            occurrence: 1-based index — replace only the Nth match.
+
+        Raises:
+            AnchorNotFoundError: zero matches (uses `kind='find'`).
+            AmbiguousMatchError: more than one match and neither `all` nor
+                `occurrence` was given.
+
+        Returns the list of replacements actually applied, each
+        `{anchor_id, start, end, text}` in their pre-replacement coordinates.
+        """
+        with _com.translate_com_errors():
+            rng, base = self._scope_range(scope)
+            haystack = str(rng.Text or "")
+
+        matches = _findreplace.find_matches(haystack, find)
+        if not matches:
+            raise AnchorNotFoundError("find", find)
+
+        match_payloads = [
+            {
+                "anchor_id": f"range:{base + m.start}-{base + m.end}",
+                "start": base + m.start,
+                "end": base + m.end,
+                "text": m.text,
+            }
+            for m in matches
+        ]
+
+        if occurrence is not None:
+            if occurrence < 1 or occurrence > len(matches):
+                raise AnchorNotFoundError("find", f"{find} (occurrence {occurrence})")
+            to_apply = [match_payloads[occurrence - 1]]
+        elif all:
+            to_apply = match_payloads
+        elif len(matches) == 1:
+            to_apply = match_payloads
+        else:
+            raise AmbiguousMatchError(find, match_payloads)
+
+        with _com.translate_com_errors():
+            # Apply in reverse so earlier offsets don't shift.
+            for m in reversed(to_apply):
+                target = self._doc.Range(m["start"], m["end"])
+                target.Text = replace
+        return to_apply
 
     def outline(self) -> list[dict[str, Any]]:
         """Return all heading paragraphs as `[{level, text, anchor_id}, ...]`."""
