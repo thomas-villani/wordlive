@@ -40,6 +40,27 @@ wordlive outline
 wordlive read bookmark Address
 wordlive write bookmark Address --text "123 Main St"
 wordlive insert --after-heading "Introduction" --text "..."
+
+# Address anchors by ID (the IDs `outline` emits — `heading:N`, `bookmark:NAME`, `cc:NAME`):
+wordlive replace --anchor-id heading:3 --text "Updated section text"
+wordlive go-to --anchor-id bookmark:Address
+
+# Batch multiple ops in a single Ctrl-Z:
+wordlive exec --script ops.json
+```
+
+Where `ops.json` looks like:
+
+```json
+{
+  "label": "Update report",
+  "ops": [
+    {"op": "write_bookmark", "name": "Address", "text": "123 Main St"},
+    {"op": "write_cc", "name": "Signatory", "text": "Jane Doe"},
+    {"op": "insert_after_heading", "heading": "Risks", "text": "New risk paragraph."},
+    {"op": "replace", "anchor_id": "heading:3", "text": "Updated section text"}
+  ]
+}
 ```
 
 Exit codes: `0` ok, `2` anchor-not-found, `3` Word-busy, `4` Word-not-running, `1` other.

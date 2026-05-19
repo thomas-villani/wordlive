@@ -250,3 +250,30 @@ class Heading(Anchor):
             if style:
                 styled = doc_com.Range(end, end + len(text))
                 styled.Style = doc_com.Styles(style)
+
+
+class _IndexedHeading(Heading):
+    """A Heading located by 1-based paragraph index — used by anchor_by_id('heading:N').
+
+    Disambiguates duplicate heading text. The display name is set to the resolved
+    heading text the first time `_paragraph()` succeeds so error messages and
+    `.name` reads stay informative.
+    """
+
+    def __init__(self, doc: "Document", paragraph_index: int) -> None:
+        super().__init__(doc, name=f"heading:{paragraph_index}")
+        self._paragraph_index = paragraph_index
+
+    def _paragraph(self) -> Any:
+        for idx, para in enumerate(self._doc.com.Paragraphs, start=1):
+            if idx != self._paragraph_index:
+                continue
+            try:
+                level = int(para.OutlineLevel)
+            except Exception:
+                break
+            if level >= 10:
+                break
+            self.name = _paragraph_text(para) or self.name
+            return para
+        raise AnchorNotFoundError("heading", f"heading:{self._paragraph_index}")

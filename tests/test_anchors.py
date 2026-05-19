@@ -97,3 +97,67 @@ def test_from_com_error_other_is_com_error():
 
     classified = from_com_error(_FakeComError())
     assert isinstance(classified, ComError)
+
+
+# ---------------------------------------------------------------------------
+# anchor_by_id (v0.1)
+# ---------------------------------------------------------------------------
+
+
+def test_anchor_by_id_heading_index_resolves(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        anchor = doc.anchor_by_id("heading:1")
+        assert anchor.kind == "heading"
+        assert anchor.text == "Introduction"
+
+
+def test_anchor_by_id_heading_skips_body_paragraphs(fake_word):
+    """Paragraph 2 in the fixture is body text (OutlineLevel=10), so heading:2 is invalid."""
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(AnchorNotFoundError):
+            doc.anchor_by_id("heading:2").text
+
+
+def test_anchor_by_id_bookmark(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        anchor = doc.anchor_by_id("bookmark:Address")
+        assert anchor.kind == "bookmark"
+        assert anchor.name == "Address"
+
+
+def test_anchor_by_id_cc(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        anchor = doc.anchor_by_id("cc:Signatory")
+        assert anchor.kind == "content control"
+
+
+def test_anchor_by_id_bad_scheme(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(AnchorNotFoundError):
+            doc.anchor_by_id("table:1")
+
+
+def test_anchor_by_id_missing_colon(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(AnchorNotFoundError):
+            doc.anchor_by_id("no-colon-here")
+
+
+def test_anchor_by_id_non_integer_heading(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(AnchorNotFoundError):
+            doc.anchor_by_id("heading:notanint")
+
+
+def test_anchor_by_id_missing_bookmark(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(AnchorNotFoundError):
+            doc.anchor_by_id("bookmark:Nope")

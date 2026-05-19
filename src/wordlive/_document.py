@@ -10,11 +10,12 @@ from ._anchors import (
     BookmarkCollection,
     ContentControlCollection,
     Heading,
+    _IndexedHeading,
     _paragraph_text,
 )
 from ._edit import EditScope
 from ._selection import Selection
-from .exceptions import DocumentNotFoundError
+from .exceptions import AnchorNotFoundError, DocumentNotFoundError
 
 if TYPE_CHECKING:
     from ._app import Word
@@ -57,6 +58,31 @@ class Document:
     def heading(self, name: str) -> Heading:
         # Lazy lookup — Heading.__init__ doesn't hit COM. _range() validates.
         return Heading(self, name)
+
+    def anchor_by_id(self, anchor_id: str) -> "Anchor":
+        """Resolve an `anchor_id` string into an Anchor.
+
+        Recognised forms:
+          - `heading:N`     — Nth paragraph in the document (1-based, must be a heading)
+          - `bookmark:NAME` — bookmark by name
+          - `cc:NAME`       — content control by Title (or Tag)
+
+        Raises `AnchorNotFoundError` for unknown schemes or missing anchors.
+        """
+        if not isinstance(anchor_id, str) or ":" not in anchor_id:
+            raise AnchorNotFoundError("anchor", anchor_id)
+        kind, _, value = anchor_id.partition(":")
+        if kind == "heading":
+            try:
+                idx = int(value)
+            except ValueError as e:
+                raise AnchorNotFoundError("heading", anchor_id) from e
+            return _IndexedHeading(self, idx)
+        if kind == "bookmark":
+            return self.bookmarks[value]
+        if kind == "cc":
+            return self.content_controls[value]
+        raise AnchorNotFoundError("anchor", anchor_id)
 
     def outline(self) -> list[dict[str, Any]]:
         """Return all heading paragraphs as `[{level, text, anchor_id}, ...]`."""
