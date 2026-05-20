@@ -19,6 +19,7 @@ from ._document import Document, DocumentCollection
 from ._edit import EditScope
 from ._selection import Selection, SelectionSnapshot
 from ._styles import Style, StyleCollection
+from ._tables import Cell, Table, TableCollection
 from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
@@ -35,6 +36,7 @@ __all__ = [
     "Anchor",
     "AnchorNotFoundError",
     "Bookmark",
+    "Cell",
     "ComError",
     "ContentControl",
     "Document",
@@ -48,6 +50,8 @@ __all__ = [
     "Style",
     "StyleCollection",
     "StyleNotFoundError",
+    "Table",
+    "TableCollection",
     "Word",
     "WordBusyError",
     "WordNotRunningError",

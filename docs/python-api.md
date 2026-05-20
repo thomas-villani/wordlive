@@ -61,6 +61,20 @@ Styles are document-scoped, read-only handles. `Document.styles` is a
 
 ::: wordlive.StyleCollection
 
+## Tables
+
+`Document.tables` is a [`TableCollection`](#wordlive.TableCollection). Index a
+table by 1-based position or `Title`, then read or edit it. A
+[`Cell`](#wordlive.Cell) *is* an [`Anchor`](#wordlive.Anchor) — its id is
+`table:N:R:C`, so `doc.anchor_by_id("table:1:2:3")` returns a cell that works
+with `set_text`, `apply_style`, and `format_paragraph` like any other anchor.
+
+::: wordlive.TableCollection
+
+::: wordlive.Table
+
+::: wordlive.Cell
+
 ## Editing
 
 ::: wordlive.EditScope

@@ -136,6 +136,83 @@ class _FakeStyles:
         raise KeyError(name)
 
 
+class _FakeTable:
+    """Mimics a Word Table COM object: Rows/Columns counts, Cell(r,c), row add/delete.
+
+    Cells are backed by persistent MagicMock ranges so writes (`Range.Text`,
+    `Range.Style`, `Range.ParagraphFormat`) round-trip through the same handle.
+    Cell text is seeded with Word's trailing `\\r\\x07` markers so the marker-
+    stripping path in `Cell.text` gets exercised.
+    """
+
+    def __init__(self, grid: list[list[str]], title: str = "") -> None:
+        self.Title = title
+        self._rows = [[self._mk_cell_range(text) for text in row] for row in grid]
+
+    @staticmethod
+    def _mk_cell_range(text: str) -> MagicMock:
+        rng = MagicMock(name="CellRange")
+        rng.Text = text + "\r\x07"
+        return rng
+
+    @property
+    def Rows(self) -> Any:
+        return _FakeRows(self._rows, self._mk_cell_range)
+
+    @property
+    def Columns(self) -> Any:
+        cols = MagicMock(name="Columns")
+        cols.Count = len(self._rows[0]) if self._rows else 0
+        return cols
+
+    def Cell(self, row: int, col: int) -> Any:
+        cell = MagicMock(name=f"Cell[{row},{col}]")
+        cell.Range = self._rows[row - 1][col - 1]
+        return cell
+
+
+class _FakeRows:
+    """Rows view: Count, Add() (append at end), Rows(i).Delete().
+
+    Shares the parent table's row list so structural edits persist.
+    """
+
+    def __init__(self, rows: list[list[Any]], mk: Any) -> None:
+        self._rows = rows
+        self._mk = mk
+
+    @property
+    def Count(self) -> int:
+        return len(self._rows)
+
+    def Add(self, BeforeRow: Any | None = None) -> None:
+        ncols = len(self._rows[0]) if self._rows else 1
+        self._rows.append([self._mk("") for _ in range(ncols)])
+
+    def __call__(self, index: int) -> Any:
+        row = MagicMock(name=f"Row[{index}]")
+        rows = self._rows
+        row.Delete = lambda: rows.__delitem__(index - 1)
+        return row
+
+
+class _FakeTablesCollection:
+    """Mimics doc.Tables: Count, 1-based call lookup, iteration."""
+
+    def __init__(self, tables: list[_FakeTable]) -> None:
+        self._tables = tables
+
+    @property
+    def Count(self) -> int:
+        return len(self._tables)
+
+    def __call__(self, index: int) -> _FakeTable:
+        return self._tables[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(self._tables)
+
+
 def _make_document(
     *,
     name: str = "Test.docx",
@@ -145,6 +222,7 @@ def _make_document(
     paragraphs: list[dict[str, Any]] | None = None,
     content: str = "",
     styles: tuple[dict[str, Any], ...] | list[dict[str, Any]] | None = None,
+    tables: list[dict[str, Any]] | None = None,
 ) -> MagicMock:
     doc = MagicMock(name=f"Document[{name}]")
     doc.Name = name
@@ -158,6 +236,9 @@ def _make_document(
     doc.ContentControls = _FakeContentControls(content_controls or [])
     doc.Paragraphs = _FakeParagraphs(paragraphs or [])
     doc.Styles = _FakeStyles(styles if styles is not None else _DEFAULT_STYLES)
+    doc.Tables = _FakeTablesCollection(
+        [_FakeTable(t["grid"], t.get("title", "")) for t in (tables or [])]
+    )
 
     # `Range(start, end)` returns a fresh range whose `.Text` can be set/read
     # by the caller; default `_make_range` sets `.Text = ""`.
@@ -207,6 +288,7 @@ def fake_word(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
         ],
         # Self-consistent text — paragraph offsets above index into this string.
         content="Introduction\rBody text here.\rRisks\r",
+        tables=[{"grid": [["A1", "B1"], ["A2", "B2"]], "title": "Grid"}],
     )
     app = _make_application([doc])
 

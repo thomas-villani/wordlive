@@ -17,6 +17,7 @@ from ._anchors import (
 from ._edit import EditScope
 from ._selection import Selection
 from ._styles import Style, StyleCollection
+from ._tables import TableCollection
 from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
@@ -62,6 +63,17 @@ class Document:
         return StyleCollection(self)
 
     @property
+    def tables(self) -> TableCollection:
+        """Iterable, indexable view over the document's tables.
+
+        Index by 1-based position (`doc.tables[1]`) or `Title`
+        (`doc.tables["Budget"]`). Cells are anchors: `doc.tables[1].cell(2, 3)`
+        — or `doc.anchor_by_id("table:1:2:3")` — returns a `Cell` that works
+        with `set_text`, `apply_style`, and `format_paragraph`.
+        """
+        return TableCollection(self)
+
+    @property
     def headings(self) -> HeadingCollection:
         """Iterable view over the document's headings.
 
@@ -87,6 +99,10 @@ class Document:
           - `heading:N`     — Nth paragraph in the document (1-based, must be a heading)
           - `bookmark:NAME` — bookmark by name
           - `cc:NAME`       — content control by Title (or Tag)
+          - `table:N:R:C`   — cell at 1-based (row, column) of the Nth table
+
+        The bare `table:N` form is not an anchor (a whole table is a collection,
+        not a single range) — use `doc.tables[N]` instead.
 
         Raises `AnchorNotFoundError` for unknown schemes or missing anchors.
         """
@@ -103,6 +119,16 @@ class Document:
             return self.bookmarks[value]
         if kind == "cc":
             return self.content_controls[value]
+        if kind == "table":
+            parts = value.split(":")
+            if len(parts) != 3:
+                # `table:N` (whole table) isn't a single-range anchor.
+                raise AnchorNotFoundError("table cell", anchor_id)
+            try:
+                t, r, c = (int(p) for p in parts)
+            except ValueError as e:
+                raise AnchorNotFoundError("table cell", anchor_id) from e
+            return self.tables[t].cell(r, c)
         raise AnchorNotFoundError("anchor", anchor_id)
 
     def _scope_range(self, scope: "Anchor | None") -> tuple[Any, int]:

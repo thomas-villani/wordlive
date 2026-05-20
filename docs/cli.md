@@ -368,6 +368,85 @@ covering five words inside a longer paragraph), Word applies the formatting
 to the *enclosing* paragraph — that's the COM behaviour, not a wordlive
 quirk. Failures: `2` anchor not found, `3` Word busy.
 
+## `table list`
+
+```
+wordlive table list [--doc DOC_NAME]
+```
+
+Enumerate every table in the document, in top-to-bottom order.
+
+```bash
+$ wordlive table list
+[{"index": 1, "title": "Budget", "rows": 4, "columns": 3},
+ {"index": 2, "title": "",       "rows": 2, "columns": 2}]
+```
+
+`index` is the 1-based position used to address the table and its cells.
+`title` is the table's Title (empty string if unset). Failures: `3` Word busy,
+`4` Word not running.
+
+## `table read INDEX`
+
+```
+wordlive table read INDEX [--doc DOC_NAME]
+```
+
+Read table `INDEX` (1-based) as a grid. Each cell carries its **`anchor_id`**
+(`table:N:R:C`) so you can feed it straight into `replace`, `style apply`, or
+`format-paragraph`.
+
+```bash
+$ wordlive table read 1
+{"index": 1, "title": "Budget", "rows": 2, "columns": 2,
+ "cells": [[{"row": 1, "col": 1, "text": "Item",  "anchor_id": "table:1:1:1"},
+            {"row": 1, "col": 2, "text": "Cost",  "anchor_id": "table:1:1:2"}],
+           [{"row": 2, "col": 1, "text": "Travel","anchor_id": "table:1:2:1"},
+            {"row": 2, "col": 2, "text": "$400",  "anchor_id": "table:1:2:2"}]]}
+```
+
+Cell text is stripped of Word's internal end-of-cell markers. To **write** a
+cell, use its anchor id with `replace`:
+
+```bash
+$ wordlive replace --anchor-id table:1:2:2 --text "$450"
+{"ok": true, "anchor_id": "table:1:2:2", "anchor": {"kind": "cell", "name": "table:1:2:2"}}
+```
+
+Failures: `2` table index out of range, `3` Word busy.
+
+## `table add-row`
+
+```
+wordlive table add-row --table INDEX [--values '["a","b"]'] [--doc DOC_NAME]
+```
+
+Append a row at the end of the table. `--values` is an optional JSON array of
+cell values, matched to columns left-to-right (extras ignored, short lists
+leave trailing cells empty). Atomic-undo.
+
+```bash
+$ wordlive table add-row --table 1 --values '["Lodging", "$600"]'
+{"ok": true, "table": 1, "rows": 3}
+```
+
+Failures: `2` table index out of range, `3` Word busy.
+
+## `table delete-row`
+
+```
+wordlive table delete-row --table INDEX --row R [--doc DOC_NAME]
+```
+
+Delete the 1-based row `R` from the table. Atomic-undo.
+
+```bash
+$ wordlive table delete-row --table 1 --row 3
+{"ok": true, "table": 1, "rows": 2}
+```
+
+Failures: `2` table index or row out of range, `3` Word busy.
+
 ## `exec --script ops.json`
 
 ```
@@ -404,6 +483,9 @@ Script shape:
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
 | `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after` |
+| `set_cell`             | `table`, `row`, `col`, `text`              | —                                 |
+| `add_row`              | `table`                                    | `values`                          |
+| `delete_row`           | `table`, `row`                             | —                                 |
 
 The `find_replace` op mirrors `wordlive replace --find …` — fuzzy whitespace
 + smart-quote match, optional `in` anchor to scope it, and either `all` or
@@ -413,6 +495,11 @@ batch response's `failure.matches` so the LLM can rewrite the op and retry.
 `apply_style` and `format_paragraph` are the same as their dedicated CLI
 verbs — the style must already exist in the document, indent and spacing
 values are in points, alignment is one of `left`/`center`/`right`/`justify`.
+
+`set_cell`, `add_row`, and `delete_row` operate on tables by 1-based `table`
+index. `set_cell` is shorthand for a `replace` on a `table:N:R:C` anchor;
+`add_row`'s optional `values` is a JSON array matched to columns. All three
+table ops join the same atomic-undo scope as the rest of the batch.
 
 ### Behaviour on partial failure
 

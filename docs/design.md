@@ -102,10 +102,11 @@ hierarchy beyond Word → Document → Anchor.
 The roadmap lives in
 [`feature-plan.md`](https://github.com/thomas-villani/wordlive/blob/main/feature-plan.md).
 The current release covers the politeness/anchors/EditScope core, the LLM-first
-CLI, fuzzy find/replace, and document-scoped styles + paragraph formatting.
-Likely next steps: tables, comments and track-changes (collaboration features),
-event sinks (`WindowSelectionChange`, `DocumentBeforeSave`), and an async wrapper
-around the sync core.
+CLI, fuzzy find/replace, document-scoped styles + paragraph formatting, and
+tables (cells as `table:N:R:C` anchors). Likely next steps: comments and
+track-changes (collaboration features), event sinks
+(`WindowSelectionChange`, `DocumentBeforeSave`), and an async wrapper around
+the sync core.
 
 ## Full design document
 

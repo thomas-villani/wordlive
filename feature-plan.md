@@ -68,34 +68,38 @@ Two parallel tracks; each is its own PR.
   `AnchorNotFoundError` so it reuses exit code 2 and `except AnchorNotFoundError`
   still catches it.
 - Line spacing, character-style modelling, theme-aware fonts, and style
-  creation/modification stay deferred to v0.5+.
+  creation/modification stay deferred to v0.6+.
 
-### Tables
+### Tables — ✅ shipped in v0.4
 
-*Not in spec, but most Word docs are mostly tables.* Worth its own design
-pass before coding — open questions below.
-
-- `doc.tables` collection — `__getitem__` by index or by table caption.
-- `Table` wrapper: `row_count`, `column_count`, `cell(row, col)`, iteration.
-- `Cell.text` (read/write), `Cell.anchor` (so bookmarks/CCs inside cells
-  resolve uniformly).
-- `Table.add_row(values=None)` / `Table.delete_row(index)`.
-- Open: how do tables interact with `doc.outline()` / anchor IDs? Probably
-  `table:N` and `table:N:R:C` for cell-level anchors.
-- Open: bookmarks-inside-cells — confirm they round-trip through `set_text`
-  (Word's bookmark-deletion-on-replace quirk gets weirder inside tables).
+- ~~`doc.tables` collection — `__getitem__` by index or by table caption.~~ ✅
+  index by 1-based position or `Title`.
+- ~~`Table` wrapper: `row_count`, `column_count`, `cell(row, col)`, iteration.~~ ✅
+  plus `read()` / `grid()` / `to_dict()`.
+- ~~`Cell.text` (read/write), `Cell.anchor` (so bookmarks/CCs inside cells
+  resolve uniformly).~~ ✅ — `Cell` *is* an `Anchor`, so it inherits
+  `apply_style` / `format_paragraph` / `set_text` directly.
+- ~~`Table.add_row(values=None)` / `Table.delete_row(index)`.~~ ✅
+- **Resolved:** anchor-id scheme is `table:N:R:C` for cells; the bare `table:N`
+  is *not* an anchor (a whole table is a collection) and is addressed via
+  `doc.tables[N]` / the `table` CLI group. Cells don't appear in
+  `doc.outline()` (that stays heading-only).
+- **Resolved:** bookmarks inside cells round-trip through `set_text` — covered
+  by an E2E test (`t_bookmark_in_cell_roundtrip`).
+- Deferred: merged/split-cell grids (cell addressing assumes rectangular),
+  cell-level `add_column`/`delete_column`, table creation/deletion.
 
 ---
 
-## v0.4 — collaboration features
+## v0.5 — collaboration features
 
 Genuinely LLM-shaped operations: "leave a comment on the Risks section" is
 exactly the kind of polite, side-channel edit agents should prefer over
 direct text mutation.
 
-> Note: find/replace already shipped in v0.2 (commits `f90e0a9`, `cbe89cc`)
-> and styles + paragraph formatting in v0.3 (commit `c03b7d1`). What's left
-> for v0.4 is the genuinely-collaborative surface below.
+> Note: find/replace already shipped in v0.2 (commits `f90e0a9`, `cbe89cc`),
+> styles + paragraph formatting in v0.3 (commit `c03b7d1`), and tables in
+> v0.4. What's left for v0.5 is the genuinely-collaborative surface below.
 
 - **Comments** — `doc.comments.add(anchor, text, author=...)`,
   `doc.comments.list()`, `comment.resolve()`. Word's `Comments` collection
@@ -109,7 +113,7 @@ direct text mutation.
 
 ---
 
-## v0.5+ — defer
+## v0.6+ — defer
 
 - **Sections / headers / footers** — useful, but mostly for
   template-generation workflows; lower priority than tables/comments for

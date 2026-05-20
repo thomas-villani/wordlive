@@ -50,6 +50,12 @@ wordlive style list
 wordlive style apply --anchor-id heading:3 --name "Heading 2"
 wordlive format-paragraph --anchor-id heading:3 --alignment center --space-before 6
 
+# Tables (cells are anchors: table:N:R:C):
+wordlive table list
+wordlive table read 1
+wordlive replace --anchor-id table:1:2:2 --text "$450"
+wordlive table add-row --table 1 --values '["Lodging", "$600"]'
+
 # Batch multiple ops in a single Ctrl-Z:
 wordlive exec --script ops.json
 ```

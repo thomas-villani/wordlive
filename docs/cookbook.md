@@ -489,7 +489,70 @@ paragraph dialog. If the anchor spans a partial paragraph (e.g., a bookmark
 covering five words inside a longer paragraph), `format_paragraph` applies
 to the *enclosing* paragraph, mirroring how Word's own UI behaves.
 
-## 8. Multi-document workflows
+## 8. Read and edit a table
+
+A cell is just another anchor (`table:N:R:C`), so the same polite, atomic-undo
+patterns apply. Discover the grid first, then address cells by id.
+
+=== "Python"
+
+    ```python
+    import wordlive as wl
+
+    with wl.attach() as word:
+        doc = word.documents.active
+
+        budget = doc.tables[1]            # by 1-based position
+        # …or doc.tables["Budget"] by Title.
+
+        # Read the whole grid as plain text.
+        for row in budget.grid():
+            print(row)
+
+        with doc.edit("Update budget"):
+            budget.cell(2, 2).set_text("$450")          # bump a figure
+            budget.add_row(["Lodging", "$600"])         # append a row
+            budget.cell(1, 1).apply_style("Heading 4")  # restyle a header cell
+    ```
+
+    Cell text is returned clean — Word's internal end-of-cell markers are
+    stripped. The whole block reverts with one Ctrl-Z.
+
+=== "CLI"
+
+    ```bash
+    # Discover cells (each carries its anchor_id).
+    wordlive table read 1
+
+    # Write a single cell by its anchor id.
+    wordlive replace --anchor-id table:1:2:2 --text "$450"
+
+    # Append / drop rows.
+    wordlive table add-row --table 1 --values '["Lodging", "$600"]'
+    wordlive table delete-row --table 1 --row 5
+    ```
+
+=== "CLI (one atomic batch)"
+
+    ```bash
+    wordlive exec --script - <<'JSON'
+    {
+      "label": "Update budget",
+      "ops": [
+        {"op": "set_cell", "table": 1, "row": 2, "col": 2, "text": "$450"},
+        {"op": "add_row",  "table": 1, "values": ["Lodging", "$600"]},
+        {"op": "apply_style", "anchor_id": "table:1:1:1", "name": "Heading 4"}
+      ]
+    }
+    JSON
+    ```
+
+!!! note
+    Cell addressing assumes a rectangular grid. Tables with merged or split
+    cells follow Word's own `Table.Cell(row, col)` indexing and may raise
+    inside a merged region.
+
+## 9. Multi-document workflows
 
 When several documents are open, `--doc NAME` picks the target:
 

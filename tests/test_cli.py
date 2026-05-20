@@ -657,3 +657,138 @@ def test_kind_field_is_consistent_across_bookmark_commands(fake_word):
         kinds[" ".join(cmd[:2])] = json.loads(out)["anchor"]["kind"]
     assert len(set(kinds.values())) == 1, f"kind drift: {kinds}"
     assert next(iter(kinds.values())) == "bookmark"
+
+
+# ---------------------------------------------------------------------------
+# tables: list / read / add-row / delete-row, cell anchors, exec ops
+# ---------------------------------------------------------------------------
+
+
+def test_table_list(fake_word):
+    code, out, _ = _invoke(["table", "list"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data == [{"index": 1, "title": "Grid", "rows": 2, "columns": 2}]
+
+
+def test_table_list_text_mode(fake_word):
+    code, out, _ = _invoke(["--text", "table", "list"])
+    assert code == EXIT_OK
+    assert "table:1" in out
+    assert "2x2" in out
+
+
+def test_table_read(fake_word):
+    code, out, _ = _invoke(["table", "read", "1"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["index"] == 1
+    assert data["cells"][0][0]["text"] == "A1"
+    assert data["cells"][1][1]["anchor_id"] == "table:1:2:2"
+
+
+def test_table_read_missing_returns_exit_2(fake_word):
+    code, _, err = _invoke(["table", "read", "5"])
+    assert code == EXIT_ANCHOR_NOT_FOUND
+    assert "table" in err.lower()
+
+
+def test_table_add_row(fake_word):
+    code, out, _ = _invoke(["table", "add-row", "--table", "1"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["rows"] == 3
+
+
+def test_table_add_row_with_values(fake_word):
+    code, out, _ = _invoke(
+        ["table", "add-row", "--table", "1", "--values", '["X", "Y"]']
+    )
+    assert code == EXIT_OK
+    # The new row's cells should be addressable and hold the values.
+    code, out, _ = _invoke(["table", "read", "1"])
+    data = json.loads(out)
+    assert data["cells"][2][0]["text"] == "X"
+    assert data["cells"][2][1]["text"] == "Y"
+
+
+def test_table_add_row_bad_values_is_usage_error(fake_word):
+    code, _, _ = _invoke(["table", "add-row", "--table", "1", "--values", "not-json"])
+    assert code != EXIT_OK
+
+
+def test_table_delete_row(fake_word):
+    code, out, _ = _invoke(["table", "delete-row", "--table", "1", "--row", "1"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["rows"] == 1
+
+
+def test_table_delete_row_out_of_range_returns_exit_2(fake_word):
+    code, _, _ = _invoke(["table", "delete-row", "--table", "1", "--row", "9"])
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
+def test_replace_cell_via_anchor_id(fake_word):
+    code, out, _ = _invoke(["replace", "--anchor-id", "table:1:1:1", "--text", "Z"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["anchor"]["kind"] == "cell"
+
+
+def test_style_apply_to_cell(fake_word):
+    code, out, _ = _invoke(
+        ["style", "apply", "--anchor-id", "table:1:1:1", "--name", "Heading 2"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["anchor"]["kind"] == "cell"
+
+
+def test_exec_supports_set_cell_op(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {"ops": [{"op": "set_cell", "table": 1, "row": 1, "col": 2, "text": "new"}]}
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+    # Confirm the write landed.
+    code, out, _ = _invoke(["table", "read", "1"])
+    assert json.loads(out)["cells"][0][1]["text"] == "new"
+
+
+def test_exec_supports_add_and_delete_row_ops(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "ops": [
+                    {"op": "add_row", "table": 1, "values": ["c", "d"]},
+                    {"op": "delete_row", "table": 1, "row": 1},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 2
+
+
+def test_exec_set_cell_missing_field_reports_cleanly(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps({"ops": [{"op": "set_cell", "table": 1, "row": 1, "col": 2}]}),
+        encoding="utf-8",
+    )
+    code, _, err = _invoke(["exec", "--script", str(script)])
+    assert code != EXIT_OK
+    assert "set_cell" in err
+    assert "text" in err
+    assert "Traceback" not in err

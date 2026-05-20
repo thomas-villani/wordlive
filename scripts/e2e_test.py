@@ -62,6 +62,9 @@ CC_TITLE = "Signatory"
 CC_PLACEHOLDER = "[PLACEHOLDER]"
 CC_DEFAULT_TEXT = "Jane Doe"
 
+TABLE_TITLE = "E2E Grid"
+TABLE_CELLS = [["R1C1", "R1C2"], ["R2C1", "R2C2"]]
+
 
 # ---------------------------------------------------------------------------
 # Tiny test harness
@@ -145,6 +148,18 @@ def build_doc(word: wl.Word) -> Document:
         cc.Title = CC_TITLE
         cc.Tag = CC_TITLE.lower()
         cc.Range.Text = CC_DEFAULT_TEXT
+
+    # Append a 2x2 table at the end of the document for the table tests.
+    tail = new.Content
+    tail.Collapse(0)  # wdCollapseEnd
+    tbl = new.Tables.Add(tail, len(TABLE_CELLS), len(TABLE_CELLS[0]))
+    try:
+        tbl.Title = TABLE_TITLE
+    except Exception as e:  # noqa: BLE001 — Title needs a recent Word; non-fatal
+        print(f"  warn: could not set table title: {e}")
+    for r, row in enumerate(TABLE_CELLS, start=1):
+        for c, val in enumerate(row, start=1):
+            tbl.Cell(r, c).Range.Text = val
 
     return Document(word, new)
 
@@ -357,6 +372,73 @@ def t_apply_style_missing_raises(_word: wl.Word, doc: Document) -> None:
     raise AssertionError("expected StyleNotFoundError, but no exception was raised")
 
 
+def t_tables_list(_word: wl.Word, doc: Document) -> None:
+    rows = doc.tables.list()
+    expect(len(rows) >= 1, f"expected at least one table, got {len(rows)}")
+    t = rows[0]
+    expect(t["rows"] == 2 and t["columns"] == 2, f"unexpected table size: {t}")
+
+
+def t_table_read(_word: wl.Word, doc: Document) -> None:
+    grid = doc.tables[1].read()
+    expect(grid["cells"][0][0]["text"] == "R1C1", f"cell (1,1) mismatch: {grid['cells'][0][0]}")
+    expect(grid["cells"][1][1]["anchor_id"] == "table:1:2:2", "cell anchor_id mismatch")
+    # Cell text must be stripped of Word's trailing cell markers.
+    expect("\x07" not in grid["cells"][0][0]["text"], "cell text leaked the \\x07 cell mark")
+
+
+def t_cell_set_text(_word: wl.Word, doc: Document) -> None:
+    with doc.edit("E2E: set cell"):
+        doc.tables[1].cell(1, 2).set_text("UPDATED")
+    expect(doc.tables[1].cell(1, 2).text == "UPDATED", "cell set_text round-trip failed")
+
+
+def t_cell_via_anchor_id(_word: wl.Word, doc: Document) -> None:
+    anchor = doc.anchor_by_id("table:1:2:1")
+    expect(anchor.kind == "cell", f"expected cell kind, got {anchor.kind!r}")
+    with doc.edit("E2E: replace cell via id"):
+        anchor.set_text("VIA_ID")
+    expect(doc.tables[1].cell(2, 1).text == "VIA_ID", "cell write via anchor_by_id failed")
+
+
+def t_apply_style_to_cell(_word: wl.Word, doc: Document) -> None:
+    with doc.edit("E2E: style cell"):
+        doc.tables[1].cell(1, 1).apply_style("Heading 3")
+    rng = doc.com.Tables(1).Cell(1, 1).Range
+    applied = str(rng.ParagraphFormat.Style.NameLocal)
+    expect(applied == "Heading 3", f"expected cell style 'Heading 3', got {applied!r}")
+
+
+def t_add_row(_word: wl.Word, doc: Document) -> None:
+    before = doc.tables[1].row_count
+    with doc.edit("E2E: add row"):
+        doc.tables[1].add_row(["NR1", "NR2"])
+    t = doc.tables[1]
+    expect(t.row_count == before + 1, f"row count did not grow: {before} -> {t.row_count}")
+    expect(t.cell(t.row_count, 1).text == "NR1", "new row first cell missing value")
+
+
+def t_delete_row(_word: wl.Word, doc: Document) -> None:
+    before = doc.tables[1].row_count
+    with doc.edit("E2E: delete row"):
+        doc.tables[1].delete_row(before)
+    expect(doc.tables[1].row_count == before - 1, "row count did not shrink after delete")
+
+
+def t_bookmark_in_cell_roundtrip(_word: wl.Word, doc: Document) -> None:
+    """The roadmap's open question: do bookmarks inside cells round-trip via set_text?"""
+    bm_name = "CellBookmark"
+    cell_range = doc.com.Tables(1).Cell(2, 2).Range
+    start, end = int(cell_range.Start), int(cell_range.End)
+    # Exclude the trailing cell mark from the bookmark range.
+    bm_range = doc.com.Range(start, max(start, end - 1))
+    doc.com.Bookmarks.Add(Name=bm_name, Range=bm_range)
+    with doc.edit("E2E: write bookmark in cell"):
+        doc.bookmarks[bm_name].set_text("InCell")
+    expect(doc.bookmarks[bm_name].text == "InCell", "bookmark-in-cell set_text round-trip failed")
+    expect("InCell" in doc.tables[1].cell(2, 2).text, "cell did not reflect bookmark write")
+
+
 def t_cli_status(_word: wl.Word, _doc: Document) -> None:
     """Smoke the CLI via subprocess — proves the install entry point works."""
     result = subprocess.run(
@@ -420,6 +502,16 @@ def main() -> int:
             h.run("apply_style writes through to the range", lambda: t_apply_style_to_bookmark(word, doc))
             h.run("format_paragraph sets alignment/indent/spacing", lambda: t_format_paragraph(word, doc))
             h.run("apply_style with missing name raises StyleNotFoundError", lambda: t_apply_style_missing_raises(word, doc))
+
+            # Tables.
+            h.run("tables.list reports the test table", lambda: t_tables_list(word, doc))
+            h.run("table.read returns cells with anchor ids", lambda: t_table_read(word, doc))
+            h.run("cell set_text round-trips", lambda: t_cell_set_text(word, doc))
+            h.run("cell resolves + writes via anchor_by_id", lambda: t_cell_via_anchor_id(word, doc))
+            h.run("bookmark inside a cell round-trips via set_text", lambda: t_bookmark_in_cell_roundtrip(word, doc))
+            h.run("apply_style writes through to a cell", lambda: t_apply_style_to_cell(word, doc))
+            h.run("table.add_row appends and fills cells", lambda: t_add_row(word, doc))
+            h.run("table.delete_row removes a row", lambda: t_delete_row(word, doc))
 
             if not args.no_cli:
                 h.run("CLI: wordlive status (subprocess)", lambda: t_cli_status(word, doc))

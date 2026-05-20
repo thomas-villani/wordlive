@@ -1,0 +1,250 @@
+"""Tables — collection, cell anchors, structural edits, anchor-id resolution."""
+
+from __future__ import annotations
+
+import pytest
+
+import wordlive
+from wordlive.constants import WdParagraphAlignment
+from wordlive.exceptions import AnchorNotFoundError
+
+
+# ---------------------------------------------------------------------------
+# TableCollection
+# ---------------------------------------------------------------------------
+
+
+def test_tables_list_returns_metadata(fake_word):
+    with wordlive.attach() as word:
+        rows = word.documents.active.tables.list()
+    assert len(rows) == 1
+    assert rows[0] == {"index": 1, "title": "Grid", "rows": 2, "columns": 2}
+
+
+def test_tables_len(fake_word):
+    with wordlive.attach() as word:
+        assert len(word.documents.active.tables) == 1
+
+
+def test_tables_contains(fake_word):
+    with wordlive.attach() as word:
+        tables = word.documents.active.tables
+        assert 1 in tables
+        assert 2 not in tables
+        assert "Grid" in tables
+        assert "Nope" not in tables
+        assert True not in tables  # bool rejected before the int branch
+
+
+def test_tables_getitem_by_index(fake_word):
+    with wordlive.attach() as word:
+        t = word.documents.active.tables[1]
+    assert t.index == 1
+    assert t.row_count == 2
+    assert t.column_count == 2
+    assert t.title == "Grid"
+
+
+def test_tables_getitem_by_title(fake_word):
+    with wordlive.attach() as word:
+        t = word.documents.active.tables["Grid"]
+    assert t.index == 1
+
+
+def test_tables_getitem_out_of_range_raises(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(AnchorNotFoundError) as exc_info:
+            _ = word.documents.active.tables[5]
+    assert exc_info.value.kind == "table"
+
+
+def test_tables_getitem_bad_title_raises(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(AnchorNotFoundError):
+            _ = word.documents.active.tables["Missing"]
+
+
+def test_tables_getitem_bool_rejected(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(TypeError):
+            _ = word.documents.active.tables[True]
+
+
+def test_tables_iter_yields_tables(fake_word):
+    with wordlive.attach() as word:
+        tables = list(word.documents.active.tables)
+    assert [t.index for t in tables] == [1]
+
+
+# ---------------------------------------------------------------------------
+# Table / Cell reads
+# ---------------------------------------------------------------------------
+
+
+def test_cell_text_strips_markers(fake_word):
+    with wordlive.attach() as word:
+        cell = word.documents.active.tables[1].cell(1, 1)
+    # Fake seeds "A1\r\x07"; the trailing cell markers must be stripped.
+    assert cell.text == "A1"
+
+
+def test_cell_anchor_id(fake_word):
+    with wordlive.attach() as word:
+        cell = word.documents.active.tables[1].cell(2, 2)
+    assert cell.anchor_id == "table:1:2:2"
+    assert cell.kind == "cell"
+    assert cell.row == 2 and cell.column == 2
+
+
+def test_cell_out_of_range_raises(fake_word):
+    with wordlive.attach() as word:
+        t = word.documents.active.tables[1]
+        with pytest.raises(AnchorNotFoundError) as exc_info:
+            t.cell(3, 1)
+    assert exc_info.value.kind == "table cell"
+
+
+def test_table_grid(fake_word):
+    with wordlive.attach() as word:
+        grid = word.documents.active.tables[1].grid()
+    assert grid == [["A1", "B1"], ["A2", "B2"]]
+
+
+def test_table_read_shape(fake_word):
+    with wordlive.attach() as word:
+        data = word.documents.active.tables[1].read()
+    assert data["index"] == 1
+    assert data["rows"] == 2 and data["columns"] == 2
+    assert data["cells"][0][0] == {
+        "row": 1,
+        "col": 1,
+        "text": "A1",
+        "anchor_id": "table:1:1:1",
+    }
+    assert data["cells"][1][1]["anchor_id"] == "table:1:2:2"
+
+
+def test_table_iter_yields_cells_row_major(fake_word):
+    with wordlive.attach() as word:
+        cells = list(word.documents.active.tables[1])
+    assert [c.anchor_id for c in cells] == [
+        "table:1:1:1",
+        "table:1:1:2",
+        "table:1:2:1",
+        "table:1:2:2",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Cell writes
+# ---------------------------------------------------------------------------
+
+
+def test_cell_set_text_round_trip(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("set cell"):
+            doc.tables[1].cell(1, 2).set_text("changed")
+        assert doc.tables[1].cell(1, 2).text == "changed"
+
+
+def test_cell_apply_style_writes_through(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("style cell"):
+            doc.tables[1].cell(1, 1).apply_style("Heading 2")
+    cell_range = fake_word.ActiveDocument.Tables(1).Cell(1, 1).Range
+    assert cell_range.Style.NameLocal == "Heading 2"
+
+
+def test_cell_format_paragraph(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.tables[1].cell(2, 1).format_paragraph(alignment="center", left_indent=12.0)
+    cell_range = fake_word.ActiveDocument.Tables(1).Cell(2, 1).Range
+    pf = cell_range.ParagraphFormat
+    assert pf.Alignment == int(WdParagraphAlignment.CENTER)
+    assert pf.LeftIndent == 12.0
+
+
+# ---------------------------------------------------------------------------
+# Structural edits
+# ---------------------------------------------------------------------------
+
+
+def test_add_row_increases_count(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("add row"):
+            t.add_row()
+        assert t.row_count == 3
+
+
+def test_add_row_with_values_fills_cells(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("add row with values"):
+            t.add_row(["X", "Y"])
+        assert t.cell(3, 1).text == "X"
+        assert t.cell(3, 2).text == "Y"
+
+
+def test_delete_row_decreases_count(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("delete row"):
+            t.delete_row(1)
+        assert t.row_count == 1
+        # Row 2 ("A2"/"B2") is now the only row.
+        assert t.cell(1, 1).text == "A2"
+
+
+def test_delete_row_out_of_range_raises(fake_word):
+    with wordlive.attach() as word:
+        t = word.documents.active.tables[1]
+        with pytest.raises(AnchorNotFoundError) as exc_info:
+            t.delete_row(9)
+    assert exc_info.value.kind == "table row"
+
+
+# ---------------------------------------------------------------------------
+# anchor_by_id resolution
+# ---------------------------------------------------------------------------
+
+
+def test_anchor_by_id_resolves_cell(fake_word):
+    with wordlive.attach() as word:
+        anchor = word.documents.active.anchor_by_id("table:1:2:2")
+    assert isinstance(anchor, wordlive.Cell)
+    assert anchor.text == "B2"
+    assert anchor.anchor_id == "table:1:2:2"
+
+
+def test_anchor_by_id_cell_is_writable(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("replace cell via id"):
+            doc.anchor_by_id("table:1:1:1").set_text("Z")
+        assert doc.tables[1].cell(1, 1).text == "Z"
+
+
+def test_anchor_by_id_bare_table_raises(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(AnchorNotFoundError) as exc_info:
+            word.documents.active.anchor_by_id("table:1")
+    assert exc_info.value.kind == "table cell"
+
+
+def test_anchor_by_id_partial_table_id_raises(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(AnchorNotFoundError):
+            word.documents.active.anchor_by_id("table:1:2")
+
+
+def test_anchor_by_id_non_numeric_table_id_raises(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(AnchorNotFoundError):
+            word.documents.active.anchor_by_id("table:a:b:c")

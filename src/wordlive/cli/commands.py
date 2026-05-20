@@ -72,6 +72,7 @@ def register(group: click.Group) -> None:
     group.add_command(go_to)
     group.add_command(style)
     group.add_command(format_paragraph_cmd)
+    group.add_command(table)
     group.add_command(exec_)
 
 
@@ -511,6 +512,116 @@ def format_paragraph_cmd(
 
 
 # ---------------------------------------------------------------------------
+# table list | read N | add-row | delete-row
+# ---------------------------------------------------------------------------
+
+
+def _fmt_table_list(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "(no tables)"
+    return "\n".join(
+        f"table:{r['index']}  {r['rows']}x{r['columns']}"
+        + (f"  {r['title']!r}" if r.get("title") else "")
+        for r in rows
+    )
+
+
+def _fmt_table_read(grid: dict[str, Any]) -> str:
+    cells = grid.get("cells") or []
+    if not cells:
+        return f"table:{grid.get('index')} (empty)"
+    widths = [
+        max((len(row[c]["text"]) for row in cells), default=0)
+        for c in range(grid.get("columns", 0))
+    ]
+    lines = []
+    for row in cells:
+        lines.append(
+            "  ".join(cell["text"].ljust(widths[i]) for i, cell in enumerate(row))
+        )
+    return "\n".join(lines)
+
+
+@click.group(name="table")
+def table() -> None:
+    """Read and edit tables (cells are anchors: table:N:R:C)."""
+
+
+@table.command(name="list")
+@click.pass_context
+def table_list(ctx: click.Context) -> None:
+    """List every table with its position, size, and title."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.tables.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_table_list(rows))
+    _run(ctx, go)
+
+
+@table.command(name="read")
+@click.argument("index", type=int)
+@click.pass_context
+def table_read(ctx: click.Context, index: int) -> None:
+    """Read table INDEX (1-based) as a grid of cells with anchor IDs."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            grid = doc.tables[index].read()
+            emit(grid, as_text=not ctx.obj["as_json"], text=_fmt_table_read(grid))
+    _run(ctx, go)
+
+
+@table.command(name="add-row")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option("--values", "values", default=None, help="Optional JSON array of cell values for the new row.")
+@click.pass_context
+def table_add_row(ctx: click.Context, table_index: int, values: str | None) -> None:
+    """Append a row to the table (atomic-undo)."""
+    parsed: list[Any] | None = None
+    if values is not None:
+        try:
+            parsed = json.loads(values)
+        except json.JSONDecodeError as e:
+            raise click.UsageError(f"--values must be a JSON array: {e}")
+        if not isinstance(parsed, list):
+            raise click.UsageError("--values must be a JSON array")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: add row to table {table_index}"):
+                t.add_row(parsed)
+            emit(
+                {"ok": True, "table": table_index, "rows": t.row_count},
+                as_text=not ctx.obj["as_json"],
+                text=f"added row to table:{table_index} (now {t.row_count} rows)",
+            )
+    _run(ctx, go)
+
+
+@table.command(name="delete-row")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option("--row", "row", type=int, required=True, help="1-based row to delete.")
+@click.pass_context
+def table_delete_row(ctx: click.Context, table_index: int, row: int) -> None:
+    """Delete a row from the table (atomic-undo)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: delete row {row} from table {table_index}"):
+                t.delete_row(row)
+            emit(
+                {"ok": True, "table": table_index, "rows": t.row_count},
+                as_text=not ctx.obj["as_json"],
+                text=f"deleted row {row} from table:{table_index} (now {t.row_count} rows)",
+            )
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
 # exec --script ops.json
 # ---------------------------------------------------------------------------
 
@@ -527,6 +638,9 @@ _OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "find_replace": ("find", "text"),
     "apply_style": ("anchor_id", "name"),
     "format_paragraph": ("anchor_id",),
+    "set_cell": ("table", "row", "col", "text"),
+    "add_row": ("table",),
+    "delete_row": ("table", "row"),
 }
 
 
@@ -583,6 +697,12 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
             if k in op
         }
         doc.anchor_by_id(op["anchor_id"]).format_paragraph(**kwargs)
+    elif kind == "set_cell":
+        doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
+    elif kind == "add_row":
+        doc.tables[op["table"]].add_row(op.get("values"))
+    elif kind == "delete_row":
+        doc.tables[op["table"]].delete_row(op["row"])
 
 
 @click.command(name="exec")
@@ -593,8 +713,8 @@ def exec_(ctx: click.Context, script: Path) -> None:
 
     Script shape: `{"label": "…", "ops": [{"op": "...", ...}, ...]}`.
     Supported ops: write_bookmark, write_cc, insert_after_heading, replace,
-    find_replace, apply_style, format_paragraph. See docs/cli.md for each
-    op's required and optional fields.
+    find_replace, apply_style, format_paragraph, set_cell, add_row,
+    delete_row. See docs/cli.md for each op's required and optional fields.
     """
     def go() -> None:
         payload = json.loads(script.read_text(encoding="utf-8"))

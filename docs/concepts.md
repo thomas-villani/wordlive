@@ -89,7 +89,13 @@ single string scheme:
 heading:3            # 1-based paragraph index of a heading
 bookmark:Address     # bookmark by name
 cc:Signatory         # content control by Title (or Tag)
+table:1:2:3          # cell at row 2, column 3 of the 1st table
 ```
+
+The bare `table:N` form is deliberately *not* an anchor — a whole table is a
+collection, not a single range — so it's addressed through `doc.tables[N]` and
+the `table` CLI group instead. Only cells (`table:N:R:C`) resolve via
+`anchor_by_id`.
 
 These IDs are emitted directly by [`doc.outline()`](python-api.md#wordlive.Document):
 
