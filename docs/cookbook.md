@@ -574,3 +574,86 @@ with wl.attach() as word:
 
 Document not found raises [`DocumentNotFoundError`](errors.md), which the CLI
 maps to exit code `1`.
+
+## 10. Suggest, don't overwrite: comments + tracked changes
+
+The most agent-shaped edits are the *non-destructive* ones. Instead of
+rewriting a passage, an agent can flag it with a comment, or make its edits
+*visibly* as tracked changes the human accepts or rejects. Both leave the user
+in control.
+
+### Comment on what `find` located
+
+A `find()` hit returns a `range:START-END` id, which resolves to a
+[`RangeAnchor`](python-api.md#wordlive.RangeAnchor) — so you can attach a
+comment to exactly the span you matched, without changing a character of it:
+
+```python
+import wordlive as wl
+
+with wl.attach() as word:
+    doc = word.documents.active
+
+    hits = doc.find("as soon as possible")
+    if hits:
+        target = doc.anchor_by_id(hits[0]["anchor_id"])   # a RangeAnchor
+        with doc.edit("Flag vague deadline"):
+            doc.comments.add(
+                target,
+                "Can we commit to a concrete date here?",
+                author="ReviewBot",
+            )
+```
+
+```bash
+# CLI: discover the span, then comment on it.
+$ wordlive find --text "as soon as possible"
+[{"anchor_id": "range:512-531", "start": 512, "end": 531, "text": "as soon as possible"}]
+
+$ wordlive comment add --anchor-id range:512-531 \
+      --text "Can we commit to a concrete date here?" --author ReviewBot
+{"ok": true, "anchor_id": "range:512-531", "comment": {"index": 1, "author": "ReviewBot"}}
+```
+
+List, resolve, and delete comments by their 1-based index:
+
+```bash
+$ wordlive comment list
+$ wordlive comment resolve --index 1
+$ wordlive comment delete --index 1
+```
+
+### Make edits visible as tracked changes
+
+When you *do* want to change the text but let the human vet it, wrap the edit
+in [`doc.tracked_changes()`](python-api.md#wordlive.Document). Track Changes is
+turned on for the scope and restored to its prior state on exit:
+
+```python
+with wl.attach() as word:
+    doc = word.documents.active
+
+    with doc.tracked_changes(), doc.edit("Suggest plainer wording"):
+        doc.find_replace("utilise", "use", all=True)
+```
+
+Every replacement lands as a revision in Word's review pane — one Ctrl-Z
+removes the batch, or the user accepts/rejects each suggestion. From the CLI,
+set `"tracked": true` on an `exec` script so the whole batch is recorded as
+tracked changes and the prior setting is restored afterwards:
+
+```bash
+$ wordlive exec --script - <<'JSON'
+{
+  "label": "Suggest plainer wording",
+  "tracked": true,
+  "ops": [
+    {"op": "find_replace", "find": "utilise", "text": "use", "all": true}
+  ]
+}
+JSON
+```
+
+The standalone `wordlive track on` / `track off` toggle is *persistent* —
+useful when a human will keep editing in tracked mode — but it doesn't
+auto-restore, so prefer the scoped forms above for one-shot agent edits.

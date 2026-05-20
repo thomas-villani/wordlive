@@ -792,3 +792,196 @@ def test_exec_set_cell_missing_field_reports_cleanly(fake_word, tmp_path: Path):
     assert "set_cell" in err
     assert "text" in err
     assert "Traceback" not in err
+
+
+# ---------------------------------------------------------------------------
+# v0.5: range anchors via the `range:` id
+# ---------------------------------------------------------------------------
+
+
+def test_replace_via_range_anchor_id(fake_word):
+    code, out, _ = _invoke(["replace", "--anchor-id", "range:3-8", "--text", "Z"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["anchor"]["kind"] == "range"
+
+
+def test_replace_bad_range_id_returns_exit_2(fake_word):
+    code, _, _ = _invoke(["replace", "--anchor-id", "range:nope", "--text", "Z"])
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
+# ---------------------------------------------------------------------------
+# v0.5: comments
+# ---------------------------------------------------------------------------
+
+
+def test_comment_list_empty(fake_word):
+    code, out, _ = _invoke(["comment", "list"])
+    assert code == EXIT_OK
+    assert json.loads(out) == []
+
+
+def test_comment_add(fake_word):
+    code, out, _ = _invoke(
+        ["comment", "add", "--anchor-id", "heading:1", "--text", "Review this", "--author", "Bot"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["comment"]["index"] == 1
+    assert data["comment"]["author"] == "Bot"
+
+
+def test_comment_add_then_list(fake_word):
+    _invoke(["comment", "add", "--anchor-id", "heading:1", "--text", "note A"])
+    code, out, _ = _invoke(["comment", "list"])
+    assert code == EXIT_OK
+    rows = json.loads(out)
+    assert len(rows) == 1
+    assert rows[0]["text"] == "note A"
+
+
+def test_comment_add_bad_anchor_returns_exit_2(fake_word):
+    code, _, _ = _invoke(
+        ["comment", "add", "--anchor-id", "bookmark:Nope", "--text", "x"]
+    )
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
+def test_comment_resolve(fake_word):
+    _invoke(["comment", "add", "--anchor-id", "heading:1", "--text", "x"])
+    code, out, _ = _invoke(["comment", "resolve", "--index", "1"])
+    assert code == EXIT_OK
+    assert json.loads(out)["done"] is True
+
+
+def test_comment_resolve_out_of_range_returns_exit_2(fake_word):
+    code, _, _ = _invoke(["comment", "resolve", "--index", "9"])
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
+def test_comment_delete(fake_word):
+    _invoke(["comment", "add", "--anchor-id", "heading:1", "--text", "x"])
+    code, out, _ = _invoke(["comment", "delete", "--index", "1"])
+    assert code == EXIT_OK
+    assert json.loads(out)["deleted"] is True
+    code, out, _ = _invoke(["comment", "list"])
+    assert json.loads(out) == []
+
+
+def test_comment_list_text_mode(fake_word):
+    _invoke(["comment", "add", "--anchor-id", "heading:1", "--text", "look", "--author", "Bot"])
+    code, out, _ = _invoke(["--text", "comment", "list"])
+    assert code == EXIT_OK
+    assert "Bot" in out
+    assert "look" in out
+
+
+# ---------------------------------------------------------------------------
+# v0.5: track changes
+# ---------------------------------------------------------------------------
+
+
+def test_track_status_default_off(fake_word):
+    code, out, _ = _invoke(["track", "status"])
+    assert code == EXIT_OK
+    assert json.loads(out) == {"tracked": False}
+
+
+def test_track_on_then_status(fake_word):
+    code, out, _ = _invoke(["track", "on"])
+    assert code == EXIT_OK
+    assert json.loads(out)["tracked"] is True
+    assert fake_word.ActiveDocument.TrackRevisions is True
+    code, out, _ = _invoke(["track", "status"])
+    assert json.loads(out) == {"tracked": True}
+
+
+def test_track_off(fake_word):
+    _invoke(["track", "on"])
+    code, out, _ = _invoke(["track", "off"])
+    assert code == EXIT_OK
+    assert json.loads(out)["tracked"] is False
+    assert fake_word.ActiveDocument.TrackRevisions is False
+
+
+# ---------------------------------------------------------------------------
+# v0.5: exec comment ops + tracked batch
+# ---------------------------------------------------------------------------
+
+
+def test_exec_supports_add_comment_op(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "ops": [
+                    {"op": "add_comment", "anchor_id": "heading:1", "text": "please review", "author": "Bot"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+    code, out, _ = _invoke(["comment", "list"])
+    assert json.loads(out)[0]["text"] == "please review"
+
+
+def test_exec_supports_resolve_and_delete_comment_ops(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "ops": [
+                    {"op": "add_comment", "anchor_id": "heading:1", "text": "a"},
+                    {"op": "add_comment", "anchor_id": "heading:1", "text": "b"},
+                    {"op": "resolve_comment", "index": 1},
+                    {"op": "delete_comment", "index": 2},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 4
+    code, out, _ = _invoke(["comment", "list"])
+    rows = json.loads(out)
+    assert len(rows) == 1
+    assert rows[0]["done"] is True
+
+
+def test_exec_add_comment_missing_field_reports_cleanly(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps({"ops": [{"op": "add_comment", "anchor_id": "heading:1"}]}),
+        encoding="utf-8",
+    )
+    code, _, err = _invoke(["exec", "--script", str(script)])
+    assert code != EXIT_OK
+    assert "add_comment" in err
+    assert "text" in err
+    assert "Traceback" not in err
+
+
+def test_exec_tracked_payload_turns_on_then_restores(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "tracked": True,
+                "ops": [
+                    {"op": "write_bookmark", "name": "Address", "text": "123 Main"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, _, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    # Track Changes was flipped on for the batch, then restored to off.
+    assert fake_word.ActiveDocument.TrackRevisions is False

@@ -57,6 +57,7 @@ depend on the cursor.
 | `Bookmark`         | A bookmark by name                         | Stored in the `.docx`      |
 | `ContentControl`   | A structured field by Title (or Tag)       | Stored in the `.docx`      |
 | `Heading`          | A heading paragraph by visible text        | Reads the doc structure    |
+| `RangeAnchor`      | An arbitrary character span by offsets     | Ephemeral (resolved live)  |
 
 All three subclass [`Anchor`](python-api.md#wordlive.Anchor) and share the
 same operations:
@@ -90,12 +91,20 @@ heading:3            # 1-based paragraph index of a heading
 bookmark:Address     # bookmark by name
 cc:Signatory         # content control by Title (or Tag)
 table:1:2:3          # cell at row 2, column 3 of the 1st table
+range:412-429        # arbitrary character span (the form find() emits)
 ```
 
 The bare `table:N` form is deliberately *not* an anchor — a whole table is a
 collection, not a single range — so it's addressed through `doc.tables[N]` and
 the `table` CLI group instead. Only cells (`table:N:R:C`) resolve via
 `anchor_by_id`.
+
+The `range:START-END` form is what [`find()`](python-api.md#wordlive.Document)
+emits for each hit, and it round-trips: feed it back into `replace --anchor-id`
+or `comments.add` to act on exactly the span that was found. Range offsets are
+*live* — they're resolved against the document on each use, so an edit that
+shifts the text earlier can leave a stale range pointing at the wrong place.
+Resolve, act, discard.
 
 These IDs are emitted directly by [`doc.outline()`](python-api.md#wordlive.Document):
 

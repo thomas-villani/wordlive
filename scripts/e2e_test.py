@@ -439,6 +439,62 @@ def t_bookmark_in_cell_roundtrip(_word: wl.Word, doc: Document) -> None:
     expect("InCell" in doc.tables[1].cell(2, 2).text, "cell did not reflect bookmark write")
 
 
+def t_range_anchor_from_find(_word: wl.Word, doc: Document) -> None:
+    """A `find()` hit's `range:S-E` id resolves to a usable RangeAnchor."""
+    matches = doc.find("Welcome to the")
+    expect(len(matches) >= 1, f"expected to find the welcome phrase, got {matches}")
+    anchor = doc.anchor_by_id(matches[0]["anchor_id"])
+    expect(anchor.kind == "range", f"expected range anchor, got {anchor.kind!r}")
+    expect("Welcome to the" in anchor.text, f"range anchor text mismatch: {anchor.text!r}")
+
+
+def t_comment_add_and_list(_word: wl.Word, doc: Document) -> None:
+    before = len(doc.comments)
+    with doc.edit("E2E: add comment"):
+        c = doc.comments.add(doc.heading("Risks"), "Needs review", author="wordlive E2E")
+    expect(len(doc.comments) == before + 1, "comment count did not grow")
+    expect(c.text == "Needs review", f"comment body mismatch: {c.text!r}")
+    expect("Risks" in doc.comments[c.index].scope_text, f"comment scope mismatch: {doc.comments[c.index].scope_text!r}")
+    rows = doc.comments.list()
+    expect(any(r["text"] == "Needs review" for r in rows), f"comment missing from list(): {rows}")
+
+
+def t_comment_resolve(_word: wl.Word, doc: Document) -> None:
+    with doc.edit("E2E: add comment to resolve"):
+        c = doc.comments.add(doc.heading("Conclusion"), "Resolve me")
+    idx = c.index
+    with doc.edit("E2E: resolve comment"):
+        doc.comments[idx].resolve()
+    expect(doc.comments[idx].done is True, "comment.done should be True after resolve (Word 2013+)")
+
+
+def t_comment_delete(_word: wl.Word, doc: Document) -> None:
+    before = len(doc.comments)
+    with doc.edit("E2E: add comment to delete"):
+        c = doc.comments.add(doc.heading("Action items"), "delete me")
+    idx = c.index
+    with doc.edit("E2E: delete comment"):
+        doc.comments[idx].delete()
+    expect(len(doc.comments) == before, f"comment count should return to {before}, got {len(doc.comments)}")
+
+
+def t_tracked_changes_records_revision(_word: wl.Word, doc: Document) -> None:
+    expect(doc.track_changes is False, "expected Track Changes off at start")
+    before = int(doc.com.Revisions.Count)
+    with doc.tracked_changes():
+        expect(doc.track_changes is True, "tracking should be on inside the scope")
+        with doc.edit("E2E: tracked edit"):
+            doc.heading("Smart quotes test").insert_paragraph_after("Tracked insertion.")
+    expect(doc.track_changes is False, "tracking should be restored after the scope")
+    after = int(doc.com.Revisions.Count)
+    expect(after > before, f"expected a new tracked revision: {before} -> {after}")
+    # Clean up so later read-tests see clean text.
+    try:
+        doc.com.Revisions.RejectAll()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def t_cli_status(_word: wl.Word, _doc: Document) -> None:
     """Smoke the CLI via subprocess — proves the install entry point works."""
     result = subprocess.run(
@@ -512,6 +568,13 @@ def main() -> int:
             h.run("apply_style writes through to a cell", lambda: t_apply_style_to_cell(word, doc))
             h.run("table.add_row appends and fills cells", lambda: t_add_row(word, doc))
             h.run("table.delete_row removes a row", lambda: t_delete_row(word, doc))
+
+            # Collaboration (v0.5): range anchors, comments, track changes.
+            h.run("find hit resolves to a RangeAnchor via anchor_by_id", lambda: t_range_anchor_from_find(word, doc))
+            h.run("comments.add attaches + appears in list", lambda: t_comment_add_and_list(word, doc))
+            h.run("comment.resolve sets done (Word 2013+)", lambda: t_comment_resolve(word, doc))
+            h.run("comment.delete removes the comment", lambda: t_comment_delete(word, doc))
+            h.run("tracked_changes records a revision then restores the flag", lambda: t_tracked_changes_records_revision(word, doc))
 
             if not args.no_cli:
                 h.run("CLI: wordlive status (subprocess)", lambda: t_cli_status(word, doc))

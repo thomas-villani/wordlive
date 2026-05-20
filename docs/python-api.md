@@ -51,6 +51,8 @@ content controls, headings, and any future anchor types.
 
 ::: wordlive.HeadingCollection
 
+::: wordlive.RangeAnchor
+
 ## Styles
 
 Styles are document-scoped, read-only handles. `Document.styles` is a
@@ -74,6 +76,26 @@ with `set_text`, `apply_style`, and `format_paragraph` like any other anchor.
 ::: wordlive.Table
 
 ::: wordlive.Cell
+
+## Comments
+
+`Document.comments` is a [`CommentCollection`](#wordlive.CommentCollection).
+`comments.add(anchor, text, author=...)` attaches a review comment to any
+anchor's range *without changing the text* — the polite, side-channel way for
+an agent to flag something. Existing comments are addressed by 1-based index
+(`doc.comments[2]`) to `resolve()` or `delete()`.
+
+::: wordlive.CommentCollection
+
+::: wordlive.Comment
+
+## Track Changes
+
+`Document.tracked_changes()` is a context manager that turns Word's Track
+Changes on for the scope and restores the prior setting on exit — pair it with
+`edit()` to make a batch of edits *visibly*, as revisions the user can accept or
+reject. `Document.track_changes` is the underlying read/write property for the
+persistent flag. Both are documented on [`Document`](#wordlive.Document).
 
 ## Editing
 

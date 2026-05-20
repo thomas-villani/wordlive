@@ -56,6 +56,12 @@ wordlive table read 1
 wordlive replace --anchor-id table:1:2:2 --text "$450"
 wordlive table add-row --table 1 --values '["Lodging", "$600"]'
 
+# Collaboration: comments + track changes (the polite, non-destructive surface):
+wordlive comment add --anchor-id heading:3 --text "Please expand this." --author Bot
+wordlive comment list
+wordlive comment resolve --index 1
+wordlive track on            # record edits as revisions; `track off` to stop
+
 # Batch multiple ops in a single Ctrl-Z:
 wordlive exec --script ops.json
 ```

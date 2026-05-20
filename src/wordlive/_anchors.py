@@ -167,6 +167,64 @@ class Anchor(ABC):
 
 
 # ---------------------------------------------------------------------------
+# Arbitrary ranges
+# ---------------------------------------------------------------------------
+
+
+class RangeAnchor(Anchor):
+    """An anchor over an arbitrary character range — `doc.range(start, end)`.
+
+    Unlike bookmarks/headings/cells, a range anchor names nothing in the
+    document: it's a pair of absolute character offsets (UTF-16 code units, the
+    same coordinates Word's `Document.Range(start, end)` uses and that
+    `Document.find()` emits as `range:START-END`). It's the generic target when
+    no named anchor exists — feed a `find()` hit straight into a `replace`, or
+    drop a comment on an offset span.
+
+    The anchor is ephemeral: offsets resolve live against the document on each
+    access, so an edit elsewhere that shifts the text can leave it pointing at
+    the wrong span. Resolve, act, discard. `set_text` keeps the anchor's own
+    `end` in sync with the replacement so chained ops on the same instance stay
+    consistent.
+    """
+
+    kind = "range"
+
+    def __init__(self, doc: "Document", start: int, end: int) -> None:
+        start = int(start)
+        end = int(end)
+        if start < 0 or end < start:
+            raise ValueError(f"invalid range offsets: start={start}, end={end}")
+        super().__init__(doc, name=f"range:{start}-{end}")
+        self._start = start
+        self._end = end
+
+    @property
+    def start(self) -> int:
+        return self._start
+
+    @property
+    def end(self) -> int:
+        return self._end
+
+    @property
+    def anchor_id(self) -> str:
+        return f"range:{self._start}-{self._end}"
+
+    def _range(self) -> Any:
+        return self._doc.com.Range(self._start, self._end)
+
+    def set_text(self, text: str) -> None:
+        with _com.translate_com_errors():
+            rng = self._doc.com.Range(self._start, self._end)
+            rng.Text = text
+        # A Range.Text assignment resizes the span; keep our end in sync so a
+        # follow-up read/op on the same anchor sees the replacement rather than
+        # the stale coordinates. Word counts UTF-16 code units, not code points.
+        self._end = self._start + _utf16_len(text)
+
+
+# ---------------------------------------------------------------------------
 # Bookmarks
 # ---------------------------------------------------------------------------
 

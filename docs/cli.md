@@ -447,6 +447,103 @@ $ wordlive table delete-row --table 1 --row 3
 
 Failures: `2` table index or row out of range, `3` Word busy.
 
+## `comment list`
+
+```
+wordlive comment list [--doc DOC_NAME]
+```
+
+Enumerate every review comment, in document order.
+
+```bash
+$ wordlive comment list
+[{"index": 1, "author": "ReviewBot", "text": "Please verify this figure.",
+  "scope": "$400", "done": false}]
+```
+
+`index` is the 1-based handle used by `resolve` and `delete`. `scope` is the
+document text the comment is attached to; `done` is the resolved flag (always
+`false` on Word builds older than 2013). Failures: `3` Word busy, `4` Word not
+running.
+
+## `comment add --anchor-id ID --text "…"`
+
+```
+wordlive comment add --anchor-id ID --text "..." [--author NAME] [--doc DOC_NAME]
+```
+
+Attach a comment to the anchor's range. **The document text is untouched** —
+this is the polite, side-channel alternative to rewriting a passage. Atomic-undo.
+The anchor id is any of the [recognised forms](concepts.md#anchor-ids), including
+a `range:START-END` from `find`.
+
+```bash
+$ wordlive comment add --anchor-id heading:3 --text "Please expand this." --author "ReviewBot"
+{"ok": true, "anchor_id": "heading:3", "comment": {"index": 1, "author": "ReviewBot"}}
+```
+
+`--author` is optional; without it Word uses the running app's user name.
+Failures: `2` anchor not found, `3` Word busy.
+
+## `comment resolve --index N`
+
+```
+wordlive comment resolve --index N [--doc DOC_NAME]
+```
+
+Mark comment `N` (from `comment list`) as resolved/done. Requires Word 2013+.
+Atomic-undo.
+
+```bash
+$ wordlive comment resolve --index 1
+{"ok": true, "index": 1, "done": true}
+```
+
+Failures: `2` index out of range, `3` Word busy.
+
+## `comment delete --index N`
+
+```
+wordlive comment delete --index N [--doc DOC_NAME]
+```
+
+Delete comment `N`. Remaining comments re-index, so re-list before deleting
+another by index. Atomic-undo.
+
+```bash
+$ wordlive comment delete --index 1
+{"ok": true, "index": 1, "deleted": true}
+```
+
+Failures: `2` index out of range, `3` Word busy.
+
+## `track status | on | off`
+
+```
+wordlive track status [--doc DOC_NAME]
+wordlive track on      [--doc DOC_NAME]
+wordlive track off     [--doc DOC_NAME]
+```
+
+Inspect or toggle the document's **Track Changes** setting. While on, every
+edit (yours or the user's) is recorded as a revision the user can accept or
+reject.
+
+```bash
+$ wordlive track status
+{"tracked": false}
+
+$ wordlive track on
+{"ok": true, "tracked": true}
+```
+
+The toggle is **persistent** — `track on` leaves Word recording revisions until
+`track off`. For a self-restoring scope, prefer the library's
+`doc.tracked_changes()` context manager, or set `"tracked": true` on an
+[`exec` script](#exec-script-opsjson) to record a single batch as tracked
+changes and restore the prior setting afterwards. Failures: `3` Word busy, `4`
+Word not running.
+
 ## `exec --script ops.json`
 
 ```
@@ -486,6 +583,9 @@ Script shape:
 | `set_cell`             | `table`, `row`, `col`, `text`              | —                                 |
 | `add_row`              | `table`                                    | `values`                          |
 | `delete_row`           | `table`, `row`                             | —                                 |
+| `add_comment`          | `anchor_id`, `text`                        | `author`                          |
+| `resolve_comment`      | `index`                                    | —                                 |
+| `delete_comment`       | `index`                                    | —                                 |
 
 The `find_replace` op mirrors `wordlive replace --find …` — fuzzy whitespace
 + smart-quote match, optional `in` anchor to scope it, and either `all` or
@@ -500,6 +600,27 @@ values are in points, alignment is one of `left`/`center`/`right`/`justify`.
 index. `set_cell` is shorthand for a `replace` on a `table:N:R:C` anchor;
 `add_row`'s optional `values` is a JSON array matched to columns. All three
 table ops join the same atomic-undo scope as the rest of the batch.
+
+`add_comment`, `resolve_comment`, and `delete_comment` mirror the `comment`
+verbs — `add_comment` attaches a side-channel annotation to an `anchor_id`
+without touching the text, while `resolve_comment` / `delete_comment` take a
+1-based `index`. Since deletes re-index, ordering matters within a batch.
+
+### Recording the batch as tracked changes
+
+Set `"tracked": true` at the top level of the script to flip Word's Track
+Changes on for the whole batch and restore the prior setting when it finishes —
+so the user sees every op as an accept/reject-able revision under one Ctrl-Z:
+
+```json
+{
+  "label": "Suggest rewordings",
+  "tracked": true,
+  "ops": [
+    {"op": "find_replace", "find": "utilise", "text": "use", "all": true}
+  ]
+}
+```
 
 ### Behaviour on partial failure
 

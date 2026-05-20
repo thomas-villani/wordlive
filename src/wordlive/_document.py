@@ -11,9 +11,11 @@ from ._anchors import (
     ContentControlCollection,
     Heading,
     HeadingCollection,
+    RangeAnchor,
     _IndexedHeading,
     paragraph_text,
 )
+from ._comments import CommentCollection
 from ._edit import EditScope
 from ._selection import Selection
 from ._styles import Style, StyleCollection
@@ -85,21 +87,76 @@ class Document:
         return HeadingCollection(self)
 
     @property
+    def comments(self) -> CommentCollection:
+        """Iterable, indexable view over the document's review comments.
+
+        `doc.comments.add(anchor, text, author=...)` attaches a comment to any
+        anchor's range without changing the text — the polite, side-channel way
+        to flag something. Index existing comments by 1-based position
+        (`doc.comments[2]`) to `resolve()` or `delete()` them.
+        """
+        return CommentCollection(self)
+
+    @property
     def selection(self) -> Selection:
         return self._word.selection
+
+    @property
+    def track_changes(self) -> bool:
+        """Whether Word's Track Changes is currently on for this document."""
+        with _com.translate_com_errors():
+            return bool(self._doc.TrackRevisions)
+
+    @track_changes.setter
+    def track_changes(self, value: bool) -> None:
+        with _com.translate_com_errors():
+            self._doc.TrackRevisions = bool(value)
+
+    @contextmanager
+    def tracked_changes(self) -> Iterator[None]:
+        """Turn on Track Changes for the duration of the block, then restore it.
+
+        Every mutation made inside the scope is recorded as a tracked revision
+        the user can accept or reject — "make this edit *visibly*." The prior
+        `TrackRevisions` setting is restored on exit, so the scope stays polite
+        even when the user had tracking off.
+
+        Pairs with `edit()` for an atomic, visibly-tracked batch:
+
+            with doc.tracked_changes(), doc.edit("Suggest rewordings"):
+                doc.find_replace("utilise", "use", all=True)
+        """
+        with _com.translate_com_errors():
+            previous = bool(self._doc.TrackRevisions)
+            self._doc.TrackRevisions = True
+        try:
+            yield
+        finally:
+            with _com.translate_com_errors():
+                self._doc.TrackRevisions = previous
 
     def heading(self, name: str) -> Heading:
         # Lazy lookup — Heading.__init__ doesn't hit COM. _range() validates.
         return Heading(self, name)
 
+    def range(self, start: int, end: int) -> RangeAnchor:
+        """Return a `RangeAnchor` over the absolute offsets `[start, end)`.
+
+        Offsets are UTF-16 code units — the coordinates Word uses and that
+        `find()` emits as `range:START-END`. Lazy: the offsets aren't validated
+        against the document until the anchor is used.
+        """
+        return RangeAnchor(self, start, end)
+
     def anchor_by_id(self, anchor_id: str) -> "Anchor":
         """Resolve an `anchor_id` string into an Anchor.
 
         Recognised forms:
-          - `heading:N`     — Nth paragraph in the document (1-based, must be a heading)
-          - `bookmark:NAME` — bookmark by name
-          - `cc:NAME`       — content control by Title (or Tag)
-          - `table:N:R:C`   — cell at 1-based (row, column) of the Nth table
+          - `heading:N`       — Nth paragraph in the document (1-based, must be a heading)
+          - `bookmark:NAME`   — bookmark by name
+          - `cc:NAME`         — content control by Title (or Tag)
+          - `table:N:R:C`     — cell at 1-based (row, column) of the Nth table
+          - `range:START-END` — arbitrary character span (the form `find()` emits)
 
         The bare `table:N` form is not an anchor (a whole table is a collection,
         not a single range) — use `doc.tables[N]` instead.
@@ -129,6 +186,18 @@ class Document:
             except ValueError as e:
                 raise AnchorNotFoundError("table cell", anchor_id) from e
             return self.tables[t].cell(r, c)
+        if kind == "range":
+            start_str, sep, end_str = value.partition("-")
+            if not sep:
+                raise AnchorNotFoundError("range", anchor_id)
+            try:
+                start, end = int(start_str), int(end_str)
+            except ValueError as e:
+                raise AnchorNotFoundError("range", anchor_id) from e
+            try:
+                return self.range(start, end)
+            except ValueError as e:
+                raise AnchorNotFoundError("range", anchor_id) from e
         raise AnchorNotFoundError("anchor", anchor_id)
 
     def _scope_range(self, scope: "Anchor | None") -> tuple[Any, int]:
@@ -159,8 +228,10 @@ class Document:
         offsets are absolute document positions and `text` is the actual
         original substring (not the normalized form).
 
-        `anchor_id` for each match is `range:START-END` — a synthetic id usable
-        with `anchor_by_id` is not provided (matches are ephemeral by nature).
+        `anchor_id` for each match is `range:START-END`, which resolves through
+        `anchor_by_id` to a `RangeAnchor` — so a hit can be fed straight back
+        into `replace --anchor-id` or `comments.add`. The offsets are live,
+        though, so use them before further edits shift the document.
         """
         with _com.translate_com_errors():
             rng, base = self._scope_range(scope)

@@ -213,6 +213,50 @@ class _FakeTablesCollection:
         return iter(self._tables)
 
 
+class _FakeComment:
+    """Mimics a Word Comment: Author, Range (body), Scope (anchored range), Done."""
+
+    def __init__(self, registry: "_FakeComments", index: int, scope: Any, text: str) -> None:
+        self._registry = registry
+        self.Index = index
+        self.Author = ""
+        body = MagicMock(name=f"CommentBody[{index}]")
+        body.Text = text
+        self.Range = body
+        self.Scope = scope if scope is not None else _make_range(0, 0)
+        self.Done = False
+
+    def Delete(self) -> None:
+        self._registry._remove(self)
+
+
+class _FakeComments:
+    """Mimics doc.Comments: Count, Add(Range, Text), 1-based call lookup, iteration."""
+
+    def __init__(self) -> None:
+        self._items: list[_FakeComment] = []
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def Add(self, Range: Any = None, Text: str = "") -> _FakeComment:
+        c = _FakeComment(self, len(self._items) + 1, Range, str(Text))
+        self._items.append(c)
+        return c
+
+    def __call__(self, index: int) -> _FakeComment:
+        return self._items[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._items))
+
+    def _remove(self, comment: _FakeComment) -> None:
+        self._items.remove(comment)
+        for i, c in enumerate(self._items, start=1):
+            c.Index = i
+
+
 def _make_document(
     *,
     name: str = "Test.docx",
@@ -239,10 +283,26 @@ def _make_document(
     doc.Tables = _FakeTablesCollection(
         [_FakeTable(t["grid"], t.get("title", "")) for t in (tables or [])]
     )
+    doc.Comments = _FakeComments()
 
-    # `Range(start, end)` returns a fresh range whose `.Text` can be set/read
-    # by the caller; default `_make_range` sets `.Text = ""`.
-    doc.Range.side_effect = _make_range
+    # Track Changes flag: a plain settable bool so doc.track_changes /
+    # tracked_changes() round-trip through the same handle.
+    doc.TrackRevisions = False
+
+    # `Range(start, end)` returns a range whose `.Text` can be set/read by the
+    # caller. Cache by (start, end) so a write through one handle is visible on
+    # the next lookup of the same span — needed for RangeAnchor round-trips.
+    _range_cache: dict[tuple[int, int], MagicMock] = {}
+
+    def _range_factory(start: int, end: int) -> MagicMock:
+        key = (int(start), int(end))
+        rng = _range_cache.get(key)
+        if rng is None:
+            rng = _make_range(start, end)
+            _range_cache[key] = rng
+        return rng
+
+    doc.Range.side_effect = _range_factory
 
     # `Content` is the full document range; find/replace reads `.Text` from it.
     content_range = _make_range(0, len(content))
