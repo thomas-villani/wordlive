@@ -544,6 +544,125 @@ The toggle is **persistent** — `track on` leaves Word recording revisions unti
 changes and restore the prior setting afterwards. Failures: `3` Word busy, `4`
 Word not running.
 
+## `list show`
+
+```
+wordlive list show [--doc DOC_NAME]
+```
+
+Enumerate every bullet/numbered list in the document, top to bottom. Each row
+carries a `range:START-END` **`anchor_id`** covering the whole list, so you can
+feed it straight into `list restart`, `replace`, or `comment add`.
+
+```bash
+$ wordlive list show
+[{"index": 1, "type": "numbered", "count": 4, "anchor_id": "range:512-690"}]
+```
+
+`type` is `bulleted` / `numbered` / `outline` / `number-only` / `mixed`.
+Failures: `3` Word busy, `4` Word not running.
+
+## `list apply --anchor-id ID --type …`
+
+```
+wordlive list apply --anchor-id ID [--type bulleted|numbered|outline] [--continue] [--doc DOC_NAME]
+```
+
+Turn the anchor's paragraphs into a list. `--type` defaults to `bulleted`.
+Numbering starts fresh at 1 unless `--continue` is given, which continues from
+a list immediately above. Atomic-undo.
+
+```bash
+$ wordlive list apply --anchor-id heading:6 --type numbered
+{"ok": true, "anchor_id": "heading:6",
+ "anchor": {"kind": "heading", "name": "Steps"},
+ "type": "numbered", "continue_previous": false}
+```
+
+Failures: `2` anchor not found, `3` Word busy.
+
+## `list info --anchor-id ID`
+
+```
+wordlive list info --anchor-id ID [--doc DOC_NAME]
+```
+
+Report the list state at an anchor (read-only): `{type, level, number, string}`,
+where `string` is the rendered marker (`"1."`, `"a)"`, `"•"`). `type` is
+`"none"` when the anchor isn't in a list.
+
+```bash
+$ wordlive list info --anchor-id range:512-540
+{"type": "numbered", "level": 1, "number": 3, "string": "3."}
+```
+
+Failures: `2` anchor not found, `3` Word busy.
+
+## `list remove | restart | indent | outdent --anchor-id ID`
+
+```
+wordlive list remove  --anchor-id ID [--doc DOC_NAME]   # strip list formatting
+wordlive list restart --anchor-id ID [--doc DOC_NAME]   # restart numbering at 1
+wordlive list indent  --anchor-id ID [--doc DOC_NAME]   # demote one level (1 -> 2)
+wordlive list outdent --anchor-id ID [--doc DOC_NAME]   # promote one level (2 -> 1)
+```
+
+All four are atomic-undo. `restart` re-applies the list's own template starting
+at 1; it errors if the anchor isn't part of a list.
+
+```bash
+$ wordlive list restart --anchor-id range:512-540
+{"ok": true, "anchor_id": "range:512-540", "anchor": {"kind": "range", "name": "range:512-540"}}
+```
+
+Failures: `2` anchor not found, `3` Word busy.
+
+## `section list`
+
+```
+wordlive section list [--doc DOC_NAME]
+```
+
+List the document's sections with each one's page setup.
+
+```bash
+$ wordlive section list
+[{"index": 1,
+  "page_setup": {"orientation": "portrait",
+                 "top_margin": 72.0, "bottom_margin": 72.0,
+                 "left_margin": 72.0, "right_margin": 72.0,
+                 "page_width": 612.0, "page_height": 792.0}}]
+```
+
+Margins and page dimensions are in **points**. Headers and footers live in the
+`header` / `footer` commands. Failures: `3` Word busy, `4` Word not running.
+
+## `header read | write` · `footer read | write`
+
+```
+wordlive header read  [--section N] [--which primary|first|even] [--doc DOC_NAME]
+wordlive header write [--section N] [--which primary|first|even] --text "..." [--doc DOC_NAME]
+wordlive footer read  [--section N] [--which primary|first|even] [--doc DOC_NAME]
+wordlive footer write [--section N] [--which primary|first|even] --text "..." [--doc DOC_NAME]
+```
+
+Read or set a section's header/footer. `--section` defaults to `1` and
+`--which` to `primary` (the other options are `first` for the first-page
+header/footer and `even` for even pages). `write` is atomic-undo. A header/footer
+is just a range, so its id (`header:S:WHICH` / `footer:S:WHICH`) also works with
+`replace`, `style apply`, and `format-paragraph`.
+
+```bash
+$ wordlive header read --section 1
+{"anchor_id": "header:1:primary", "section": 1, "which": "primary", "text": "Confidential"}
+
+$ wordlive header write --section 1 --text "ACME Corporation — Q2 Report"
+{"ok": true, "anchor_id": "header:1:primary", "section": 1, "which": "primary"}
+```
+
+`--text` mode (`wordlive --text header read`) emits just the header text.
+Failures: `2` section out of range, `3` Word busy.
+
 ## `exec --script ops.json`
 
 ```
@@ -586,6 +705,13 @@ Script shape:
 | `add_comment`          | `anchor_id`, `text`                        | `author`                          |
 | `resolve_comment`      | `index`                                    | —                                 |
 | `delete_comment`       | `index`                                    | —                                 |
+| `apply_list`           | `anchor_id`                                | `type` (`bulleted`/`numbered`/`outline`), `continue` |
+| `remove_list`          | `anchor_id`                                | —                                 |
+| `restart_numbering`    | `anchor_id`                                | —                                 |
+| `indent_list`          | `anchor_id`                                | —                                 |
+| `outdent_list`         | `anchor_id`                                | —                                 |
+| `write_header`         | `section`, `text`                          | `which` (`primary`/`first`/`even`) |
+| `write_footer`         | `section`, `text`                          | `which`                           |
 
 The `find_replace` op mirrors `wordlive replace --find …` — fuzzy whitespace
 + smart-quote match, optional `in` anchor to scope it, and either `all` or
@@ -605,6 +731,14 @@ table ops join the same atomic-undo scope as the rest of the batch.
 verbs — `add_comment` attaches a side-channel annotation to an `anchor_id`
 without touching the text, while `resolve_comment` / `delete_comment` take a
 1-based `index`. Since deletes re-index, ordering matters within a batch.
+
+`apply_list`, `remove_list`, `restart_numbering`, `indent_list`, and
+`outdent_list` mirror the `list` verbs — all take an `anchor_id`, and
+`apply_list`'s optional `type` defaults to `bulleted`. `write_header` /
+`write_footer` set a section's header/footer by 1-based `section` index, with
+an optional `which` (`primary` / `first` / `even`, default `primary`) — handy
+for stamping a client name or page footer across a generated document in the
+same atomic-undo batch as the body edits.
 
 ### Recording the batch as tracked changes
 

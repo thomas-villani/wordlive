@@ -62,6 +62,15 @@ wordlive comment list
 wordlive comment resolve --index 1
 wordlive track on            # record edits as revisions; `track off` to stop
 
+# Lists & numbering (any anchor's paragraphs):
+wordlive list apply --anchor-id heading:6 --type numbered
+wordlive list restart --anchor-id heading:6
+
+# Sections, headers & footers (header:S:WHICH / footer:S:WHICH):
+wordlive section list
+wordlive header write --section 1 --text "ACME Corporation"
+wordlive footer read --section 1
+
 # Batch multiple ops in a single Ctrl-Z:
 wordlive exec --script ops.json
 ```

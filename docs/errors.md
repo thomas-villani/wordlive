@@ -40,11 +40,13 @@ The requested document isn't open. Raised by `word.documents[name]` and by
 the exception's `.name` attribute.
 
 ### `AnchorNotFoundError`
-A bookmark, content control, heading, table cell, comment, or range you asked
-for doesn't exist — or a `find`/`replace --find` pattern matched zero
-occurrences (in that case `.kind == "find"` and `.name` is the search string).
-`.kind` names the thing that was missing (`"bookmark"`, `"heading"`,
-`"table cell"`, `"comment"`, `"range"`, …) and `.name` is what you asked for.
+A bookmark, content control, heading, table cell, comment, range, list,
+section, or header/footer you asked for doesn't exist — or a
+`find`/`replace --find` pattern matched zero occurrences (in that case
+`.kind == "find"` and `.name` is the search string). `.kind` names the thing
+that was missing (`"bookmark"`, `"heading"`, `"table cell"`, `"comment"`,
+`"range"`, `"list"`, `"section"`, `"header"`, `"footer"`, …) and `.name` is
+what you asked for.
 **Retryable after refreshing the outline / bookmark list or reading the current
 content** — the document may have changed since you last looked.
 

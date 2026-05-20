@@ -18,6 +18,8 @@ from ._app import Word, attach, connect
 from ._comments import Comment, CommentCollection
 from ._document import Document, DocumentCollection
 from ._edit import EditScope
+from ._lists import ListCollection
+from ._sections import HeaderFooter, Section, SectionCollection
 from ._selection import Selection, SelectionSnapshot
 from ._styles import Style, StyleCollection
 from ._tables import Cell, Table, TableCollection
@@ -48,7 +50,11 @@ __all__ = [
     "EditScope",
     "Heading",
     "HeadingCollection",
+    "HeaderFooter",
+    "ListCollection",
     "RangeAnchor",
+    "Section",
+    "SectionCollection",
     "Selection",
     "SelectionSnapshot",
     "Style",

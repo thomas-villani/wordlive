@@ -37,9 +37,11 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 
 ## Anchors
 
-Every anchor type inherits `apply_style(name)` and `format_paragraph(...)` from
-[`Anchor`](#wordlive.Anchor), so the same calls work uniformly on bookmarks,
-content controls, headings, and any future anchor types.
+Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`, and the
+list verbs (`apply_list`, `remove_list`, `list_info`, `restart_numbering`,
+`indent_list`, `outdent_list`) from [`Anchor`](#wordlive.Anchor), so the same
+calls work uniformly on bookmarks, content controls, headings, table cells,
+header/footer ranges, and arbitrary range anchors.
 
 ::: wordlive.Anchor
 
@@ -96,6 +98,33 @@ Changes on for the scope and restores the prior setting on exit — pair it with
 `edit()` to make a batch of edits *visibly*, as revisions the user can accept or
 reject. `Document.track_changes` is the underlying read/write property for the
 persistent flag. Both are documented on [`Document`](#wordlive.Document).
+
+## Lists & numbering
+
+List operations apply to a *range's paragraphs*, so the verbs live on
+[`Anchor`](#wordlive.Anchor) — `apply_list("numbered")`, `remove_list()`,
+`list_info()`, `restart_numbering()`, and `indent_list()` / `outdent_list()`
+work on any anchor. `Document.lists` is a read-only
+[`ListCollection`](#wordlive.ListCollection) for discovering the lists already in
+the document; index it (`doc.lists[2]`) to get a
+[`RangeAnchor`](#wordlive.RangeAnchor) over a list's range.
+
+::: wordlive.ListCollection
+
+## Sections, headers & footers
+
+`Document.sections` is a [`SectionCollection`](#wordlive.SectionCollection). Each
+[`Section`](#wordlive.Section) reaches its headers and footers as
+[`HeaderFooter`](#wordlive.HeaderFooter) anchors — `doc.sections[1].header()` /
+`.footer("first")` — addressed `header:S:WHICH` / `footer:S:WHICH` (WHICH is
+`primary` / `first` / `even`). A `HeaderFooter` *is* an `Anchor`, so
+`set_text`, `apply_style`, and `format_paragraph` work on it like any other.
+
+::: wordlive.SectionCollection
+
+::: wordlive.Section
+
+::: wordlive.HeaderFooter
 
 ## Editing
 

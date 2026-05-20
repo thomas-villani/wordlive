@@ -10,8 +10,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Iterator, TYPE_CHECKING
 
-from . import _com
-from .constants import WdParagraphAlignment
+from . import _com, _lists
+from .constants import WdNumberType, WdParagraphAlignment
 from .exceptions import AnchorNotFoundError
 
 if TYPE_CHECKING:
@@ -161,6 +161,54 @@ class Anchor(ABC):
                 pf.SpaceBefore = float(space_before)
             if space_after is not None:
                 pf.SpaceAfter = float(space_after)
+
+    def apply_list(self, list_type: str = "bulleted", *, continue_previous: bool = False) -> None:
+        """Turn this anchor's paragraphs into a list.
+
+        `list_type` is `"bulleted"`, `"numbered"`, or `"outline"` (the three
+        `ListGalleries`). By default numbering starts fresh at 1; pass
+        `continue_previous=True` to continue from a list immediately above.
+        Raises `ValueError` for an unknown `list_type`.
+        """
+        gallery_type = _lists.gallery_for(list_type)  # ValueError before any mutation
+        with _com.translate_com_errors():
+            _lists.apply_list_template(
+                self._range(), gallery_type, continue_previous=continue_previous
+            )
+
+    def remove_list(self) -> None:
+        """Strip list formatting (bullets / numbers) from this anchor's paragraphs."""
+        with _com.translate_com_errors():
+            self._range().ListFormat.RemoveNumbers(NumberType=int(WdNumberType.ALL_NUMBERS))
+
+    def list_info(self) -> dict[str, Any]:
+        """Describe the list this anchor sits in: `{type, level, number, string}`.
+
+        `type` is `"none"` when there's no list formatting, otherwise one of
+        `"bulleted"`, `"numbered"`, `"outline"`, `"number-only"`, or `"mixed"`.
+        `number` is the first paragraph's value, `string` its rendered marker.
+        """
+        with _com.translate_com_errors():
+            return _lists.read_list_info(self._range())
+
+    def restart_numbering(self) -> None:
+        """Restart this list's numbering at 1.
+
+        Re-applies the range's current list template with "continue previous"
+        off. Raises `ValueError` if the range isn't part of a list.
+        """
+        with _com.translate_com_errors():
+            _lists.restart_numbering(self._range())
+
+    def indent_list(self) -> None:
+        """Demote this list item one level (e.g. level 1 -> 2)."""
+        with _com.translate_com_errors():
+            self._range().ListFormat.ListIndent()
+
+    def outdent_list(self) -> None:
+        """Promote this list item one level (e.g. level 2 -> 1)."""
+        with _com.translate_com_errors():
+            self._range().ListFormat.ListOutdent()
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} {self.name!r}>"

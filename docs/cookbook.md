@@ -657,3 +657,66 @@ JSON
 The standalone `wordlive track on` / `track off` toggle is *persistent* —
 useful when a human will keep editing in tracked mode — but it doesn't
 auto-restore, so prefer the scoped forms above for one-shot agent edits.
+
+## 11. Number a procedure and stamp the header/footer
+
+Template-generation work: take the paragraphs under a *Steps* heading, turn
+them into a numbered list, and brand the page with a header and footer — all in
+one atomic-undo batch. List verbs and header/footer writes are just anchor
+operations, so they compose with everything else.
+
+=== "Python"
+
+    ```python
+    import wordlive as wl
+
+    with wl.attach() as word:
+        doc = word.documents.active
+
+        steps = doc.heading("Steps")          # body under the heading
+        with doc.edit("Number the procedure"):
+            steps.apply_list("numbered")      # 1., 2., 3., …
+
+            sec = doc.sections[1]
+            sec.header().set_text("ACME Corporation — Internal")
+            sec.footer().set_text("Confidential — do not distribute")
+    ```
+
+    `apply_list` accepts `"bulleted"`, `"numbered"`, or `"outline"`. To pick up
+    numbering from a list just above, pass `continue_previous=True`; to force a
+    fresh count on an existing list, call `steps.restart_numbering()`. Read the
+    current state with `steps.list_info()` (`{type, level, number, string}`).
+
+=== "CLI"
+
+    ```bash
+    # Discover lists already in the document (each carries a range anchor id).
+    wordlive list show
+
+    # Number a heading's paragraphs, then restart at 1 if needed.
+    wordlive list apply --anchor-id heading:6 --type numbered
+    wordlive list restart --anchor-id heading:6
+
+    # Headers/footers by section (default section 1, which=primary).
+    wordlive header write --section 1 --text "ACME Corporation — Internal"
+    wordlive footer write --section 1 --text "Confidential — do not distribute"
+    ```
+
+=== "CLI (one atomic batch)"
+
+    ```bash
+    wordlive exec --script - <<'JSON'
+    {
+      "label": "Number the procedure",
+      "ops": [
+        {"op": "apply_list",   "anchor_id": "heading:6", "type": "numbered"},
+        {"op": "write_header", "section": 1, "text": "ACME Corporation — Internal"},
+        {"op": "write_footer", "section": 1, "text": "Confidential — do not distribute"}
+      ]
+    }
+    JSON
+    ```
+
+A header/footer is just a range (`header:S:WHICH` / `footer:S:WHICH`, WHICH ∈
+`primary`/`first`/`even`), so the same id also works with `replace`,
+`style apply`, and `format-paragraph` when you need more than plain text.

@@ -76,6 +76,10 @@ def register(group: click.Group) -> None:
     group.add_command(table)
     group.add_command(comment)
     group.add_command(track)
+    group.add_command(list_cmd)
+    group.add_command(section)
+    group.add_command(header)
+    group.add_command(footer)
     group.add_command(exec_)
 
 
@@ -787,6 +791,311 @@ def track_off(ctx: click.Context) -> None:
 
 
 # ---------------------------------------------------------------------------
+# list show | apply | remove | info | restart | indent | outdent
+# ---------------------------------------------------------------------------
+
+
+def _fmt_list_show(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "(no lists)"
+    return "\n".join(
+        f"list:{r['index']}  {r['type']}  "
+        f"{r['count']} item{'s' if r['count'] != 1 else ''}  [{r['anchor_id']}]"
+        for r in rows
+    )
+
+
+def _fmt_list_info(info: dict[str, Any]) -> str:
+    if info.get("type") == "none":
+        return "not in a list"
+    return (
+        f"{info['type']} (level {info['level']}, number {info['number']}, "
+        f"marker {info['string']!r})"
+    )
+
+
+@click.group(name="list")
+def list_cmd() -> None:
+    """Apply, inspect, and manage bullet / numbered lists."""
+
+
+@list_cmd.command(name="show")
+@click.pass_context
+def list_show(ctx: click.Context) -> None:
+    """List every bullet/numbered list in the document, with its range anchor id."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.lists.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_list_show(rows))
+    _run(ctx, go)
+
+
+@list_cmd.command(name="apply")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose paragraphs to format as a list.")
+@click.option("--type", "list_type",
+              type=click.Choice(["bulleted", "numbered", "outline"], case_sensitive=False),
+              default="bulleted", show_default=True, help="List style to apply.")
+@click.option("--continue", "continue_previous", is_flag=True, default=False,
+              help="Continue numbering from the previous list instead of starting at 1.")
+@click.pass_context
+def list_apply(ctx: click.Context, anchor_id: str, list_type: str, continue_previous: bool) -> None:
+    """Turn the anchor's paragraphs into a bulleted/numbered/outline list (atomic-undo)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: apply {list_type} list to {anchor_id}"):
+                anchor.apply_list(list_type, continue_previous=continue_previous)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "type": list_type,
+                    "continue_previous": continue_previous,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"applied {list_type} list to {anchor_id}",
+            )
+    _run(ctx, go)
+
+
+@list_cmd.command(name="remove")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose list formatting to strip.")
+@click.pass_context
+def list_remove(ctx: click.Context, anchor_id: str) -> None:
+    """Strip list formatting (bullets / numbers) from the anchor's paragraphs (atomic-undo)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: remove list from {anchor_id}"):
+                anchor.remove_list()
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"removed list from {anchor_id}",
+            )
+    _run(ctx, go)
+
+
+@list_cmd.command(name="info")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor to inspect.")
+@click.pass_context
+def list_info_cmd(ctx: click.Context, anchor_id: str) -> None:
+    """Report the list type / level / number for the anchor (read-only)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            info = doc.anchor_by_id(anchor_id).list_info()
+            emit(info, as_text=not ctx.obj["as_json"], text=_fmt_list_info(info))
+    _run(ctx, go)
+
+
+@list_cmd.command(name="restart")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor inside the list to restart.")
+@click.pass_context
+def list_restart(ctx: click.Context, anchor_id: str) -> None:
+    """Restart the list's numbering at 1 (atomic-undo)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: restart numbering at {anchor_id}"):
+                anchor.restart_numbering()
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"restarted numbering at {anchor_id}",
+            )
+    _run(ctx, go)
+
+
+@list_cmd.command(name="indent")
+@click.option("--anchor-id", "anchor_id", required=True, help="List item to demote one level.")
+@click.pass_context
+def list_indent(ctx: click.Context, anchor_id: str) -> None:
+    """Demote the list item(s) one level (e.g. level 1 -> 2; atomic-undo)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: indent list {anchor_id}"):
+                anchor.indent_list()
+            emit(
+                {"ok": True, "anchor_id": anchor_id},
+                as_text=not ctx.obj["as_json"],
+                text=f"indented {anchor_id}",
+            )
+    _run(ctx, go)
+
+
+@list_cmd.command(name="outdent")
+@click.option("--anchor-id", "anchor_id", required=True, help="List item to promote one level.")
+@click.pass_context
+def list_outdent(ctx: click.Context, anchor_id: str) -> None:
+    """Promote the list item(s) one level (e.g. level 2 -> 1; atomic-undo)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: outdent list {anchor_id}"):
+                anchor.outdent_list()
+            emit(
+                {"ok": True, "anchor_id": anchor_id},
+                as_text=not ctx.obj["as_json"],
+                text=f"outdented {anchor_id}",
+            )
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# section list  |  header read|write  |  footer read|write
+# ---------------------------------------------------------------------------
+
+
+def _fmt_section_list(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "(no sections)"
+    lines: list[str] = []
+    for r in rows:
+        ps = r.get("page_setup", {})
+        lines.append(
+            f"section:{r['index']}  {ps.get('orientation', '?')}  "
+            f"{ps.get('page_width', 0):.0f}x{ps.get('page_height', 0):.0f}pt"
+        )
+    return "\n".join(lines)
+
+
+@click.group(name="section")
+def section() -> None:
+    """Inspect document sections (headers/footers live in `header` / `footer`)."""
+
+
+@section.command(name="list")
+@click.pass_context
+def section_list(ctx: click.Context) -> None:
+    """List sections with their page setup (orientation, margins, page size)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.sections.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_section_list(rows))
+    _run(ctx, go)
+
+
+_WHICH_OPTION = click.option(
+    "--which", "which",
+    type=click.Choice(["primary", "first", "even"], case_sensitive=False),
+    default="primary", show_default=True,
+    help="Which header/footer: primary, first-page, or even-pages.",
+)
+_SECTION_OPTION = click.option(
+    "--section", "section_index", type=int, default=1, show_default=True,
+    help="1-based section index.",
+)
+
+
+@click.group(name="header")
+def header() -> None:
+    """Read or write section headers (anchor id: header:S:WHICH)."""
+
+
+@header.command(name="read")
+@_SECTION_OPTION
+@_WHICH_OPTION
+@click.pass_context
+def header_read(ctx: click.Context, section_index: int, which: str) -> None:
+    """Read the text of a section header."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            hf = doc.sections[section_index].header(which)
+            text = hf.text
+            emit(
+                {"anchor_id": hf.anchor_id, "section": section_index, "which": which, "text": text},
+                as_text=not ctx.obj["as_json"],
+                text=text,
+            )
+    _run(ctx, go)
+
+
+@header.command(name="write")
+@_SECTION_OPTION
+@_WHICH_OPTION
+@click.option("--text", "text", required=True, help="New header text.")
+@click.pass_context
+def header_write(ctx: click.Context, section_index: int, which: str, text: str) -> None:
+    """Set the text of a section header (atomic-undo)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            hf = doc.sections[section_index].header(which)
+            with doc.edit(f"CLI: write {hf.anchor_id}"):
+                hf.set_text(text)
+            emit(
+                {"ok": True, "anchor_id": hf.anchor_id, "section": section_index, "which": which},
+                as_text=not ctx.obj["as_json"],
+                text=f"wrote {hf.anchor_id}",
+            )
+    _run(ctx, go)
+
+
+@click.group(name="footer")
+def footer() -> None:
+    """Read or write section footers (anchor id: footer:S:WHICH)."""
+
+
+@footer.command(name="read")
+@_SECTION_OPTION
+@_WHICH_OPTION
+@click.pass_context
+def footer_read(ctx: click.Context, section_index: int, which: str) -> None:
+    """Read the text of a section footer."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            hf = doc.sections[section_index].footer(which)
+            text = hf.text
+            emit(
+                {"anchor_id": hf.anchor_id, "section": section_index, "which": which, "text": text},
+                as_text=not ctx.obj["as_json"],
+                text=text,
+            )
+    _run(ctx, go)
+
+
+@footer.command(name="write")
+@_SECTION_OPTION
+@_WHICH_OPTION
+@click.option("--text", "text", required=True, help="New footer text.")
+@click.pass_context
+def footer_write(ctx: click.Context, section_index: int, which: str, text: str) -> None:
+    """Set the text of a section footer (atomic-undo)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            hf = doc.sections[section_index].footer(which)
+            with doc.edit(f"CLI: write {hf.anchor_id}"):
+                hf.set_text(text)
+            emit(
+                {"ok": True, "anchor_id": hf.anchor_id, "section": section_index, "which": which},
+                as_text=not ctx.obj["as_json"],
+                text=f"wrote {hf.anchor_id}",
+            )
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
 # exec --script ops.json
 # ---------------------------------------------------------------------------
 
@@ -809,6 +1118,13 @@ _OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "add_comment": ("anchor_id", "text"),
     "resolve_comment": ("index",),
     "delete_comment": ("index",),
+    "apply_list": ("anchor_id",),
+    "remove_list": ("anchor_id",),
+    "restart_numbering": ("anchor_id",),
+    "indent_list": ("anchor_id",),
+    "outdent_list": ("anchor_id",),
+    "write_header": ("section", "text"),
+    "write_footer": ("section", "text"),
 }
 
 
@@ -878,6 +1194,23 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
         doc.comments[op["index"]].resolve()
     elif kind == "delete_comment":
         doc.comments[op["index"]].delete()
+    elif kind == "apply_list":
+        continue_previous = bool(op.get("continue_previous", op.get("continue", False)))
+        doc.anchor_by_id(op["anchor_id"]).apply_list(
+            op.get("type", "bulleted"), continue_previous=continue_previous
+        )
+    elif kind == "remove_list":
+        doc.anchor_by_id(op["anchor_id"]).remove_list()
+    elif kind == "restart_numbering":
+        doc.anchor_by_id(op["anchor_id"]).restart_numbering()
+    elif kind == "indent_list":
+        doc.anchor_by_id(op["anchor_id"]).indent_list()
+    elif kind == "outdent_list":
+        doc.anchor_by_id(op["anchor_id"]).outdent_list()
+    elif kind == "write_header":
+        doc.sections[op["section"]].header(op.get("which", "primary")).set_text(op["text"])
+    elif kind == "write_footer":
+        doc.sections[op["section"]].footer(op.get("which", "primary")).set_text(op["text"])
 
 
 @click.command(name="exec")
@@ -891,8 +1224,9 @@ def exec_(ctx: click.Context, script: Path) -> None:
     revisions (Track Changes is restored to its prior state afterwards).
     Supported ops: write_bookmark, write_cc, insert_after_heading, replace,
     find_replace, apply_style, format_paragraph, set_cell, add_row, delete_row,
-    add_comment, resolve_comment, delete_comment. See docs/cli.md for each op's
-    required and optional fields.
+    add_comment, resolve_comment, delete_comment, apply_list, remove_list,
+    restart_numbering, indent_list, outdent_list, write_header, write_footer.
+    See docs/cli.md for each op's required and optional fields.
     """
     def go() -> None:
         payload = json.loads(script.read_text(encoding="utf-8"))

@@ -495,6 +495,60 @@ def t_tracked_changes_records_revision(_word: wl.Word, doc: Document) -> None:
         pass
 
 
+def t_list_apply_numbered_and_remove(_word: wl.Word, doc: Document) -> None:
+    """Apply a numbered list to a paragraph, confirm via list_info, then strip it."""
+    hits = doc.find("uses curly quotes")
+    expect(len(hits) >= 1, f"expected to find the curly-quotes phrase, got {hits}")
+    target = doc.anchor_by_id(hits[0]["anchor_id"])
+    with doc.edit("E2E: apply numbered list"):
+        target.apply_list("numbered")
+    info = target.list_info()
+    expect(info["type"] != "none", f"list_info should report a list after apply: {info}")
+    with doc.edit("E2E: remove list"):
+        target.remove_list()
+    expect(target.list_info()["type"] == "none", "remove_list should clear list formatting")
+
+
+def t_list_restart_numbering(_word: wl.Word, doc: Document) -> None:
+    hits = doc.find("uses curly quotes")
+    expect(len(hits) >= 1, "expected to find the curly-quotes phrase")
+    target = doc.anchor_by_id(hits[0]["anchor_id"])
+    with doc.edit("E2E: numbered then restart"):
+        target.apply_list("numbered")
+        target.restart_numbering()
+    expect(target.list_info()["type"] != "none", "list should survive a restart")
+    with doc.edit("E2E: cleanup list"):
+        target.remove_list()
+
+
+def t_sections_list(_word: wl.Word, doc: Document) -> None:
+    rows = doc.sections.list()
+    expect(len(rows) >= 1, f"expected at least one section, got {len(rows)}")
+    ps = rows[0]["page_setup"]
+    expect(ps["page_width"] > 0 and ps["page_height"] > 0, f"page setup looks empty: {ps}")
+    expect(ps["orientation"] in ("portrait", "landscape"), f"bad orientation: {ps['orientation']}")
+
+
+def t_header_write_and_read(_word: wl.Word, doc: Document) -> None:
+    hf = doc.sections[1].header()
+    with doc.edit("E2E: write header"):
+        hf.set_text("E2E Header")
+    expect(doc.sections[1].header().text == "E2E Header", "header set_text round-trip failed")
+    # Clean up so we don't leave a header on the temp doc.
+    with doc.edit("E2E: clear header"):
+        doc.sections[1].header().set_text("")
+
+
+def t_footer_via_anchor_id(_word: wl.Word, doc: Document) -> None:
+    hf = doc.anchor_by_id("footer:1:primary")
+    expect(hf.kind == "footer", f"expected footer kind, got {hf.kind!r}")
+    with doc.edit("E2E: write footer via id"):
+        hf.set_text("E2E Footer")
+    expect(doc.sections[1].footer().text == "E2E Footer", "footer write via anchor_by_id failed")
+    with doc.edit("E2E: clear footer"):
+        doc.sections[1].footer().set_text("")
+
+
 def t_cli_status(_word: wl.Word, _doc: Document) -> None:
     """Smoke the CLI via subprocess — proves the install entry point works."""
     result = subprocess.run(
@@ -575,6 +629,13 @@ def main() -> int:
             h.run("comment.resolve sets done (Word 2013+)", lambda: t_comment_resolve(word, doc))
             h.run("comment.delete removes the comment", lambda: t_comment_delete(word, doc))
             h.run("tracked_changes records a revision then restores the flag", lambda: t_tracked_changes_records_revision(word, doc))
+
+            # Document structure (v0.6): lists, sections, headers/footers.
+            h.run("apply_list numbers a paragraph then remove_list clears it", lambda: t_list_apply_numbered_and_remove(word, doc))
+            h.run("restart_numbering keeps the list", lambda: t_list_restart_numbering(word, doc))
+            h.run("sections.list reports page setup", lambda: t_sections_list(word, doc))
+            h.run("header set_text round-trips", lambda: t_header_write_and_read(word, doc))
+            h.run("footer resolves + writes via anchor_by_id", lambda: t_footer_via_anchor_id(word, doc))
 
             if not args.no_cli:
                 h.run("CLI: wordlive status (subprocess)", lambda: t_cli_status(word, doc))

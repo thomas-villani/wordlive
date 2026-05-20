@@ -57,6 +57,8 @@ depend on the cursor.
 | `Bookmark`         | A bookmark by name                         | Stored in the `.docx`      |
 | `ContentControl`   | A structured field by Title (or Tag)       | Stored in the `.docx`      |
 | `Heading`          | A heading paragraph by visible text        | Reads the doc structure    |
+| `Cell`             | A table cell by (table, row, column)       | Reads the doc structure    |
+| `HeaderFooter`     | A section's header/footer by (section, which) | Reads the doc structure |
 | `RangeAnchor`      | An arbitrary character span by offsets     | Ephemeral (resolved live)  |
 
 All three subclass [`Anchor`](python-api.md#wordlive.Anchor) and share the
@@ -92,12 +94,16 @@ bookmark:Address     # bookmark by name
 cc:Signatory         # content control by Title (or Tag)
 table:1:2:3          # cell at row 2, column 3 of the 1st table
 range:412-429        # arbitrary character span (the form find() emits)
+header:1:primary     # primary header of section 1
+footer:2:first       # first-page footer of section 2
 ```
 
 The bare `table:N` form is deliberately *not* an anchor — a whole table is a
 collection, not a single range — so it's addressed through `doc.tables[N]` and
 the `table` CLI group instead. Only cells (`table:N:R:C`) resolve via
-`anchor_by_id`.
+`anchor_by_id`. Header/footer ids take a section index `S` and a `WHICH` of
+`primary` / `first` / `even`; the bare `section:N` is likewise a collection, not
+an anchor (use `doc.sections[N]`).
 
 The `range:START-END` form is what [`find()`](python-api.md#wordlive.Document)
 emits for each hit, and it round-trips: feed it back into `replace --anchor-id`

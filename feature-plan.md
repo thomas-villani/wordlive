@@ -122,14 +122,37 @@ direct text mutation.
 
 ---
 
-## v0.6+ — defer
+## v0.6 — lists & document structure — ✅ shipped in v0.6
 
-- **Sections / headers / footers** — useful, but mostly for
-  template-generation workflows; lower priority than tables/comments for
-  live-editing agents.
-- **Numbering / list management** — Word's `ListTemplates` /
+Two tracks bundled into one release. Headers/footers turned out to be the
+*easy* lift (a `HeaderFooter` is just a range, so it slots into the `Anchor`
+pattern like `Cell` did); lists/numbering was the fiddly half the note below
+warned about — `ListGalleries` / `ApplyListTemplate` / restart-vs-continue.
+
+- ~~**Numbering / list management** — Word's `ListTemplates` /
   `ListGalleries` are genuinely painful; isolate this work into its own
-  release rather than bundling.
+  release rather than bundling.~~ ✅ — list verbs live on the base `Anchor`:
+  `apply_list("bulleted"|"numbered"|"outline", continue_previous=...)`,
+  `remove_list()`, `list_info()`, `restart_numbering()`, `indent_list()` /
+  `outdent_list()`. `doc.lists` is a read-only discovery collection yielding a
+  `RangeAnchor` per list.
+- ~~**Sections / headers / footers** — useful, but mostly for
+  template-generation workflows.~~ ✅ — `doc.sections` collection;
+  `HeaderFooter` *is* an `Anchor` addressed `header:S:WHICH` / `footer:S:WHICH`
+  (WHICH = primary/first/even), so `set_text` / `apply_style` /
+  `format_paragraph` work on it; plus `Section.page_setup()` reads.
+- **Resolved:** list ops are anchor-scoped (they act on a range's paragraphs),
+  so they're methods on `Anchor` rather than a separate object — same shape as
+  `apply_style`. Level control is `indent_list` / `outdent_list` (Word's own
+  promote/demote), avoiding the unreliable direct `ListLevelNumber` write.
+- Deferred: custom list-template authoring, per-level bullet/number-format
+  control, multi-section `LinkToPrevious` editing, and `PageSetup` *writes*
+  (margins/orientation are read-only for now).
+
+---
+
+## v0.7+ — defer
+
 - **Events / sinks** — `WithEvents(word.com, Handler)` for
   `DocumentBeforeSave`, `WindowSelectionChange`. Wait for a concrete use
   case before designing the marshalling layer.
@@ -138,6 +161,8 @@ direct text mutation.
   events arrive to invalidate on `DocumentChange`.
 - **Styles deep cuts** — character styles, list styles, theme-aware fonts.
   Cover paragraph styles in v0.2 first, see what's actually missing.
+- **PageSetup writes** — margins, orientation, page size. Reads shipped in
+  v0.6; writes want their own small pass (units, section-vs-document scope).
 
 ---
 

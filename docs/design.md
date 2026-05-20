@@ -103,11 +103,12 @@ The roadmap lives in
 [`feature-plan.md`](https://github.com/thomas-villani/wordlive/blob/main/feature-plan.md).
 The current release covers the politeness/anchors/EditScope core, the LLM-first
 CLI, fuzzy find/replace, document-scoped styles + paragraph formatting, tables
-(cells as `table:N:R:C` anchors), and the collaboration surface — review
-comments, scoped track-changes, and arbitrary `range:START-END` anchors. Likely
-next steps: sections / headers / footers, list & numbering management, event
-sinks (`WindowSelectionChange`, `DocumentBeforeSave`), and an async wrapper
-around the sync core.
+(cells as `table:N:R:C` anchors), the collaboration surface (review comments,
+scoped track-changes, and arbitrary `range:START-END` anchors), and document
+structure — bullet/numbered lists and section headers/footers
+(`header:S:WHICH` / `footer:S:WHICH` anchors). Likely next steps: event sinks
+(`WindowSelectionChange`, `DocumentBeforeSave`), an async wrapper around the
+sync core, and the deeper style cuts (character styles, theme-aware fonts).
 
 ## Full design document
 

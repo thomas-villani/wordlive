@@ -91,11 +91,86 @@ class _FakeParagraphs:
         return iter(self._items)
 
 
+class _FakeListFormat:
+    """Mimics Range.ListFormat: apply/remove templates, in/out-dent, read state.
+
+    `ApplyListTemplate` reads the gallery off the template handed in by
+    `_list_application` (1=bullet, 2=number, 3=outline) and updates the
+    readable list state to match, so apply -> list_info round-trips. A template
+    is `None` until a list is applied, so `restart_numbering` on a plain range
+    raises (matching Word).
+    """
+
+    _GALLERY_TO_TYPE = {1: 2, 2: 3, 3: 4}  # bullet->BULLET, number->SIMPLE, outline->OUTLINE
+    _MARKER = {2: "•", 3: "1.", 4: "1."}
+
+    def __init__(self) -> None:
+        self.ListType = 0
+        self.ListLevelNumber = 1
+        self.ListValue = 0
+        self.ListString = ""
+        self._gallery: int | None = None
+        self._continue = False
+
+    def ApplyListTemplate(self, ListTemplate=None, ContinuePreviousList=False, ApplyTo=0, DefaultListBehavior=2, **kw):
+        gallery = getattr(ListTemplate, "_gallery", None)
+        self._gallery = int(gallery) if gallery is not None else None
+        self.ListType = self._GALLERY_TO_TYPE.get(self._gallery, 3)
+        self._continue = bool(ContinuePreviousList)
+        self.ListValue = 1 if self.ListType in (3, 4) else 0
+        self.ListString = self._MARKER.get(self.ListType, "")
+        self.ListLevelNumber = 1
+
+    def RemoveNumbers(self, NumberType=3):
+        self.ListType = 0
+        self.ListLevelNumber = 1
+        self.ListValue = 0
+        self.ListString = ""
+        self._gallery = None
+
+    def ListIndent(self) -> None:
+        self.ListLevelNumber = min(9, self.ListLevelNumber + 1)
+
+    def ListOutdent(self) -> None:
+        self.ListLevelNumber = max(1, self.ListLevelNumber - 1)
+
+    @property
+    def ListTemplate(self):
+        if self._gallery is None:
+            return None
+        t = MagicMock(name="ListTemplate")
+        t._gallery = self._gallery
+        return t
+
+
+def _list_application() -> MagicMock:
+    """A stand-in Application whose ListGalleries(n).ListTemplates(1) carries gallery n."""
+    app = MagicMock(name="ListApplication")
+
+    def galleries(gallery_type):
+        gallery = MagicMock(name=f"Gallery[{gallery_type}]")
+
+        def templates(n):
+            t = MagicMock(name=f"Template[{gallery_type}:{n}]")
+            t._gallery = int(gallery_type)
+            return t
+
+        gallery.ListTemplates.side_effect = templates
+        return gallery
+
+    app.ListGalleries.side_effect = galleries
+    return app
+
+
 def _make_range(start: int, end: int) -> MagicMock:
     rng = MagicMock(name=f"Range[{start},{end}]")
     rng.Start = start
     rng.End = end
     rng.Text = ""
+    # List support: a stateful ListFormat plus an Application that vends
+    # list-gallery templates, so apply_list / list_info / restart work.
+    rng.ListFormat = _FakeListFormat()
+    rng.Application = _list_application()
     return rng
 
 
@@ -257,6 +332,99 @@ class _FakeComments:
             c.Index = i
 
 
+class _FakeWordList:
+    """Mimics a Word List COM object: a Range plus a ListParagraphs count."""
+
+    def __init__(self, rng: Any, count: int) -> None:
+        self.Range = rng
+        lp = MagicMock(name="ListParagraphs")
+        lp.Count = count
+        self.ListParagraphs = lp
+
+
+class _FakeLists:
+    """Mimics doc.Lists: Count, 1-based call lookup, iteration."""
+
+    def __init__(self, lists: list[_FakeWordList]) -> None:
+        self._lists = lists
+
+    @property
+    def Count(self) -> int:
+        return len(self._lists)
+
+    def __call__(self, index: int) -> _FakeWordList:
+        return self._lists[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(self._lists)
+
+
+_WHICH_INDEX = {"primary": 1, "first": 2, "even": 3}
+
+
+class _FakeHeaderFooter:
+    """Mimics a Word HeaderFooter: a settable Range, Exists, LinkToPrevious."""
+
+    def __init__(self, text: str = "", *, exists: bool = True, linked: bool = False) -> None:
+        rng = _make_range(0, len(text))
+        rng.Text = text
+        self.Range = rng
+        self.Exists = exists
+        self.LinkToPrevious = linked
+
+
+class _FakeHeadersFooters:
+    """Mimics Section.Headers / Section.Footers: 1/2/3-indexed call lookup."""
+
+    def __init__(self, mapping: dict[int, _FakeHeaderFooter]) -> None:
+        self._m = mapping
+
+    def __call__(self, index: int) -> _FakeHeaderFooter:
+        return self._m[int(index)]
+
+
+class _FakePageSetup:
+    def __init__(self, **kw: Any) -> None:
+        self.Orientation = kw.get("orientation", 0)
+        self.TopMargin = kw.get("top", 72.0)
+        self.BottomMargin = kw.get("bottom", 72.0)
+        self.LeftMargin = kw.get("left", 72.0)
+        self.RightMargin = kw.get("right", 72.0)
+        self.PageWidth = kw.get("width", 612.0)
+        self.PageHeight = kw.get("height", 792.0)
+
+
+class _FakeSection:
+    def __init__(self, index: int, headers: dict[int, _FakeHeaderFooter],
+                 footers: dict[int, _FakeHeaderFooter], page_setup: _FakePageSetup) -> None:
+        self.Index = index
+        self.Headers = _FakeHeadersFooters(headers)
+        self.Footers = _FakeHeadersFooters(footers)
+        self.PageSetup = page_setup
+
+
+class _FakeSections:
+    """Mimics doc.Sections: Count, 1-based call lookup, iteration."""
+
+    def __init__(self, sections: list[_FakeSection]) -> None:
+        self._s = sections
+
+    @property
+    def Count(self) -> int:
+        return len(self._s)
+
+    def __call__(self, index: int) -> _FakeSection:
+        return self._s[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(self._s)
+
+
+def _build_hf_map(texts: dict[str, str]) -> dict[int, _FakeHeaderFooter]:
+    """All three header/footer indices, seeded from a {which: text} dict."""
+    return {idx: _FakeHeaderFooter(texts.get(name, "")) for name, idx in _WHICH_INDEX.items()}
+
+
 def _make_document(
     *,
     name: str = "Test.docx",
@@ -267,6 +435,8 @@ def _make_document(
     content: str = "",
     styles: tuple[dict[str, Any], ...] | list[dict[str, Any]] | None = None,
     tables: list[dict[str, Any]] | None = None,
+    lists: list[dict[str, Any]] | None = None,
+    sections: list[dict[str, Any]] | None = None,
 ) -> MagicMock:
     doc = MagicMock(name=f"Document[{name}]")
     doc.Name = name
@@ -309,6 +479,33 @@ def _make_document(
     content_range.Text = content
     doc.Content = content_range
 
+    # Lists: build each list's Range through the cached factory so list_info /
+    # restart_numbering see the same ListFormat the RangeAnchor resolves to.
+    list_objs: list[_FakeWordList] = []
+    for spec in (lists or []):
+        rng = _range_factory(spec["start"], spec["end"])
+        lf = rng.ListFormat
+        lf.ListType = spec.get("type", 3)
+        lf.ListValue = 1 if lf.ListType in (3, 4) else 0
+        lf.ListString = {2: "•", 3: "1.", 4: "1."}.get(lf.ListType, "")
+        lf._gallery = {2: 1, 3: 2, 4: 3}.get(lf.ListType)
+        list_objs.append(_FakeWordList(rng, spec.get("count", 0)))
+    doc.Lists = _FakeLists(list_objs)
+
+    # Sections: at least one (real documents always have one).
+    section_specs = sections if sections is not None else [{}]
+    section_objs: list[_FakeSection] = []
+    for i, spec in enumerate(section_specs, start=1):
+        section_objs.append(
+            _FakeSection(
+                i,
+                _build_hf_map(spec.get("headers", {})),
+                _build_hf_map(spec.get("footers", {})),
+                _FakePageSetup(**spec.get("page_setup", {})),
+            )
+        )
+    doc.Sections = _FakeSections(section_objs)
+
     return doc
 
 
@@ -349,6 +546,11 @@ def fake_word(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
         # Self-consistent text — paragraph offsets above index into this string.
         content="Introduction\rBody text here.\rRisks\r",
         tables=[{"grid": [["A1", "B1"], ["A2", "B2"]], "title": "Grid"}],
+        # A 2-item numbered list over the body region (offsets 13–29).
+        lists=[{"start": 13, "end": 29, "count": 2, "type": 3}],
+        # One section with a primary header and footer seeded for read tests.
+        sections=[{"headers": {"primary": "Confidential Draft"},
+                   "footers": {"primary": "Page 1"}}],
     )
     app = _make_application([doc])
 

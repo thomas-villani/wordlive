@@ -985,3 +985,163 @@ def test_exec_tracked_payload_turns_on_then_restores(fake_word, tmp_path: Path):
     assert code == EXIT_OK
     # Track Changes was flipped on for the batch, then restored to off.
     assert fake_word.ActiveDocument.TrackRevisions is False
+
+
+# ---------------------------------------------------------------------------
+# list (v0.6): show / apply / remove / info / restart / indent / outdent
+# ---------------------------------------------------------------------------
+
+
+def test_list_show(fake_word):
+    code, out, _ = _invoke(["list", "show"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data[0]["index"] == 1
+    assert data[0]["type"] == "numbered"
+    assert data[0]["anchor_id"] == "range:13-29"
+
+
+def test_list_apply_numbered(fake_word):
+    code, out, _ = _invoke(["list", "apply", "--anchor-id", "range:0-12", "--type", "numbered"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["type"] == "numbered"
+    assert data["continue_previous"] is False
+
+
+def test_list_apply_with_continue_flag(fake_word):
+    code, _, _ = _invoke(
+        ["list", "apply", "--anchor-id", "range:0-12", "--type", "numbered", "--continue"]
+    )
+    assert code == EXIT_OK
+    assert fake_word.ActiveDocument.Range(0, 12).ListFormat._continue is True
+
+
+def test_list_apply_bad_anchor_returns_exit_2(fake_word):
+    code, _, _ = _invoke(["list", "apply", "--anchor-id", "heading:99", "--type", "bulleted"])
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
+def test_list_info(fake_word):
+    code, out, _ = _invoke(["list", "info", "--anchor-id", "range:13-29"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["type"] == "numbered"
+    assert data["string"] == "1."
+
+
+def test_list_remove(fake_word):
+    code, out, _ = _invoke(["list", "remove", "--anchor-id", "range:13-29"])
+    assert code == EXIT_OK
+    assert json.loads(out)["ok"] is True
+
+
+def test_list_restart(fake_word):
+    code, out, _ = _invoke(["list", "restart", "--anchor-id", "range:13-29"])
+    assert code == EXIT_OK
+    assert json.loads(out)["ok"] is True
+
+
+def test_list_indent_then_outdent(fake_word):
+    _invoke(["list", "apply", "--anchor-id", "range:0-12", "--type", "numbered"])
+    code, _, _ = _invoke(["list", "indent", "--anchor-id", "range:0-12"])
+    assert code == EXIT_OK
+    code, _, _ = _invoke(["list", "outdent", "--anchor-id", "range:0-12"])
+    assert code == EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# section / header / footer (v0.6)
+# ---------------------------------------------------------------------------
+
+
+def test_section_list(fake_word):
+    code, out, _ = _invoke(["section", "list"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data[0]["index"] == 1
+    assert data[0]["page_setup"]["orientation"] == "portrait"
+
+
+def test_header_read_default_section(fake_word):
+    code, out, _ = _invoke(["header", "read"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["text"] == "Confidential Draft"
+    assert data["anchor_id"] == "header:1:primary"
+
+
+def test_header_write_then_read(fake_word):
+    code, out, _ = _invoke(["header", "write", "--section", "1", "--text", "ACME Corp"])
+    assert code == EXIT_OK
+    assert json.loads(out)["ok"] is True
+    code, out, _ = _invoke(["header", "read", "--section", "1"])
+    assert json.loads(out)["text"] == "ACME Corp"
+
+
+def test_header_read_unseeded_which_is_empty(fake_word):
+    code, out, _ = _invoke(["header", "read", "--which", "first"])
+    assert code == EXIT_OK
+    assert json.loads(out)["text"] == ""
+
+
+def test_footer_read_and_write(fake_word):
+    code, out, _ = _invoke(["footer", "read"])
+    assert json.loads(out)["text"] == "Page 1"
+    code, out, _ = _invoke(["footer", "write", "--text", "Page 2 of 5"])
+    assert code == EXIT_OK
+    code, out, _ = _invoke(["footer", "read"])
+    assert json.loads(out)["text"] == "Page 2 of 5"
+
+
+def test_header_text_mode(fake_word):
+    code, out, _ = _invoke(["--text", "header", "read"])
+    assert code == EXIT_OK
+    assert out.strip() == "Confidential Draft"
+
+
+# ---------------------------------------------------------------------------
+# exec ops (v0.6): apply_list / restart_numbering / write_header / write_footer
+# ---------------------------------------------------------------------------
+
+
+def test_exec_supports_apply_list_op(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps({"ops": [{"op": "apply_list", "anchor_id": "range:0-12", "type": "numbered"}]}),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+    assert fake_word.ActiveDocument.Range(0, 12).ListFormat.ListType == 3
+
+
+def test_exec_supports_header_and_footer_ops(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "ops": [
+                    {"op": "write_header", "section": 1, "text": "Hdr"},
+                    {"op": "write_footer", "section": 1, "which": "primary", "text": "Ftr"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 2
+    doc = fake_word.ActiveDocument
+    assert doc.Sections(1).Headers(1).Range.Text == "Hdr"
+    assert doc.Sections(1).Footers(1).Range.Text == "Ftr"
+
+
+def test_exec_apply_list_missing_field_reports_cleanly(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(json.dumps({"ops": [{"op": "apply_list"}]}), encoding="utf-8")
+    code, _, err = _invoke(["exec", "--script", str(script)])
+    assert code != EXIT_OK
+    assert "anchor_id" in err

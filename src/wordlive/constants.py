@@ -55,3 +55,77 @@ class WdStyleType(IntEnum):
     CHARACTER = 2
     TABLE = 3
     LIST = 4
+
+
+class WdListGalleryType(IntEnum):
+    """Which `Application.ListGalleries` collection a list template comes from.
+
+    `apply_list("bulleted"|"numbered"|"outline")` maps onto these.
+    """
+
+    BULLET = 1
+    NUMBER = 2
+    OUTLINE_NUMBER = 3
+
+
+class WdListType(IntEnum):
+    """Word's `ListFormat.ListType` values — what kind of list a range is in.
+
+    `list_info()["type"]` emits these as lowercase strings (`BULLET` ->
+    `"bulleted"`, `SIMPLE_NUMBERING` -> `"numbered"`, etc.); `NO_NUMBERING`
+    is reported as `"none"`.
+    """
+
+    NO_NUMBERING = 0
+    LIST_NUM_ONLY = 1
+    BULLET = 2
+    SIMPLE_NUMBERING = 3
+    OUTLINE_NUMBERING = 4
+    MIXED_NUMBERING = 5
+
+
+class WdListApplyTo(IntEnum):
+    """Scope argument for `ListFormat.ApplyListTemplate`."""
+
+    WHOLE_LIST = 0
+    THIS_POINT_FORWARD = 1
+    SELECTION = 2
+
+
+class WdNumberType(IntEnum):
+    """`NumberType` argument for `ListFormat.RemoveNumbers`."""
+
+    PARAGRAPH = 1
+    LIST_NUM = 2
+    ALL_NUMBERS = 3
+
+
+class WdDefaultListBehavior(IntEnum):
+    """`DefaultListBehavior` argument for `ListFormat.ApplyListTemplate`.
+
+    `WORD10` enables the modern multi-level numbering behaviour and is what
+    `apply_list` passes.
+    """
+
+    WORD8 = 0
+    WORD9 = 1
+    WORD10 = 2
+
+
+class WdHeaderFooterIndex(IntEnum):
+    """Which header/footer of a section — `Section.Headers(index)`.
+
+    `header()` / `footer()` accept the string aliases (`"primary"`,
+    `"first"`, `"even"`) that map onto these.
+    """
+
+    PRIMARY = 1
+    FIRST_PAGE = 2
+    EVEN_PAGES = 3
+
+
+class WdOrientation(IntEnum):
+    """Page orientation — `PageSetup.Orientation`."""
+
+    PORTRAIT = 0
+    LANDSCAPE = 1

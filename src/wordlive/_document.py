@@ -17,6 +17,8 @@ from ._anchors import (
 )
 from ._comments import CommentCollection
 from ._edit import EditScope
+from ._lists import ListCollection
+from ._sections import SectionCollection
 from ._selection import Selection
 from ._styles import Style, StyleCollection
 from ._tables import TableCollection
@@ -87,6 +89,27 @@ class Document:
         return HeadingCollection(self)
 
     @property
+    def lists(self) -> ListCollection:
+        """Read-only, iterable view over the document's bullet / numbered lists.
+
+        Index a list by 1-based position (`doc.lists[2]`) to get a
+        [`RangeAnchor`][wordlive.RangeAnchor] over its range, so every list verb
+        (`apply_list`, `restart_numbering`, …) is available on it. List
+        formatting itself is applied through any anchor's `apply_list(...)`.
+        """
+        return ListCollection(self)
+
+    @property
+    def sections(self) -> SectionCollection:
+        """Indexable view over the document's sections, headers, and footers.
+
+        `doc.sections[1].header()` / `.footer()` return `HeaderFooter` anchors
+        (addressed `header:S:WHICH` / `footer:S:WHICH`) that work with
+        `set_text` / `apply_style` like any other anchor.
+        """
+        return SectionCollection(self)
+
+    @property
     def comments(self) -> CommentCollection:
         """Iterable, indexable view over the document's review comments.
 
@@ -152,11 +175,13 @@ class Document:
         """Resolve an `anchor_id` string into an Anchor.
 
         Recognised forms:
-          - `heading:N`       — Nth paragraph in the document (1-based, must be a heading)
-          - `bookmark:NAME`   — bookmark by name
-          - `cc:NAME`         — content control by Title (or Tag)
-          - `table:N:R:C`     — cell at 1-based (row, column) of the Nth table
-          - `range:START-END` — arbitrary character span (the form `find()` emits)
+          - `heading:N`        — Nth paragraph in the document (1-based, must be a heading)
+          - `bookmark:NAME`    — bookmark by name
+          - `cc:NAME`          — content control by Title (or Tag)
+          - `table:N:R:C`      — cell at 1-based (row, column) of the Nth table
+          - `range:START-END`  — arbitrary character span (the form `find()` emits)
+          - `header:S:WHICH`   — the WHICH header of section S (WHICH = primary/first/even)
+          - `footer:S:WHICH`   — the WHICH footer of section S
 
         The bare `table:N` form is not an anchor (a whole table is a collection,
         not a single range) — use `doc.tables[N]` instead.
@@ -198,6 +223,26 @@ class Document:
                 return self.range(start, end)
             except ValueError as e:
                 raise AnchorNotFoundError("range", anchor_id) from e
+        if kind in ("header", "footer"):
+            parts = value.split(":")
+            if len(parts) != 2:
+                raise AnchorNotFoundError(kind, anchor_id)
+            section_str, which = parts
+            try:
+                section_index = int(section_str)
+            except ValueError as e:
+                raise AnchorNotFoundError(kind, anchor_id) from e
+            try:
+                section = self.sections[section_index]
+            except AnchorNotFoundError as e:
+                raise AnchorNotFoundError(kind, anchor_id) from e
+            try:
+                if kind == "footer":
+                    return section.footer(which)
+                return section.header(which)
+            except ValueError as e:
+                # Unknown WHICH (primary/first/even) — surface as a missing anchor.
+                raise AnchorNotFoundError(kind, anchor_id) from e
         raise AnchorNotFoundError("anchor", anchor_id)
 
     def _scope_range(self, scope: "Anchor | None") -> tuple[Any, int]:
