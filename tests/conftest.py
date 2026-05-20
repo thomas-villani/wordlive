@@ -22,13 +22,21 @@ import pytest
 
 
 class _FakeBookmarkRegistry:
-    """Mimics ActiveDocument.Bookmarks: Exists, by-name lookup, Add, iteration."""
+    """Mimics ActiveDocument.Bookmarks: Exists, by-name lookup, Add, iteration.
+
+    Bookmark mocks (and their `.Range`) are cached per name so a test that
+    writes via `Bookmarks(name).Range.X = y` can read `X` back through the
+    same handle. `Add` and the seeding helper invalidate the cache so the
+    range offsets stay consistent with the registered tuple.
+    """
 
     def __init__(self) -> None:
         self._items: dict[str, tuple[int, int]] = {}
+        self._cache: dict[str, Any] = {}
 
     def add(self, name: str, start: int, end: int) -> None:
         self._items[name] = (start, end)
+        self._cache.pop(name, None)
 
     # COM-style methods
     def Exists(self, name: str) -> bool:
@@ -38,22 +46,20 @@ class _FakeBookmarkRegistry:
         if Name is None or Range is None:
             return
         self._items[Name] = (int(Range.Start), int(Range.End))
+        self._cache.pop(Name, None)
 
     def __call__(self, name: str) -> Any:
+        if name in self._cache:
+            return self._cache[name]
         s, e = self._items[name]
         bm = MagicMock(name=f"Bookmark[{name}]")
         bm.Name = name
         bm.Range = _make_range(s, e)
+        self._cache[name] = bm
         return bm
 
     def __iter__(self) -> Iterable[Any]:
-        out = []
-        for name, (s, e) in self._items.items():
-            bm = MagicMock(name=f"Bookmark[{name}]")
-            bm.Name = name
-            bm.Range = _make_range(s, e)
-            out.append(bm)
-        return iter(out)
+        return iter([self(name) for name in self._items])
 
 
 class _FakeContentControls:
@@ -93,6 +99,43 @@ def _make_range(start: int, end: int) -> MagicMock:
     return rng
 
 
+_DEFAULT_STYLES: tuple[dict[str, Any], ...] = (
+    {"name": "Normal", "type": 1, "builtin": True, "in_use": True},
+    {"name": "Body Text", "type": 1, "builtin": True, "in_use": True},
+    {"name": "Heading 1", "type": 1, "builtin": True, "in_use": True},
+    {"name": "Heading 2", "type": 1, "builtin": True, "in_use": True},
+)
+
+
+class _FakeStyles:
+    """Mimics ActiveDocument.Styles: iterable of objects exposing NameLocal/Type/BuiltIn/InUse.
+
+    Note: real Word's `Styles(name)` raises a generic com_error for missing
+    names. wordlive validates membership via iteration *first*, so the fake
+    only needs to support iteration. We still implement __call__ for the rare
+    direct lookup path; it raises KeyError if the style isn't there.
+    """
+
+    def __init__(self, styles: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> None:
+        self._items: list[Any] = []
+        for s in styles:
+            mock = MagicMock(name=f"Style[{s['name']}]")
+            mock.NameLocal = s["name"]
+            mock.Type = s.get("type", 1)
+            mock.BuiltIn = s.get("builtin", True)
+            mock.InUse = s.get("in_use", True)
+            self._items.append(mock)
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(self._items)
+
+    def __call__(self, name: str) -> Any:
+        for s in self._items:
+            if s.NameLocal == name:
+                return s
+        raise KeyError(name)
+
+
 def _make_document(
     *,
     name: str = "Test.docx",
@@ -101,6 +144,7 @@ def _make_document(
     content_controls: list[dict[str, Any]] | None = None,
     paragraphs: list[dict[str, Any]] | None = None,
     content: str = "",
+    styles: tuple[dict[str, Any], ...] | list[dict[str, Any]] | None = None,
 ) -> MagicMock:
     doc = MagicMock(name=f"Document[{name}]")
     doc.Name = name
@@ -113,6 +157,7 @@ def _make_document(
 
     doc.ContentControls = _FakeContentControls(content_controls or [])
     doc.Paragraphs = _FakeParagraphs(paragraphs or [])
+    doc.Styles = _FakeStyles(styles if styles is not None else _DEFAULT_STYLES)
 
     # `Range(start, end)` returns a fresh range whose `.Text` can be set/read
     # by the caller; default `_make_range` sets `.Text = ""`.

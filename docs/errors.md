@@ -13,6 +13,7 @@ Exception
     ├── WordNotRunningError
     ├── DocumentNotFoundError
     ├── AnchorNotFoundError
+    │   └── StyleNotFoundError
     ├── AmbiguousMatchError
     ├── WordBusyError
     └── ComError
@@ -45,6 +46,15 @@ A bookmark, content control, or heading you asked for doesn't exist — or a
 carries both `.kind` and `.name`. **Retryable after refreshing the outline /
 bookmark list or reading the current content** — the document may have
 changed since you last looked.
+
+### `StyleNotFoundError`
+A paragraph or character style you asked for isn't defined in the document.
+Subclass of [`AnchorNotFoundError`](#anchornotfounderror) — it shares the same
+exit code (2) and the same retry guidance, and `except AnchorNotFoundError`
+catches it too. `.kind` is always `"style"` and `.name` is the requested style
+name. Raised by `Document.styles[name]`, `Anchor.apply_style(name)`, and
+`Heading.insert_paragraph_after(text, style=name)`. **Retryable after reading
+`doc.styles.list()`** to see what's actually defined.
 
 ### `AmbiguousMatchError`
 A fuzzy `find_replace` matched more than one occurrence and the caller didn't
@@ -91,7 +101,7 @@ The CLI maps the exception hierarchy onto six exit codes, defined in
 | ---- | ------------------------------------------- | -------------------------------- | --------------------- |
 | `0`  | —                                           | success                          | —                     |
 | `1`  | `WordliveError` (default), `DocumentNotFoundError` | other / unclassified      | depends on cause      |
-| `2`  | `AnchorNotFoundError`                        | bookmark / cc / heading missing, or `find` had zero matches | yes, after re-reading content |
+| `2`  | `AnchorNotFoundError`, `StyleNotFoundError`  | bookmark / cc / heading / style missing, or `find` had zero matches | yes, after re-reading content |
 | `3`  | `WordBusyError`                              | modal dialog or busy RPC         | **yes**, with back-off |
 | `4`  | `WordNotRunningError`                        | no Word instance                 | only if user launches Word |
 | `5`  | `AmbiguousMatchError`                        | `replace --find` matched more than one occurrence | **yes**, after picking `--occurrence N` or passing `--all` |

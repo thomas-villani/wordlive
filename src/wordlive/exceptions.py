@@ -30,6 +30,18 @@ class AnchorNotFoundError(WordliveError):
         self.name = name
 
 
+class StyleNotFoundError(AnchorNotFoundError):
+    """The requested paragraph or character style is not defined in the document.
+
+    Subclass of `AnchorNotFoundError` so it shares the same exit code (2) and so
+    `except AnchorNotFoundError` catches both bookmark-misses and style-misses.
+    Retryable after re-reading `doc.styles.list()`.
+    """
+
+    def __init__(self, name: str) -> None:
+        super().__init__("style", name)
+
+
 class AmbiguousMatchError(WordliveError):
     """A find/replace pattern matched more than one occurrence without disambiguation.
 

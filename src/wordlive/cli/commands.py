@@ -70,6 +70,8 @@ def register(group: click.Group) -> None:
     group.add_command(find_cmd)
     group.add_command(replace)
     group.add_command(go_to)
+    group.add_command(style)
+    group.add_command(format_paragraph_cmd)
     group.add_command(exec_)
 
 
@@ -386,6 +388,127 @@ def go_to(ctx: click.Context, anchor_id: str, scroll: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# style list | style apply --anchor-id ID --name NAME
+# ---------------------------------------------------------------------------
+
+
+def _fmt_style_list(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "(no styles)"
+    name_w = max(len(r["name"]) for r in rows)
+    return "\n".join(
+        f"{r['name']:<{name_w}}  {r['type']:<10}  "
+        f"{'builtin' if r['builtin'] else 'custom':<8}  "
+        f"{'in-use' if r['in_use'] else ''}"
+        for r in rows
+    )
+
+
+@click.group(name="style")
+def style() -> None:
+    """Read or apply paragraph and character styles."""
+
+
+@style.command(name="list")
+@click.pass_context
+def style_list(ctx: click.Context) -> None:
+    """List every style defined in the document."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.styles.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_style_list(rows))
+    _run(ctx, go)
+
+
+@style.command(name="apply")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor to apply the style to.")
+@click.option("--name", "name", required=True, help="Style name (must already exist in the document).")
+@click.pass_context
+def style_apply(ctx: click.Context, anchor_id: str, name: str) -> None:
+    """Apply STYLE NAME to the anchor identified by ANCHOR-ID (atomic-undo)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: apply style {name!r} to {anchor_id}"):
+                anchor.apply_style(name)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "style": name,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"applied style {name!r} to {anchor_id}",
+            )
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# format-paragraph --anchor-id ID [--alignment ...] [--left-indent N] ...
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="format-paragraph")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose paragraph(s) to format.")
+@click.option("--alignment", "alignment", default=None,
+              type=click.Choice(["left", "center", "centre", "right", "justify"], case_sensitive=False),
+              help="Paragraph alignment.")
+@click.option("--left-indent", "left_indent", type=float, default=None, help="Left indent in points.")
+@click.option("--right-indent", "right_indent", type=float, default=None, help="Right indent in points.")
+@click.option("--first-line-indent", "first_line_indent", type=float, default=None, help="First-line indent in points.")
+@click.option("--space-before", "space_before", type=float, default=None, help="Space before paragraph in points.")
+@click.option("--space-after", "space_after", type=float, default=None, help="Space after paragraph in points.")
+@click.pass_context
+def format_paragraph_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    alignment: str | None,
+    left_indent: float | None,
+    right_indent: float | None,
+    first_line_indent: float | None,
+    space_before: float | None,
+    space_after: float | None,
+) -> None:
+    """Set paragraph-formatting properties on the anchor's range (atomic-undo)."""
+    kwargs: dict[str, Any] = {}
+    if alignment is not None:
+        kwargs["alignment"] = alignment
+    if left_indent is not None:
+        kwargs["left_indent"] = left_indent
+    if right_indent is not None:
+        kwargs["right_indent"] = right_indent
+    if first_line_indent is not None:
+        kwargs["first_line_indent"] = first_line_indent
+    if space_before is not None:
+        kwargs["space_before"] = space_before
+    if space_after is not None:
+        kwargs["space_after"] = space_after
+    if not kwargs:
+        raise click.UsageError("pass at least one formatting option")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: format paragraph {anchor_id}"):
+                anchor.format_paragraph(**kwargs)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": kwargs,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"formatted {anchor_id}: {kwargs}",
+            )
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
 # exec --script ops.json
 # ---------------------------------------------------------------------------
 
@@ -410,6 +533,22 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
             all=bool(op.get("all", False)),
             occurrence=op.get("occurrence"),
         )
+    elif kind == "apply_style":
+        doc.anchor_by_id(op["anchor_id"]).apply_style(op["name"])
+    elif kind == "format_paragraph":
+        kwargs = {
+            k: op[k]
+            for k in (
+                "alignment",
+                "left_indent",
+                "right_indent",
+                "first_line_indent",
+                "space_before",
+                "space_after",
+            )
+            if k in op
+        }
+        doc.anchor_by_id(op["anchor_id"]).format_paragraph(**kwargs)
     else:
         raise click.ClickException(f"unknown op: {kind!r}")
 

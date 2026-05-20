@@ -397,3 +397,166 @@ def test_exec_unknown_op_is_click_error(fake_word, tmp_path: Path):
     code, _, err = _invoke(["exec", "--script", str(script)])
     assert code != EXIT_OK
     assert "drop_table" in err
+
+
+# ---------------------------------------------------------------------------
+# style list / style apply / format-paragraph / insert --style validation
+# ---------------------------------------------------------------------------
+
+
+def test_insert_with_valid_style_passes(fake_word):
+    code, out, _ = _invoke(
+        ["insert", "--after-heading", "Introduction", "--text", "x", "--style", "Body Text"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["style"] == "Body Text"
+
+
+def test_insert_with_bad_style_returns_exit_2(fake_word):
+    code, _, err = _invoke(
+        ["insert", "--after-heading", "Introduction", "--text", "x", "--style", "NoSuchStyle"]
+    )
+    assert code == EXIT_ANCHOR_NOT_FOUND
+    assert "style" in err.lower()
+
+
+def test_style_list_returns_known_styles(fake_word):
+    code, out, _ = _invoke(["style", "list"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert isinstance(data, list)
+    names = [r["name"] for r in data]
+    assert "Heading 1" in names
+    assert "Body Text" in names
+    assert all({"name", "type", "builtin", "in_use"} <= set(r) for r in data)
+
+
+def test_style_list_text_mode(fake_word):
+    code, out, _ = _invoke(["--text", "style", "list"])
+    assert code == EXIT_OK
+    assert "Heading 1" in out
+
+
+def test_style_apply_happy_path(fake_word):
+    code, out, _ = _invoke(
+        ["style", "apply", "--anchor-id", "bookmark:Address", "--name", "Heading 2"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["style"] == "Heading 2"
+    assert data["anchor"]["kind"] == "bookmark"
+
+
+def test_style_apply_bad_anchor_returns_exit_2(fake_word):
+    code, _, _ = _invoke(
+        ["style", "apply", "--anchor-id", "bookmark:Nope", "--name", "Heading 2"]
+    )
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
+def test_style_apply_bad_style_returns_exit_2(fake_word):
+    code, _, err = _invoke(
+        ["style", "apply", "--anchor-id", "bookmark:Address", "--name", "NoSuchStyle"]
+    )
+    assert code == EXIT_ANCHOR_NOT_FOUND
+    assert "style" in err.lower()
+
+
+def test_format_paragraph_alignment(fake_word):
+    code, out, _ = _invoke(
+        ["format-paragraph", "--anchor-id", "bookmark:Address", "--alignment", "center"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["applied"]["alignment"] == "center"
+
+
+def test_format_paragraph_indent_and_spacing(fake_word):
+    code, out, _ = _invoke(
+        [
+            "format-paragraph",
+            "--anchor-id", "bookmark:Address",
+            "--left-indent", "36",
+            "--space-before", "6",
+        ]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["applied"]["left_indent"] == 36.0
+    assert data["applied"]["space_before"] == 6.0
+
+
+def test_format_paragraph_requires_some_arg(fake_word):
+    code, _, _ = _invoke(["format-paragraph", "--anchor-id", "bookmark:Address"])
+    assert code != EXIT_OK
+
+
+def test_format_paragraph_bad_anchor_returns_exit_2(fake_word):
+    code, _, _ = _invoke(
+        ["format-paragraph", "--anchor-id", "bookmark:Nope", "--alignment", "left"]
+    )
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
+def test_exec_supports_apply_style_op(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "ops": [
+                    {"op": "apply_style", "anchor_id": "bookmark:Address", "name": "Heading 2"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["ops_run"] == 1
+
+
+def test_exec_supports_format_paragraph_op(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "ops": [
+                    {
+                        "op": "format_paragraph",
+                        "anchor_id": "bookmark:Address",
+                        "alignment": "center",
+                        "space_before": 6,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+
+
+def test_exec_apply_style_with_bad_name_fails_to_exit_2(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "ops": [
+                    {"op": "apply_style", "anchor_id": "bookmark:Address", "name": "NoSuchStyle"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_ANCHOR_NOT_FOUND
+    data = json.loads(out)
+    assert data["ok"] is False
+    assert data["failure"]["type"] == "StyleNotFoundError"

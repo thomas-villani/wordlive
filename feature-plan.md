@@ -56,16 +56,19 @@ Estimate: one sitting. Tests build on existing `fake_word` fixture.
 
 Two parallel tracks; each is its own PR.
 
-### Styles
+### Styles — ✅ shipped in v0.3
 
-- `doc.styles["Body Text"]`, `doc.styles.list()`, `style.exists`.
-- `anchor.apply_style(name)` for all anchor types.
-- Wire the existing `--style` arg on `insert` (currently stubbed).
-- Paragraph formatting that ships alongside: alignment, indent, spacing —
-  cheap once the `WdParagraphAlignment` enum is real (it already is in
-  `constants.py`).
-- New typed error: `StyleNotFoundError` (Word raises generic COM error when
-  a style is missing; we translate).
+- ~~`doc.styles["Body Text"]`, `doc.styles.list()`, `style.exists`.~~ ✅
+- ~~`anchor.apply_style(name)` for all anchor types.~~ ✅
+- ~~Wire the existing `--style` arg on `insert` (currently stubbed).~~ ✅ —
+  now validates via `doc.styles[]` before any mutation, exit code 2 on miss.
+- ~~Paragraph formatting that ships alongside: alignment, indent, spacing.~~ ✅
+  via `anchor.format_paragraph(**kwargs)` + `wordlive format-paragraph` CLI.
+- ~~New typed error: `StyleNotFoundError`.~~ ✅ — subclass of
+  `AnchorNotFoundError` so it reuses exit code 2 and `except AnchorNotFoundError`
+  still catches it.
+- Line spacing, character-style modelling, theme-aware fonts, and style
+  creation/modification stay deferred to v0.4+.
 
 ### Tables
 

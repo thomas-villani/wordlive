@@ -39,3 +39,10 @@ class WdUnits(IntEnum):
 class WdCollapseDirection(IntEnum):
     START = 1
     END = 0
+
+
+class WdStyleType(IntEnum):
+    PARAGRAPH = 1
+    CHARACTER = 2
+    TABLE = 3
+    LIST = 4

@@ -27,7 +27,7 @@ mode without parsing strings:
 | ---- | ---------------------- | -------------------------- |
 | `0`  | OK                     | —                          |
 | `1`  | Other / unclassified   | `WordliveError` (default), `DocumentNotFoundError` |
-| `2`  | Anchor not found       | `AnchorNotFoundError` (also used for zero-match `find`/`replace --find`) |
+| `2`  | Anchor or style missing | `AnchorNotFoundError` / `StyleNotFoundError` (also used for zero-match `find`/`replace --find`) |
 | `3`  | Word busy / modal      | `WordBusyError` (retryable) |
 | `4`  | Word not running       | `WordNotRunningError`      |
 | `5`  | Ambiguous match        | `AmbiguousMatchError` (multiple `find` hits without `--all`/`--occurrence`) |
@@ -179,7 +179,10 @@ $ wordlive insert --after-heading "Risks" --text "New risk identified."
 ```
 
 `--style` is optional; if given it must be a Word style name that exists in
-the document. Failures: `2` heading not found, `3` Word busy.
+the document — the style is validated before the paragraph is inserted, so a
+typo never partially mutates the document. Use `wordlive style list` to see
+the available names. Failures: `2` heading not found or style not found, `3`
+Word busy.
 
 ## `find --text "…"`
 
@@ -294,6 +297,75 @@ $ wordlive go-to --anchor-id bookmark:Address
 `--no-scroll` collapses the selection at the anchor without scrolling the
 view to it. Failures: `2` anchor not found, `3` Word busy.
 
+## `style list`
+
+```
+wordlive style list [--doc DOC_NAME]
+```
+
+Enumerate every style defined in the document.
+
+```bash
+$ wordlive style list
+[{"name": "Normal",    "type": "paragraph", "builtin": true, "in_use": true},
+ {"name": "Body Text", "type": "paragraph", "builtin": true, "in_use": true},
+ {"name": "Heading 1", "type": "paragraph", "builtin": true, "in_use": true}]
+```
+
+`type` is one of `"paragraph"`, `"character"`, `"table"`, `"list"`. Built-in
+Word styles set `builtin: true`; user-defined styles set `false`. Failures:
+`3` Word busy, `4` Word not running.
+
+## `style apply --anchor-id ID --name NAME`
+
+```
+wordlive style apply --anchor-id ID --name "Heading 2" [--doc DOC_NAME]
+```
+
+Apply a style to the anchor's range. Atomic-undo. The style must already
+exist in the document — wordlive does not create styles on demand.
+
+```bash
+$ wordlive style apply --anchor-id heading:3 --name "Heading 2"
+{"ok": true,
+ "anchor_id": "heading:3",
+ "anchor": {"kind": "heading", "name": "Risks"},
+ "style": "Heading 2"}
+```
+
+Word picks paragraph- vs. character-style behaviour from the style's own
+`Type`; you don't need to model that distinction. Failures: `2` anchor or
+style not found, `3` Word busy.
+
+## `format-paragraph --anchor-id ID [...]`
+
+```
+wordlive format-paragraph --anchor-id ID
+    [--alignment left|center|right|justify]
+    [--left-indent POINTS] [--right-indent POINTS] [--first-line-indent POINTS]
+    [--space-before POINTS] [--space-after POINTS]
+    [--doc DOC_NAME]
+```
+
+Set paragraph-formatting properties on the anchor's range. At least one
+formatting flag is required. Indent and spacing values are in **points** —
+the unit Word's COM API uses natively for these fields. Atomic-undo.
+
+```bash
+$ wordlive format-paragraph --anchor-id heading:3 \
+      --alignment center --space-before 6
+{"ok": true,
+ "anchor_id": "heading:3",
+ "anchor": {"kind": "heading", "name": "Risks"},
+ "applied": {"alignment": "center", "space_before": 6.0}}
+```
+
+Only the flags you pass are written; everything else on the paragraph is
+left alone. If the anchor spans a partial paragraph (e.g., a bookmark
+covering five words inside a longer paragraph), Word applies the formatting
+to the *enclosing* paragraph — that's the COM behaviour, not a wordlive
+quirk. Failures: `2` anchor not found, `3` Word busy.
+
 ## `exec --script ops.json`
 
 ```
@@ -328,11 +400,17 @@ Script shape:
 | `insert_after_heading` | `heading`, `text`                          | `style`                           |
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
+| `apply_style`          | `anchor_id`, `name`                        | —                                 |
+| `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after` |
 
 The `find_replace` op mirrors `wordlive replace --find …` — fuzzy whitespace
 + smart-quote match, optional `in` anchor to scope it, and either `all` or
 `occurrence` to handle multi-match. Ambiguous-match failures surface in the
 batch response's `failure.matches` so the LLM can rewrite the op and retry.
+
+`apply_style` and `format_paragraph` are the same as their dedicated CLI
+verbs — the style must already exist in the document, indent and spacing
+values are in points, alignment is one of `left`/`center`/`right`/`justify`.
 
 ### Behaviour on partial failure
 

@@ -436,7 +436,53 @@ with doc.edit("Add and jump") as scope:
     doc.go_to(risks)
 ```
 
-## 7. Multi-document workflows
+## 7. Restyle and format a paragraph politely
+
+You want to promote the *Risks* heading from H3 to H2 and tighten its
+spacing, without touching the user's cursor or scrolling the view.
+
+```python
+import wordlive as wl
+
+with wl.attach() as word:
+    doc = word.documents.active
+
+    # 1. Sanity-check the style exists before we mutate anything.
+    if "Heading 2" not in doc.styles:
+        raise SystemExit("doc is missing the Heading 2 style")
+
+    risks = doc.heading("Risks")
+    with doc.edit("Restyle Risks heading"):
+        risks.apply_style("Heading 2")
+        risks.format_paragraph(space_before=12, space_after=4, alignment="left")
+```
+
+Both calls go through `doc.edit("…")`, so a single Ctrl-Z reverts the whole
+change. `apply_style` raises [`StyleNotFoundError`](errors.md#stylenotfounderror)
+(exit code `2`) if the style doesn't exist — discover real names with
+`doc.styles.list()` or `wordlive style list`.
+
+The same intent from the CLI, in one atomic batch:
+
+```bash
+$ wordlive exec --script - <<'JSON'
+{
+  "label": "Restyle Risks",
+  "ops": [
+    {"op": "apply_style",      "anchor_id": "heading:3", "name": "Heading 2"},
+    {"op": "format_paragraph", "anchor_id": "heading:3",
+      "space_before": 12, "space_after": 4, "alignment": "left"}
+  ]
+}
+JSON
+```
+
+Indent and spacing values are in **points** — the same unit Word uses in its
+paragraph dialog. If the anchor spans a partial paragraph (e.g., a bookmark
+covering five words inside a longer paragraph), `format_paragraph` applies
+to the *enclosing* paragraph, mirroring how Word's own UI behaves.
+
+## 8. Multi-document workflows
 
 When several documents are open, `--doc NAME` picks the target:
 

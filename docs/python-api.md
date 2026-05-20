@@ -37,6 +37,10 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 
 ## Anchors
 
+Every anchor type inherits `apply_style(name)` and `format_paragraph(...)` from
+[`Anchor`](#wordlive.Anchor), so the same calls work uniformly on bookmarks,
+content controls, headings, and any future anchor types.
+
 ::: wordlive.Anchor
 
 ::: wordlive.Bookmark
@@ -44,6 +48,16 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 ::: wordlive.ContentControl
 
 ::: wordlive.Heading
+
+## Styles
+
+Styles are document-scoped, read-only handles. `Document.styles` is a
+[`StyleCollection`](#wordlive.StyleCollection); apply styles to anchors via
+[`Anchor.apply_style`](#wordlive.Anchor).
+
+::: wordlive.Style
+
+::: wordlive.StyleCollection
 
 ## Editing
 
@@ -62,6 +76,8 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 ::: wordlive.DocumentNotFoundError
 
 ::: wordlive.AnchorNotFoundError
+
+::: wordlive.StyleNotFoundError
 
 ::: wordlive.AmbiguousMatchError
 

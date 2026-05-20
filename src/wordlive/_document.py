@@ -15,6 +15,7 @@ from ._anchors import (
 )
 from ._edit import EditScope
 from ._selection import Selection
+from ._styles import Style, StyleCollection
 from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
@@ -54,6 +55,10 @@ class Document:
     @property
     def content_controls(self) -> ContentControlCollection:
         return ContentControlCollection(self)
+
+    @property
+    def styles(self) -> StyleCollection:
+        return StyleCollection(self)
 
     @property
     def selection(self) -> Selection:

@@ -18,11 +18,13 @@ from ._app import Word, attach, connect
 from ._document import Document, DocumentCollection
 from ._edit import EditScope
 from ._selection import Selection, SelectionSnapshot
+from ._styles import Style, StyleCollection
 from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
     ComError,
     DocumentNotFoundError,
+    StyleNotFoundError,
     WordBusyError,
     WordNotRunningError,
     WordliveError,
@@ -42,6 +44,9 @@ __all__ = [
     "Heading",
     "Selection",
     "SelectionSnapshot",
+    "Style",
+    "StyleCollection",
+    "StyleNotFoundError",
     "Word",
     "WordBusyError",
     "WordNotRunningError",

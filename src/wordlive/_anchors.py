@@ -10,10 +10,36 @@ from __future__ import annotations
 from typing import Any, Iterator, TYPE_CHECKING
 
 from . import _com
+from .constants import WdParagraphAlignment
 from .exceptions import AnchorNotFoundError
 
 if TYPE_CHECKING:
     from ._document import Document
+
+
+_ALIGNMENT_NAMES = {
+    "left": WdParagraphAlignment.LEFT,
+    "center": WdParagraphAlignment.CENTER,
+    "centre": WdParagraphAlignment.CENTER,
+    "right": WdParagraphAlignment.RIGHT,
+    "justify": WdParagraphAlignment.JUSTIFY,
+}
+
+
+def _coerce_alignment(value: Any) -> int:
+    if isinstance(value, WdParagraphAlignment):
+        return int(value)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(_ALIGNMENT_NAMES[value.lower()])
+        except KeyError:
+            raise ValueError(
+                f"unknown alignment {value!r}; expected one of "
+                f"{sorted(set(_ALIGNMENT_NAMES))}"
+            )
+    raise TypeError(f"alignment must be WdParagraphAlignment, int, or str; got {type(value).__name__}")
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +98,50 @@ class Anchor:
     def delete(self) -> None:
         with _com.translate_com_errors():
             self._range().Delete()
+
+    def apply_style(self, name: str) -> None:
+        """Apply the named paragraph or character style to this anchor's range.
+
+        Word selects paragraph- vs. character-style behaviour from the style's
+        own `Type`; we don't model that distinction. Raises `StyleNotFoundError`
+        if the style isn't defined in the document.
+        """
+        style = self._doc.styles[name]  # raises StyleNotFoundError if missing
+        with _com.translate_com_errors():
+            self._range().Style = style.com
+
+    def format_paragraph(
+        self,
+        *,
+        alignment: Any = None,
+        left_indent: float | None = None,
+        right_indent: float | None = None,
+        first_line_indent: float | None = None,
+        space_before: float | None = None,
+        space_after: float | None = None,
+    ) -> None:
+        """Set paragraph-formatting properties on this anchor's range.
+
+        All kwargs are optional; only the ones explicitly passed are written.
+        Indent and spacing values are in points (Word's native unit for
+        `ParagraphFormat.LeftIndent` etc.). `alignment` accepts a
+        `WdParagraphAlignment` enum, its int value, or a string
+        (`"left"`/`"center"`/`"right"`/`"justify"`).
+        """
+        with _com.translate_com_errors():
+            pf = self._range().ParagraphFormat
+            if alignment is not None:
+                pf.Alignment = _coerce_alignment(alignment)
+            if left_indent is not None:
+                pf.LeftIndent = float(left_indent)
+            if right_indent is not None:
+                pf.RightIndent = float(right_indent)
+            if first_line_indent is not None:
+                pf.FirstLineIndent = float(first_line_indent)
+            if space_before is not None:
+                pf.SpaceBefore = float(space_before)
+            if space_after is not None:
+                pf.SpaceAfter = float(space_after)
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} {self.name!r}>"
@@ -331,16 +401,26 @@ class Heading(Anchor):
             inner.Text = text
 
     def insert_paragraph_after(self, text: str, style: str | None = None) -> None:
-        """Insert a new paragraph immediately after this heading."""
+        """Insert a new paragraph immediately after this heading.
+
+        If `style` is given, it must name a style defined in the document;
+        otherwise `StyleNotFoundError` is raised before any text is inserted.
+        """
+        # Validate the style up-front so a bad name raises StyleNotFoundError
+        # before we mutate the document.
+        if style is not None:
+            style_obj = self._doc.styles[style]
+        else:
+            style_obj = None
         with _com.translate_com_errors():
             doc_com = self._doc.com
             para_range = self._paragraph().Range
             end = int(para_range.End)
             insert_rng = doc_com.Range(end, end)
             insert_rng.Text = text + "\r"
-            if style:
+            if style_obj is not None:
                 styled = doc_com.Range(end, end + len(text))
-                styled.Style = doc_com.Styles(style)
+                styled.Style = style_obj.com
 
 
 class _IndexedHeading(Heading):

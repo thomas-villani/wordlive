@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from typing import Any, Callable, Iterator
 
 import wordlive as wl
-from wordlive import AmbiguousMatchError, AnchorNotFoundError
+from wordlive import AmbiguousMatchError, AnchorNotFoundError, StyleNotFoundError
 from wordlive._document import Document
 
 
@@ -313,6 +313,50 @@ def t_insert_paragraph_after(_word: wl.Word, doc: Document) -> None:
     expect(before == after, f"outline count changed unexpectedly: {before} -> {after}")
 
 
+def t_styles_list(_word: wl.Word, doc: Document) -> None:
+    rows = doc.styles.list()
+    names = [r["name"] for r in rows]
+    expect("Heading 1" in names, f"'Heading 1' missing from style list (got {len(names)} styles)")
+    expect("Normal" in names, "'Normal' missing from style list")
+    paragraph_count = sum(1 for r in rows if r["type"] == "paragraph")
+    expect(paragraph_count > 0, "no paragraph-typed styles found")
+
+
+def t_apply_style_to_bookmark(_word: wl.Word, doc: Document) -> None:
+    with doc.edit("E2E: apply style"):
+        doc.bookmarks[BOOKMARK_NAME].apply_style("Heading 3")
+    # Read the style back off the bookmark's range.
+    rng = doc.com.Bookmarks(BOOKMARK_NAME).Range
+    applied = str(rng.ParagraphFormat.Style.NameLocal)
+    expect(applied == "Heading 3", f"expected style 'Heading 3', got {applied!r}")
+    # Restore so later read-tests aren't surprised.
+    with doc.edit("E2E: revert style"):
+        doc.bookmarks[BOOKMARK_NAME].apply_style("Normal")
+
+
+def t_format_paragraph(_word: wl.Word, doc: Document) -> None:
+    target = doc.heading("Action items")
+    with doc.edit("E2E: format paragraph"):
+        target.format_paragraph(alignment="center", space_before=6.0, left_indent=18.0)
+    # Read back through the paragraph range.
+    pf = target.com.ParagraphFormat
+    expect(int(pf.Alignment) == 1, f"alignment not centered: got {int(pf.Alignment)}")
+    expect(abs(float(pf.SpaceBefore) - 6.0) < 0.01, f"SpaceBefore mismatch: {pf.SpaceBefore}")
+    expect(abs(float(pf.LeftIndent) - 18.0) < 0.01, f"LeftIndent mismatch: {pf.LeftIndent}")
+
+
+def t_apply_style_missing_raises(_word: wl.Word, doc: Document) -> None:
+    try:
+        doc.bookmarks[BOOKMARK_NAME].apply_style("NoSuchStyleXyz")
+    except StyleNotFoundError as exc:
+        expect(exc.kind == "style", f"expected kind='style', got {exc.kind!r}")
+        expect(exc.name == "NoSuchStyleXyz", f"expected name='NoSuchStyleXyz', got {exc.name!r}")
+        # StyleNotFoundError must be catchable as AnchorNotFoundError for backwards compat.
+        expect(isinstance(exc, AnchorNotFoundError), "StyleNotFoundError should subclass AnchorNotFoundError")
+        return
+    raise AssertionError("expected StyleNotFoundError, but no exception was raised")
+
+
 def t_cli_status(_word: wl.Word, _doc: Document) -> None:
     """Smoke the CLI via subprocess — proves the install entry point works."""
     result = subprocess.run(
@@ -370,6 +414,12 @@ def main() -> int:
             h.run("find_replace --all hits the rest", lambda: t_find_replace_all(word, doc))
             h.run("find_replace zero matches raises AnchorNotFoundError(find)", lambda: t_find_replace_zero(word, doc))
             h.run("section-scoped replace only touches that section", lambda: t_section_scoped_replace(word, doc))
+
+            # Styles + paragraph formatting.
+            h.run("doc.styles.list includes built-ins", lambda: t_styles_list(word, doc))
+            h.run("apply_style writes through to the range", lambda: t_apply_style_to_bookmark(word, doc))
+            h.run("format_paragraph sets alignment/indent/spacing", lambda: t_format_paragraph(word, doc))
+            h.run("apply_style with missing name raises StyleNotFoundError", lambda: t_apply_style_missing_raises(word, doc))
 
             if not args.no_cli:
                 h.run("CLI: wordlive status (subprocess)", lambda: t_cli_status(word, doc))
