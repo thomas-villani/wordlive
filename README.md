@@ -45,6 +45,11 @@ wordlive insert --after-heading "Introduction" --text "..."
 wordlive replace --anchor-id heading:3 --text "Updated section text"
 wordlive go-to --anchor-id bookmark:Address
 
+# Styles + paragraph formatting (atomic-undo):
+wordlive style list
+wordlive style apply --anchor-id heading:3 --name "Heading 2"
+wordlive format-paragraph --anchor-id heading:3 --alignment center --space-before 6
+
 # Batch multiple ops in a single Ctrl-Z:
 wordlive exec --script ops.json
 ```
@@ -58,7 +63,9 @@ Where `ops.json` looks like:
     {"op": "write_bookmark", "name": "Address", "text": "123 Main St"},
     {"op": "write_cc", "name": "Signatory", "text": "Jane Doe"},
     {"op": "insert_after_heading", "heading": "Risks", "text": "New risk paragraph."},
-    {"op": "replace", "anchor_id": "heading:3", "text": "Updated section text"}
+    {"op": "replace", "anchor_id": "heading:3", "text": "Updated section text"},
+    {"op": "apply_style", "anchor_id": "heading:3", "name": "Heading 2"},
+    {"op": "format_paragraph", "anchor_id": "heading:3", "alignment": "center", "space_before": 6}
   ]
 }
 ```

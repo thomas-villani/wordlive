@@ -49,6 +49,8 @@ content controls, headings, and any future anchor types.
 
 ::: wordlive.Heading
 
+::: wordlive.HeadingCollection
+
 ## Styles
 
 Styles are document-scoped, read-only handles. `Document.styles` is a

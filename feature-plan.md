@@ -68,7 +68,7 @@ Two parallel tracks; each is its own PR.
   `AnchorNotFoundError` so it reuses exit code 2 and `except AnchorNotFoundError`
   still catches it.
 - Line spacing, character-style modelling, theme-aware fonts, and style
-  creation/modification stay deferred to v0.4+.
+  creation/modification stay deferred to v0.5+.
 
 ### Tables
 
@@ -87,11 +87,15 @@ pass before coding — open questions below.
 
 ---
 
-## v0.3 — collaboration features
+## v0.4 — collaboration features
 
 Genuinely LLM-shaped operations: "leave a comment on the Risks section" is
 exactly the kind of polite, side-channel edit agents should prefer over
 direct text mutation.
+
+> Note: find/replace already shipped in v0.2 (commits `f90e0a9`, `cbe89cc`)
+> and styles + paragraph formatting in v0.3 (commit `c03b7d1`). What's left
+> for v0.4 is the genuinely-collaborative surface below.
 
 - **Comments** — `doc.comments.add(anchor, text, author=...)`,
   `doc.comments.list()`, `comment.resolve()`. Word's `Comments` collection
@@ -99,16 +103,13 @@ direct text mutation.
 - **Track changes** — `with doc.tracked_changes(): ...` flips
   `TrackRevisions` on for the scope. Pairs with `doc.edit()` —
   "make this edit visibly", so the human can accept/reject.
-- **Find / replace** — `doc.find_replace(pattern, replacement, regex=False,
-  match_case=False)`. Fills the gap between bookmark writes and full-doc
-  edits.
 - **`RangeAnchor`** — `doc.range(start, end)` returns an `Anchor`-shaped
   wrapper. Lets the same ops target arbitrary ranges, not just named ones.
   This is what "NamedRange" in the spec was reaching for.
 
 ---
 
-## v0.4+ — defer
+## v0.5+ — defer
 
 - **Sections / headers / footers** — useful, but mostly for
   template-generation workflows; lower priority than tables/comments for

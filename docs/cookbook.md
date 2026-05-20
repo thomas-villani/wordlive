@@ -165,6 +165,13 @@ Use `insert_paragraph_after` when you want a new paragraph (with optional
 `style="Body Text"` etc.); use `insert_before` / `insert_after` for inline
 inserts that don't break the surrounding paragraph.
 
+!!! note
+    `insert_before` and `insert_after` leave the bookmark's stored range
+    *unchanged* — the new text lands outside the bookmark's span. Only
+    `set_text` re-creates the bookmark to cover its new content. If you
+    want the bookmark to grow with the appended text, use
+    `bm.set_text(bm.text + " (verified)")` instead.
+
 ### 3b. Append to the end of the document
 
 There's no high-level helper for "end of doc" (it isn't a named anchor) —

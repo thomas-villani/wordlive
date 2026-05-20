@@ -42,6 +42,15 @@ class WdCollapseDirection(IntEnum):
 
 
 class WdStyleType(IntEnum):
+    """Word's `Style.Type` values.
+
+    The CLI / `Style.to_dict()` emits these as lowercase strings —
+    `WdStyleType.PARAGRAPH` round-trips to `"paragraph"`, etc. — so JSON
+    consumers can match on the human-readable form without needing to import
+    the enum. If you're filtering in Python, compare against the IntEnum
+    member directly.
+    """
+
     PARAGRAPH = 1
     CHARACTER = 2
     TABLE = 3

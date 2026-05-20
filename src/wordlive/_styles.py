@@ -51,9 +51,22 @@ class Style:
 
     @property
     def com(self) -> Any:
-        """Raw COM Style object. Raises `StyleNotFoundError` if the style is gone."""
+        """Raw COM Style object. Raises `StyleNotFoundError` if the style is gone.
+
+        Tries direct lookup (`Styles(name)`) first — O(1) on Word's side — and
+        falls back to iteration only if that raises. Membership *checking*
+        still iterates (Word doesn't reserve an HRESULT for "missing style"
+        and a generic com_error would be indistinguishable from a real
+        failure), but once the caller has a `Style` instance the name is
+        presumed valid and the direct path is safe.
+        """
+        doc_com = self._doc.com
         with _com.translate_com_errors():
-            for s in self._doc.com.Styles:
+            try:
+                return doc_com.Styles(self._name)
+            except Exception:
+                pass
+            for s in doc_com.Styles:
                 if str(s.NameLocal) == self._name:
                     return s
         raise StyleNotFoundError(self._name)

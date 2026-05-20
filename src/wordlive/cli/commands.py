@@ -201,10 +201,11 @@ def write_bookmark(ctx: click.Context, name: str, text: str) -> None:
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
+            bm = doc.bookmarks[name]
             with doc.edit(f"CLI: write bookmark {name}"):
-                doc.bookmarks[name].set_text(text)
+                bm.set_text(text)
             emit(
-                {"ok": True, "anchor": {"kind": "bookmark", "name": name}},
+                {"ok": True, "anchor": {"kind": bm.kind, "name": name}},
                 as_text=not ctx.obj["as_json"],
                 text=f"wrote bookmark:{name}",
             )
@@ -220,10 +221,11 @@ def write_cc(ctx: click.Context, name: str, text: str) -> None:
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
+            cc = doc.content_controls[name]
             with doc.edit(f"CLI: write cc {name}"):
-                doc.content_controls[name].set_text(text)
+                cc.set_text(text)
             emit(
-                {"ok": True, "anchor": {"kind": "content_control", "name": name}},
+                {"ok": True, "anchor": {"kind": cc.kind, "name": name}},
                 as_text=not ctx.obj["as_json"],
                 text=f"wrote cc:{name}",
             )
@@ -513,9 +515,41 @@ def format_paragraph_cmd(
 # ---------------------------------------------------------------------------
 
 
+# Required fields per op kind. Validated up-front so a malformed payload
+# raises a clean click.ClickException ("exec op 'write_bookmark' requires
+# field 'name'") instead of a Python KeyError traceback that would land an
+# LLM tool-use loop on exit code 1 with no actionable signal.
+_OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "write_bookmark": ("name", "text"),
+    "write_cc": ("name", "text"),
+    "insert_after_heading": ("heading", "text"),
+    "replace": ("anchor_id", "text"),
+    "find_replace": ("find", "text"),
+    "apply_style": ("anchor_id", "name"),
+    "format_paragraph": ("anchor_id",),
+}
+
+
+def _validate_op(op: dict[str, Any]) -> str:
+    """Return the op kind after asserting it's known and required keys exist."""
+    if not isinstance(op, dict):
+        raise click.ClickException(f"each op must be an object; got {type(op).__name__}")
+    kind = op.get("op")
+    if kind is None:
+        raise click.ClickException("op is missing the 'op' field")
+    if kind not in _OP_REQUIRED_FIELDS:
+        raise click.ClickException(f"unknown op: {kind!r}")
+    missing = [k for k in _OP_REQUIRED_FIELDS[kind] if k not in op]
+    if missing:
+        raise click.ClickException(
+            f"op {kind!r} is missing required field(s): {', '.join(repr(m) for m in missing)}"
+        )
+    return kind
+
+
 def _apply_op(doc: Document, op: dict[str, Any]) -> None:
     """Apply a single op from an exec script. Raises WordliveError on bad input."""
-    kind = op.get("op")
+    kind = _validate_op(op)
     if kind == "write_bookmark":
         doc.bookmarks[op["name"]].set_text(op["text"])
     elif kind == "write_cc":
@@ -549,8 +583,6 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
             if k in op
         }
         doc.anchor_by_id(op["anchor_id"]).format_paragraph(**kwargs)
-    else:
-        raise click.ClickException(f"unknown op: {kind!r}")
 
 
 @click.command(name="exec")
@@ -561,7 +593,8 @@ def exec_(ctx: click.Context, script: Path) -> None:
 
     Script shape: `{"label": "…", "ops": [{"op": "...", ...}, ...]}`.
     Supported ops: write_bookmark, write_cc, insert_after_heading, replace,
-    find_replace.
+    find_replace, apply_style, format_paragraph. See docs/cli.md for each
+    op's required and optional fields.
     """
     def go() -> None:
         payload = json.loads(script.read_text(encoding="utf-8"))

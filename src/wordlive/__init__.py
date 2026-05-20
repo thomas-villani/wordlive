@@ -13,7 +13,7 @@ Quick start:
 from __future__ import annotations
 
 from . import constants
-from ._anchors import Anchor, Bookmark, ContentControl, Heading
+from ._anchors import Anchor, Bookmark, ContentControl, Heading, HeadingCollection
 from ._app import Word, attach, connect
 from ._document import Document, DocumentCollection
 from ._edit import EditScope
@@ -42,6 +42,7 @@ __all__ = [
     "DocumentNotFoundError",
     "EditScope",
     "Heading",
+    "HeadingCollection",
     "Selection",
     "SelectionSnapshot",
     "Style",

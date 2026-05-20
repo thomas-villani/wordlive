@@ -10,8 +10,9 @@ from ._anchors import (
     BookmarkCollection,
     ContentControlCollection,
     Heading,
+    HeadingCollection,
     _IndexedHeading,
-    _paragraph_text,
+    paragraph_text,
 )
 from ._edit import EditScope
 from ._selection import Selection
@@ -59,6 +60,17 @@ class Document:
     @property
     def styles(self) -> StyleCollection:
         return StyleCollection(self)
+
+    @property
+    def headings(self) -> HeadingCollection:
+        """Iterable view over the document's headings.
+
+        Symmetric with `bookmarks`, `content_controls`, and `styles`. Index by
+        visible text (`doc.headings["Risks"]`) or 1-based paragraph position
+        (`doc.headings[3]`). `Document.heading(name)` remains as sugar for
+        `self.headings[name]`.
+        """
+        return HeadingCollection(self)
 
     @property
     def selection(self) -> Selection:
@@ -216,7 +228,7 @@ class Document:
                 out.append(
                     {
                         "level": level,
-                        "text": _paragraph_text(para),
+                        "text": paragraph_text(para),
                         "anchor_id": f"heading:{idx}",
                     }
                 )
@@ -236,7 +248,13 @@ class Document:
             yield scope
 
     def go_to(self, anchor: "Anchor", scroll: bool = True) -> None:
-        """Move the user's Selection to the given anchor (rare — most ops preserve it)."""
+        """Move the user's Selection to the given anchor (rare — most ops preserve it).
+
+        Does NOT open an `UndoRecord` — cursor moves don't belong on the user's
+        undo stack. If you want the move to ride along with a batch of edits,
+        call this inside a `doc.edit(...)` scope and the surrounding
+        `UndoRecord` will still group everything together.
+        """
         with _com.translate_com_errors():
             rng = anchor.com
             collapsed = self._doc.Range(int(rng.Start), int(rng.Start))

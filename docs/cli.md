@@ -341,11 +341,13 @@ style not found, `3` Word busy.
 
 ```
 wordlive format-paragraph --anchor-id ID
-    [--alignment left|center|right|justify]
+    [--alignment left|center|centre|right|justify]
     [--left-indent POINTS] [--right-indent POINTS] [--first-line-indent POINTS]
     [--space-before POINTS] [--space-after POINTS]
     [--doc DOC_NAME]
 ```
+
+`centre` is accepted as a synonym for `center` (UK spelling).
 
 Set paragraph-formatting properties on the anchor's range. At least one
 formatting flag is required. Indent and spacing values are in **points** —

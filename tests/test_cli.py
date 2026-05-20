@@ -400,6 +400,60 @@ def test_exec_unknown_op_is_click_error(fake_word, tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# Malformed exec ops (regression for B-4 in issues.md)
+# ---------------------------------------------------------------------------
+
+
+def test_exec_op_missing_required_field_reports_cleanly(fake_word, tmp_path: Path):
+    """A typo'd op payload (missing `name`) must surface as a clean Click
+    error naming the missing field — not as a Python KeyError traceback.
+    """
+    script = tmp_path / "ops.json"
+    script.write_text(
+        # Missing 'name' on a write_bookmark op.
+        json.dumps({"ops": [{"op": "write_bookmark", "text": "..."}]}),
+        encoding="utf-8",
+    )
+    code, _, err = _invoke(["exec", "--script", str(script)])
+    assert code != EXIT_OK
+    # The error message names both the op kind and the missing field; no traceback.
+    assert "write_bookmark" in err
+    assert "name" in err
+    assert "Traceback" not in err
+
+
+def test_exec_op_missing_op_field_reports_cleanly(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(json.dumps({"ops": [{"name": "Address", "text": "X"}]}), encoding="utf-8")
+    code, _, err = _invoke(["exec", "--script", str(script)])
+    assert code != EXIT_OK
+    assert "'op'" in err or "op " in err.lower()
+    assert "Traceback" not in err
+
+
+def test_exec_op_non_object_reports_cleanly(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(json.dumps({"ops": ["not-a-dict"]}), encoding="utf-8")
+    code, _, err = _invoke(["exec", "--script", str(script)])
+    assert code != EXIT_OK
+    assert "Traceback" not in err
+
+
+def test_exec_format_paragraph_missing_anchor_id_reports_cleanly(fake_word, tmp_path: Path):
+    """format_paragraph has only one required field — make sure that's enforced too."""
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps({"ops": [{"op": "format_paragraph", "alignment": "center"}]}),
+        encoding="utf-8",
+    )
+    code, _, err = _invoke(["exec", "--script", str(script)])
+    assert code != EXIT_OK
+    assert "format_paragraph" in err
+    assert "anchor_id" in err
+    assert "Traceback" not in err
+
+
+# ---------------------------------------------------------------------------
 # style list / style apply / format-paragraph / insert --style validation
 # ---------------------------------------------------------------------------
 
@@ -560,3 +614,46 @@ def test_exec_apply_style_with_bad_name_fails_to_exit_2(fake_word, tmp_path: Pat
     data = json.loads(out)
     assert data["ok"] is False
     assert data["failure"]["type"] == "StyleNotFoundError"
+
+
+# ---------------------------------------------------------------------------
+# `kind` field consistency (regression test for B-1 in issues.md)
+# ---------------------------------------------------------------------------
+
+
+def test_kind_field_is_consistent_across_cc_commands(fake_word):
+    """Every CLI command that returns an `anchor` for a content control must
+    emit the same `kind` string. Otherwise an LLM that branches on `kind`
+    breaks the moment it sees a different verb's output.
+    """
+    cmds = [
+        ["write", "cc", "Signatory", "--text", "X"],
+        ["replace", "--anchor-id", "cc:Signatory", "--text", "X"],
+        ["go-to", "--anchor-id", "cc:Signatory"],
+        ["style", "apply", "--anchor-id", "cc:Signatory", "--name", "Heading 2"],
+        ["format-paragraph", "--anchor-id", "cc:Signatory", "--alignment", "left"],
+    ]
+    kinds: dict[str, str] = {}
+    for cmd in cmds:
+        code, out, _ = _invoke(cmd)
+        assert code == EXIT_OK, f"{cmd} exited {code}"
+        kinds[" ".join(cmd[:2])] = json.loads(out)["anchor"]["kind"]
+    assert len(set(kinds.values())) == 1, f"kind drift: {kinds}"
+    assert next(iter(kinds.values())) == "content_control"
+
+
+def test_kind_field_is_consistent_across_bookmark_commands(fake_word):
+    cmds = [
+        ["write", "bookmark", "Address", "--text", "X"],
+        ["replace", "--anchor-id", "bookmark:Address", "--text", "X"],
+        ["go-to", "--anchor-id", "bookmark:Address"],
+        ["style", "apply", "--anchor-id", "bookmark:Address", "--name", "Heading 2"],
+        ["format-paragraph", "--anchor-id", "bookmark:Address", "--alignment", "left"],
+    ]
+    kinds: dict[str, str] = {}
+    for cmd in cmds:
+        code, out, _ = _invoke(cmd)
+        assert code == EXIT_OK, f"{cmd} exited {code}"
+        kinds[" ".join(cmd[:2])] = json.loads(out)["anchor"]["kind"]
+    assert len(set(kinds.values())) == 1, f"kind drift: {kinds}"
+    assert next(iter(kinds.values())) == "bookmark"

@@ -7,6 +7,7 @@ they compose with `Document.edit()` for atomic-undo behaviour.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from typing import Any, Iterator, TYPE_CHECKING
 
 from . import _com
@@ -24,6 +25,17 @@ _ALIGNMENT_NAMES = {
     "right": WdParagraphAlignment.RIGHT,
     "justify": WdParagraphAlignment.JUSTIFY,
 }
+
+
+def _utf16_len(s: str) -> int:
+    """Length of `s` in UTF-16 code units — Word's native character count.
+
+    Python's `len()` counts code points, so astral-plane characters (emoji,
+    historic scripts) count as 1. Word counts UTF-16 code units, so the same
+    character counts as 2. Use this whenever the result is fed back into a
+    Word `Range(start, end)` after a `Range.Text = ...` assignment.
+    """
+    return len(s.encode("utf-16-le")) // 2
 
 
 def _coerce_alignment(value: Any) -> int:
@@ -47,8 +59,13 @@ def _coerce_alignment(value: Any) -> int:
 # ---------------------------------------------------------------------------
 
 
-class Anchor:
-    """Abstract base — subclasses know how to materialise their COM Range."""
+class Anchor(ABC):
+    """Abstract base — subclasses know how to materialise their COM Range.
+
+    Concrete subclasses must implement `_range()` and `set_text()`. Other
+    operations (`text`, `insert_before`, `insert_after`, `delete`,
+    `apply_style`, `format_paragraph`) are derived and inherited as-is.
+    """
 
     kind: str = "anchor"
     name: str = ""
@@ -62,8 +79,9 @@ class Anchor:
         """Raw COM range. Subclasses override."""
         return self._range()
 
+    @abstractmethod
     def _range(self) -> Any:
-        raise NotImplementedError
+        """Return the COM Range that this anchor refers to. Must be overridden."""
 
     @property
     def text(self) -> str:
@@ -71,17 +89,18 @@ class Anchor:
             return str(self._range().Text or "")
 
     @property
+    @abstractmethod
     def anchor_id(self) -> str:
         """Stable string identifier for this anchor (e.g. `bookmark:Address`).
 
-        Subclasses override; the base falls back to `{kind}:{name}` which is
-        only useful for built-in kinds whose `kind` matches the anchor-id
-        scheme.
+        Each anchor kind has its own scheme (`bookmark:`, `cc:`, `heading:`),
+        so subclasses must declare theirs explicitly — no useful default
+        exists at this level.
         """
-        return f"{self.kind}:{self.name}"
 
+    @abstractmethod
     def set_text(self, text: str) -> None:
-        raise NotImplementedError
+        """Replace the anchor's text in place. Must be overridden."""
 
     def insert_before(self, text: str) -> None:
         with _com.translate_com_errors():
@@ -174,13 +193,28 @@ class Bookmark(Anchor):
             start = int(rng.Start)
             rng.Text = text
             # Setting Range.Text deletes the bookmark; re-add covering the new content.
-            new_end = start + len(text)
+            # Word measures Range offsets in UTF-16 code units, not Python code points.
+            new_end = start + _utf16_len(text)
             new_rng = doc_com.Range(start, new_end)
             doc_com.Bookmarks.Add(Name=self.name, Range=new_rng)
 
 
+def _is_user_bookmark(name: str) -> bool:
+    """Word auto-creates internal bookmarks for TOC entries, cross-references,
+    and form-field anchors — all of them named with a leading underscore. Those
+    are noise for the user-facing `list()` / iteration paths; agents addressing
+    them by exact name (via `bookmarks[name]`) still work.
+    """
+    return not name.startswith("_")
+
+
 class BookmarkCollection:
-    """Indexable view over a document's bookmarks."""
+    """Indexable view over a document's bookmarks.
+
+    `list()` and iteration return only user-visible bookmarks. Word's hidden
+    bookmarks (`_Toc...`, `_Ref...`, etc.) are filtered out by default; address
+    them by their exact name through `bookmarks[name]` if you need them.
+    """
 
     def __init__(self, doc: "Document") -> None:
         self._doc = doc
@@ -197,9 +231,17 @@ class BookmarkCollection:
         with _com.translate_com_errors():
             return bool(self._doc.com.Bookmarks.Exists(name))
 
-    def list(self) -> list[str]:
+    def list(self, *, include_hidden: bool = False) -> list[str]:
+        """Names of every user-visible bookmark in document order.
+
+        Set `include_hidden=True` to also return Word's internal bookmarks
+        (TOC entries, cross-references, etc.) whose names start with `_`.
+        """
         with _com.translate_com_errors():
-            return [str(bm.Name) for bm in self._doc.com.Bookmarks]
+            names = [str(bm.Name) for bm in self._doc.com.Bookmarks]
+        if include_hidden:
+            return names
+        return [n for n in names if _is_user_bookmark(n)]
 
     def __iter__(self) -> Iterator[Bookmark]:
         for name in self.list():
@@ -212,7 +254,14 @@ class BookmarkCollection:
 
 
 def _cc_by_name(doc_com: Any, name: str) -> Any | None:
-    """Find a content control by its Title (Tag falls back). Returns None if missing."""
+    """Find a content control by its Title (Tag falls back). Returns None if missing.
+
+    Reject empty `name` explicitly — many content controls have neither a
+    Title nor a Tag, and the naive `cc.Title or "" == ""` test would match
+    the first such control. Callers asking for `""` get `None` instead.
+    """
+    if not name:
+        return None
     for cc in doc_com.ContentControls:
         if str(cc.Title or "") == name or str(cc.Tag or "") == name:
             return cc
@@ -220,7 +269,7 @@ def _cc_by_name(doc_com: Any, name: str) -> Any | None:
 
 
 class ContentControl(Anchor):
-    kind = "content control"
+    kind = "content_control"
 
     @property
     def anchor_id(self) -> str:
@@ -229,7 +278,7 @@ class ContentControl(Anchor):
     def _cc(self) -> Any:
         cc = _cc_by_name(self._doc.com, self.name)
         if cc is None:
-            raise AnchorNotFoundError("content control", self.name)
+            raise AnchorNotFoundError("content_control", self.name)
         return cc
 
     def _range(self) -> Any:
@@ -254,7 +303,7 @@ class ContentControlCollection:
     def __getitem__(self, name: str) -> ContentControl:
         with _com.translate_com_errors():
             if _cc_by_name(self._doc.com, name) is None:
-                raise AnchorNotFoundError("content control", name)
+                raise AnchorNotFoundError("content_control", name)
         return ContentControl(self._doc, name)
 
     def __contains__(self, name: object) -> bool:
@@ -281,7 +330,7 @@ class ContentControlCollection:
 # ---------------------------------------------------------------------------
 
 
-def _paragraph_text(para: Any) -> str:
+def paragraph_text(para: Any) -> str:
     """Heading text minus the trailing paragraph mark."""
     raw = str(para.Range.Text or "")
     return raw.rstrip("\r\n\x07")
@@ -296,7 +345,7 @@ def _find_heading_paragraph(doc_com: Any, name: str) -> tuple[Any, int] | None:
             continue
         if level >= 10:  # WdOutlineLevel: 1-9 are headings; 10 is body text
             continue
-        if _paragraph_text(para) == name:
+        if paragraph_text(para) == name:
             return para, idx
     return None
 
@@ -389,7 +438,7 @@ class Heading(Anchor):
     @property
     def text(self) -> str:
         with _com.translate_com_errors():
-            return _paragraph_text(self._paragraph())
+            return paragraph_text(self._paragraph())
 
     def set_text(self, text: str) -> None:
         with _com.translate_com_errors():
@@ -419,8 +468,88 @@ class Heading(Anchor):
             insert_rng = doc_com.Range(end, end)
             insert_rng.Text = text + "\r"
             if style_obj is not None:
-                styled = doc_com.Range(end, end + len(text))
+                # Word measures Range offsets in UTF-16 code units; using
+                # Python's len() under-counts surrogate pairs and leaves the
+                # tail of the inserted paragraph un-styled.
+                styled = doc_com.Range(end, end + _utf16_len(text))
                 styled.Style = style_obj.com
+
+
+class HeadingCollection:
+    """Iterable, indexable view over a document's headings.
+
+    Symmetric with `BookmarkCollection` and `ContentControlCollection`:
+
+        for h in doc.headings:           # iteration → Heading per heading paragraph
+            ...
+        doc.headings["Risks"]            # by visible text
+        doc.headings[3]                  # by 1-based paragraph index
+        "Risks" in doc.headings          # membership
+        doc.headings.list()              # same shape as doc.outline()
+    """
+
+    def __init__(self, doc: "Document") -> None:
+        self._doc = doc
+
+    def __getitem__(self, key: str | int) -> Heading:
+        if isinstance(key, bool):
+            # bool is a subclass of int; reject before the int branch matches.
+            raise TypeError(f"heading key must be str or int, got {type(key).__name__}")
+        if isinstance(key, int):
+            return _IndexedHeading(self._doc, key)
+        if isinstance(key, str):
+            with _com.translate_com_errors():
+                if _find_heading_paragraph(self._doc.com, key) is None:
+                    raise AnchorNotFoundError("heading", key)
+            return Heading(self._doc, key)
+        raise TypeError(f"heading key must be str or int, got {type(key).__name__}")
+
+    def __contains__(self, key: object) -> bool:
+        if isinstance(key, bool):
+            return False
+        if isinstance(key, int):
+            # 1-based paragraph index must reference an actual heading paragraph.
+            with _com.translate_com_errors():
+                for idx, para in enumerate(self._doc.com.Paragraphs, start=1):
+                    if idx != key:
+                        continue
+                    try:
+                        lvl = int(para.OutlineLevel)
+                    except Exception:
+                        return False
+                    return lvl < 10
+            return False
+        if not isinstance(key, str):
+            return False
+        with _com.translate_com_errors():
+            return _find_heading_paragraph(self._doc.com, key) is not None
+
+    def list(self) -> list[dict[str, Any]]:
+        """Same shape as `Document.outline()` — `[{level, text, anchor_id}, ...]`."""
+        out: list[dict[str, Any]] = []
+        with _com.translate_com_errors():
+            for idx, para in enumerate(self._doc.com.Paragraphs, start=1):
+                try:
+                    level = int(para.OutlineLevel)
+                except Exception:
+                    continue
+                if level >= 10:
+                    continue
+                out.append(
+                    {
+                        "level": level,
+                        "text": paragraph_text(para),
+                        "anchor_id": f"heading:{idx}",
+                    }
+                )
+        return out
+
+    def __iter__(self) -> Iterator[Heading]:
+        for entry in self.list():
+            # Each entry's anchor_id is `heading:N`; index-based heading
+            # disambiguates duplicate visible text.
+            idx = int(entry["anchor_id"].split(":", 1)[1])
+            yield _IndexedHeading(self._doc, idx)
 
 
 class _IndexedHeading(Heading):
@@ -449,7 +578,7 @@ class _IndexedHeading(Heading):
                 break
             if level >= 10:
                 break
-            self.name = _paragraph_text(para) or self.name
+            self.name = paragraph_text(para) or self.name
             return para
         raise AnchorNotFoundError("heading", f"heading:{self._paragraph_index}")
 

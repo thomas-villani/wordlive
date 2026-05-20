@@ -40,9 +40,8 @@ offset is now invalid, wordlive collapses to the start of the snapshot range
 rather than raising.
 
 !!! info "Implementation"
-    The snapshot type is defined at
-    [`src/wordlive/_selection.py:14`](https://github.com/thomas-villani/wordlive/blob/main/src/wordlive/_selection.py#L14)
-    and the snapshot/restore logic at lines 45 and 61 of the same file.
+    The snapshot dataclass, plus the `snapshot()` / `restore()` helpers, live in
+    [`src/wordlive/_selection.py`](https://github.com/thomas-villani/wordlive/blob/main/src/wordlive/_selection.py).
 
 ## Semantic anchors over `Selection`
 
@@ -118,8 +117,8 @@ the document*, which is stable across the lifetime of a session.
 
 !!! info "Implementation"
     Resolution is centralised in
-    [`Document.anchor_by_id`](python-api.md#wordlive.Document) at
-    [`src/wordlive/_document.py:62`](https://github.com/thomas-villani/wordlive/blob/main/src/wordlive/_document.py#L62).
+    [`Document.anchor_by_id`](python-api.md#wordlive.Document); see
+    [`src/wordlive/_document.py`](https://github.com/thomas-villani/wordlive/blob/main/src/wordlive/_document.py).
 
 ## `EditScope` and atomic undo
 
@@ -158,7 +157,7 @@ your mutations.
 
 !!! info "Implementation"
     [`EditScope`](python-api.md#wordlive.EditScope) lives in
-    [`src/wordlive/_edit.py:14`](https://github.com/thomas-villani/wordlive/blob/main/src/wordlive/_edit.py#L14).
+    [`src/wordlive/_edit.py`](https://github.com/thomas-villani/wordlive/blob/main/src/wordlive/_edit.py).
 
 ## The `.com` escape hatch
 

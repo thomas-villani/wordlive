@@ -142,3 +142,61 @@ def test_format_paragraph_no_kwargs_is_noop(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active
         doc.bookmarks["Address"].format_paragraph()
+
+
+# ---------------------------------------------------------------------------
+# apply_style / format_paragraph cross-kind coverage (T-1)
+#
+# These live on the base `Anchor` class, so they should work identically on
+# every anchor kind. Bookmark coverage above; mirror it for content controls
+# and headings so a regression in `_range()` on either kind gets caught.
+# ---------------------------------------------------------------------------
+
+
+def test_apply_style_on_content_control_writes_through(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("cc style"):
+            doc.content_controls["Signatory"].apply_style("Heading 2")
+    # ContentControl.Range was assigned a Style; pull the CC from the fake and
+    # verify the Style applied was the Heading 2 mock.
+    cc_mock = next(c for c in fake_word.ActiveDocument.ContentControls if c.Title == "Signatory")
+    assert cc_mock.Range.Style.NameLocal == "Heading 2"
+
+
+def test_apply_style_on_heading_writes_through(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("heading style"):
+            doc.heading("Risks").apply_style("Heading 1")
+    # Heading anchor exposes the paragraph's Range; check Style landed there.
+    para = next(
+        p for p in fake_word.ActiveDocument.Paragraphs
+        if p.Range.Text.rstrip("\r\n\x07") == "Risks"
+    )
+    assert para.Range.Style.NameLocal == "Heading 1"
+
+
+def test_format_paragraph_on_content_control(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.content_controls["Signatory"].format_paragraph(
+            alignment="right", left_indent=24.0
+        )
+    cc_mock = next(c for c in fake_word.ActiveDocument.ContentControls if c.Title == "Signatory")
+    pf = cc_mock.Range.ParagraphFormat
+    assert pf.Alignment == int(WdParagraphAlignment.RIGHT)
+    assert pf.LeftIndent == 24.0
+
+
+def test_format_paragraph_on_heading(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.heading("Risks").format_paragraph(space_before=12.0, alignment="center")
+    para = next(
+        p for p in fake_word.ActiveDocument.Paragraphs
+        if p.Range.Text.rstrip("\r\n\x07") == "Risks"
+    )
+    pf = para.Range.ParagraphFormat
+    assert pf.SpaceBefore == 12.0
+    assert pf.Alignment == int(WdParagraphAlignment.CENTER)

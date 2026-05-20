@@ -99,9 +99,10 @@ it) and uses deterministic exit codes:
 | Exit | Meaning                |
 | ---- | ---------------------- |
 | `0`  | ok                     |
-| `2`  | anchor not found       |
+| `2`  | anchor or style not found |
 | `3`  | Word busy / modal      |
 | `4`  | Word not running       |
+| `5`  | ambiguous match (`replace --find` matched >1 occurrence) |
 | `1`  | other error            |
 
 Full reference: [CLI](cli.md).
