@@ -38,11 +38,13 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 ## Anchors
 
 Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
-`insert_paragraph_before/after(...)`, and the list verbs (`apply_list`,
-`remove_list`, `list_info`, `restart_numbering`, `indent_list`, `outdent_list`)
-from [`Anchor`](#wordlive.Anchor), so the same calls work uniformly on
-bookmarks, content controls, headings, paragraphs, table cells, header/footer
-ranges, and arbitrary range anchors.
+`insert_paragraph_before/after(...)`, `insert_image(...)`, and the list verbs
+(`apply_list`, `remove_list`, `list_info`, `restart_numbering`, `indent_list`,
+`outdent_list`) from [`Anchor`](#wordlive.Anchor), so the same calls work
+uniformly on bookmarks, content controls, headings, paragraphs, table cells,
+header/footer ranges, and arbitrary range anchors. `insert_image` accepts a
+file path, raw bytes, or a base64 string and embeds the picture; `wrap` is
+required (`"inline"`, `"auto"`, or a float wrap like `"square"`/`"top-bottom"`).
 
 ::: wordlive.Anchor
 
@@ -159,6 +161,8 @@ snapping the cursor back. Everywhere else, prefer anchors over the cursor.
 ::: wordlive.StyleNotFoundError
 
 ::: wordlive.AmbiguousMatchError
+
+::: wordlive.ImageSourceError
 
 ::: wordlive.WordBusyError
 

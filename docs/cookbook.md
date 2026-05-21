@@ -848,3 +848,56 @@ The split is deliberate: anchors are addressable, stable, and visible to an LLM
 as JSON; the cursor is none of those, so wordlive keeps it behind its own
 clearly-labelled `cursor` surface rather than letting it leak into
 `--anchor-id`.
+
+## 14. Drop a figure into a document
+
+`insert_image` works on any anchor and embeds the picture (it never links to a
+path that could vanish). `wrap` is required, so layout intent is always
+explicit; `"auto"` floats small images with Square wrap and large ones
+top-and-bottom.
+
+```python
+import wordlive as wl
+
+with wl.attach() as word:
+    doc = word.documents.active
+
+    with doc.edit("Add diagram after Risks"):
+        # From a file, letting the size heuristic pick the wrap.
+        doc.heading("Risks").insert_image("diagram.png", wrap="auto")
+
+        # Inline (in the text flow), with explicit size and alt text.
+        doc.bookmarks["Logo"].insert_image(
+            "logo.png", wrap="inline", width=96, alt_text="Company logo"
+        )
+```
+
+An LLM usually holds image **data**, not a path — pass `bytes` or a base64
+string and wordlive temp-files it, embeds it, and cleans up:
+
+```python
+import base64, wordlive as wl
+
+png_b64 = "...base64 from a vision/diffusion model..."
+
+with wl.attach() as word:
+    doc = word.documents.active
+    with doc.edit("Insert generated chart"):
+        doc.heading("Results").insert_image(png_b64, wrap="square", width=240)
+        # Equivalently: insert_image(base64.b64decode(png_b64), wrap="square")
+```
+
+From the CLI, use `--path` for files and `--base64` (or `--base64 -` from
+stdin) for in-memory data:
+
+```bash
+$ wordlive insert-image --anchor-id heading:2 --path diagram.png --wrap auto
+{"ok": true, "anchor_id": "heading:2", "anchor": {"kind": "heading", "name": "Risks"}, "wrap": "auto", "where": "after"}
+
+$ base64 logo.png | wordlive insert-image --anchor-id bookmark:Logo --base64 - \
+    --wrap inline --width 96 --alt-text "Company logo"
+```
+
+A missing file, malformed base64, or an unrecognised format raises
+[`ImageSourceError`](errors.md#imagesourceerror) (exit code 1) before anything
+is inserted — the batch never half-mutates the document.

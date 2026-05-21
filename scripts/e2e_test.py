@@ -20,9 +20,12 @@ already running.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import traceback
 from contextlib import contextmanager
 from typing import Any, Callable, Iterator
@@ -628,6 +631,85 @@ def t_cli_status(_word: wl.Word, _doc: Document) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Visual content (v0.8): image insertion
+# ---------------------------------------------------------------------------
+
+# A 1x1 transparent PNG — enough for Word to embed; size is driven by width=.
+_E2E_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYPhfDwAChwGA"
+    "60e6kgAAAABJRU5ErkJggg=="
+)
+
+
+def _inline_count(doc: Document) -> int:
+    return int(doc.com.InlineShapes.Count)
+
+
+def _shape_count(doc: Document) -> int:
+    return int(doc.com.Shapes.Count)
+
+
+def t_insert_image_inline_from_path(_word: wl.Word, doc: Document) -> None:
+    before = _inline_count(doc)
+    fd, path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    try:
+        with open(path, "wb") as f:
+            f.write(_E2E_PNG)
+        with doc.edit("E2E: inline image from path"):
+            doc.bookmarks[BOOKMARK_NAME].insert_image(path, wrap="inline")
+    finally:
+        os.unlink(path)
+    expect(_inline_count(doc) == before + 1, "inline image was not added")
+
+
+def t_insert_image_floating_square(_word: wl.Word, doc: Document) -> None:
+    before = _shape_count(doc)
+    with doc.edit("E2E: square image"):
+        doc.bookmarks[BOOKMARK_NAME].insert_image(_E2E_PNG, wrap="square", width=120.0)
+    expect(_shape_count(doc) == before + 1, "floating image was not added")
+    shp = doc.com.Shapes(doc.com.Shapes.Count)
+    expect(int(shp.WrapFormat.Type) == 0, f"wrap type should be Square(0), got {shp.WrapFormat.Type}")
+
+
+def t_insert_image_auto_small_is_square(_word: wl.Word, doc: Document) -> None:
+    before = _shape_count(doc)
+    with doc.edit("E2E: auto image"):
+        # 72pt = 1in, well under half a Letter page's usable width.
+        doc.bookmarks[BOOKMARK_NAME].insert_image(_E2E_PNG, wrap="auto", width=72.0)
+    expect(_shape_count(doc) == before + 1, "auto image was not added")
+    shp = doc.com.Shapes(doc.com.Shapes.Count)
+    expect(int(shp.WrapFormat.Type) == 0, f"auto-small should resolve to Square(0), got {shp.WrapFormat.Type}")
+
+
+def t_insert_image_from_base64(_word: wl.Word, doc: Document) -> None:
+    before = _inline_count(doc)
+    b64 = base64.b64encode(_E2E_PNG).decode("ascii")
+    with doc.edit("E2E: base64 image"):
+        doc.bookmarks[BOOKMARK_NAME].insert_image(b64, wrap="inline")
+    expect(_inline_count(doc) == before + 1, "base64 image was not added")
+
+
+def t_insert_image_alt_text(_word: wl.Word, doc: Document) -> None:
+    with doc.edit("E2E: image alt text"):
+        doc.bookmarks[BOOKMARK_NAME].insert_image(
+            _E2E_PNG, wrap="square", width=100.0, alt_text="E2E alt"
+        )
+    shp = doc.com.Shapes(doc.com.Shapes.Count)
+    expect("E2E alt" in str(shp.AlternativeText), f"alt text not set, got {shp.AlternativeText!r}")
+
+
+def t_insert_image_missing_raises(_word: wl.Word, doc: Document) -> None:
+    raised = False
+    try:
+        with doc.edit("E2E: missing image"):
+            doc.bookmarks[BOOKMARK_NAME].insert_image(r"C:\nope\definitely-missing.png", wrap="inline")
+    except wl.ImageSourceError:
+        raised = True
+    expect(raised, "a missing/invalid image should raise ImageSourceError, not a bare ComError")
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
@@ -707,6 +789,14 @@ def main() -> int:
             h.run("para:N set_text round-trips", lambda: t_para_set_text_round_trip(word, doc))
             h.run("insert_paragraph_before/after on a para:N anchor", lambda: t_insert_relative_to_paragraph(word, doc))
             h.run("cursor read resolves para:N + cursor write inserts", lambda: t_cursor_read_and_write(word, doc))
+
+            # Visual content (v0.8): image insertion.
+            h.run("insert_image inline from a file path", lambda: t_insert_image_inline_from_path(word, doc))
+            h.run("insert_image square floats + sets wrap type", lambda: t_insert_image_floating_square(word, doc))
+            h.run("insert_image wrap=auto small resolves to Square", lambda: t_insert_image_auto_small_is_square(word, doc))
+            h.run("insert_image from base64 embeds", lambda: t_insert_image_from_base64(word, doc))
+            h.run("insert_image alt_text round-trips on the shape", lambda: t_insert_image_alt_text(word, doc))
+            h.run("insert_image missing file raises ImageSourceError", lambda: t_insert_image_missing_raises(word, doc))
 
             if not args.no_cli:
                 h.run("CLI: wordlive status (subprocess)", lambda: t_cli_status(word, doc))

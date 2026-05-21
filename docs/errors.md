@@ -15,6 +15,7 @@ Exception
     ├── AnchorNotFoundError
     │   └── StyleNotFoundError
     ├── AmbiguousMatchError
+    ├── ImageSourceError
     ├── WordBusyError
     └── ComError
 ```
@@ -66,6 +67,14 @@ search string) and `.matches` (a list of `{anchor_id, start, end, text}`
 dicts) so an agent can pick a specific occurrence and retry. **Retryable** by
 narrowing the call with `occurrence=N` or `all=True`.
 
+### `ImageSourceError`
+The image handed to [`insert_image`](python-api.md#wordlive.Anchor) couldn't be
+turned into an embeddable file: a missing or unreadable path, malformed base64,
+or bytes whose format isn't a recognised raster image (PNG/JPEG/GIF/BMP/TIFF).
+It's a *bad-input* error — not a missing named thing — so it maps to the
+generic exit code (1) rather than reusing the anchor-not-found code.
+**Not retryable**: fix the input.
+
 ### `WordBusyError`
 Word rejected the COM RPC. This usually means a modal dialog is open (Save
 As, Find & Replace, etc.) or Word is mid-operation. **Retryable** with
@@ -103,7 +112,7 @@ The CLI maps the exception hierarchy onto six exit codes, defined in
 | Exit | Exception(s)                                | Meaning                          | Retry?                |
 | ---- | ------------------------------------------- | -------------------------------- | --------------------- |
 | `0`  | —                                           | success                          | —                     |
-| `1`  | `WordliveError` (default), `DocumentNotFoundError` | other / unclassified      | depends on cause      |
+| `1`  | `WordliveError` (default), `DocumentNotFoundError`, `ImageSourceError` | other / unclassified | depends on cause |
 | `2`  | `AnchorNotFoundError`, `StyleNotFoundError`  | bookmark / cc / heading / style missing, or `find` had zero matches | yes, after re-reading content |
 | `3`  | `WordBusyError`                              | modal dialog or busy RPC         | **yes**, with back-off |
 | `4`  | `WordNotRunningError`                        | no Word instance                 | only if user launches Word |

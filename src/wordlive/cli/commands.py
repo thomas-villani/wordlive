@@ -84,6 +84,7 @@ def register(group: click.Group) -> None:
     group.add_command(read)
     group.add_command(write)
     group.add_command(insert)
+    group.add_command(insert_image_cmd)
     group.add_command(cursor)
     group.add_command(find_cmd)
     group.add_command(replace)
@@ -326,6 +327,84 @@ def insert(ctx: click.Context, anchor_id: str, text: str, before: bool, style: s
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted {where} {anchor_id}",
+            )
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP ...
+# ---------------------------------------------------------------------------
+
+
+_WRAP_CHOICES = ["inline", "auto", "square", "tight", "through", "top-bottom", "behind", "front"]
+
+
+@click.command(name="insert-image")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor to insert the image relative to.")
+@click.option("--path", "path", default=None, type=click.Path(path_type=Path),
+              help="Path to the image file.")
+@click.option("--base64", "b64", default=None,
+              help="Base64 image data, or '-' to read base64 from stdin.")
+@click.option("--wrap", "wrap", required=True, type=click.Choice(_WRAP_CHOICES),
+              help="Layout / text-wrap (required). 'inline' stays in the text flow; "
+                   "'auto' floats Square when small, else top-bottom.")
+@click.option("--before/--after", "before", default=False, show_default="--after",
+              help="Insert before the anchor instead of after it.")
+@click.option("--width", "width", type=float, default=None, help="Width in points (optional).")
+@click.option("--height", "height", type=float, default=None, help="Height in points (optional).")
+@click.option("--alt-text", "alt_text", default=None, help="Alternative (accessibility) text.")
+@click.option("--lock-aspect/--no-lock-aspect", "lock_aspect", default=True, show_default=True,
+              help="Keep the image's aspect ratio when resizing.")
+@click.pass_context
+def insert_image_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    path: Path | None,
+    b64: str | None,
+    wrap: str,
+    before: bool,
+    width: float | None,
+    height: float | None,
+    alt_text: str | None,
+    lock_aspect: bool,
+) -> None:
+    """Insert an image at any anchor, from a file or base64 (atomic-undo).
+
+    Exactly one of --path / --base64 is required. --path is best for large
+    images; base64 (or '--base64 -' from stdin) suits an LLM holding image
+    data in memory. --wrap is required so layout is always explicit.
+    """
+    if (path is None) == (b64 is None):
+        raise click.UsageError("pass exactly one of --path or --base64")
+    if b64 == "-":
+        b64 = click.get_text_stream("stdin").read()
+    image: str | Path = path if path is not None else (b64 or "")
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert image {where} {anchor_id}"):
+                anchor.insert_image(
+                    image,
+                    wrap=wrap,
+                    where=where,
+                    width=width,
+                    height=height,
+                    alt_text=alt_text,
+                    lock_aspect=lock_aspect,
+                )
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "wrap": wrap,
+                    "where": where,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted image {where} {anchor_id} (wrap={wrap})",
             )
     _run(ctx, go)
 
@@ -1230,6 +1309,7 @@ _OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "write_bookmark": ("name", "text"),
     "write_cc": ("name", "text"),
     "insert_paragraph": ("anchor_id", "text"),
+    "insert_image": ("anchor_id", "wrap"),
     "replace": ("anchor_id", "text"),
     "find_replace": ("find", "text"),
     "apply_style": ("anchor_id", "name"),
@@ -1280,6 +1360,18 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
             anchor.insert_paragraph_before(op["text"], style=op.get("style"))
         else:
             anchor.insert_paragraph_after(op["text"], style=op.get("style"))
+    elif kind == "insert_image":
+        if ("path" in op) == ("base64" in op):
+            raise click.ClickException(
+                "op 'insert_image' requires exactly one of 'path' or 'base64'"
+            )
+        image: str | Path = Path(op["path"]) if "path" in op else op["base64"]
+        kwargs = {
+            k: op[k] for k in ("width", "height", "alt_text", "lock_aspect") if k in op
+        }
+        doc.anchor_by_id(op["anchor_id"]).insert_image(
+            image, wrap=op["wrap"], where=op.get("where", "after"), **kwargs
+        )
     elif kind == "replace":
         doc.anchor_by_id(op["anchor_id"]).set_text(op["text"])
     elif kind == "find_replace":
@@ -1348,10 +1440,11 @@ def exec_(ctx: click.Context, script: Path) -> None:
     Script shape: `{"label": "…", "ops": [{"op": "...", ...}, ...]}`. Set
     `"tracked": true` at the top level to record the whole batch as Word
     revisions (Track Changes is restored to its prior state afterwards).
-    Supported ops: write_bookmark, write_cc, insert_paragraph, replace,
-    find_replace, apply_style, format_paragraph, set_cell, add_row, delete_row,
-    add_comment, resolve_comment, delete_comment, apply_list, remove_list,
-    restart_numbering, indent_list, outdent_list, write_header, write_footer.
+    Supported ops: write_bookmark, write_cc, insert_paragraph, insert_image,
+    replace, find_replace, apply_style, format_paragraph, set_cell, add_row,
+    delete_row, add_comment, resolve_comment, delete_comment, apply_list,
+    remove_list, restart_numbering, indent_list, outdent_list, write_header,
+    write_footer.
     See docs/cli.md for each op's required and optional fields.
     """
     def go() -> None:

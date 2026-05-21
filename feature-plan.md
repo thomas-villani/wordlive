@@ -182,51 +182,55 @@ anchors-over-`Selection` model.
 
 ---
 
-## v0.8 — image insertion
+## v0.8 — image insertion ✅ shipped in v0.8
 
 First of the visual-content track. Images fit the anchor model: insertion goes
 through `Range.InlineShapes.AddPicture`, which anchors to a range and reuses the
 collapse-the-range pattern that `insert_paragraph_before/after` already use
-(`_anchors.py:117-149`), and lands inside `doc.edit()` for one-Ctrl-Z undo like
-every other mutation. Word auto-detects the natural pixel→points size on insert,
-so the caller never needs to know the image's dimensions.
+(`_anchors.py`), and lands inside `doc.edit()` for one-Ctrl-Z undo like every
+other mutation. Word auto-detects the natural pixel→points size on insert, so
+the caller never needs to know the image's dimensions.
 
-- **`anchor.insert_image(path, *, wrap, width=None, height=None, alt_text=None,
-  lock_aspect=True)`** on the base `Anchor`. `AddPicture` with
+- **`anchor.insert_image(image, *, wrap, where="after", width=None, height=None,
+  alt_text=None, lock_aspect=True)`** on the base `Anchor`. `AddPicture` with
   `LinkToFile=False, SaveWithDocument=True` (embed; never link to a path that can
   vanish). `width`/`height` in points; `alt_text` → `AlternativeText`.
-- **`wrap` is required — no default** (decided with the user). Forcing an
-  explicit value means the LLM declares layout intent and floating is never a
-  silent surprise; fits the structured-I/O / no-magic principle. Accepted
-  values: `inline | auto | square | tight | through | top-bottom | behind |
-  front`.
+- **Resolved — `image` is a path, raw bytes, *or* base64.** The priority case is
+  an LLM holding base64. A `str` is a path when it names an existing file, else
+  base64; `bytes` is raw image data. Bytes/base64 are written to a temp file
+  (extension sniffed from magic bytes), embedded, then cleaned up — all in
+  `_images.image_on_disk`, reused by v0.9 extraction. Widening a `str` path to
+  also accept base64 stayed non-breaking.
+- **Resolved — `where="after"` (default) / `"before"`**, mirroring the `insert`
+  command (`--before/--after` on the CLI) rather than a fixed insertion point.
+- **`wrap` is required — no default.** Forcing an explicit value means the LLM
+  declares layout intent and floating is never a silent surprise. Accepted:
+  `inline | auto | square | tight | through | top-bottom | behind | front`. An
+  unknown value raises `ValueError` (like `_coerce_alignment`).
 - **Wrapping requires a *floating* shape.** An `InlineShape` has no wrap (it's a
   character in the text flow). `wrap="inline"` keeps it inline; any other value
-  calls `InlineShape.ConvertToShape()` and sets
-  `Shape.WrapFormat.Type` (square=0, tight=1, through=2, top-bottom=3, front=4,
-  behind=5). **Spike-confirmed**: convert + set + readback all round-trip.
-- **`wrap="auto"`** = the user's size heuristic, spike-validated: square if the
-  final width ≤ **half the anchor section's usable text width**
-  (`PageWidth − LeftMargin − RightMargin`), else top-bottom. (Verified on Letter
-  portrait: usable 468pt, 117pt→Square, 421pt→TopBottom.)
-- **CLI:** `wordlive insert-image --anchor-id ID --path FILE --wrap WRAP
-  [--width N] [--height N] [--alt-text …] [--no-lock-aspect]`, plus an
-  `insert_image` exec op (`{op, anchor_id, path, wrap, width?, height?,
-  alt_text?, lock_aspect?}`).
-- **Bytes vs. path — decide during build.** `AddPicture` only reads a file on
-  disk. An LLM usually holds image *bytes*, not a path; if we accept bytes we
-  temp-file them and clean up. Resolve path-only vs. bytes-or-path before
-  shipping the signature.
-- New typed error for a missing/unreadable file so it maps to a deterministic
-  exit code instead of a bare COM failure.
-- **Set `alt_text` deliberately** — it's the one piece of an image an LLM can
-  read back without pixel access, so it doubles as a re-identification handle
-  (see v0.9 image extraction).
-- **Deferred:** wrap *side* (`WrapFormat.Side` left/right/both) and text
-  distance; absolute/relative positioning (`Left`/`Top`,
-  `RelativeHorizontalPosition`, `wdShapeCenter`); cropping; replacing an existing
-  image in place. (We reach floating via inline-then-`ConvertToShape`, so direct
-  `Document.Shapes.AddPicture` isn't needed.)
+  calls `InlineShape.ConvertToShape()` and sets `Shape.WrapFormat.Type`
+  (`WdWrapType`: square=0, tight=1, through=2, top-bottom=3, front=4, behind=5).
+- **`wrap="auto"`** = size heuristic: square if final width ≤ **half the anchor
+  section's usable text width** (`PageWidth − LeftMargin − RightMargin`), else
+  top-bottom. (Letter portrait: usable 468pt, 117→Square, 421→TopBottom.)
+- **Resolved — typed `ImageSourceError(WordliveError)` → exit 1.** Covers a
+  missing/unreadable path, malformed base64, or unrecognised format. It's a
+  *bad-input* error, not a *named-thing-missing* one, so it does **not** subclass
+  `AnchorNotFoundError` (no exit-2 reuse, six-code contract untouched).
+- **CLI:** `wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE)
+  --wrap WRAP [--before/--after] [--width N] [--height N] [--alt-text …]
+  [--lock-aspect/--no-lock-aspect]` (`--base64 -` reads stdin), plus an
+  `insert_image` exec op (`{op, anchor_id, wrap, where?, path?|base64?, width?,
+  height?, alt_text?, lock_aspect?}` — base64 in a JSON op dodges argv limits).
+- `alt_text` set deliberately — the one piece of an image an LLM can read back
+  without pixel access, so it doubles as a re-identification handle (v0.9).
+- **Deferred:** wrap *side* (`WrapFormat.Side`) + text distance;
+  absolute/relative positioning (`Left`/`Top`, `RelativeHorizontalPosition`,
+  `wdShapeCenter`); cropping; replacing an image in place; forcing the image into
+  its own paragraph; EMF/WMF beyond magic-byte sniffing. (Floating is reached via
+  inline-then-`ConvertToShape`, so direct `Document.Shapes.AddPicture` isn't
+  needed.)
 
 ---
 

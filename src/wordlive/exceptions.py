@@ -57,6 +57,20 @@ class AmbiguousMatchError(WordliveError):
         self.matches = matches
 
 
+class ImageSourceError(WordliveError):
+    """An image given to `insert_image` couldn't be turned into an embeddable file.
+
+    Raised for a missing or unreadable path, malformed base64, or bytes whose
+    format isn't a recognised raster image (PNG/JPEG/GIF/BMP/TIFF). It's a
+    bad-input error — not a "named thing is missing" — so it maps to the
+    generic exit code (1) rather than reusing the anchor-not-found code.
+    Not retryable: fix the input.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class WordBusyError(WordliveError):
     """Word rejected the RPC — typically a modal dialog or a transient busy state.
 

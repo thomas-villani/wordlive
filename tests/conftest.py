@@ -162,6 +162,50 @@ def _list_application() -> MagicMock:
     return app
 
 
+class _FakeWrapFormat:
+    """Mimics Shape.WrapFormat — only `.Type` is exercised."""
+
+    def __init__(self) -> None:
+        self.Type = 7  # wdWrapInline until ConvertToShape sets a real wrap
+
+
+class _FakeShape:
+    """A floating Shape, as produced by InlineShape.ConvertToShape()."""
+
+    def __init__(self, width: float, height: float, alt_text: str) -> None:
+        self.Width = width
+        self.Height = height
+        self.AlternativeText = alt_text
+        self.WrapFormat = _FakeWrapFormat()
+
+
+class _FakeInlineShape:
+    """The InlineShape returned by Range.InlineShapes.AddPicture()."""
+
+    def __init__(self) -> None:
+        self.Width = 100.0
+        self.Height = 80.0
+        self.AlternativeText = ""
+        self.LockAspectRatio = -1
+        self.converted = None  # the _FakeShape, once ConvertToShape() runs
+
+    def ConvertToShape(self) -> "_FakeShape":
+        self.converted = _FakeShape(self.Width, self.Height, self.AlternativeText)
+        return self.converted
+
+
+class _FakeInlineShapes:
+    """Mimics Range.InlineShapes: AddPicture records its call and returns a shape."""
+
+    def __init__(self) -> None:
+        self.shape = _FakeInlineShape()
+        self.AddPicture = MagicMock(name="AddPicture", return_value=self.shape)
+
+    @property
+    def Count(self) -> int:
+        return 1
+
+
 def _make_range(start: int, end: int) -> MagicMock:
     rng = MagicMock(name=f"Range[{start},{end}]")
     rng.Start = start
@@ -171,6 +215,10 @@ def _make_range(start: int, end: int) -> MagicMock:
     # list-gallery templates, so apply_list / list_info / restart work.
     rng.ListFormat = _FakeListFormat()
     rng.Application = _list_application()
+    # Image support: every range can take an inline picture and knows its
+    # section's page geometry (Letter defaults) for the wrap="auto" heuristic.
+    rng.InlineShapes = _FakeInlineShapes()
+    rng.PageSetup = _FakePageSetup()
     return rng
 
 

@@ -219,6 +219,44 @@ To insert text *inside* a paragraph at a precise offset rather than as a new
 paragraph, target a collapsed range instead — `replace --anchor-id
 range:120-120 --text "…"` — using offsets from `paragraphs` or `find`.
 
+## `insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP`
+
+```
+wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP \
+    [--before | --after] [--width N] [--height N] [--alt-text "…"] \
+    [--lock-aspect | --no-lock-aspect] [--doc DOC_NAME]
+```
+
+Embed an image at **any** anchor. Exactly one image source is required:
+`--path` reads a file from disk (best for large images); `--base64` takes
+base64 data inline, or `--base64 -` reads base64 from **stdin** (handy when an
+LLM holds image data in memory). The picture is embedded in the document, not
+linked, so the source file can move or vanish afterwards. Word auto-detects the
+image's natural size; `--width`/`--height` (points) override it and
+`--lock-aspect` (the default) keeps the aspect ratio.
+
+`--wrap` is **required** so layout intent is always explicit:
+
+| `--wrap`                                            | Effect                                              |
+| --------------------------------------------------- | --------------------------------------------------- |
+| `inline`                                            | Stays in the text flow, like a character.           |
+| `auto`                                              | Floats: Square if ≤ half the page's usable width, else top-and-bottom. |
+| `square` `tight` `through` `top-bottom` `front` `behind` | Floats with that wrap type.                    |
+
+`--after` (default) places the image just below the anchor; `--before` above.
+
+```bash
+$ wordlive insert-image --anchor-id heading:2 --path diagram.png --wrap auto
+{"ok": true, "anchor_id": "heading:2", "anchor": {"kind": "heading", "name": "Risks"}, "wrap": "auto", "where": "after"}
+
+$ base64 logo.png | wordlive insert-image --anchor-id bookmark:Header --base64 - --wrap square --width 96
+{"ok": true, "anchor_id": "bookmark:Header", "anchor": {"kind": "bookmark", "name": "Header"}, "wrap": "square", "where": "after"}
+```
+
+Failures: `1` the image is missing, unreadable, or not a recognised raster
+format (PNG/JPEG/GIF/BMP/TIFF) — an `ImageSourceError`; `2` anchor not found
+or an invalid `--wrap` value; `3` Word busy.
+
 ## `cursor read` / `cursor write --text "…"`
 
 ```
@@ -764,6 +802,7 @@ Script shape:
 | `write_bookmark`       | `name`, `text`                             | —                                 |
 | `write_cc`             | `name`, `text`                             | —                                 |
 | `insert_paragraph`     | `anchor_id`, `text`                        | `where` (`after`/`before`), `style` |
+| `insert_image`         | `anchor_id`, `wrap`, and one of `path` / `base64` | `where`, `width`, `height`, `alt_text`, `lock_aspect` |
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
@@ -790,6 +829,12 @@ batch response's `failure.matches` so the LLM can rewrite the op and retry.
 `insert_paragraph` mirrors the `insert` command: a new paragraph relative to
 any anchor, with `where` defaulting to `after` and an optional `style` that's
 validated before the batch mutates anything.
+
+`insert_image` mirrors `insert-image`. Supply the image with either a `path`
+(read from disk) or `base64` (inline data — the natural choice in a JSON op,
+with no command-line length limit). `wrap` is required; the optional fields
+match the command's flags. A bad image source surfaces as the batch's
+`failure` with `type: "ImageSourceError"`.
 
 `apply_style` and `format_paragraph` are the same as their dedicated CLI
 verbs — the style must already exist in the document, indent and spacing

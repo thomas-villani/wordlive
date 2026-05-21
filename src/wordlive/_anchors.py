@@ -10,11 +10,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Iterator, TYPE_CHECKING
 
-from . import _com, _lists
-from .constants import WdNumberType, WdParagraphAlignment
+from . import _com, _images, _lists
+from .constants import MsoTriState, WdNumberType, WdParagraphAlignment, WdWrapType
 from .exceptions import AnchorNotFoundError
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ._document import Document
 
 
@@ -52,6 +54,34 @@ def _coerce_alignment(value: Any) -> int:
                 f"{sorted(set(_ALIGNMENT_NAMES))}"
             )
     raise TypeError(f"alignment must be WdParagraphAlignment, int, or str; got {type(value).__name__}")
+
+
+# Floating wrap keywords -> WdWrapType. "inline" and "auto" are handled
+# specially by insert_image and are not in this map.
+_WRAP_NAMES: dict[str, WdWrapType] = {
+    "square": WdWrapType.SQUARE,
+    "tight": WdWrapType.TIGHT,
+    "through": WdWrapType.THROUGH,
+    "top-bottom": WdWrapType.TOP_BOTTOM,
+    "front": WdWrapType.FRONT,
+    "behind": WdWrapType.BEHIND,
+}
+_WRAP_VALUES: frozenset[str] = frozenset({"inline", "auto", *_WRAP_NAMES})
+
+
+def _resolve_wrap(wrap: str, inline_shape: Any, insert_rng: Any) -> WdWrapType:
+    """Resolve a wrap keyword to a concrete `WdWrapType` for a floating shape.
+
+    `"auto"` picks Square when the image is at most half the section's usable
+    text width (`PageWidth - LeftMargin - RightMargin`), else top-and-bottom.
+    """
+    if wrap != "auto":
+        return _WRAP_NAMES[wrap]
+    ps = insert_rng.PageSetup
+    usable = float(ps.PageWidth) - float(ps.LeftMargin) - float(ps.RightMargin)
+    if float(inline_shape.Width) <= usable / 2:
+        return WdWrapType.SQUARE
+    return WdWrapType.TOP_BOTTOM
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +177,74 @@ class Anchor(ABC):
             if style_obj is not None:
                 styled = doc_com.Range(end, end + _utf16_len(text))
                 styled.Style = style_obj.com
+
+    def insert_image(
+        self,
+        image: "str | Path | bytes",
+        *,
+        wrap: str,
+        where: str = "after",
+        width: float | None = None,
+        height: float | None = None,
+        alt_text: str | None = None,
+        lock_aspect: bool = True,
+    ) -> None:
+        """Insert an image at this anchor (atomic-undo when inside `doc.edit()`).
+
+        `image` is a file path, raw image bytes, or a base64 string — a `str`
+        is treated as a path when it names an existing file, otherwise as
+        base64. Word embeds the picture (`SaveWithDocument=True`) and
+        auto-detects its natural size, so `width`/`height` (points) are optional
+        overrides. `alt_text` sets the image's accessibility text.
+
+        `wrap` is required — there is no default — so layout intent is always
+        explicit:
+
+        - ``"inline"`` keeps the image in the text flow (an `InlineShape`).
+        - ``"auto"`` floats it: Square when its width is at most half the
+          section's usable text width, else top-and-bottom.
+        - ``"square" | "tight" | "through" | "top-bottom" | "front" | "behind"``
+          floats it with that wrap type.
+
+        `where` is ``"after"`` (default) or ``"before"`` the anchor's range.
+
+        Raises `ImageSourceError` for a missing/unreadable/invalid image and
+        `ValueError` for an unknown `wrap` or `where`.
+        """
+        if wrap not in _WRAP_VALUES:
+            raise ValueError(
+                f"unknown wrap {wrap!r}; expected one of {sorted(_WRAP_VALUES)}"
+            )
+        if where not in ("before", "after"):
+            raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+        with _images.image_on_disk(image) as disk_path:
+            with _com.translate_com_errors():
+                rng = self._range()
+                pos = int(rng.Start) if where == "before" else int(rng.End)
+                insert_rng = self._doc.com.Range(pos, pos)
+                ish = insert_rng.InlineShapes.AddPicture(
+                    FileName=disk_path,
+                    LinkToFile=False,
+                    SaveWithDocument=True,
+                    Range=insert_rng,
+                )
+                ish.LockAspectRatio = int(
+                    MsoTriState.TRUE if lock_aspect else MsoTriState.FALSE
+                )
+                if width is not None:
+                    ish.Width = float(width)
+                if height is not None:
+                    ish.Height = float(height)
+                if alt_text is not None:
+                    ish.AlternativeText = alt_text
+                if wrap == "inline":
+                    return
+                wrap_type = _resolve_wrap(wrap, ish, insert_rng)
+                shape = ish.ConvertToShape()
+                shape.WrapFormat.Type = int(wrap_type)
+                if alt_text is not None:
+                    # AlternativeText doesn't always survive the conversion.
+                    shape.AlternativeText = alt_text
 
     def delete(self) -> None:
         with _com.translate_com_errors():

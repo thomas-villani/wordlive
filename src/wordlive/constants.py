@@ -129,3 +129,27 @@ class WdOrientation(IntEnum):
 
     PORTRAIT = 0
     LANDSCAPE = 1
+
+
+class WdWrapType(IntEnum):
+    """`Shape.WrapFormat.Type` — how text wraps around a floating image.
+
+    `insert_image(wrap=...)` maps its string values onto these. `INLINE` is
+    never set through `WrapFormat`: an inline image stays an `InlineShape` and
+    is never converted to a floating `Shape`.
+    """
+
+    SQUARE = 0
+    TIGHT = 1
+    THROUGH = 2
+    TOP_BOTTOM = 3
+    FRONT = 4
+    BEHIND = 5
+    INLINE = 7
+
+
+class MsoTriState(IntEnum):
+    """Office's tri-state boolean — used here for `InlineShape.LockAspectRatio`."""
+
+    TRUE = -1
+    FALSE = 0

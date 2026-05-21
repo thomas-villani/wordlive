@@ -11,14 +11,15 @@ from wordlive.cli.main import (
     EXIT_AMBIGUOUS_MATCH,
     EXIT_ANCHOR_NOT_FOUND,
     EXIT_OK,
+    EXIT_OTHER,
     EXIT_WORD_NOT_RUNNING,
     main,
 )
 
 
-def _invoke(args: list[str]) -> tuple[int, str, str]:
+def _invoke(args: list[str], *, input: str | None = None) -> tuple[int, str, str]:
     runner = CliRunner()
-    result = runner.invoke(main, args, catch_exceptions=False)
+    result = runner.invoke(main, args, input=input, catch_exceptions=False)
     return result.exit_code, result.stdout, result.stderr
 
 
@@ -1241,3 +1242,155 @@ def test_cursor_write_no_replace_inserts_at_start(fake_word):
     assert code == EXIT_OK
     # --no-replace collapses to the selection start (5) before inserting.
     assert fake_word.ActiveDocument.Range(5, 5).Text == "X"
+
+
+# ---------------------------------------------------------------------------
+# insert-image
+# ---------------------------------------------------------------------------
+
+# A 1x1 transparent PNG, shared by the image CLI tests.
+_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYPhfDwAChwGA"
+    "60e6kgAAAABJRU5ErkJggg=="
+)
+
+
+def _png_path(tmp_path: Path) -> Path:
+    import base64
+    p = tmp_path / "pic.png"
+    p.write_bytes(base64.b64decode(_PNG_B64))
+    return p
+
+
+def test_insert_image_from_path(fake_word, tmp_path: Path):
+    img = _png_path(tmp_path)
+    code, out, _ = _invoke(
+        ["insert-image", "--anchor-id", "bookmark:Address", "--path", str(img), "--wrap", "inline"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["anchor"]["kind"] == "bookmark"
+    assert data["wrap"] == "inline"
+    assert data["where"] == "after"
+
+
+def test_insert_image_square_before(fake_word, tmp_path: Path):
+    img = _png_path(tmp_path)
+    code, out, _ = _invoke(
+        ["insert-image", "--anchor-id", "bookmark:Address", "--path", str(img),
+         "--wrap", "square", "--before", "--width", "120", "--alt-text", "A diagram"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["where"] == "before"
+    assert data["wrap"] == "square"
+
+
+def test_insert_image_from_base64_arg(fake_word):
+    code, out, _ = _invoke(
+        ["insert-image", "--anchor-id", "bookmark:Address", "--base64", _PNG_B64, "--wrap", "auto"]
+    )
+    assert code == EXIT_OK
+    assert json.loads(out)["ok"] is True
+
+
+def test_insert_image_from_base64_stdin(fake_word):
+    code, out, _ = _invoke(
+        ["insert-image", "--anchor-id", "bookmark:Address", "--base64", "-", "--wrap", "inline"],
+        input=_PNG_B64,
+    )
+    assert code == EXIT_OK
+    assert json.loads(out)["ok"] is True
+
+
+def test_insert_image_missing_file_is_exit_other(fake_word, tmp_path: Path):
+    code, _, err = _invoke(
+        ["insert-image", "--anchor-id", "bookmark:Address",
+         "--path", str(tmp_path / "nope.png"), "--wrap", "inline"]
+    )
+    assert code == EXIT_OTHER
+    assert "image" in err.lower()
+
+
+def test_insert_image_bad_anchor_is_exit_anchor_not_found(fake_word, tmp_path: Path):
+    img = _png_path(tmp_path)
+    code, _, _ = _invoke(
+        ["insert-image", "--anchor-id", "bookmark:Nope", "--path", str(img), "--wrap", "inline"]
+    )
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
+def test_insert_image_requires_exactly_one_source(fake_word, tmp_path: Path):
+    img = _png_path(tmp_path)
+    # neither
+    code, _, _ = _invoke(["insert-image", "--anchor-id", "bookmark:Address", "--wrap", "inline"])
+    assert code == 2  # click usage error
+    # both
+    code, _, _ = _invoke(
+        ["insert-image", "--anchor-id", "bookmark:Address",
+         "--path", str(img), "--base64", _PNG_B64, "--wrap", "inline"]
+    )
+    assert code == 2
+
+
+def test_insert_image_bad_wrap_is_usage_error(fake_word, tmp_path: Path):
+    img = _png_path(tmp_path)
+    code, _, _ = _invoke(
+        ["insert-image", "--anchor-id", "bookmark:Address", "--path", str(img), "--wrap", "diagonal"]
+    )
+    assert code == 2  # click.Choice rejects it
+
+
+def test_exec_insert_image_with_path(fake_word, tmp_path: Path):
+    img = _png_path(tmp_path)
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "ops": [
+                    {"op": "write_bookmark", "name": "Address", "text": "123 Main"},
+                    {"op": "insert_image", "anchor_id": "bookmark:Address",
+                     "path": str(img), "wrap": "square"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["ops_run"] == 2
+    # Both ops ride a single undo record.
+    fake_word.UndoRecord.StartCustomRecord.assert_called_once()
+
+
+def test_exec_insert_image_with_base64(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "ops": [
+                    {"op": "insert_image", "anchor_id": "bookmark:Address",
+                     "base64": _PNG_B64, "wrap": "auto"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+
+
+def test_exec_insert_image_without_source_fails(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {"ops": [{"op": "insert_image", "anchor_id": "bookmark:Address", "wrap": "inline"}]}
+        ),
+        encoding="utf-8",
+    )
+    code, _, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OTHER  # ClickException for malformed op
