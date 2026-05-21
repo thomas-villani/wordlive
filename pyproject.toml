@@ -37,3 +37,21 @@ markers = [
     "smoke: requires a running Microsoft Word installation",
 ]
 addopts = "-m 'not smoke'"
+
+[tool.bumpversion]
+current_version = "0.8.0"
+allow_dirty = false
+commit = true
+message = "chore: release v{new_version}"
+tag = true
+tag_name = "v{new_version}"
+tag_message = "Release v{new_version}"
+sign_tags = false
+
+# Update the [project] version only. The line-start anchor keeps the search
+# from also matching this section's `current_version = "…"` line.
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+regex = true
+search = '(?m)^version = "{current_version}"'
+replace = 'version = "{new_version}"'
