@@ -425,6 +425,118 @@ class RangeAnchor(Anchor):
 
 
 # ---------------------------------------------------------------------------
+# Start / end of document
+# ---------------------------------------------------------------------------
+
+
+class StartAnchor(Anchor):
+    """A zero-width anchor at the very start of the document body — `doc.start`.
+
+    The mirror of [`EndAnchor`][wordlive.EndAnchor]: the insertion point before
+    the first paragraph. `doc.start` returns it and `anchor_by_id("start")`
+    resolves it, so "prepend to the document" composes with the usual verbs and
+    the CLI `--anchor-id` plumbing.
+
+    Only the *prepend* direction is meaningful at a single start-point, so every
+    insert verb lands text at the start: `insert_paragraph_before` /
+    `insert_paragraph_after` add a new first paragraph (delegating to
+    [`Document.prepend_paragraph`][wordlive.Document.prepend_paragraph]), and
+    `insert_before` / `insert_after` / `set_text` prepend inline (delegating to
+    [`Document.prepend`][wordlive.Document.prepend]). `text` is always empty and
+    `delete()` is a no-op. `insert_image` and `apply_style` are inherited: they
+    resolve to the collapsed start position.
+    """
+
+    kind = "start"
+
+    def __init__(self, doc: Document) -> None:
+        super().__init__(doc, name="start")
+
+    @property
+    def anchor_id(self) -> str:
+        return "start"
+
+    def _range(self) -> Any:
+        # Collapsed at offset 0 — the position Document.prepend* writes to.
+        return self._doc.com.Range(0, 0)
+
+    def set_text(self, text: str) -> None:
+        # Nothing to replace at the start-point — prepend instead.
+        self._doc.prepend(text)
+
+    def insert_after(self, text: str) -> None:
+        self._doc.prepend(text)
+
+    def insert_before(self, text: str) -> None:
+        # A single start-point has no distinct "after"; prepending is the only
+        # sensible reading, and it keeps `--anchor-id start` honest either way.
+        self._doc.prepend(text)
+
+    def insert_paragraph_after(self, text: str, style: str | None = None) -> None:
+        self._doc.prepend_paragraph(text, style=style)
+
+    def insert_paragraph_before(self, text: str, style: str | None = None) -> None:
+        self._doc.prepend_paragraph(text, style=style)
+
+
+class EndAnchor(Anchor):
+    """A zero-width anchor at the very end of the document body — `doc.end`.
+
+    The one position no content names: the insertion point past the last
+    paragraph. `doc.end` returns it and `anchor_by_id("end")` resolves it, so
+    "append to the document" composes with the same verbs and the same CLI
+    `--anchor-id` plumbing as every other anchor — no `.com` drop needed.
+
+    Only the *append* direction is meaningful at a single end-point, so every
+    insert verb lands text at the end: `insert_paragraph_after` /
+    `insert_paragraph_before` add a new final paragraph (delegating to
+    [`Document.append_paragraph`][wordlive.Document.append_paragraph]), and
+    `insert_after` / `insert_before` / `set_text` append inline (delegating to
+    [`Document.append`][wordlive.Document.append]). `text` is always empty and
+    `delete()` is a no-op — there is no content here to read or remove.
+    `insert_image` and `apply_style` are inherited: they resolve to the
+    collapsed end position, so an image lands at the end and a style falls on
+    the final paragraph.
+    """
+
+    kind = "end"
+
+    def __init__(self, doc: Document) -> None:
+        super().__init__(doc, name="end")
+
+    @property
+    def anchor_id(self) -> str:
+        return "end"
+
+    def _range(self) -> Any:
+        # Collapsed just before the final paragraph mark — the position
+        # Document.append* writes to, and a safe target for the inherited verbs
+        # (a zero-width span reads "" and deletes nothing).
+        with _com.translate_com_errors():
+            end = int(self._doc.com.Content.End)
+        pos = max(0, end - 1)
+        return self._doc.com.Range(pos, pos)
+
+    def set_text(self, text: str) -> None:
+        # Nothing to replace at the end-point — append instead.
+        self._doc.append(text)
+
+    def insert_after(self, text: str) -> None:
+        self._doc.append(text)
+
+    def insert_before(self, text: str) -> None:
+        # A single end-point has no distinct "before"; appending is the only
+        # sensible reading, and it keeps `--anchor-id end` honest either way.
+        self._doc.append(text)
+
+    def insert_paragraph_after(self, text: str, style: str | None = None) -> None:
+        self._doc.append_paragraph(text, style=style)
+
+    def insert_paragraph_before(self, text: str, style: str | None = None) -> None:
+        self._doc.append_paragraph(text, style=style)
+
+
+# ---------------------------------------------------------------------------
 # Paragraphs
 # ---------------------------------------------------------------------------
 

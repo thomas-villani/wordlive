@@ -222,6 +222,42 @@ To insert text *inside* a paragraph at a precise offset rather than as a new
 paragraph, target a collapsed range instead — `replace --anchor-id
 range:120-120 --text "…"` — using offsets from `paragraphs` or `find`.
 
+## `prepend --text "…"` / `append --text "…"`
+
+```
+wordlive prepend --text "..." [--paragraph | --inline] [--style "Body Text"] [--doc DOC_NAME]
+wordlive append  --text "..." [--paragraph | --inline] [--style "Body Text"] [--doc DOC_NAME]
+```
+
+`prepend` is the mirror of `append`: it adds to the very **start** of the
+document (a new first paragraph by default, or `--inline` to join the opening
+paragraph) — equivalent to `insert --anchor-id start --text "…"`. Everything
+below applies to both; just swap "end" for "start".
+
+```bash
+$ wordlive prepend --text "DRAFT — not for distribution"
+{"ok": true, "mode": "paragraph", "style": null}
+```
+
+Append text to the very end of the document — the high-level "end of doc"
+helper, no anchor needed. `--paragraph` (the default) makes `text` a new final
+paragraph; `--inline` continues the document's last paragraph instead. This is
+exactly `insert --anchor-id end --text "…"` (the `end` anchor names the
+position past the last paragraph), spelled as its own verb.
+
+```bash
+$ wordlive append --text "Closing note added by automation."
+{"ok": true, "mode": "paragraph", "style": null}
+
+$ wordlive append --text " (verified)" --inline
+{"ok": true, "mode": "inline", "style": null}
+```
+
+`--style` is optional, paragraph-mode only, and must name a style that exists
+in the document — it's validated before anything is written, so a typo never
+partially mutates the document (`wordlive style list` shows the names).
+Failures: `2` style not found, `3` Word busy.
+
 ## `insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP`
 
 ```
@@ -817,6 +853,10 @@ Script shape:
 | `write_bookmark`       | `name`, `text`                             | —                                 |
 | `write_cc`             | `name`, `text`                             | —                                 |
 | `insert_paragraph`     | `anchor_id`, `text`                        | `where` (`after`/`before`) or `before: true`, `style` |
+| `append_paragraph`     | `text`                                     | `style`                           |
+| `append`               | `text`                                     | —                                 |
+| `prepend_paragraph`    | `text`                                     | `style`                           |
+| `prepend`              | `text`                                     | —                                 |
 | `insert_image`         | `anchor_id`, `wrap`, and one of `path` / `base64` | `where` or `before: true`, `width`, `height`, `alt_text`, `lock_aspect` |
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
@@ -847,6 +887,12 @@ validated before the batch mutates anything. Placement accepts either the
 verbose `"where": "before"|"after"` or the boolean `"before": true` — the latter
 mirrors the command's `--before`/`--after` flags, so the same intent encodes the
 same way whether you type it or batch it. (`insert_image` accepts both forms too.)
+
+`append_paragraph` and `append` mirror the `append` command — they add a new
+final paragraph (optional `style`, validated first) or inline text at the very
+end of the document, with no anchor to resolve. Equivalent to an
+`insert_paragraph` op targeting the `end` anchor. `prepend_paragraph` and
+`prepend` are their start-of-document mirrors (the `start` anchor).
 
 `insert_image` mirrors `insert-image`. Supply the image with either a `path`
 (read from disk) or `base64` (inline data — the natural choice in a JSON op,

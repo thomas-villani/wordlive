@@ -183,8 +183,9 @@ inserts that don't break the surrounding paragraph.
 
 ### 3b. Append to the end of the document
 
-There's no high-level helper for "end of doc" (it isn't a named anchor) —
-drop to `.com`:
+The end of the document is the one position no content names, so it gets its
+own helper — [`doc.append_paragraph(...)`](python-api.md#wordlive.Document)
+adds a new final paragraph (no need to find the last one first):
 
 ```python
 import wordlive as wl
@@ -193,12 +194,33 @@ with wl.attach() as word:
     doc = word.documents.active
 
     with doc.edit("Append closing note"):
-        # Content is the full document range; InsertAfter appends past it.
-        doc.com.Content.InsertAfter("\n\nClosing note added by automation.\n")
+        doc.append_paragraph("Closing note added by automation.")
+        # Optional style, and \r / \n to append several paragraphs at once:
+        # doc.append_paragraph("Heading\rFirst line", style="Body Text")
 ```
 
-Politeness still holds — `doc.edit()` snapshots and restores the user's
-selection and scroll position even when the underlying mutation is raw COM.
+Use [`doc.append(text)`](python-api.md#wordlive.Document) instead when you want
+the text to continue the last paragraph inline rather than start a new one
+(the direct, polite form of the old `doc.com.Content.InsertAfter(...)`).
+
+Both also surface as an anchor — `doc.end` (id `end`) — so the end composes
+with the usual verbs and the CLI's `--anchor-id`:
+
+```python
+doc.end.insert_paragraph_after("Closing note.")   # same as append_paragraph
+doc.end.insert_image("logo.png", wrap="inline")   # drop an image at the end
+```
+
+```bash
+$ wordlive append --text "Closing note added by automation."
+$ wordlive insert --anchor-id end --text "Closing note."   # equivalent
+```
+
+The start of the document mirrors all of this:
+[`doc.prepend_paragraph(...)`](python-api.md#wordlive.Document) /
+[`doc.prepend(...)`](python-api.md#wordlive.Document), the `doc.start` anchor
+(id `start`), and `wordlive prepend` — for a title or a "DRAFT" banner above
+everything else.
 
 ### 3c. At the user's cursor (explicit, moves them)
 

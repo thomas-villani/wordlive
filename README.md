@@ -52,6 +52,10 @@ wordlive write bookmark Address --text "123 Main St"
 wordlive insert --anchor-id heading:1 --text "..."          # after (default)
 wordlive insert --anchor-id para:3 --text "..." --before
 
+# Append / prepend at the very end / start of the document (no anchor needed):
+wordlive append  --text "Closing note."                     # new final paragraph
+wordlive prepend --text "DRAFT" --inline                    # join the first paragraph
+
 # Address anchors by ID (the IDs `outline`/`paragraphs` emit — `heading:N`, `para:N`, `bookmark:NAME`, `cc:NAME`):
 wordlive replace --anchor-id heading:3 --text "Updated section text"
 wordlive go-to --anchor-id bookmark:Address

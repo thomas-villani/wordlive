@@ -62,6 +62,10 @@ required (`"inline"`, `"auto"`, or a float wrap like `"square"`/`"top-bottom"`).
 
 ::: wordlive.RangeAnchor
 
+::: wordlive.StartAnchor
+
+::: wordlive.EndAnchor
+
 ## Styles
 
 Styles are document-scoped, read-only handles. `Document.styles` is a

@@ -10,12 +10,15 @@ from . import _com, _findreplace
 from ._anchors import (
     BookmarkCollection,
     ContentControlCollection,
+    EndAnchor,
     Heading,
     HeadingCollection,
     Paragraph,
     ParagraphCollection,
     RangeAnchor,
+    StartAnchor,
     _IndexedHeading,
+    _utf16_len,
     paragraph_text,
 )
 from ._comments import CommentCollection
@@ -141,6 +144,36 @@ class Document:
         return self._word.selection
 
     @property
+    def start(self) -> StartAnchor:
+        """An anchor at the very start of the document — the prepend target.
+
+        The mirror of [`end`][wordlive.Document.end]. `doc.start` (anchor id
+        `start`, also `anchor_by_id("start")`) names the position before the
+        first paragraph; its insert verbs all prepend —
+        `doc.start.insert_paragraph_after(text)` adds a new first paragraph
+        (delegating to [`prepend_paragraph`][wordlive.Document.prepend_paragraph])
+        and `insert_after(text)` prepends inline (delegating to
+        [`prepend`][wordlive.Document.prepend]). The CLI reaches it too:
+        `wordlive insert --anchor-id start --text "…"`.
+        """
+        return StartAnchor(self)
+
+    @property
+    def end(self) -> EndAnchor:
+        """An anchor at the very end of the document — the append target.
+
+        `doc.end` (anchor id `end`, also `anchor_by_id("end")`) names the one
+        position no content names: past the last paragraph. Its insert verbs
+        all append — `doc.end.insert_paragraph_after(text)` adds a new final
+        paragraph (delegating to [`append_paragraph`][wordlive.Document.append_paragraph]),
+        `insert_after(text)` appends inline (delegating to
+        [`append`][wordlive.Document.append]), and `insert_image(...)` drops a
+        picture at the end. Because it resolves through `anchor_by_id`, the CLI
+        reaches it too: `wordlive insert --anchor-id end --text "…"`.
+        """
+        return EndAnchor(self)
+
+    @property
     def track_changes(self) -> bool:
         """Whether Word's Track Changes is currently on for this document."""
         with _com.translate_com_errors():
@@ -191,6 +224,8 @@ class Document:
         """Resolve an `anchor_id` string into an Anchor.
 
         Recognised forms:
+          - `start`            — the position before the first paragraph (the prepend target)
+          - `end`              — the position past the last paragraph (the append target)
           - `heading:N`        — Nth paragraph in the document (1-based, must be a heading)
           - `para:N`           — Nth paragraph (1-based, any paragraph; same index space as `heading:N`)
           - `bookmark:NAME`    — bookmark by name
@@ -205,6 +240,13 @@ class Document:
 
         Raises `AnchorNotFoundError` for unknown schemes or missing anchors.
         """
+        if anchor_id == "start":
+            # Bare keyword (no `kind:value` form) for the document-start
+            # position. See `Document.start`.
+            return self.start
+        if anchor_id == "end":
+            # Bare keyword for the document-end position. See `Document.end`.
+            return self.end
         if not isinstance(anchor_id, str) or ":" not in anchor_id:
             raise AnchorNotFoundError("anchor", anchor_id)
         kind, _, value = anchor_id.partition(":")
@@ -379,6 +421,92 @@ class Document:
                 target = self._doc.Range(m["start"], m["end"])
                 target.Text = replace
         return to_apply
+
+    def prepend(self, text: str) -> None:
+        """Prepend `text` to the very start of the document, inline (no new paragraph).
+
+        The mirror of [`append`][wordlive.Document.append]: `text` lands before
+        the document's first character, joining the opening paragraph. Embed
+        `\\r` / `\\n` for your own paragraph breaks; reach for
+        [`prepend_paragraph`][wordlive.Document.prepend_paragraph] when you want
+        `text` to *become* a new first paragraph. Wrap in `doc.edit(...)` for
+        atomic undo. Not idempotent — each call adds more text.
+        """
+        with _com.translate_com_errors():
+            self._doc.Content.InsertBefore(text)
+
+    def prepend_paragraph(self, text: str, *, style: str | None = None) -> None:
+        """Prepend `text` as a new paragraph at the very start of the document.
+
+        The mirror of [`append_paragraph`][wordlive.Document.append_paragraph]
+        — for a title, a banner, or a disclaimer above everything else. `text`
+        may contain `\\r` / `\\n` to prepend several paragraphs at once. If
+        `style` is given it must name a style defined in the document, otherwise
+        `StyleNotFoundError` is raised before any text is inserted. Wrap in
+        `doc.edit(...)` for atomic undo. Not idempotent.
+
+        Equivalent to `insert_paragraph_before(text, style=style)` on the
+        document's first paragraph.
+        """
+        style_obj = self.styles[style] if style is not None else None  # validate early
+        with _com.translate_com_errors():
+            doc_com = self._doc
+            # The start has no terminal-mark complication: write "<text><break>"
+            # at offset 0 so `text` becomes a new first paragraph.
+            insert_rng = doc_com.Range(0, 0)
+            insert_rng.Text = text + "\r"
+            if style_obj is not None:
+                # Word counts UTF-16 code units; len() under-counts surrogates.
+                styled = doc_com.Range(0, _utf16_len(text))
+                styled.Style = style_obj.com
+
+    def append(self, text: str) -> None:
+        """Append `text` to the very end of the document, inline (no new paragraph).
+
+        The high-level form of the old `doc.com.Content.InsertAfter(...)` escape
+        hatch: `text` lands immediately after the document's last character,
+        continuing the final paragraph. Embed `\\r` / `\\n` to introduce your
+        own paragraph breaks; reach for
+        [`append_paragraph`][wordlive.Document.append_paragraph] when you want
+        `text` to *become* a new paragraph. Wrap in `doc.edit(...)` for atomic
+        undo. Not idempotent — each call adds more text.
+        """
+        with _com.translate_com_errors():
+            self._doc.Content.InsertAfter(text)
+
+    def append_paragraph(self, text: str, *, style: str | None = None) -> None:
+        """Append `text` as a new paragraph at the very end of the document.
+
+        The polite, high-level "end of doc" helper — there is no named anchor
+        for the position past the last paragraph, so this is how you add a
+        closing note, drop in a generated summary, or build a document from the
+        bottom up. `text` may contain `\\r` / `\\n` to append several paragraphs
+        at once. If `style` is given it must name a style defined in the
+        document, otherwise `StyleNotFoundError` is raised before any text is
+        inserted. Wrap in `doc.edit(...)` for atomic undo. Not idempotent —
+        each call adds another paragraph.
+
+        Equivalent to calling `insert_paragraph_after(text, style=style)` on the
+        document's last paragraph, without having to locate it first.
+        """
+        style_obj = self.styles[style] if style is not None else None  # validate early
+        with _com.translate_com_errors():
+            doc_com = self._doc
+            doc_end = int(doc_com.Content.End)
+            # Same trick as Anchor.insert_paragraph_after's terminal branch:
+            # write "<break><text>" just before the final paragraph mark so
+            # `text` becomes a new final paragraph (the original mark closes
+            # it). Writing at Range(doc_end, doc_end) — past the final mark —
+            # is a "value out of range" COM error.
+            anchor_pos = max(0, doc_end - 1)
+            insert_rng = doc_com.Range(anchor_pos, anchor_pos)
+            insert_rng.Text = "\r" + text
+            if style_obj is not None:
+                # Word counts UTF-16 code units; len() under-counts surrogate
+                # pairs and would leave the tail of astral text unstyled.
+                text_start = anchor_pos + 1
+                styled = doc_com.Range(text_start, text_start + _utf16_len(text))
+                styled.Style = style_obj.com
 
     def outline(self) -> list[dict[str, Any]]:
         """Return all heading paragraphs as `[{level, text, anchor_id}, ...]`."""

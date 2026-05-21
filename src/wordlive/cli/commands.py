@@ -83,6 +83,8 @@ def register(group: click.Group) -> None:
     group.add_command(read)
     group.add_command(write)
     group.add_command(insert)
+    group.add_command(prepend_cmd)
+    group.add_command(append_cmd)
     group.add_command(insert_image_cmd)
     group.add_command(cursor)
     group.add_command(find_cmd)
@@ -363,6 +365,101 @@ def insert(ctx: click.Context, anchor_id: str, text: str, before: bool, style: s
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# prepend / append --text "..." [--paragraph|--inline] [--style "..."]
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="prepend")
+@click.option("--text", "text", required=True, help="Text to prepend at the start of the document.")
+@click.option(
+    "--inline/--paragraph",
+    "inline",
+    default=False,
+    show_default="--paragraph",
+    help="Prepend inline (join the first paragraph) instead of as a new paragraph.",
+)
+@click.option(
+    "--style",
+    "style",
+    default=None,
+    help="Optional Word style for the prepended paragraph (paragraph mode only).",
+)
+@click.pass_context
+def prepend_cmd(ctx: click.Context, text: str, inline: bool, style: str | None) -> None:
+    """Prepend text to the start of the document (atomic-undo).
+
+    The mirror of `append` — no anchor needed. By default `text` becomes a new
+    first paragraph (`--style` optional, validated first); pass `--inline` to
+    join the document's first paragraph instead. Equivalent to
+    `insert --anchor-id start --text "…"`.
+    """
+    if inline and style is not None:
+        raise click.UsageError("--style is only valid in --paragraph mode")
+    mode = "inline" if inline else "paragraph"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit("CLI: prepend to start of document"):
+                if inline:
+                    doc.prepend(text)
+                else:
+                    doc.prepend_paragraph(text, style=style)
+            emit(
+                {"ok": True, "mode": mode, "style": None if inline else style},
+                as_text=not ctx.obj["as_json"],
+                text=f"prepended ({mode}) to start of document",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="append")
+@click.option("--text", "text", required=True, help="Text to append at the end of the document.")
+@click.option(
+    "--inline/--paragraph",
+    "inline",
+    default=False,
+    show_default="--paragraph",
+    help="Append inline (continue the last paragraph) instead of as a new paragraph.",
+)
+@click.option(
+    "--style",
+    "style",
+    default=None,
+    help="Optional Word style for the appended paragraph (paragraph mode only).",
+)
+@click.pass_context
+def append_cmd(ctx: click.Context, text: str, inline: bool, style: str | None) -> None:
+    """Append text to the end of the document (atomic-undo).
+
+    The high-level "end of doc" helper — no anchor needed. By default `text`
+    becomes a new final paragraph (`--style` optional, validated first); pass
+    `--inline` to continue the document's last paragraph instead. Equivalent to
+    `insert --anchor-id end --text "…"`.
+    """
+    if inline and style is not None:
+        raise click.UsageError("--style is only valid in --paragraph mode")
+    mode = "inline" if inline else "paragraph"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit("CLI: append to end of document"):
+                if inline:
+                    doc.append(text)
+                else:
+                    doc.append_paragraph(text, style=style)
+            emit(
+                {"ok": True, "mode": mode, "style": None if inline else style},
+                as_text=not ctx.obj["as_json"],
+                text=f"appended ({mode}) to end of document",
             )
 
     _run(ctx, go)
@@ -1505,6 +1602,10 @@ _OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "write_bookmark": ("name", "text"),
     "write_cc": ("name", "text"),
     "insert_paragraph": ("anchor_id", "text"),
+    "append_paragraph": ("text",),
+    "append": ("text",),
+    "prepend_paragraph": ("text",),
+    "prepend": ("text",),
     "insert_image": ("anchor_id", "wrap"),
     "replace": ("anchor_id", "text"),
     "find_replace": ("find", "text"),
@@ -1571,6 +1672,14 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
             anchor.insert_paragraph_before(op["text"], style=op.get("style"))
         else:
             anchor.insert_paragraph_after(op["text"], style=op.get("style"))
+    elif kind == "append_paragraph":
+        doc.append_paragraph(op["text"], style=op.get("style"))
+    elif kind == "append":
+        doc.append(op["text"])
+    elif kind == "prepend_paragraph":
+        doc.prepend_paragraph(op["text"], style=op.get("style"))
+    elif kind == "prepend":
+        doc.prepend(op["text"])
     elif kind == "insert_image":
         if ("path" in op) == ("base64" in op):
             raise click.ClickException(
@@ -1668,11 +1777,11 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     accepted as shorthand for `{"ops": [...]}`. Set `"tracked": true` at the top
     level to record the whole batch as Word revisions (Track Changes is restored
     to its prior state afterwards).
-    Supported ops: write_bookmark, write_cc, insert_paragraph, insert_image,
-    replace, find_replace, apply_style, format_paragraph, set_cell, add_row,
-    delete_row, add_comment, resolve_comment, delete_comment, apply_list,
-    remove_list, restart_numbering, indent_list, outdent_list, write_header,
-    write_footer.
+    Supported ops: write_bookmark, write_cc, insert_paragraph, append_paragraph,
+    append, prepend_paragraph, prepend, insert_image, replace, find_replace,
+    apply_style, format_paragraph, set_cell, add_row, delete_row, add_comment,
+    resolve_comment, delete_comment, apply_list, remove_list, restart_numbering,
+    indent_list, outdent_list, write_header, write_footer.
     See docs/cli.md for each op's required and optional fields.
     """
     if (script is None) == (ops_inline is None):

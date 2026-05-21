@@ -17,11 +17,13 @@ from ._anchors import (
     Anchor,
     Bookmark,
     ContentControl,
+    EndAnchor,
     Heading,
     HeadingCollection,
     Paragraph,
     ParagraphCollection,
     RangeAnchor,
+    StartAnchor,
 )
 from ._app import Word, attach, connect
 from ._comments import Comment, CommentCollection
@@ -58,6 +60,7 @@ __all__ = [
     "DocumentCollection",
     "DocumentNotFoundError",
     "EditScope",
+    "EndAnchor",
     "Heading",
     "HeadingCollection",
     "HeaderFooter",
@@ -70,6 +73,7 @@ __all__ = [
     "SectionCollection",
     "Selection",
     "SelectionSnapshot",
+    "StartAnchor",
     "Style",
     "StyleCollection",
     "StyleNotFoundError",

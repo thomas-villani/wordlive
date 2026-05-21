@@ -35,6 +35,7 @@ short string you pass as `--anchor-id`:
 | `table:N:R:C`        | row R, col C of the Nth table (all 1-based) |
 | `range:START-END`    | a raw character span (what `find` emits) |
 | `header:S:WHICH` / `footer:S:WHICH` | header/footer of section S (`primary` / `first` / `even`) |
+| `start` / `end`      | the position before the first / past the last paragraph (prepend / append targets) |
 
 ## Reading
 - `wordlive read bookmark NAME` · `read cc NAME` · `read section "Heading Text"`
@@ -44,6 +45,8 @@ short string you pass as `--anchor-id`:
 ## Writing — each command is one atomic undo
 - `wordlive write bookmark NAME --text "…"` · `write cc NAME --text "…"`
 - `wordlive insert --anchor-id ID --text "…" [--before | --after] [--style "Body Text"]` — new paragraph relative to any anchor (`--after` is the default; appending after the document's last paragraph works too, so you can build a doc top-down).
+- `wordlive append --text "…" [--inline] [--style "Body Text"]` — add a new final paragraph at the very end of the document (`--inline` continues the last paragraph). The high-level "end of doc" helper; same as `insert --anchor-id end`.
+- `wordlive prepend --text "…" [--inline] [--style "Body Text"]` — the mirror: add to the very start of the document (same as `insert --anchor-id start`).
 - `wordlive replace --anchor-id ID --text "…"` — overwrite a range.
 - `wordlive replace --find "old" --text "new" [--all | --occurrence N] [--in ID]` — fuzzy find + replace.
 - `wordlive style apply --anchor-id ID --name "Heading 2"` (names: `style list`).
@@ -88,11 +91,14 @@ with the op `index`, `error`, and `type`.
 `insert_paragraph` and `insert_image` default to inserting **after** the anchor;
 pass `"before": true` to insert above it (mirrors the CLI's `--before`/`--after`).
 
-Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `insert_image`, `replace`,
+Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `append_paragraph`,
+`append`, `prepend_paragraph`, `prepend`, `insert_image`, `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `set_cell`, `add_row`,
 `delete_row`, `add_comment`, `resolve_comment`, `delete_comment`, `apply_list`,
-`remove_list`, `restart_numbering`, `indent_list`, `outdent_list`, `write_header`,
-`write_footer`.
+`remove_list`, `restart_numbering`, `indent_list`, `outdent_list`,
+`write_header`, `write_footer`. (`append_paragraph` / `prepend_paragraph` take
+`text` + optional `style`; `append` / `prepend` take `text` — they add to the
+end / start of the document, no anchor.)
 
 ## Exit codes — branch on these
 | Code | Meaning | Retry? |

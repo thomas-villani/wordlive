@@ -90,6 +90,71 @@ def test_insert_missing_anchor(fake_word):
     assert "heading" in err.lower()
 
 
+def test_append_paragraph_default(fake_word):
+    code, out, _ = _invoke(["append", "--text", "Closing note."])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data == {"ok": True, "mode": "paragraph", "style": None}
+    # New paragraph written as "<break><text>" just before the final mark (34).
+    assert fake_word.ActiveDocument.Range(34, 34).Text == "\rClosing note."
+
+
+def test_append_inline(fake_word):
+    code, out, _ = _invoke(["append", "--text", " (verified)", "--inline"])
+    assert code == EXIT_OK
+    assert json.loads(out)["mode"] == "inline"
+    fake_word.ActiveDocument.Content.InsertAfter.assert_called_once_with(" (verified)")
+
+
+def test_append_with_style(fake_word):
+    code, out, _ = _invoke(["append", "--text", "Body", "--style", "Body Text"])
+    assert code == EXIT_OK
+    assert json.loads(out)["style"] == "Body Text"
+
+
+def test_append_inline_with_style_is_usage_error(fake_word):
+    code, _, err = _invoke(["append", "--text", "x", "--inline", "--style", "Body Text"])
+    assert code != EXIT_OK
+    assert "paragraph mode" in err.lower()
+
+
+def test_insert_anchor_id_end_appends(fake_word):
+    """The `end` anchor resolves through --anchor-id like any other."""
+    code, out, _ = _invoke(["insert", "--anchor-id", "end", "--text", "Tail."])
+    assert code == EXIT_OK
+    assert json.loads(out)["anchor_id"] == "end"
+    assert fake_word.ActiveDocument.Range(34, 34).Text == "\rTail."
+
+
+def test_prepend_paragraph_default(fake_word):
+    code, out, _ = _invoke(["prepend", "--text", "DRAFT"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data == {"ok": True, "mode": "paragraph", "style": None}
+    # New first paragraph written as "<text><break>" at offset 0.
+    assert fake_word.ActiveDocument.Range(0, 0).Text == "DRAFT\r"
+
+
+def test_prepend_inline(fake_word):
+    code, out, _ = _invoke(["prepend", "--text", "Note: ", "--inline"])
+    assert code == EXIT_OK
+    assert json.loads(out)["mode"] == "inline"
+    fake_word.ActiveDocument.Content.InsertBefore.assert_called_once_with("Note: ")
+
+
+def test_prepend_inline_with_style_is_usage_error(fake_word):
+    code, _, err = _invoke(["prepend", "--text", "x", "--inline", "--style", "Heading 1"])
+    assert code != EXIT_OK
+    assert "paragraph mode" in err.lower()
+
+
+def test_insert_anchor_id_start_prepends(fake_word):
+    code, out, _ = _invoke(["insert", "--anchor-id", "start", "--text", "Head."])
+    assert code == EXIT_OK
+    assert json.loads(out)["anchor_id"] == "start"
+    assert fake_word.ActiveDocument.Range(0, 0).Text == "Head.\r"
+
+
 def test_word_not_running_returns_exit_4(no_word):
     code, _, err = _invoke(["status"])
     assert code == EXIT_WORD_NOT_RUNNING
@@ -165,6 +230,48 @@ def test_exec_all_ops_succeed(fake_word, tmp_path: Path):
     assert data["ok"] is True
     assert data["ops_run"] == 4
     assert data["label"] == "Batch update"
+
+
+def test_exec_supports_append_paragraph_op(fake_word):
+    payload = json.dumps(
+        {"ops": [{"op": "append_paragraph", "text": "Tail.", "style": "Body Text"}]}
+    )
+    code, out, _ = _invoke(["exec", "--ops", payload])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+    assert fake_word.ActiveDocument.Range(34, 34).Text == "\rTail."
+
+
+def test_exec_supports_append_op(fake_word):
+    payload = json.dumps({"ops": [{"op": "append", "text": " more"}]})
+    code, out, _ = _invoke(["exec", "--ops", payload])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+    fake_word.ActiveDocument.Content.InsertAfter.assert_called_once_with(" more")
+
+
+def test_exec_append_paragraph_missing_text_reports_cleanly(fake_word):
+    code, _, err = _invoke(["exec", "--ops", json.dumps({"ops": [{"op": "append_paragraph"}]})])
+    assert code != EXIT_OK
+    assert "text" in err.lower()
+
+
+def test_exec_supports_prepend_paragraph_op(fake_word):
+    payload = json.dumps(
+        {"ops": [{"op": "prepend_paragraph", "text": "Title", "style": "Heading 1"}]}
+    )
+    code, out, _ = _invoke(["exec", "--ops", payload])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+    assert fake_word.ActiveDocument.Range(0, 0).Text == "Title\r"
+
+
+def test_exec_supports_prepend_op(fake_word):
+    payload = json.dumps({"ops": [{"op": "prepend", "text": "Note: "}]})
+    code, out, _ = _invoke(["exec", "--ops", payload])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+    fake_word.ActiveDocument.Content.InsertBefore.assert_called_once_with("Note: ")
 
 
 def test_exec_inline_ops_json(fake_word):

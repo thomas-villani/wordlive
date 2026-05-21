@@ -97,6 +97,8 @@ table:1:2:3          # cell at row 2, column 3 of the 1st table
 range:412-429        # arbitrary character span (the form find() emits)
 header:1:primary     # primary header of section 1
 footer:2:first       # first-page footer of section 2
+start                # the position before the first paragraph (the prepend target)
+end                  # the position past the last paragraph (the append target)
 ```
 
 `para:N` and `heading:N` index the same paragraph stream, so a heading at
@@ -119,6 +121,17 @@ or `comments.add` to act on exactly the span that was found. Range offsets are
 *live* — they're resolved against the document on each use, so an edit that
 shifts the text earlier can leave a stale range pointing at the wrong place.
 Resolve, act, discard.
+
+The bare `start` and `end` keywords are the two schemes without a `kind:value`
+shape: they name the positions before the first and past the last paragraph —
+the spots no content names — resolving to a
+[`StartAnchor`](python-api.md#wordlive.StartAnchor) /
+[`EndAnchor`](python-api.md#wordlive.EndAnchor) whose insert verbs all prepend /
+append. They back [`doc.prepend_paragraph`](python-api.md#wordlive.Document) /
+[`doc.append_paragraph`](python-api.md#wordlive.Document) (and the matching
+inline [`doc.prepend`](python-api.md#wordlive.Document) /
+[`doc.append`](python-api.md#wordlive.Document)) plus the `wordlive prepend` /
+`append` commands, so building a document from either end needs no `.com` drop.
 
 These IDs are emitted directly by [`doc.outline()`](python-api.md#wordlive.Document):
 
