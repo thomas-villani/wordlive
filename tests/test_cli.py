@@ -65,16 +65,26 @@ def test_write_bookmark(fake_word):
     assert data["anchor"]["kind"] == "bookmark"
 
 
-def test_insert_after_heading(fake_word):
-    code, out, _ = _invoke(["insert", "--after-heading", "Introduction", "--text", "new para"])
+def test_insert_after_anchor_id(fake_word):
+    code, out, _ = _invoke(["insert", "--anchor-id", "heading:1", "--text", "new para"])
     assert code == EXIT_OK
     data = json.loads(out)
     assert data["ok"] is True
-    assert data["after_heading"] == "Introduction"
+    assert data["anchor_id"] == "heading:1"
+    assert data["where"] == "after"
 
 
-def test_insert_after_missing_heading(fake_word):
-    code, _, err = _invoke(["insert", "--after-heading", "Nope", "--text", "x"])
+def test_insert_before_anchor_id(fake_word):
+    code, out, _ = _invoke(["insert", "--anchor-id", "para:2", "--text", "intro", "--before"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["where"] == "before"
+    # --before inserts at the paragraph's start offset (para:2 -> 13).
+    assert fake_word.ActiveDocument.Range(13, 13).Text == "intro\r"
+
+
+def test_insert_missing_anchor(fake_word):
+    code, _, err = _invoke(["insert", "--anchor-id", "heading:99", "--text", "x"])
     assert code == EXIT_ANCHOR_NOT_FOUND
     assert "heading" in err.lower()
 
@@ -140,7 +150,7 @@ def test_exec_all_ops_succeed(fake_word, tmp_path: Path):
                 "ops": [
                     {"op": "write_bookmark", "name": "Address", "text": "123 Main"},
                     {"op": "write_cc", "name": "Signatory", "text": "Jane Doe"},
-                    {"op": "insert_after_heading", "heading": "Introduction", "text": "New para"},
+                    {"op": "insert_paragraph", "anchor_id": "heading:1", "text": "New para"},
                     {"op": "replace", "anchor_id": "heading:3", "text": "Updated Risks"},
                 ],
             }
@@ -460,7 +470,7 @@ def test_exec_format_paragraph_missing_anchor_id_reports_cleanly(fake_word, tmp_
 
 def test_insert_with_valid_style_passes(fake_word):
     code, out, _ = _invoke(
-        ["insert", "--after-heading", "Introduction", "--text", "x", "--style", "Body Text"]
+        ["insert", "--anchor-id", "heading:1", "--text", "x", "--style", "Body Text"]
     )
     assert code == EXIT_OK
     data = json.loads(out)
@@ -469,7 +479,7 @@ def test_insert_with_valid_style_passes(fake_word):
 
 def test_insert_with_bad_style_returns_exit_2(fake_word):
     code, _, err = _invoke(
-        ["insert", "--after-heading", "Introduction", "--text", "x", "--style", "NoSuchStyle"]
+        ["insert", "--anchor-id", "heading:1", "--text", "x", "--style", "NoSuchStyle"]
     )
     assert code == EXIT_ANCHOR_NOT_FOUND
     assert "style" in err.lower()
@@ -1145,3 +1155,89 @@ def test_exec_apply_list_missing_field_reports_cleanly(fake_word, tmp_path: Path
     code, _, err = _invoke(["exec", "--script", str(script)])
     assert code != EXIT_OK
     assert "anchor_id" in err
+
+
+# ---------------------------------------------------------------------------
+# v0.7: paragraphs / outline --all / cursor
+# ---------------------------------------------------------------------------
+
+
+def test_paragraphs_lists_every_paragraph(fake_word):
+    code, out, _ = _invoke(["paragraphs"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert [p["anchor_id"] for p in data] == ["para:1", "para:2", "para:3"]
+    # Headings and body paragraphs both appear, flagged by is_heading.
+    assert [p["is_heading"] for p in data] == [True, False, True]
+    assert [p["text"] for p in data] == ["Introduction", "Body text here.", "Risks"]
+    # Offsets are emitted so they can feed a range:START-END insertion.
+    assert data[1]["start"] == 13 and data[1]["end"] == 29
+
+
+def test_outline_all_matches_paragraphs(fake_word):
+    code_a, out_a, _ = _invoke(["outline", "--all"])
+    code_b, out_b, _ = _invoke(["paragraphs"])
+    assert code_a == EXIT_OK
+    assert json.loads(out_a) == json.loads(out_b)
+
+
+def test_outline_default_is_headings_only(fake_word):
+    code, out, _ = _invoke(["outline"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert [item["anchor_id"] for item in data] == ["heading:1", "heading:3"]
+
+
+def test_replace_via_para_anchor(fake_word):
+    code, out, _ = _invoke(["replace", "--anchor-id", "para:2", "--text", "Rewritten body"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    # para:2 spans 13-29; set_text preserves the trailing mark (writes 13-28).
+    assert fake_word.ActiveDocument.Range(13, 28).Text == "Rewritten body"
+
+
+def test_para_anchor_out_of_range_exit_2(fake_word):
+    code, _, err = _invoke(["replace", "--anchor-id", "para:99", "--text", "x"])
+    assert code == EXIT_ANCHOR_NOT_FOUND
+    assert "paragraph" in err.lower()
+
+
+def test_cursor_read_reports_position_and_paragraph(fake_word):
+    fake_word.Selection.Start = 15
+    fake_word.Selection.End = 15
+    fake_word.Selection.Text = ""
+    code, out, _ = _invoke(["cursor", "read"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["start"] == 15
+    assert data["collapsed"] is True
+    # Offset 15 falls inside the body paragraph (13-29) -> para:2.
+    assert data["paragraph"] == {"anchor_id": "para:2"}
+
+
+def test_cursor_write_inserts_and_moves_cursor(fake_word):
+    fake_word.Selection.Start = 0
+    fake_word.Selection.End = 0
+    code, out, _ = _invoke(["cursor", "write", "--text", "Hi"])
+    assert code == EXIT_OK
+    assert json.loads(out)["ok"] is True
+    assert fake_word.ActiveDocument.Range(0, 0).Text == "Hi"
+
+
+def test_cursor_write_replace_overwrites_selection(fake_word):
+    fake_word.Selection.Start = 0
+    fake_word.Selection.End = 12
+    code, _, _ = _invoke(["cursor", "write", "--text", "New"])
+    assert code == EXIT_OK
+    # With a spanning selection, replace (default) overwrites 0-12.
+    assert fake_word.ActiveDocument.Range(0, 12).Text == "New"
+
+
+def test_cursor_write_no_replace_inserts_at_start(fake_word):
+    fake_word.Selection.Start = 5
+    fake_word.Selection.End = 12
+    code, _, _ = _invoke(["cursor", "write", "--text", "X", "--no-replace"])
+    assert code == EXIT_OK
+    # --no-replace collapses to the selection start (5) before inserting.
+    assert fake_word.ActiveDocument.Range(5, 5).Text == "X"

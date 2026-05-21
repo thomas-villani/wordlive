@@ -151,7 +151,38 @@ warned about — `ListGalleries` / `ApplyListTemplate` / restart-vs-continue.
 
 ---
 
-## v0.7+ — defer
+## v0.7 — paragraph addressing & cursor surface — ✅ shipped in v0.7
+
+Closes the "I can see headings but can't address the body" gap, unifies the odd
+one-off `insert --after-heading` ergonomics, and adds the explicitly-opt-in
+cursor surface that was the one piece deliberately missing from the
+anchors-over-`Selection` model.
+
+- ~~**`para:N` anchors** — every paragraph (not just headings) is addressable.~~
+  ✅ — `Paragraph(Anchor)` + `doc.paragraphs` collection; `para:N` shares its
+  index space with `heading:N` (a heading is `para:N` *and* `heading:N`).
+  Inherits every anchor verb. New `wordlive paragraphs` listing (emits offsets);
+  `outline --all` is an alias.
+- ~~**`insert` ergonomics** — match every other command's `--anchor-id`.~~ ✅ —
+  `insert --anchor-id ID --text … [--before|--after] [--style …]` works on any
+  anchor; the old `--after-heading` flag is gone. `insert_paragraph_before/after`
+  lifted to the base `Anchor`. Exec op renamed `insert_after_heading` →
+  `insert_paragraph`.
+- ~~**Cursor surface** — make writing at the live cursor *possible* but clearly
+  non-default.~~ ✅ — `cursor read` / `cursor write` (and `Selection.write`),
+  deliberately *not* an `anchor_by_id` scheme. `cursor write` opts into
+  `EditScope.allow_cursor_move()` so it's the one op that intentionally moves
+  the cursor; `cursor read` reports the containing `para:N`.
+- **Resolved:** offset-precise, mid-paragraph insertion stays a collapsed
+  `range:START-END` target (now discoverable because `paragraphs` emits offsets)
+  rather than a new `insert --inline` verb.
+- Deferred: raw inline `insert_before`/`insert_after` (no new paragraph) on the
+  CLI, and a `write_cursor` exec op (a cursor write fights `EditScope`'s
+  cursor-restore inside a batch, so it stays CLI-only for now).
+
+---
+
+## v0.8+ — defer
 
 - **Events / sinks** — `WithEvents(word.com, Handler)` for
   `DocumentBeforeSave`, `WindowSelectionChange`. Wait for a concrete use
@@ -172,8 +203,6 @@ warned about — `ListGalleries` / `ApplyListTemplate` / restart-vs-continue.
   hit real `pywintypes.com_error` HRESULTs in smoke runs.
 - **Smoke fixtures** — a real `.docx` checked into the repo with known
   bookmarks / CCs / headings / tables, so smoke tests have a known target.
-- **CLI `--text` mode** — currently every command emits JSON; the
-  `--text` flag exists in spec but is unimplemented. Low priority.
 - **Docs** — `spec.md` is the design doc; a separate `cookbook.md` of
   end-to-end LLM-tool examples is probably more useful than API reference
   docs at this stage.

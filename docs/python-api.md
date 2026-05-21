@@ -37,11 +37,12 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 
 ## Anchors
 
-Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`, and the
-list verbs (`apply_list`, `remove_list`, `list_info`, `restart_numbering`,
-`indent_list`, `outdent_list`) from [`Anchor`](#wordlive.Anchor), so the same
-calls work uniformly on bookmarks, content controls, headings, table cells,
-header/footer ranges, and arbitrary range anchors.
+Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
+`insert_paragraph_before/after(...)`, and the list verbs (`apply_list`,
+`remove_list`, `list_info`, `restart_numbering`, `indent_list`, `outdent_list`)
+from [`Anchor`](#wordlive.Anchor), so the same calls work uniformly on
+bookmarks, content controls, headings, paragraphs, table cells, header/footer
+ranges, and arbitrary range anchors.
 
 ::: wordlive.Anchor
 
@@ -52,6 +53,10 @@ header/footer ranges, and arbitrary range anchors.
 ::: wordlive.Heading
 
 ::: wordlive.HeadingCollection
+
+::: wordlive.Paragraph
+
+::: wordlive.ParagraphCollection
 
 ::: wordlive.RangeAnchor
 
@@ -127,6 +132,13 @@ the document; index it (`doc.lists[2]`) to get a
 ::: wordlive.HeaderFooter
 
 ## Editing
+
+`Selection` is the explicit cursor surface: `doc.selection.info()` reads where
+the cursor is, and `doc.selection.write(text, replace=...)` types at it.
+`write` deliberately moves the cursor, so wrap it in
+[`doc.edit()`](#wordlive.Document) and call
+[`scope.allow_cursor_move()`](#wordlive.EditScope) for atomic undo without
+snapping the cursor back. Everywhere else, prefer anchors over the cursor.
 
 ::: wordlive.EditScope
 

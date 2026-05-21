@@ -11,6 +11,8 @@ from ._anchors import (
     ContentControlCollection,
     Heading,
     HeadingCollection,
+    Paragraph,
+    ParagraphCollection,
     RangeAnchor,
     _IndexedHeading,
     paragraph_text,
@@ -87,6 +89,19 @@ class Document:
         `self.headings[name]`.
         """
         return HeadingCollection(self)
+
+    @property
+    def paragraphs(self) -> ParagraphCollection:
+        """Indexable, iterable view over *every* paragraph (not just headings).
+
+        Index by 1-based position (`doc.paragraphs[2]`) to get a `Paragraph`
+        anchor (`para:N`) that works with `set_text`, `apply_style`,
+        `format_paragraph`, and the list verbs. `doc.paragraphs.list()` emits
+        offsets, so a body paragraph can be turned into a `range:START-END`
+        target for a mid-paragraph insertion. `para:N` shares its index space
+        with `heading:N`.
+        """
+        return ParagraphCollection(self)
 
     @property
     def lists(self) -> ListCollection:
@@ -176,6 +191,7 @@ class Document:
 
         Recognised forms:
           - `heading:N`        — Nth paragraph in the document (1-based, must be a heading)
+          - `para:N`           — Nth paragraph (1-based, any paragraph; same index space as `heading:N`)
           - `bookmark:NAME`    — bookmark by name
           - `cc:NAME`          — content control by Title (or Tag)
           - `table:N:R:C`      — cell at 1-based (row, column) of the Nth table
@@ -197,6 +213,13 @@ class Document:
             except ValueError as e:
                 raise AnchorNotFoundError("heading", anchor_id) from e
             return _IndexedHeading(self, idx)
+        if kind == "para":
+            try:
+                idx = int(value)
+            except ValueError as e:
+                raise AnchorNotFoundError("paragraph", anchor_id) from e
+            # Lazy, like heading:N — a bad index raises AnchorNotFoundError on use.
+            return Paragraph(self, idx)
         if kind == "bookmark":
             return self.bookmarks[value]
         if kind == "cc":

@@ -67,9 +67,9 @@ wordlive doesn't cover something, drop to raw COM rather than giving up.
 your code / LLM
        │
        ▼
-┌──────────────────────────────────────────────────┐
-│ wordlive public API                              │
-│   attach / connect  →  Word                      │
+┌───────────────────────────────────────────────────┐
+│  wordlive public API                              │
+│    attach / connect  →  Word                      │
 │                          │                        │
 │                          ▼                        │
 │                       Document                    │
@@ -85,7 +85,7 @@ your code / LLM
 │                          ▼                        │
 │                  Anchor (text, set_text,          │
 │                   insert_before/after, delete)    │
-└──────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────┘
                           │
                           ▼
               EditScope (UndoRecord + SelectionSnapshot)
@@ -104,9 +104,13 @@ The roadmap lives in
 The current release covers the politeness/anchors/EditScope core, the LLM-first
 CLI, fuzzy find/replace, document-scoped styles + paragraph formatting, tables
 (cells as `table:N:R:C` anchors), the collaboration surface (review comments,
-scoped track-changes, and arbitrary `range:START-END` anchors), and document
+scoped track-changes, and arbitrary `range:START-END` anchors), document
 structure — bullet/numbered lists and section headers/footers
-(`header:S:WHICH` / `footer:S:WHICH` anchors). Likely next steps: event sinks
+(`header:S:WHICH` / `footer:S:WHICH` anchors) — and full paragraph addressing:
+every paragraph is a `para:N` anchor (`doc.paragraphs`, `outline --all`),
+`insert` works on any anchor with `--before`/`--after`, and an explicit, opt-in
+cursor surface (`cursor read` / `cursor write`) covers the cases where the user
+genuinely wants to act at their live position. Likely next steps: event sinks
 (`WindowSelectionChange`, `DocumentBeforeSave`), an async wrapper around the
 sync core, and the deeper style cuts (character styles, theme-aware fonts).
 

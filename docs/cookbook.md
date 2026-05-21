@@ -103,8 +103,17 @@ number), drop to `doc.selection.com` — that's the raw
 [`Application.Selection`](concepts.md#the-com-escape-hatch) and has the full
 Word object model under it.
 
-The CLI does not currently surface live selection reads; for now this is a
-Python-only flow.
+From the CLI, `cursor read` is the same read — plus it resolves which
+paragraph the cursor sits in, so you can pivot straight to an anchored edit:
+
+```bash
+$ wordlive cursor read
+{"start": 142, "end": 142, "collapsed": true, "text": "", "paragraph": {"anchor_id": "para:7"}}
+```
+
+The `paragraph.anchor_id` is the bridge: read where the user is, then act on
+`para:7` (or its `heading:N`) with the polite, cursor-preserving verbs instead
+of writing back at the live caret.
 
 ### Variant: read a whole section by heading
 
@@ -193,7 +202,9 @@ selection and scroll position even when the underlying mutation is raw COM.
 
 ### 3c. At the user's cursor (explicit, moves them)
 
-For "type at the cursor" semantics, opt out of the selection restore:
+The cursor is the deliberately *non-default* target. `doc.selection.write()` is
+the first-class way to type at it; pair it with `allow_cursor_move()` so the
+edit doesn't snap the cursor back afterwards:
 
 ```python
 import wordlive as wl
@@ -202,18 +213,28 @@ with wl.attach() as word:
     doc = word.documents.active
 
     with doc.edit("Insert at cursor") as scope:
-        scope.allow_cursor_move()           # do NOT restore selection
-        word.com.Selection.TypeText("This text lands at the cursor.")
+        scope.allow_cursor_move()           # this edit is *allowed* to move them
+        doc.selection.write("This text lands at the cursor.")
 ```
 
-Without `allow_cursor_move()`, wordlive would snap the cursor back to where
-the user had it — collapsing the just-typed text would still be visible, but
-the user would be confused by the cursor jump. Always pair cursor-moving
-edits with `allow_cursor_move()`.
+Without `allow_cursor_move()`, wordlive snaps the cursor back to where the
+user had it — the typed text is still there, but the cursor jump confuses the
+user. Always pair cursor-moving edits with `allow_cursor_move()`.
 
-For "replace the user's current selection with X" (e.g. an LLM-rewrite of
-highlighted text), `Selection.TypeText` already does the right thing: if a
-range is selected it replaces it, otherwise it inserts at the caret.
+By default `write` replaces the current selection (like typing over
+highlighted text); pass `replace=False` to insert at the selection start
+without removing it. Either way the cursor is left after the inserted text.
+
+The CLI mirrors this with the dedicated, intentionally-separate `cursor` group
+— `cursor write` already opts into the cursor move for you:
+
+```bash
+$ wordlive cursor write --text "This text lands at the cursor."
+{"ok": true, "replace": true}
+
+# Insert without overwriting the user's selection:
+$ wordlive cursor write --text "(draft) " --no-replace
+```
 
 ## 4. Fuzzy find + replace (LLM-friendly)
 
@@ -720,3 +741,110 @@ operations, so they compose with everything else.
 A header/footer is just a range (`header:S:WHICH` / `footer:S:WHICH`, WHICH ∈
 `primary`/`first`/`even`), so the same id also works with `replace`,
 `style apply`, and `format-paragraph` when you need more than plain text.
+
+## 12. Address and edit *any* paragraph, not just headings
+
+`outline` only shows headings, so a document of plain prose looks unaddressable.
+It isn't: every paragraph is a `para:N` anchor. Discover them with `paragraphs`
+(or `outline --all`), then act on a body paragraph with the same verbs you'd use
+on a heading.
+
+=== "Python"
+
+    ```python
+    import wordlive as wl
+
+    with wl.attach() as word:
+        doc = word.documents.active
+
+        # Every paragraph, with offsets — headings AND body text AND list items.
+        for p in doc.paragraphs.list():
+            flag = f"H{p['level']}" if p["is_heading"] else "  "
+            print(f"{flag} {p['anchor_id']:8} {p['text'][:50]!r}")
+
+        with doc.edit("Tidy the opening"):
+            # Rewrite the second paragraph in place (trailing ¶ preserved).
+            doc.paragraphs[2].set_text("A clearer opening sentence.")
+
+            # Drop a new paragraph *before* paragraph 2, styled as body text.
+            doc.paragraphs[2].insert_paragraph_before(
+                "Executive summary.", style="Body Text"
+            )
+    ```
+
+    `doc.paragraphs[N]` returns a `Paragraph` anchor (`para:N`) that inherits
+    every verb — `apply_style`, `format_paragraph`, `apply_list`, the insert
+    pair. Because `para:N` and `heading:N` share an index space, a heading at
+    `para:5` is also `heading:5`; use whichever reads better.
+
+=== "CLI"
+
+    ```bash
+    # Discover every paragraph (these two are identical):
+    wordlive paragraphs
+    wordlive outline --all
+
+    # Edit a body paragraph by its para:N id.
+    wordlive replace --anchor-id para:2 --text "A clearer opening sentence."
+
+    # Insert a new paragraph before / after any anchor.
+    wordlive insert --anchor-id para:2 --text "Executive summary." --before --style "Body Text"
+    wordlive insert --anchor-id heading:1 --text "Background follows." --after
+    ```
+
+### Inserting *inside* a paragraph at an offset
+
+`insert` always makes a *new* paragraph. To splice text into the middle of an
+existing one, target a **collapsed range** — `range:OFFSET-OFFSET` — and write
+to it. The offsets come straight from `paragraphs` (or `find`):
+
+```bash
+# Paragraph 2 starts at offset 13; insert a marker 5 chars in (offset 18).
+$ wordlive replace --anchor-id range:18-18 --text "[NOTE] "
+```
+
+Setting text on a zero-width range inserts without overwriting; a non-zero
+`range:START-END` replaces that span. Range offsets are *live*, so compute and
+use them in the same breath — an edit elsewhere shifts everything after it.
+
+## 13. Act on whatever the user is pointing at
+
+The hotkey workflow: the user clicks into (or selects) something, triggers your
+script, and you decide whether to act *politely at an anchor* or *directly at
+the cursor*. `cursor read` gives you both the raw position and the containing
+`para:N`, so you can choose.
+
+```python
+import wordlive as wl
+
+with wl.attach() as word:
+    doc = word.documents.active
+    sel = doc.selection.info()              # {start, end, collapsed, text}
+
+    # Map the caret to a stable anchor and edit *there* — cursor stays put.
+    para = doc.paragraphs.at(sel["start"])
+    if para is not None:
+        with doc.edit("Annotate current paragraph"):
+            para.insert_paragraph_after(f"(reviewed: {para.text[:30]}…)")
+```
+
+That's the polite path: read the cursor, but write at the anchor it resolves
+to, leaving the user where they were. When the user genuinely wants text *at*
+the caret — "insert my signature here" — reach for the explicit cursor write
+from [recipe 3c](#3c-at-the-users-cursor-explicit-moves-them):
+
+```bash
+$ wordlive cursor read
+{"start": 142, "end": 142, "collapsed": true, "text": "", "paragraph": {"anchor_id": "para:7"}}
+
+# Polite: act on the resolved anchor instead of the caret.
+$ wordlive insert --anchor-id para:7 --text "Reviewed by automation." --after
+
+# Or explicit, when the caret is genuinely the target.
+$ wordlive cursor write --text "— J. Doe"
+```
+
+The split is deliberate: anchors are addressable, stable, and visible to an LLM
+as JSON; the cursor is none of those, so wordlive keeps it behind its own
+clearly-labelled `cursor` surface rather than letting it leak into
+`--anchor-id`.

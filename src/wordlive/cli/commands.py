@@ -49,6 +49,21 @@ def _fmt_outline(items: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _fmt_paragraphs(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return "(no paragraphs)"
+    lines: list[str] = []
+    for it in items:
+        marker = f"H{it.get('level', 1)}" if it.get("is_heading") else "  "
+        text = it.get("text", "")
+        snippet = text if len(text) <= 60 else text[:57] + "…"
+        lines.append(
+            f"{marker} [{it.get('anchor_id', '')}] "
+            f"{it.get('start', 0)}-{it.get('end', 0)}  {snippet}"
+        )
+    return "\n".join(lines)
+
+
 def _fmt_find(matches: list[dict[str, Any]]) -> str:
     if not matches:
         return "(no matches)"
@@ -65,9 +80,11 @@ def _fmt_replace_summary(replacements: list[dict[str, Any]]) -> str:
 def register(group: click.Group) -> None:
     group.add_command(status)
     group.add_command(outline)
+    group.add_command(paragraphs_cmd)
     group.add_command(read)
     group.add_command(write)
     group.add_command(insert)
+    group.add_command(cursor)
     group.add_command(find_cmd)
     group.add_command(replace)
     group.add_command(go_to)
@@ -109,14 +126,42 @@ def status(ctx: click.Context) -> None:
 
 
 @click.command(name="outline")
+@click.option("--all", "show_all", is_flag=True, default=False,
+              help="List every paragraph (para:N), not just headings — same as `paragraphs`.")
 @click.pass_context
-def outline(ctx: click.Context) -> None:
-    """Print the heading outline of the target document."""
+def outline(ctx: click.Context, show_all: bool) -> None:
+    """Print the heading outline (or every paragraph with --all)."""
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
-            items = doc.outline()
-            emit(items, as_text=not ctx.obj["as_json"], text=_fmt_outline(items))
+            if show_all:
+                items = doc.paragraphs.list()
+                emit(items, as_text=not ctx.obj["as_json"], text=_fmt_paragraphs(items))
+            else:
+                items = doc.outline()
+                emit(items, as_text=not ctx.obj["as_json"], text=_fmt_outline(items))
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# paragraphs
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="paragraphs")
+@click.pass_context
+def paragraphs_cmd(ctx: click.Context) -> None:
+    """List every paragraph with its para:N anchor, level, offsets, and text.
+
+    Includes headings, body paragraphs, and list items in document order — the
+    everything view (`outline --all` is an alias). Use the emitted offsets to
+    build a `range:START-END` target for a mid-paragraph insertion.
+    """
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            items = doc.paragraphs.list()
+            emit(items, as_text=not ctx.obj["as_json"], text=_fmt_paragraphs(items))
     _run(ctx, go)
 
 
@@ -241,30 +286,107 @@ def write_cc(ctx: click.Context, name: str, text: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# insert --after-heading "Intro" --text "..." [--style "..."]
+# insert --anchor-id ID --text "..." [--before|--after] [--style "..."]
 # ---------------------------------------------------------------------------
 
 
 @click.command(name="insert")
-@click.option("--after-heading", "after_heading", required=True, help="Heading text to anchor against.")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor to insert a new paragraph relative to (e.g. heading:1, para:3).")
 @click.option("--text", "text", required=True, help="Paragraph text to insert.")
-@click.option("--style", "style", default=None, help="Optional Word style name.")
+@click.option("--before/--after", "before", default=False, show_default="--after",
+              help="Insert the new paragraph before the anchor instead of after it.")
+@click.option("--style", "style", default=None, help="Optional Word style name for the new paragraph.")
 @click.pass_context
-def insert(ctx: click.Context, after_heading: str, text: str, style: str | None) -> None:
-    """Insert a paragraph after the named heading (atomic-undo)."""
+def insert(ctx: click.Context, anchor_id: str, text: str, before: bool, style: str | None) -> None:
+    """Insert a new paragraph before/after any anchor (atomic-undo).
+
+    Addresses anchors the same way every other command does — `--anchor-id`
+    (headings, paragraphs, bookmarks, cells, ranges). To insert text *inside* a
+    paragraph at an offset, target a collapsed range instead:
+    `replace --anchor-id range:120-120 --text "…"` (offsets come from
+    `paragraphs` / `find`).
+    """
+    where = "before" if before else "after"
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
-            with doc.edit(f"CLI: insert after {after_heading!r}"):
-                doc.heading(after_heading).insert_paragraph_after(text, style=style)
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert {where} {anchor_id}"):
+                if before:
+                    anchor.insert_paragraph_before(text, style=style)
+                else:
+                    anchor.insert_paragraph_after(text, style=style)
             emit(
                 {
                     "ok": True,
-                    "after_heading": after_heading,
+                    "anchor_id": anchor_id,
+                    "where": where,
                     "style": style,
                 },
                 as_text=not ctx.obj["as_json"],
-                text=f"inserted after {after_heading!r}",
+                text=f"inserted {where} {anchor_id}",
+            )
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# cursor read | cursor write --text "..." [--no-replace]
+# ---------------------------------------------------------------------------
+
+
+def _fmt_cursor(info: dict[str, Any]) -> str:
+    para = info.get("paragraph")
+    where = f"  in {para['anchor_id']}" if para else ""
+    if info.get("collapsed"):
+        return f"cursor at {info.get('start', 0)}{where}"
+    sel = info.get("text") or ""
+    return f"selection {info.get('start', 0)}-{info.get('end', 0)}: {sel!r}{where}"
+
+
+@click.group(name="cursor")
+def cursor() -> None:
+    """Read or write at the user's live cursor — the explicit, non-anchored surface.
+
+    Unlike every other command, `cursor write` deliberately moves the user's
+    cursor and is *not* addressable by `--anchor-id` — that's the structural
+    signal that it's the non-preferred mode. Prefer anchor-addressed edits
+    (`replace`/`insert --anchor-id …`); reach for `cursor` only when the user
+    genuinely wants something at their current position.
+    """
+
+
+@cursor.command(name="read")
+@click.pass_context
+def cursor_read(ctx: click.Context) -> None:
+    """Report the cursor position, any selected text, and the containing paragraph."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            info = doc.selection.info()
+            para = doc.paragraphs.at(info["start"])
+            info["paragraph"] = {"anchor_id": para.anchor_id} if para is not None else None
+            emit(info, as_text=not ctx.obj["as_json"], text=_fmt_cursor(info))
+    _run(ctx, go)
+
+
+@cursor.command(name="write")
+@click.option("--text", "text", required=True, help="Text to insert at the cursor.")
+@click.option("--replace/--no-replace", "replace", default=True, show_default=True,
+              help="Overwrite the selected text (if any). --no-replace inserts at the selection start.")
+@click.pass_context
+def cursor_write(ctx: click.Context, text: str, replace: bool) -> None:
+    """Insert text at the cursor (deliberately moves the cursor; atomic-undo)."""
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit("CLI: write at cursor") as scope:
+                scope.allow_cursor_move()
+                doc.selection.write(text, replace=replace)
+            emit(
+                {"ok": True, "replace": replace},
+                as_text=not ctx.obj["as_json"],
+                text="wrote at cursor",
             )
     _run(ctx, go)
 
@@ -1107,7 +1229,7 @@ def footer_write(ctx: click.Context, section_index: int, which: str, text: str) 
 _OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "write_bookmark": ("name", "text"),
     "write_cc": ("name", "text"),
-    "insert_after_heading": ("heading", "text"),
+    "insert_paragraph": ("anchor_id", "text"),
     "replace": ("anchor_id", "text"),
     "find_replace": ("find", "text"),
     "apply_style": ("anchor_id", "name"),
@@ -1152,8 +1274,12 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
         doc.bookmarks[op["name"]].set_text(op["text"])
     elif kind == "write_cc":
         doc.content_controls[op["name"]].set_text(op["text"])
-    elif kind == "insert_after_heading":
-        doc.heading(op["heading"]).insert_paragraph_after(op["text"], style=op.get("style"))
+    elif kind == "insert_paragraph":
+        anchor = doc.anchor_by_id(op["anchor_id"])
+        if op.get("where") == "before":
+            anchor.insert_paragraph_before(op["text"], style=op.get("style"))
+        else:
+            anchor.insert_paragraph_after(op["text"], style=op.get("style"))
     elif kind == "replace":
         doc.anchor_by_id(op["anchor_id"]).set_text(op["text"])
     elif kind == "find_replace":
@@ -1222,7 +1348,7 @@ def exec_(ctx: click.Context, script: Path) -> None:
     Script shape: `{"label": "…", "ops": [{"op": "...", ...}, ...]}`. Set
     `"tracked": true` at the top level to record the whole batch as Word
     revisions (Track Changes is restored to its prior state afterwards).
-    Supported ops: write_bookmark, write_cc, insert_after_heading, replace,
+    Supported ops: write_bookmark, write_cc, insert_paragraph, replace,
     find_replace, apply_style, format_paragraph, set_cell, add_row, delete_row,
     add_comment, resolve_comment, delete_comment, apply_list, remove_list,
     restart_numbering, indent_list, outdent_list, write_header, write_footer.

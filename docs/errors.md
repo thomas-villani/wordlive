@@ -40,13 +40,13 @@ The requested document isn't open. Raised by `word.documents[name]` and by
 the exception's `.name` attribute.
 
 ### `AnchorNotFoundError`
-A bookmark, content control, heading, table cell, comment, range, list,
-section, or header/footer you asked for doesn't exist — or a
+A bookmark, content control, heading, paragraph, table cell, comment, range,
+list, section, or header/footer you asked for doesn't exist — or a
 `find`/`replace --find` pattern matched zero occurrences (in that case
 `.kind == "find"` and `.name` is the search string). `.kind` names the thing
-that was missing (`"bookmark"`, `"heading"`, `"table cell"`, `"comment"`,
-`"range"`, `"list"`, `"section"`, `"header"`, `"footer"`, …) and `.name` is
-what you asked for.
+that was missing (`"bookmark"`, `"heading"`, `"paragraph"`, `"table cell"`,
+`"comment"`, `"range"`, `"list"`, `"section"`, `"header"`, `"footer"`, …) and
+`.name` is what you asked for.
 **Retryable after refreshing the outline / bookmark list or reading the current
 content** — the document may have changed since you last looked.
 
@@ -56,8 +56,8 @@ Subclass of [`AnchorNotFoundError`](#anchornotfounderror) — it shares the same
 exit code (2) and the same retry guidance, and `except AnchorNotFoundError`
 catches it too. `.kind` is always `"style"` and `.name` is the requested style
 name. Raised by `Document.styles[name]`, `Anchor.apply_style(name)`, and
-`Heading.insert_paragraph_after(text, style=name)`. **Retryable after reading
-`doc.styles.list()`** to see what's actually defined.
+`Anchor.insert_paragraph_before/after(text, style=name)`. **Retryable after
+reading `doc.styles.list()`** to see what's actually defined.
 
 ### `AmbiguousMatchError`
 A fuzzy `find_replace` matched more than one occurrence and the caller didn't

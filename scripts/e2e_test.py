@@ -549,6 +549,71 @@ def t_footer_via_anchor_id(_word: wl.Word, doc: Document) -> None:
         doc.sections[1].footer().set_text("")
 
 
+def t_paragraphs_addresses_body(_word: wl.Word, doc: Document) -> None:
+    rows = doc.paragraphs.list()
+    expect(len(rows) >= 2, f"expected several paragraphs, got {len(rows)}")
+    expect(
+        rows[0]["is_heading"] and rows[0]["text"] == "Introduction",
+        f"para:1 should be the Introduction heading, got {rows[0]}",
+    )
+    body = rows[1]
+    expect(not body["is_heading"], f"para:2 should be body text, got {body}")
+    expect(body["anchor_id"] == "para:2", f"unexpected anchor id: {body['anchor_id']}")
+    expect(body["end"] > body["start"], f"offsets look wrong: {body}")
+    # para:N and heading:N index the same paragraph stream.
+    expect(
+        doc.anchor_by_id("para:1").text == doc.anchor_by_id("heading:1").text,
+        "para:1 and heading:1 should resolve to the same paragraph",
+    )
+
+
+def t_para_set_text_round_trip(_word: wl.Word, doc: Document) -> None:
+    original = doc.paragraphs[2].text
+    marker = "Edited body paragraph via para:2."
+    with doc.edit("E2E: edit body paragraph"):
+        doc.paragraphs[2].set_text(marker)
+    expect(doc.paragraphs[2].text == marker, "para:2 set_text round-trip failed")
+    with doc.edit("E2E: restore body paragraph"):
+        doc.paragraphs[2].set_text(original)
+    expect(doc.paragraphs[2].text == original, "para:2 restore failed")
+
+
+def t_insert_relative_to_paragraph(_word: wl.Word, doc: Document) -> None:
+    # Address the last paragraph by para:N and insert on both sides of it.
+    last = doc.paragraphs[len(doc.paragraphs)]
+    after_marker = "E2E inserted-after paragraph."
+    before_marker = "E2E inserted-before paragraph."
+    with doc.edit("E2E: insert relative to paragraph"):
+        last.insert_paragraph_after(after_marker)
+        last.insert_paragraph_before(before_marker)
+    content = str(doc.com.Content.Text)
+    expect(after_marker in content, "insert_paragraph_after on para:N not visible")
+    expect(before_marker in content, "insert_paragraph_before on para:N not visible")
+
+
+def t_cursor_read_and_write(word: wl.Word, doc: Document) -> None:
+    # Park the caret at the start of paragraph 2 (a body paragraph).
+    start = int(doc.paragraphs[2]._range().Start)  # noqa: SLF001 — need the offset
+    word.com.Selection.SetRange(start, start)
+    info = doc.selection.info()
+    expect(info["collapsed"], f"expected a collapsed caret, got {info}")
+    expect(info["start"] == start, f"caret at {info['start']}, expected {start}")
+    here = doc.paragraphs.at(info["start"])
+    expect(
+        here is not None and here.anchor_id == "para:2",
+        f"cursor should resolve to para:2, got {here and here.anchor_id}",
+    )
+    # Explicit cursor write, then clean up the exact span we inserted.
+    marker = "CURSOR_E2E "
+    with doc.edit("E2E: write at cursor") as scope:
+        scope.allow_cursor_move()
+        doc.selection.write(marker, replace=False)
+    expect(marker in str(doc.com.Content.Text), "cursor write text not visible")
+    n = len(marker.encode("utf-16-le")) // 2
+    with doc.edit("E2E: undo cursor write"):
+        doc.com.Range(start, start + n).Delete()
+
+
 def t_cli_status(_word: wl.Word, _doc: Document) -> None:
     """Smoke the CLI via subprocess — proves the install entry point works."""
     result = subprocess.run(
@@ -636,6 +701,12 @@ def main() -> int:
             h.run("sections.list reports page setup", lambda: t_sections_list(word, doc))
             h.run("header set_text round-trips", lambda: t_header_write_and_read(word, doc))
             h.run("footer resolves + writes via anchor_by_id", lambda: t_footer_via_anchor_id(word, doc))
+
+            # Paragraph addressing + cursor surface (v0.7).
+            h.run("paragraphs addresses body text (para:N)", lambda: t_paragraphs_addresses_body(word, doc))
+            h.run("para:N set_text round-trips", lambda: t_para_set_text_round_trip(word, doc))
+            h.run("insert_paragraph_before/after on a para:N anchor", lambda: t_insert_relative_to_paragraph(word, doc))
+            h.run("cursor read resolves para:N + cursor write inserts", lambda: t_cursor_read_and_write(word, doc))
 
             if not args.no_cli:
                 h.run("CLI: wordlive status (subprocess)", lambda: t_cli_status(word, doc))

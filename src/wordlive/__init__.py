@@ -13,7 +13,16 @@ Quick start:
 from __future__ import annotations
 
 from . import constants
-from ._anchors import Anchor, Bookmark, ContentControl, Heading, HeadingCollection, RangeAnchor
+from ._anchors import (
+    Anchor,
+    Bookmark,
+    ContentControl,
+    Heading,
+    HeadingCollection,
+    Paragraph,
+    ParagraphCollection,
+    RangeAnchor,
+)
 from ._app import Word, attach, connect
 from ._comments import Comment, CommentCollection
 from ._document import Document, DocumentCollection
@@ -52,6 +61,8 @@ __all__ = [
     "HeadingCollection",
     "HeaderFooter",
     "ListCollection",
+    "Paragraph",
+    "ParagraphCollection",
     "RangeAnchor",
     "Section",
     "SectionCollection",

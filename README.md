@@ -36,14 +36,23 @@ JSON in, JSON out — designed to drop straight into an LLM tool-use loop:
 
 ```
 wordlive status
-wordlive outline
+wordlive outline                  # heading structure (heading:N)
+wordlive outline --all            # every paragraph (para:N) — alias of `paragraphs`
+wordlive paragraphs               # same: para:N, level, offsets, text
 wordlive read bookmark Address
 wordlive write bookmark Address --text "123 Main St"
-wordlive insert --after-heading "Introduction" --text "..."
 
-# Address anchors by ID (the IDs `outline` emits — `heading:N`, `bookmark:NAME`, `cc:NAME`):
+# Insert a new paragraph relative to ANY anchor (heading, paragraph, bookmark, …):
+wordlive insert --anchor-id heading:1 --text "..."          # after (default)
+wordlive insert --anchor-id para:3 --text "..." --before
+
+# Address anchors by ID (the IDs `outline`/`paragraphs` emit — `heading:N`, `para:N`, `bookmark:NAME`, `cc:NAME`):
 wordlive replace --anchor-id heading:3 --text "Updated section text"
 wordlive go-to --anchor-id bookmark:Address
+
+# Explicit cursor surface (the non-preferred mode — deliberately moves the cursor):
+wordlive cursor read                              # where is the cursor? which para:N?
+wordlive cursor write --text "inserted here"      # type at the cursor
 
 # Styles + paragraph formatting (atomic-undo):
 wordlive style list
@@ -83,7 +92,7 @@ Where `ops.json` looks like:
   "ops": [
     {"op": "write_bookmark", "name": "Address", "text": "123 Main St"},
     {"op": "write_cc", "name": "Signatory", "text": "Jane Doe"},
-    {"op": "insert_after_heading", "heading": "Risks", "text": "New risk paragraph."},
+    {"op": "insert_paragraph", "anchor_id": "heading:3", "text": "New risk paragraph."},
     {"op": "replace", "anchor_id": "heading:3", "text": "Updated section text"},
     {"op": "apply_style", "anchor_id": "heading:3", "name": "Heading 2"},
     {"op": "format_paragraph", "anchor_id": "heading:3", "alignment": "center", "space_before": 6}

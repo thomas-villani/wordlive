@@ -82,12 +82,13 @@ politeness:
 wordlive status
 
 # What's in the active doc?
-wordlive outline
+wordlive outline          # headings (heading:N)
+wordlive paragraphs       # every paragraph (para:N) with offsets
 
 # Mutate.
 wordlive write bookmark Address --text "123 Main St"
 wordlive write cc Signatory --text "Jane Doe"
-wordlive insert --after-heading "Introduction" --text "New context paragraph."
+wordlive insert --anchor-id heading:1 --text "New context paragraph."
 
 # Or batch all three under a single Ctrl-Z:
 wordlive exec --script ops.json

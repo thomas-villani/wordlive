@@ -160,7 +160,11 @@ wordlive read cc NAME [--doc NAME]
 wordlive read section HEADING              # body under a heading
 wordlive write bookmark NAME --text "..."
 wordlive write cc NAME --text "..."
-wordlive insert --after-heading "Intro" --text "..." [--style "Body Text"]
+wordlive outline [--all]                   # --all lists every paragraph (para:N)
+wordlive paragraphs                        # every paragraph: para:N, level, offsets, text
+wordlive insert --anchor-id ID --text "..." [--before|--after] [--style "Body Text"]
+wordlive cursor read                       # explicit, opt-in cursor surface
+wordlive cursor write --text "..." [--no-replace]
 wordlive find --text "..." [--in ANCHOR_ID]
 wordlive replace --anchor-id ID --text "..."
 wordlive replace --find OLD --text NEW [--in ID] [--all|--occurrence N]
@@ -179,7 +183,7 @@ Conventions:
 This makes wiring it up as an LLM tool trivial:
 
 ```json
-{ "tool": "wordlive", "args": ["insert", "--after-heading", "Risks", "--text", "..."] }
+{ "tool": "wordlive", "args": ["insert", "--anchor-id", "heading:8", "--text", "..."] }
 ```
 
 ## Key Technical Concerns

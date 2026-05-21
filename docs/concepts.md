@@ -90,6 +90,7 @@ single string scheme:
 
 ```
 heading:3            # 1-based paragraph index of a heading
+para:5               # 1-based index of any paragraph (same index space as heading:N)
 bookmark:Address     # bookmark by name
 cc:Signatory         # content control by Title (or Tag)
 table:1:2:3          # cell at row 2, column 3 of the 1st table
@@ -97,6 +98,13 @@ range:412-429        # arbitrary character span (the form find() emits)
 header:1:primary     # primary header of section 1
 footer:2:first       # first-page footer of section 2
 ```
+
+`para:N` and `heading:N` index the same paragraph stream, so a heading at
+`para:5` is also `heading:5` — the difference is that `heading:N` refuses to
+resolve a non-heading paragraph, while `para:N` resolves any paragraph.
+[`doc.outline()`](python-api.md#wordlive.Document) emits the heading-only view;
+[`doc.paragraphs.list()`](python-api.md#wordlive.ParagraphCollection) (and
+`outline --all`) emits every paragraph with offsets.
 
 The bare `table:N` form is deliberately *not* an anchor — a whole table is a
 collection, not a single range — so it's addressed through `doc.tables[N]` and

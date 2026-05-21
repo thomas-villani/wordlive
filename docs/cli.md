@@ -57,10 +57,12 @@ on stderr). Useful as a probe before issuing other commands.
 ## `outline`
 
 ```
-wordlive outline [--doc DOC_NAME]
+wordlive outline [--all] [--doc DOC_NAME]
 ```
 
-Heading outline of the target document, with addressable anchor IDs.
+Heading outline of the target document, with addressable anchor IDs. Pass
+`--all` to list **every** paragraph (headings *and* body text *and* list items)
+as `para:N` — identical to [`paragraphs`](#paragraphs).
 
 ```bash
 $ wordlive outline
@@ -71,7 +73,30 @@ $ wordlive outline
 
 This is the entry point for LLM workflows that need to discover what's
 addressable in the document. The emitted `anchor_id` strings are exactly
-what `replace`, `go-to`, and `exec` consume.
+what `replace`, `go-to`, `insert`, and `exec` consume.
+
+## `paragraphs`
+
+```
+wordlive paragraphs [--doc DOC_NAME]
+```
+
+List **every** paragraph in document order — headings, body text, and list
+items alike — each with a `para:N` anchor, its outline `level`, an
+`is_heading` flag, character `start`/`end` offsets, and its text. `outline
+--all` is an alias.
+
+```bash
+$ wordlive paragraphs
+[{"index": 1, "anchor_id": "para:1", "level": 1,  "is_heading": true,  "start": 0,  "end": 13, "text": "Introduction"},
+ {"index": 2, "anchor_id": "para:2", "level": 10, "is_heading": false, "start": 13, "end": 29, "text": "Body text here."},
+ {"index": 3, "anchor_id": "para:3", "level": 2,  "is_heading": true,  "start": 29, "end": 35, "text": "Risks"}]
+```
+
+`para:N` shares its index space with `heading:N` — paragraph 1 is both
+`para:1` and (because it's a heading) `heading:1`. The emitted offsets feed a
+[`range:START-END`](concepts.md) target for an offset-precise, mid-paragraph
+insertion via `replace`.
 
 ## `read bookmark NAME`
 
@@ -165,24 +190,68 @@ $ wordlive write cc Signatory --text "Jane Doe"
 
 Failures: `2` anchor not found, `3` Word busy.
 
-## `insert --after-heading "…" --text "…"`
+## `insert --anchor-id ID --text "…"`
 
 ```
-wordlive insert --after-heading "Introduction" --text "..." [--style "Body Text"] [--doc DOC_NAME]
+wordlive insert --anchor-id ID --text "..." [--before | --after] [--style "Body Text"] [--doc DOC_NAME]
 ```
 
-Insert a new paragraph immediately after the named heading.
+Insert a new paragraph relative to **any** anchor — addressed the same way
+every other command addresses things, with `--anchor-id` (`heading:N`,
+`para:N`, `bookmark:NAME`, a cell, a range). `--after` (the default) lands the
+new paragraph just below the anchor; `--before` lands it just above.
 
 ```bash
-$ wordlive insert --after-heading "Risks" --text "New risk identified."
-{"ok": true, "after_heading": "Risks", "style": null}
+$ wordlive insert --anchor-id heading:8 --text "New risk identified."
+{"ok": true, "anchor_id": "heading:8", "where": "after", "style": null}
+
+$ wordlive insert --anchor-id para:3 --text "Section preamble." --before
+{"ok": true, "anchor_id": "para:3", "where": "before", "style": null}
 ```
 
 `--style` is optional; if given it must be a Word style name that exists in
 the document — the style is validated before the paragraph is inserted, so a
 typo never partially mutates the document. Use `wordlive style list` to see
-the available names. Failures: `2` heading not found or style not found, `3`
+the available names. Failures: `2` anchor not found or style not found, `3`
 Word busy.
+
+To insert text *inside* a paragraph at a precise offset rather than as a new
+paragraph, target a collapsed range instead — `replace --anchor-id
+range:120-120 --text "…"` — using offsets from `paragraphs` or `find`.
+
+## `cursor read` / `cursor write --text "…"`
+
+```
+wordlive cursor read [--doc DOC_NAME]
+wordlive cursor write --text "..." [--replace | --no-replace] [--doc DOC_NAME]
+```
+
+The **explicit cursor surface**. Every other command targets a semantic anchor
+and preserves the user's cursor; `cursor` is the deliberate exception, for when
+the user genuinely wants to read or write at their current position. It is *not*
+addressable by `--anchor-id` — that separation is intentional, signalling it's
+the non-preferred mode.
+
+`cursor read` reports the selection's `start`/`end`, whether it's `collapsed`
+(an insertion point with no selected text), the selected `text`, and the
+containing `para:N` so you can pivot back to anchored edits:
+
+```bash
+$ wordlive cursor read
+{"start": 142, "end": 142, "collapsed": true, "text": "", "paragraph": {"anchor_id": "para:7"}}
+```
+
+`cursor write` types at the cursor and — unlike anchor writes — deliberately
+leaves the cursor after the inserted text. With a spanning selection, the
+default `--replace` overwrites it (like typing); `--no-replace` inserts at the
+selection start without removing it.
+
+```bash
+$ wordlive cursor write --text "inserted at cursor"
+{"ok": true, "replace": true}
+```
+
+Failures: `3` Word busy, `4` Word not running.
 
 ## `find --text "…"`
 
@@ -679,11 +748,11 @@ Script shape:
 {
   "label": "Update report",
   "ops": [
-    {"op": "write_bookmark",       "name": "Address",     "text": "123 Main St"},
-    {"op": "write_cc",             "name": "Signatory",   "text": "Jane Doe"},
-    {"op": "insert_after_heading", "heading": "Risks",    "text": "New risk paragraph.",
-                                   "style":   "Body Text"},
-    {"op": "replace",              "anchor_id": "heading:3", "text": "Updated section text"}
+    {"op": "write_bookmark",    "name": "Address",        "text": "123 Main St"},
+    {"op": "write_cc",          "name": "Signatory",      "text": "Jane Doe"},
+    {"op": "insert_paragraph",  "anchor_id": "heading:8",  "text": "New risk paragraph.",
+                                "where": "after",          "style": "Body Text"},
+    {"op": "replace",           "anchor_id": "heading:3",  "text": "Updated section text"}
   ]
 }
 ```
@@ -694,7 +763,7 @@ Script shape:
 | ---------------------- | ------------------------------------------ | --------------------------------- |
 | `write_bookmark`       | `name`, `text`                             | —                                 |
 | `write_cc`             | `name`, `text`                             | —                                 |
-| `insert_after_heading` | `heading`, `text`                          | `style`                           |
+| `insert_paragraph`     | `anchor_id`, `text`                        | `where` (`after`/`before`), `style` |
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
@@ -717,6 +786,10 @@ The `find_replace` op mirrors `wordlive replace --find …` — fuzzy whitespace
 + smart-quote match, optional `in` anchor to scope it, and either `all` or
 `occurrence` to handle multi-match. Ambiguous-match failures surface in the
 batch response's `failure.matches` so the LLM can rewrite the op and retry.
+
+`insert_paragraph` mirrors the `insert` command: a new paragraph relative to
+any anchor, with `where` defaulting to `after` and an optional `style` that's
+validated before the batch mutates anything.
 
 `apply_style` and `format_paragraph` are the same as their dedicated CLI
 verbs — the style must already exist in the document, indent and spacing
@@ -770,8 +843,8 @@ point precisely so an LLM can retry with a corrected payload:
   "label": "Update report",
   "failure": {
     "index": 2,
-    "op": {"op": "insert_after_heading", "heading": "Risks", "text": "…"},
-    "error": "heading not found: 'Risks'",
+    "op": {"op": "insert_paragraph", "anchor_id": "heading:99", "text": "…"},
+    "error": "heading not found: 'heading:99'",
     "type": "AnchorNotFoundError"
   }
 }
