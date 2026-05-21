@@ -1332,6 +1332,21 @@ _OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _op_before(op: dict[str, Any]) -> bool:
+    """Whether an insert op targets *before* its anchor (default: after).
+
+    Accepts either the verbose `"where": "before"|"after"` or the boolean
+    `"before": true` / `"after": true` — the latter mirrors the CLI's
+    `--before/--after` flags, so the natural JSON encoding works regardless of
+    which form an LLM reaches for. An explicit `"before"` wins if both appear.
+    """
+    if "before" in op:
+        return bool(op["before"])
+    if "after" in op:
+        return not bool(op["after"])
+    return op.get("where") == "before"
+
+
 def _validate_op(op: dict[str, Any]) -> str:
     """Return the op kind after asserting it's known and required keys exist."""
     if not isinstance(op, dict):
@@ -1358,7 +1373,7 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
         doc.content_controls[op["name"]].set_text(op["text"])
     elif kind == "insert_paragraph":
         anchor = doc.anchor_by_id(op["anchor_id"])
-        if op.get("where") == "before":
+        if _op_before(op):
             anchor.insert_paragraph_before(op["text"], style=op.get("style"))
         else:
             anchor.insert_paragraph_after(op["text"], style=op.get("style"))
@@ -1372,7 +1387,7 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
             k: op[k] for k in ("width", "height", "alt_text", "lock_aspect") if k in op
         }
         doc.anchor_by_id(op["anchor_id"]).insert_image(
-            image, wrap=op["wrap"], where=op.get("where", "after"), **kwargs
+            image, wrap=op["wrap"], where=("before" if _op_before(op) else "after"), **kwargs
         )
     elif kind == "replace":
         doc.anchor_by_id(op["anchor_id"]).set_text(op["text"])
@@ -1434,14 +1449,24 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
 
 
 @click.command(name="exec")
-@click.option("--script", "script", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path), help="Path to ops JSON file.")
+@click.option("--script", "script", default=None, type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="Path to an ops JSON file.")
+@click.option("--ops", "ops_inline", default=None,
+              help="Inline JSON batch — the same content as a --script file, passed "
+                   "directly. Accepts the full {\"label\", \"ops\", …} object or a bare "
+                   "[…] ops array, or '-' to read JSON from stdin. Alternative to --script.")
 @click.pass_context
-def exec_(ctx: click.Context, script: Path) -> None:
+def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> None:
     """Apply a batch of ops in a single atomic-undo scope.
 
-    Script shape: `{"label": "…", "ops": [{"op": "...", ...}, ...]}`. Set
-    `"tracked": true` at the top level to record the whole batch as Word
-    revisions (Track Changes is restored to its prior state afterwards).
+    Provide the batch either as a file (`--script ops.json`) or inline
+    (`--ops '{"ops": [...]}'`, or `--ops -` to read JSON from stdin — best for
+    large payloads such as base64 images, which can exceed the command-line
+    length limit). The script shape is
+    `{"label": "…", "ops": [{"op": "...", ...}, ...]}`; a bare `[...]` array is
+    accepted as shorthand for `{"ops": [...]}`. Set `"tracked": true` at the top
+    level to record the whole batch as Word revisions (Track Changes is restored
+    to its prior state afterwards).
     Supported ops: write_bookmark, write_cc, insert_paragraph, insert_image,
     replace, find_replace, apply_style, format_paragraph, set_cell, add_row,
     delete_row, add_comment, resolve_comment, delete_comment, apply_list,
@@ -1449,9 +1474,25 @@ def exec_(ctx: click.Context, script: Path) -> None:
     write_footer.
     See docs/cli.md for each op's required and optional fields.
     """
+    if (script is None) == (ops_inline is None):
+        raise click.UsageError("provide exactly one of --script or --ops")
+
     def go() -> None:
-        payload = json.loads(script.read_text(encoding="utf-8"))
-        label = str(payload.get("label") or f"CLI: exec {script.name}")
+        if ops_inline is not None:
+            raw = click.get_text_stream("stdin").read() if ops_inline == "-" else ops_inline
+            source = "inline"
+        else:
+            raw = script.read_text(encoding="utf-8")
+            source = script.name
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise click.ClickException(f"ops JSON is malformed: {e}")
+        if isinstance(payload, list):
+            payload = {"ops": payload}
+        if not isinstance(payload, dict):
+            raise click.ClickException('ops JSON must be an object {"ops": [...]} or an array of ops')
+        label = str(payload.get("label") or f"CLI: exec {source}")
         tracked = bool(payload.get("tracked", False))
         ops = payload.get("ops") or []
         if not isinstance(ops, list):

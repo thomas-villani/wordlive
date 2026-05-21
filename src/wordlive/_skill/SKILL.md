@@ -12,8 +12,9 @@ edit collapses into a single Ctrl-Z.
 
 Prefer the **CLI**. Every command prints exactly one JSON object on stdout and
 returns a deterministic exit code, so you branch on failures without parsing
-prose. Add `--text` for human-readable output; default is JSON. Target a
-specific document with `--doc NAME` (default: the active one).
+prose. JSON is the default; `--text` (human-readable), `--json`, and
+`--doc NAME` (default: the active document) are **global flags — put them
+before the subcommand**: `wordlive --text outline`, not `wordlive outline --text`.
 
 ## First, orient yourself
 1. `wordlive status` — confirm Word is reachable and see open documents.
@@ -42,7 +43,7 @@ short string you pass as `--anchor-id`:
 
 ## Writing — each command is one atomic undo
 - `wordlive write bookmark NAME --text "…"` · `write cc NAME --text "…"`
-- `wordlive insert --anchor-id ID --text "…" [--before | --after] [--style "Body Text"]` — new paragraph relative to any anchor (`--after` is the default).
+- `wordlive insert --anchor-id ID --text "…" [--before | --after] [--style "Body Text"]` — new paragraph relative to any anchor (`--after` is the default; appending after the document's last paragraph works too, so you can build a doc top-down).
 - `wordlive replace --anchor-id ID --text "…"` — overwrite a range.
 - `wordlive replace --find "old" --text "new" [--all | --occurrence N] [--in ID]` — fuzzy find + replace.
 - `wordlive style apply --anchor-id ID --name "Heading 2"` (names: `style list`).
@@ -77,9 +78,15 @@ best path for multi-step intents and for inline base64 images (no argv limits):
   ]
 }
 ```
-Run with `wordlive exec --script ops.json`. Add `"tracked": true` at the top level
-to record the whole batch as tracked changes. On failure it stops at the first bad
-op and reports `failure` with the op `index`, `error`, and `type`.
+Run with `wordlive exec --script ops.json`, or pass the JSON inline with
+`wordlive exec --ops '{"ops": [...]}'` (or `--ops -` to pipe it via stdin — best
+for large payloads like base64 images, which can blow the command-line length
+limit). Add `"tracked": true` at the top level to record the whole batch as
+tracked changes. On failure it stops at the first bad op and reports `failure`
+with the op `index`, `error`, and `type`.
+
+`insert_paragraph` and `insert_image` default to inserting **after** the anchor;
+pass `"before": true` to insert above it (mirrors the CLI's `--before`/`--after`).
 
 Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `insert_image`, `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `set_cell`, `add_row`,

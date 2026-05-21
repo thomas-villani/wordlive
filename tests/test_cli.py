@@ -167,6 +167,57 @@ def test_exec_all_ops_succeed(fake_word, tmp_path: Path):
     assert data["label"] == "Batch update"
 
 
+def test_exec_inline_ops_json(fake_word):
+    """`--ops '{...}'` applies a batch without needing a file on disk."""
+    payload = json.dumps(
+        {"label": "Inline", "ops": [{"op": "write_bookmark", "name": "Address", "text": "Inline St"}]}
+    )
+    code, out, _ = _invoke(["exec", "--ops", payload])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["ops_run"] == 1
+    assert data["label"] == "Inline"
+    assert fake_word.ActiveDocument.Bookmarks._items["Address"][0] == 13
+
+
+def test_exec_inline_ops_accepts_bare_array(fake_word):
+    """A bare `[...]` array is shorthand for `{"ops": [...]}`."""
+    payload = json.dumps([{"op": "write_bookmark", "name": "Address", "text": "X"}])
+    code, out, _ = _invoke(["exec", "--ops", payload])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+
+
+def test_exec_ops_from_stdin(fake_word):
+    """`--ops -` reads the batch JSON from stdin."""
+    payload = json.dumps({"ops": [{"op": "write_bookmark", "name": "Address", "text": "Piped"}]})
+    code, out, _ = _invoke(["exec", "--ops", "-"], input=payload)
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+
+
+def test_exec_requires_exactly_one_source(fake_word, tmp_path: Path):
+    """Neither --script nor --ops, or both, is a usage error."""
+    code, _, err = _invoke(["exec"])
+    assert code != EXIT_OK
+    assert "--script" in err and "--ops" in err
+
+    script = tmp_path / "ops.json"
+    script.write_text(json.dumps({"ops": []}), encoding="utf-8")
+    code, _, err = _invoke(["exec", "--script", str(script), "--ops", "{}"])
+    assert code != EXIT_OK
+    assert "exactly one" in err
+
+
+def test_exec_inline_malformed_json_is_clean_error(fake_word):
+    """Malformed inline JSON surfaces as a clean error, not a traceback."""
+    code, _, err = _invoke(["exec", "--ops", "{not json"])
+    assert code != EXIT_OK
+    assert "malformed" in err.lower()
+    assert "Traceback" not in err
+
+
 def test_exec_wraps_ops_in_single_undo_record(fake_word, tmp_path: Path):
     script = tmp_path / "ops.json"
     script.write_text(
@@ -210,6 +261,43 @@ def test_exec_stops_at_first_failure_and_reports_partial(fake_word, tmp_path: Pa
     assert data["ops_run"] == 1
     assert data["failure"]["index"] == 1
     assert data["failure"]["type"] == "AnchorNotFoundError"
+
+
+def test_exec_insert_paragraph_honours_boolean_before(fake_word, tmp_path: Path):
+    """Regression: the `insert_paragraph` op must honour `"before": true`, not
+    just the verbose `"where": "before"`. The boolean mirrors the CLI's
+    `--before/--after` flags, so an LLM that encodes the batch op the same way
+    it would type the command gets a before-insert — not a silent after-insert.
+    """
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {"ops": [{"op": "insert_paragraph", "anchor_id": "para:2", "text": "intro", "before": True}]}
+        ),
+        encoding="utf-8",
+    )
+
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    assert json.loads(out)["ok"] is True
+    # --before inserts at para:2's start offset (13), as a new paragraph.
+    assert fake_word.ActiveDocument.Range(13, 13).Text == "intro\r"
+
+
+def test_exec_insert_paragraph_where_before_still_works(fake_word, tmp_path: Path):
+    """The original `"where": "before"` form must keep working alongside the
+    boolean."""
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {"ops": [{"op": "insert_paragraph", "anchor_id": "para:2", "text": "intro", "where": "before"}]}
+        ),
+        encoding="utf-8",
+    )
+
+    code, _, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    assert fake_word.ActiveDocument.Range(13, 13).Text == "intro\r"
 
 
 # ---------------------------------------------------------------------------

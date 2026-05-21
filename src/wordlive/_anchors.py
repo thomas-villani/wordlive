@@ -167,15 +167,37 @@ class Anchor(ABC):
 
         If `style` is given it must name a style defined in the document;
         otherwise `StyleNotFoundError` is raised before any text is inserted.
+
+        When the anchor is (or ends at) the document's final paragraph there is
+        no position *after* the terminal paragraph mark to write to — Word
+        rejects `Range(end, end)` there with a "value out of range" COM error.
+        In that case the new paragraph is split in just before the final mark
+        instead, so appending to the end of a document — the common
+        "build from scratch" case, where the only paragraph *is* the last one —
+        just works.
         """
         style_obj = self._doc.styles[style] if style is not None else None
         with _com.translate_com_errors():
             doc_com = self._doc.com
             end = int(self._range().End)
-            insert_rng = doc_com.Range(end, end)
-            insert_rng.Text = text + "\r"
+            doc_end = int(doc_com.Content.End)
+            if end >= doc_end:
+                # Anchor ends at the final paragraph mark. Insert "<break><text>"
+                # just before that mark: the leading break terminates the
+                # anchor's paragraph and `text` becomes a new final paragraph
+                # (the original final mark now closes it).
+                anchor_pos = max(0, doc_end - 1)
+                insert_rng = doc_com.Range(anchor_pos, anchor_pos)
+                insert_rng.Text = "\r" + text
+                text_start = anchor_pos + 1
+            else:
+                insert_rng = doc_com.Range(end, end)
+                insert_rng.Text = text + "\r"
+                text_start = end
             if style_obj is not None:
-                styled = doc_com.Range(end, end + _utf16_len(text))
+                # Word measures Range offsets in UTF-16 code units; Python's
+                # len() under-counts surrogate pairs and leaves the tail unstyled.
+                styled = doc_com.Range(text_start, text_start + _utf16_len(text))
                 styled.Style = style_obj.com
 
     def insert_image(

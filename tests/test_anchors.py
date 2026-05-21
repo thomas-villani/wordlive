@@ -132,6 +132,37 @@ def test_insert_paragraph_after_with_emoji_styles_full_span(fake_word):
     )
 
 
+def test_insert_paragraph_after_terminal_paragraph_splits_before_final_mark(fake_word):
+    """Regression: inserting after the document's *last* paragraph must not try
+    to write at `Range(end, end)` — that position is past the final paragraph
+    mark and Word rejects it with a "value out of range" COM error. The new
+    paragraph is split in just before the final mark instead (at Content.End-1),
+    so appending to a freshly-created document just works.
+    """
+    # "Risks" is the fixture's terminal paragraph: range [29, 35), and the
+    # document content ends at 35, so its end coincides with Content.End.
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("append"):
+            doc.heading("Risks").insert_paragraph_after("New tail paragraph.")
+
+    # Inserted at Content.End - 1 == 34 as "<break><text>", not at 35.
+    assert fake_word.ActiveDocument.Range(34, 34).Text == "\rNew tail paragraph."
+
+
+def test_insert_paragraph_after_terminal_paragraph_styles_inserted_text(fake_word):
+    """The style must land on the text *after* the leading break, not on the
+    anchor's paragraph. For a terminal insert the text starts at Content.End."""
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("append-styled"):
+            doc.heading("Risks").insert_paragraph_after("Body", style="Body Text")
+
+    # Content.End is 35; text starts at 35 and spans "Body" (4 UTF-16 units).
+    styled = [c.args for c in fake_word.ActiveDocument.Range.call_args_list if c.args == (35, 39)]
+    assert styled, f"expected styled Range(35, 39); got {fake_word.ActiveDocument.Range.call_args_list}"
+
+
 def test_content_control_missing_raises(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active

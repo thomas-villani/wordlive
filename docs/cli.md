@@ -199,7 +199,10 @@ wordlive insert --anchor-id ID --text "..." [--before | --after] [--style "Body 
 Insert a new paragraph relative to **any** anchor — addressed the same way
 every other command addresses things, with `--anchor-id` (`heading:N`,
 `para:N`, `bookmark:NAME`, a cell, a range). `--after` (the default) lands the
-new paragraph just below the anchor; `--before` lands it just above.
+new paragraph just below the anchor; `--before` lands it just above. `--after`
+works even when the anchor is the document's last paragraph — the new paragraph
+is appended before the final mark — so you can build a document top-down from a
+single empty paragraph.
 
 ```bash
 $ wordlive insert --anchor-id heading:8 --text "New risk identified."
@@ -770,15 +773,27 @@ $ wordlive header write --section 1 --text "ACME Corporation — Q2 Report"
 `--text` mode (`wordlive --text header read`) emits just the header text.
 Failures: `2` section out of range, `3` Word busy.
 
-## `exec --script ops.json`
+## `exec` — `--script ops.json` or `--ops '{…}'`
 
 ```
-wordlive exec --script ops.json [--doc DOC_NAME]
+wordlive exec (--script ops.json | --ops JSON | --ops -) [--doc DOC_NAME]
 ```
 
 Apply a batch of operations under a single atomic-undo scope. This is the
 most useful command for LLM tool-use: one round-trip per *intent*, not one
 per *operation*.
+
+Provide the batch one of three ways (exactly one of `--script` / `--ops` is
+required):
+
+- `--script ops.json` — read it from a file.
+- `--ops '{"ops": [...]}'` — pass the JSON inline on the command line.
+- `--ops -` — read the JSON from stdin (e.g. `… | wordlive exec --ops -`),
+  which sidesteps the shell's command-line length limit and is the right
+  choice for large payloads such as inline base64 images.
+
+In every form a bare `[...]` array is accepted as shorthand for `{"ops": [...]}`,
+and malformed JSON returns a clean error (exit `1`) rather than a traceback.
 
 Script shape:
 
@@ -801,8 +816,8 @@ Script shape:
 | ---------------------- | ------------------------------------------ | --------------------------------- |
 | `write_bookmark`       | `name`, `text`                             | —                                 |
 | `write_cc`             | `name`, `text`                             | —                                 |
-| `insert_paragraph`     | `anchor_id`, `text`                        | `where` (`after`/`before`), `style` |
-| `insert_image`         | `anchor_id`, `wrap`, and one of `path` / `base64` | `where`, `width`, `height`, `alt_text`, `lock_aspect` |
+| `insert_paragraph`     | `anchor_id`, `text`                        | `where` (`after`/`before`) or `before: true`, `style` |
+| `insert_image`         | `anchor_id`, `wrap`, and one of `path` / `base64` | `where` or `before: true`, `width`, `height`, `alt_text`, `lock_aspect` |
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
@@ -827,8 +842,11 @@ The `find_replace` op mirrors `wordlive replace --find …` — fuzzy whitespace
 batch response's `failure.matches` so the LLM can rewrite the op and retry.
 
 `insert_paragraph` mirrors the `insert` command: a new paragraph relative to
-any anchor, with `where` defaulting to `after` and an optional `style` that's
-validated before the batch mutates anything.
+any anchor, with placement defaulting to `after` and an optional `style` that's
+validated before the batch mutates anything. Placement accepts either the
+verbose `"where": "before"|"after"` or the boolean `"before": true` — the latter
+mirrors the command's `--before`/`--after` flags, so the same intent encodes the
+same way whether you type it or batch it. (`insert_image` accepts both forms too.)
 
 `insert_image` mirrors `insert-image`. Supply the image with either a `path`
 (read from disk) or `base64` (inline data — the natural choice in a JSON op,
