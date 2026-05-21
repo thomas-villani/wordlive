@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from . import _com, _selection
 from ._selection import SelectionSnapshot
@@ -19,7 +19,7 @@ class EditScope:
     the scope calls `allow_cursor_move()`.
     """
 
-    def __init__(self, word: "Word", label: str) -> None:
+    def __init__(self, word: Word, label: str) -> None:
         self._word = word
         self._label = label
         self._snapshot: SelectionSnapshot | None = None
@@ -28,7 +28,7 @@ class EditScope:
         self._undo_started: bool = False
 
     @property
-    def word(self) -> "Word":
+    def word(self) -> Word:
         return self._word
 
     @property
@@ -39,7 +39,7 @@ class EditScope:
         """Opt out of restoring the user's Selection on scope exit."""
         self._move_allowed = True
 
-    def __enter__(self) -> "EditScope":
+    def __enter__(self) -> EditScope:
         self._snapshot = _selection.snapshot(self._word)
         with _com.translate_com_errors():
             self._undo = self._word.com.UndoRecord
@@ -52,7 +52,9 @@ class EditScope:
                 self._undo_started = False
         return self
 
-    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any
+    ) -> None:
         if self._undo_started and self._undo is not None:
             try:
                 with _com.translate_com_errors():

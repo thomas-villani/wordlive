@@ -13,8 +13,8 @@ import click
 from .. import attach
 from .._anchors import Heading
 from .._document import Document
-from ..exceptions import AmbiguousMatchError, WordNotRunningError, WordliveError
-from .main import emit, _run
+from ..exceptions import AmbiguousMatchError, WordliveError, WordNotRunningError
+from .main import _run, emit
 
 
 def _pick_doc(word: Any, doc_name: str | None) -> Document:
@@ -68,9 +68,7 @@ def _fmt_paragraphs(items: list[dict[str, Any]]) -> str:
 def _fmt_find(matches: list[dict[str, Any]]) -> str:
     if not matches:
         return "(no matches)"
-    return "\n".join(
-        f"{m['start']:>6}–{m['end']:<6}  {m['text']!r}" for m in matches
-    )
+    return "\n".join(f"{m['start']:>6}–{m['end']:<6}  {m['text']!r}" for m in matches)
 
 
 def _fmt_replace_summary(replacements: list[dict[str, Any]]) -> str:
@@ -112,6 +110,7 @@ def register(group: click.Group) -> None:
 @click.pass_context
 def status(ctx: click.Context) -> None:
     """List open documents and which one is active."""
+
     def go() -> None:
         try:
             with attach() as word:
@@ -120,6 +119,7 @@ def status(ctx: click.Context) -> None:
         except WordNotRunningError:
             emit([], as_text=not ctx.obj["as_json"], text=_fmt_status([]))
             raise
+
     _run(ctx, go)
 
 
@@ -129,11 +129,17 @@ def status(ctx: click.Context) -> None:
 
 
 @click.command(name="outline")
-@click.option("--all", "show_all", is_flag=True, default=False,
-              help="List every paragraph (para:N), not just headings — same as `paragraphs`.")
+@click.option(
+    "--all",
+    "show_all",
+    is_flag=True,
+    default=False,
+    help="List every paragraph (para:N), not just headings — same as `paragraphs`.",
+)
 @click.pass_context
 def outline(ctx: click.Context, show_all: bool) -> None:
     """Print the heading outline (or every paragraph with --all)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -143,6 +149,7 @@ def outline(ctx: click.Context, show_all: bool) -> None:
             else:
                 items = doc.outline()
                 emit(items, as_text=not ctx.obj["as_json"], text=_fmt_outline(items))
+
     _run(ctx, go)
 
 
@@ -160,11 +167,13 @@ def paragraphs_cmd(ctx: click.Context) -> None:
     everything view (`outline --all` is an alias). Use the emitted offsets to
     build a `range:START-END` target for a mid-paragraph insertion.
     """
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             items = doc.paragraphs.list()
             emit(items, as_text=not ctx.obj["as_json"], text=_fmt_paragraphs(items))
+
     _run(ctx, go)
 
 
@@ -183,11 +192,13 @@ def read() -> None:
 @click.pass_context
 def read_bookmark(ctx: click.Context, name: str) -> None:
     """Read the text of bookmark NAME."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             text = doc.bookmarks[name].text
             emit({"text": text}, as_text=not ctx.obj["as_json"], text=text)
+
     _run(ctx, go)
 
 
@@ -196,17 +207,24 @@ def read_bookmark(ctx: click.Context, name: str) -> None:
 @click.pass_context
 def read_cc(ctx: click.Context, name: str) -> None:
     """Read the text of content control NAME."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             text = doc.content_controls[name].text
             emit({"text": text}, as_text=not ctx.obj["as_json"], text=text)
+
     _run(ctx, go)
 
 
 @read.command(name="section")
 @click.argument("heading", required=False)
-@click.option("--anchor-id", "anchor_id", default=None, help="Resolve heading by anchor id (e.g. 'heading:3') instead of by visible text.")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    default=None,
+    help="Resolve heading by anchor id (e.g. 'heading:3') instead of by visible text.",
+)
 @click.pass_context
 def read_section(ctx: click.Context, heading: str | None, anchor_id: str | None) -> None:
     """Read the body text under HEADING (up to the next same-or-higher heading)."""
@@ -219,10 +237,9 @@ def read_section(ctx: click.Context, heading: str | None, anchor_id: str | None)
             if anchor_id is not None:
                 h = doc.anchor_by_id(anchor_id)
                 if not isinstance(h, Heading):
-                    raise click.UsageError(
-                        f"--anchor-id must reference a heading, got {h.kind!r}"
-                    )
+                    raise click.UsageError(f"--anchor-id must reference a heading, got {h.kind!r}")
             else:
+                assert heading is not None  # guaranteed by the validation above
                 h = doc.heading(heading)
             body = h.section_text()
             emit(
@@ -235,6 +252,7 @@ def read_section(ctx: click.Context, heading: str | None, anchor_id: str | None)
                 as_text=not ctx.obj["as_json"],
                 text=body,
             )
+
     _run(ctx, go)
 
 
@@ -254,6 +272,7 @@ def write() -> None:
 @click.pass_context
 def write_bookmark(ctx: click.Context, name: str, text: str) -> None:
     """Set the text of bookmark NAME (atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -265,6 +284,7 @@ def write_bookmark(ctx: click.Context, name: str, text: str) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"wrote bookmark:{name}",
             )
+
     _run(ctx, go)
 
 
@@ -274,6 +294,7 @@ def write_bookmark(ctx: click.Context, name: str, text: str) -> None:
 @click.pass_context
 def write_cc(ctx: click.Context, name: str, text: str) -> None:
     """Set the text of content control NAME (atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -285,6 +306,7 @@ def write_cc(ctx: click.Context, name: str, text: str) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"wrote cc:{name}",
             )
+
     _run(ctx, go)
 
 
@@ -294,11 +316,23 @@ def write_cc(ctx: click.Context, name: str, text: str) -> None:
 
 
 @click.command(name="insert")
-@click.option("--anchor-id", "anchor_id", required=True, help="Anchor to insert a new paragraph relative to (e.g. heading:1, para:3).")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Anchor to insert a new paragraph relative to (e.g. heading:1, para:3).",
+)
 @click.option("--text", "text", required=True, help="Paragraph text to insert.")
-@click.option("--before/--after", "before", default=False, show_default="--after",
-              help="Insert the new paragraph before the anchor instead of after it.")
-@click.option("--style", "style", default=None, help="Optional Word style name for the new paragraph.")
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert the new paragraph before the anchor instead of after it.",
+)
+@click.option(
+    "--style", "style", default=None, help="Optional Word style name for the new paragraph."
+)
 @click.pass_context
 def insert(ctx: click.Context, anchor_id: str, text: str, before: bool, style: str | None) -> None:
     """Insert a new paragraph before/after any anchor (atomic-undo).
@@ -330,6 +364,7 @@ def insert(ctx: click.Context, anchor_id: str, text: str, before: bool, style: s
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted {where} {anchor_id}",
             )
+
     _run(ctx, go)
 
 
@@ -342,21 +377,40 @@ _WRAP_CHOICES = ["inline", "auto", "square", "tight", "through", "top-bottom", "
 
 
 @click.command(name="insert-image")
-@click.option("--anchor-id", "anchor_id", required=True, help="Anchor to insert the image relative to.")
-@click.option("--path", "path", default=None, type=click.Path(path_type=Path),
-              help="Path to the image file.")
-@click.option("--base64", "b64", default=None,
-              help="Base64 image data, or '-' to read base64 from stdin.")
-@click.option("--wrap", "wrap", required=True, type=click.Choice(_WRAP_CHOICES),
-              help="Layout / text-wrap (required). 'inline' stays in the text flow; "
-                   "'auto' floats Square when small, else top-bottom.")
-@click.option("--before/--after", "before", default=False, show_default="--after",
-              help="Insert before the anchor instead of after it.")
+@click.option(
+    "--anchor-id", "anchor_id", required=True, help="Anchor to insert the image relative to."
+)
+@click.option(
+    "--path", "path", default=None, type=click.Path(path_type=Path), help="Path to the image file."
+)
+@click.option(
+    "--base64", "b64", default=None, help="Base64 image data, or '-' to read base64 from stdin."
+)
+@click.option(
+    "--wrap",
+    "wrap",
+    required=True,
+    type=click.Choice(_WRAP_CHOICES),
+    help="Layout / text-wrap (required). 'inline' stays in the text flow; "
+    "'auto' floats Square when small, else top-bottom.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
 @click.option("--width", "width", type=float, default=None, help="Width in points (optional).")
 @click.option("--height", "height", type=float, default=None, help="Height in points (optional).")
 @click.option("--alt-text", "alt_text", default=None, help="Alternative (accessibility) text.")
-@click.option("--lock-aspect/--no-lock-aspect", "lock_aspect", default=True, show_default=True,
-              help="Keep the image's aspect ratio when resizing.")
+@click.option(
+    "--lock-aspect/--no-lock-aspect",
+    "lock_aspect",
+    default=True,
+    show_default=True,
+    help="Keep the image's aspect ratio when resizing.",
+)
 @click.pass_context
 def insert_image_cmd(
     ctx: click.Context,
@@ -408,6 +462,7 @@ def insert_image_cmd(
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted image {where} {anchor_id} (wrap={wrap})",
             )
+
     _run(ctx, go)
 
 
@@ -441,6 +496,7 @@ def cursor() -> None:
 @click.pass_context
 def cursor_read(ctx: click.Context) -> None:
     """Report the cursor position, any selected text, and the containing paragraph."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -448,16 +504,23 @@ def cursor_read(ctx: click.Context) -> None:
             para = doc.paragraphs.at(info["start"])
             info["paragraph"] = {"anchor_id": para.anchor_id} if para is not None else None
             emit(info, as_text=not ctx.obj["as_json"], text=_fmt_cursor(info))
+
     _run(ctx, go)
 
 
 @cursor.command(name="write")
 @click.option("--text", "text", required=True, help="Text to insert at the cursor.")
-@click.option("--replace/--no-replace", "replace", default=True, show_default=True,
-              help="Overwrite the selected text (if any). --no-replace inserts at the selection start.")
+@click.option(
+    "--replace/--no-replace",
+    "replace",
+    default=True,
+    show_default=True,
+    help="Overwrite the selected text (if any). --no-replace inserts at the selection start.",
+)
 @click.pass_context
 def cursor_write(ctx: click.Context, text: str, replace: bool) -> None:
     """Insert text at the cursor (deliberately moves the cursor; atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -469,6 +532,7 @@ def cursor_write(ctx: click.Context, text: str, replace: bool) -> None:
                 as_text=not ctx.obj["as_json"],
                 text="wrote at cursor",
             )
+
     _run(ctx, go)
 
 
@@ -478,17 +542,23 @@ def cursor_write(ctx: click.Context, text: str, replace: bool) -> None:
 
 
 @click.command(name="find")
-@click.option("--text", "text", required=True, help="Text to locate (whitespace + smart-quote fuzzy match).")
-@click.option("--in", "in_", default=None, help="Optional anchor id to scope the search (e.g. 'heading:3').")
+@click.option(
+    "--text", "text", required=True, help="Text to locate (whitespace + smart-quote fuzzy match)."
+)
+@click.option(
+    "--in", "in_", default=None, help="Optional anchor id to scope the search (e.g. 'heading:3')."
+)
 @click.pass_context
 def find_cmd(ctx: click.Context, text: str, in_: str | None) -> None:
     """Locate every fuzzy occurrence of TEXT (read-only)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             scope = doc.anchor_by_id(in_) if in_ else None
             matches = doc.find(text, scope=scope)
             emit(matches, as_text=not ctx.obj["as_json"], text=_fmt_find(matches))
+
     _run(ctx, go)
 
 
@@ -500,12 +570,26 @@ def find_cmd(ctx: click.Context, text: str, in_: str | None) -> None:
 
 
 @click.command(name="replace")
-@click.option("--anchor-id", "anchor_id", default=None, help="Replace the entire range at this anchor.")
-@click.option("--find", "find", default=None, help="Fuzzy text to locate (alternative to --anchor-id).")
+@click.option(
+    "--anchor-id", "anchor_id", default=None, help="Replace the entire range at this anchor."
+)
+@click.option(
+    "--find", "find", default=None, help="Fuzzy text to locate (alternative to --anchor-id)."
+)
 @click.option("--text", "text", required=True, help="Replacement text.")
-@click.option("--in", "in_", default=None, help="In fuzzy mode, scope the search to this anchor id.")
-@click.option("--all", "replace_all", is_flag=True, default=False, help="In fuzzy mode, replace every match.")
-@click.option("--occurrence", "occurrence", type=int, default=None, help="In fuzzy mode, replace only the Nth match (1-based).")
+@click.option(
+    "--in", "in_", default=None, help="In fuzzy mode, scope the search to this anchor id."
+)
+@click.option(
+    "--all", "replace_all", is_flag=True, default=False, help="In fuzzy mode, replace every match."
+)
+@click.option(
+    "--occurrence",
+    "occurrence",
+    type=int,
+    default=None,
+    help="In fuzzy mode, replace only the Nth match (1-based).",
+)
 @click.pass_context
 def replace(
     ctx: click.Context,
@@ -542,6 +626,7 @@ def replace(
                 )
                 return
 
+            assert find is not None  # guaranteed by the validation above
             scope = doc.anchor_by_id(in_) if in_ else None
             try:
                 with doc.edit(f"CLI: find/replace {find!r}"):
@@ -569,6 +654,7 @@ def replace(
                 as_text=not ctx.obj["as_json"],
                 text=_fmt_replace_summary(applied),
             )
+
     _run(ctx, go)
 
 
@@ -579,10 +665,13 @@ def replace(
 
 @click.command(name="go-to")
 @click.option("--anchor-id", "anchor_id", required=True, help="Anchor ID to move the cursor to.")
-@click.option("--scroll/--no-scroll", default=True, help="Scroll the view to the anchor (default: yes).")
+@click.option(
+    "--scroll/--no-scroll", default=True, help="Scroll the view to the anchor (default: yes)."
+)
 @click.pass_context
 def go_to(ctx: click.Context, anchor_id: str, scroll: bool) -> None:
     """Move the user's cursor to the anchor (deliberate, opt-in cursor move)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -597,6 +686,7 @@ def go_to(ctx: click.Context, anchor_id: str, scroll: bool) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"moved to {anchor_id}",
             )
+
     _run(ctx, go)
 
 
@@ -626,20 +716,25 @@ def style() -> None:
 @click.pass_context
 def style_list(ctx: click.Context) -> None:
     """List every style defined in the document."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             rows = doc.styles.list()
             emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_style_list(rows))
+
     _run(ctx, go)
 
 
 @style.command(name="apply")
 @click.option("--anchor-id", "anchor_id", required=True, help="Anchor to apply the style to.")
-@click.option("--name", "name", required=True, help="Style name (must already exist in the document).")
+@click.option(
+    "--name", "name", required=True, help="Style name (must already exist in the document)."
+)
 @click.pass_context
 def style_apply(ctx: click.Context, anchor_id: str, name: str) -> None:
     """Apply STYLE NAME to the anchor identified by ANCHOR-ID (atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -656,6 +751,7 @@ def style_apply(ctx: click.Context, anchor_id: str, name: str) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"applied style {name!r} to {anchor_id}",
             )
+
     _run(ctx, go)
 
 
@@ -665,15 +761,43 @@ def style_apply(ctx: click.Context, anchor_id: str, name: str) -> None:
 
 
 @click.command(name="format-paragraph")
-@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose paragraph(s) to format.")
-@click.option("--alignment", "alignment", default=None,
-              type=click.Choice(["left", "center", "centre", "right", "justify"], case_sensitive=False),
-              help="Paragraph alignment.")
-@click.option("--left-indent", "left_indent", type=float, default=None, help="Left indent in points.")
-@click.option("--right-indent", "right_indent", type=float, default=None, help="Right indent in points.")
-@click.option("--first-line-indent", "first_line_indent", type=float, default=None, help="First-line indent in points.")
-@click.option("--space-before", "space_before", type=float, default=None, help="Space before paragraph in points.")
-@click.option("--space-after", "space_after", type=float, default=None, help="Space after paragraph in points.")
+@click.option(
+    "--anchor-id", "anchor_id", required=True, help="Anchor whose paragraph(s) to format."
+)
+@click.option(
+    "--alignment",
+    "alignment",
+    default=None,
+    type=click.Choice(["left", "center", "centre", "right", "justify"], case_sensitive=False),
+    help="Paragraph alignment.",
+)
+@click.option(
+    "--left-indent", "left_indent", type=float, default=None, help="Left indent in points."
+)
+@click.option(
+    "--right-indent", "right_indent", type=float, default=None, help="Right indent in points."
+)
+@click.option(
+    "--first-line-indent",
+    "first_line_indent",
+    type=float,
+    default=None,
+    help="First-line indent in points.",
+)
+@click.option(
+    "--space-before",
+    "space_before",
+    type=float,
+    default=None,
+    help="Space before paragraph in points.",
+)
+@click.option(
+    "--space-after",
+    "space_after",
+    type=float,
+    default=None,
+    help="Space after paragraph in points.",
+)
 @click.pass_context
 def format_paragraph_cmd(
     ctx: click.Context,
@@ -718,6 +842,7 @@ def format_paragraph_cmd(
                 as_text=not ctx.obj["as_json"],
                 text=f"formatted {anchor_id}: {kwargs}",
             )
+
     _run(ctx, go)
 
 
@@ -746,9 +871,7 @@ def _fmt_table_read(grid: dict[str, Any]) -> str:
     ]
     lines = []
     for row in cells:
-        lines.append(
-            "  ".join(cell["text"].ljust(widths[i]) for i, cell in enumerate(row))
-        )
+        lines.append("  ".join(cell["text"].ljust(widths[i]) for i, cell in enumerate(row)))
     return "\n".join(lines)
 
 
@@ -761,11 +884,13 @@ def table() -> None:
 @click.pass_context
 def table_list(ctx: click.Context) -> None:
     """List every table with its position, size, and title."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             rows = doc.tables.list()
             emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_table_list(rows))
+
     _run(ctx, go)
 
 
@@ -774,17 +899,21 @@ def table_list(ctx: click.Context) -> None:
 @click.pass_context
 def table_read(ctx: click.Context, index: int) -> None:
     """Read table INDEX (1-based) as a grid of cells with anchor IDs."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             grid = doc.tables[index].read()
             emit(grid, as_text=not ctx.obj["as_json"], text=_fmt_table_read(grid))
+
     _run(ctx, go)
 
 
 @table.command(name="add-row")
 @click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
-@click.option("--values", "values", default=None, help="Optional JSON array of cell values for the new row.")
+@click.option(
+    "--values", "values", default=None, help="Optional JSON array of cell values for the new row."
+)
 @click.pass_context
 def table_add_row(ctx: click.Context, table_index: int, values: str | None) -> None:
     """Append a row to the table (atomic-undo)."""
@@ -793,7 +922,7 @@ def table_add_row(ctx: click.Context, table_index: int, values: str | None) -> N
         try:
             parsed = json.loads(values)
         except json.JSONDecodeError as e:
-            raise click.UsageError(f"--values must be a JSON array: {e}")
+            raise click.UsageError(f"--values must be a JSON array: {e}") from e
         if not isinstance(parsed, list):
             raise click.UsageError("--values must be a JSON array")
 
@@ -808,6 +937,7 @@ def table_add_row(ctx: click.Context, table_index: int, values: str | None) -> N
                 as_text=not ctx.obj["as_json"],
                 text=f"added row to table:{table_index} (now {t.row_count} rows)",
             )
+
     _run(ctx, go)
 
 
@@ -817,6 +947,7 @@ def table_add_row(ctx: click.Context, table_index: int, values: str | None) -> N
 @click.pass_context
 def table_delete_row(ctx: click.Context, table_index: int, row: int) -> None:
     """Delete a row from the table (atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -828,6 +959,7 @@ def table_delete_row(ctx: click.Context, table_index: int, row: int) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"deleted row {row} from table:{table_index} (now {t.row_count} rows)",
             )
+
     _run(ctx, go)
 
 
@@ -858,11 +990,13 @@ def comment() -> None:
 @click.pass_context
 def comment_list(ctx: click.Context) -> None:
     """List every comment with its index, author, body, and scope."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             rows = doc.comments.list()
             emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_comment_list(rows))
+
     _run(ctx, go)
 
 
@@ -873,6 +1007,7 @@ def comment_list(ctx: click.Context) -> None:
 @click.pass_context
 def comment_add(ctx: click.Context, anchor_id: str, text: str, author: str | None) -> None:
     """Attach a comment to the anchor's range — the document text is untouched."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -889,14 +1024,18 @@ def comment_add(ctx: click.Context, anchor_id: str, text: str, author: str | Non
                 as_text=not ctx.obj["as_json"],
                 text=f"added comment {index} on {anchor_id}",
             )
+
     _run(ctx, go)
 
 
 @comment.command(name="resolve")
-@click.option("--index", "index", type=int, required=True, help="1-based comment index (see `comment list`).")
+@click.option(
+    "--index", "index", type=int, required=True, help="1-based comment index (see `comment list`)."
+)
 @click.pass_context
 def comment_resolve(ctx: click.Context, index: int) -> None:
     """Mark comment INDEX as resolved/done (Word 2013+)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -908,14 +1047,18 @@ def comment_resolve(ctx: click.Context, index: int) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"resolved comment {index}",
             )
+
     _run(ctx, go)
 
 
 @comment.command(name="delete")
-@click.option("--index", "index", type=int, required=True, help="1-based comment index (see `comment list`).")
+@click.option(
+    "--index", "index", type=int, required=True, help="1-based comment index (see `comment list`)."
+)
 @click.pass_context
 def comment_delete(ctx: click.Context, index: int) -> None:
     """Delete comment INDEX."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -927,6 +1070,7 @@ def comment_delete(ctx: click.Context, index: int) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"deleted comment {index}",
             )
+
     _run(ctx, go)
 
 
@@ -949,6 +1093,7 @@ def track() -> None:
 @click.pass_context
 def track_status(ctx: click.Context) -> None:
     """Report whether Track Changes is currently on."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -958,6 +1103,7 @@ def track_status(ctx: click.Context) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"track changes: {'on' if state else 'off'}",
             )
+
     _run(ctx, go)
 
 
@@ -965,6 +1111,7 @@ def track_status(ctx: click.Context) -> None:
 @click.pass_context
 def track_on(ctx: click.Context) -> None:
     """Turn Track Changes on (persists until `track off`)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -974,6 +1121,7 @@ def track_on(ctx: click.Context) -> None:
                 as_text=not ctx.obj["as_json"],
                 text="track changes: on",
             )
+
     _run(ctx, go)
 
 
@@ -981,6 +1129,7 @@ def track_on(ctx: click.Context) -> None:
 @click.pass_context
 def track_off(ctx: click.Context) -> None:
     """Turn Track Changes off."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -990,6 +1139,7 @@ def track_off(ctx: click.Context) -> None:
                 as_text=not ctx.obj["as_json"],
                 text="track changes: off",
             )
+
     _run(ctx, go)
 
 
@@ -1026,24 +1176,39 @@ def list_cmd() -> None:
 @click.pass_context
 def list_show(ctx: click.Context) -> None:
     """List every bullet/numbered list in the document, with its range anchor id."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             rows = doc.lists.list()
             emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_list_show(rows))
+
     _run(ctx, go)
 
 
 @list_cmd.command(name="apply")
-@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose paragraphs to format as a list.")
-@click.option("--type", "list_type",
-              type=click.Choice(["bulleted", "numbered", "outline"], case_sensitive=False),
-              default="bulleted", show_default=True, help="List style to apply.")
-@click.option("--continue", "continue_previous", is_flag=True, default=False,
-              help="Continue numbering from the previous list instead of starting at 1.")
+@click.option(
+    "--anchor-id", "anchor_id", required=True, help="Anchor whose paragraphs to format as a list."
+)
+@click.option(
+    "--type",
+    "list_type",
+    type=click.Choice(["bulleted", "numbered", "outline"], case_sensitive=False),
+    default="bulleted",
+    show_default=True,
+    help="List style to apply.",
+)
+@click.option(
+    "--continue",
+    "continue_previous",
+    is_flag=True,
+    default=False,
+    help="Continue numbering from the previous list instead of starting at 1.",
+)
 @click.pass_context
 def list_apply(ctx: click.Context, anchor_id: str, list_type: str, continue_previous: bool) -> None:
     """Turn the anchor's paragraphs into a bulleted/numbered/outline list (atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -1061,14 +1226,18 @@ def list_apply(ctx: click.Context, anchor_id: str, list_type: str, continue_prev
                 as_text=not ctx.obj["as_json"],
                 text=f"applied {list_type} list to {anchor_id}",
             )
+
     _run(ctx, go)
 
 
 @list_cmd.command(name="remove")
-@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose list formatting to strip.")
+@click.option(
+    "--anchor-id", "anchor_id", required=True, help="Anchor whose list formatting to strip."
+)
 @click.pass_context
 def list_remove(ctx: click.Context, anchor_id: str) -> None:
     """Strip list formatting (bullets / numbers) from the anchor's paragraphs (atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -1084,6 +1253,7 @@ def list_remove(ctx: click.Context, anchor_id: str) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"removed list from {anchor_id}",
             )
+
     _run(ctx, go)
 
 
@@ -1092,11 +1262,13 @@ def list_remove(ctx: click.Context, anchor_id: str) -> None:
 @click.pass_context
 def list_info_cmd(ctx: click.Context, anchor_id: str) -> None:
     """Report the list type / level / number for the anchor (read-only)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             info = doc.anchor_by_id(anchor_id).list_info()
             emit(info, as_text=not ctx.obj["as_json"], text=_fmt_list_info(info))
+
     _run(ctx, go)
 
 
@@ -1105,6 +1277,7 @@ def list_info_cmd(ctx: click.Context, anchor_id: str) -> None:
 @click.pass_context
 def list_restart(ctx: click.Context, anchor_id: str) -> None:
     """Restart the list's numbering at 1 (atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -1120,6 +1293,7 @@ def list_restart(ctx: click.Context, anchor_id: str) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"restarted numbering at {anchor_id}",
             )
+
     _run(ctx, go)
 
 
@@ -1128,6 +1302,7 @@ def list_restart(ctx: click.Context, anchor_id: str) -> None:
 @click.pass_context
 def list_indent(ctx: click.Context, anchor_id: str) -> None:
     """Demote the list item(s) one level (e.g. level 1 -> 2; atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -1139,6 +1314,7 @@ def list_indent(ctx: click.Context, anchor_id: str) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"indented {anchor_id}",
             )
+
     _run(ctx, go)
 
 
@@ -1147,6 +1323,7 @@ def list_indent(ctx: click.Context, anchor_id: str) -> None:
 @click.pass_context
 def list_outdent(ctx: click.Context, anchor_id: str) -> None:
     """Promote the list item(s) one level (e.g. level 2 -> 1; atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -1158,6 +1335,7 @@ def list_outdent(ctx: click.Context, anchor_id: str) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=f"outdented {anchor_id}",
             )
+
     _run(ctx, go)
 
 
@@ -1188,22 +1366,30 @@ def section() -> None:
 @click.pass_context
 def section_list(ctx: click.Context) -> None:
     """List sections with their page setup (orientation, margins, page size)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             rows = doc.sections.list()
             emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_section_list(rows))
+
     _run(ctx, go)
 
 
 _WHICH_OPTION = click.option(
-    "--which", "which",
+    "--which",
+    "which",
     type=click.Choice(["primary", "first", "even"], case_sensitive=False),
-    default="primary", show_default=True,
+    default="primary",
+    show_default=True,
     help="Which header/footer: primary, first-page, or even-pages.",
 )
 _SECTION_OPTION = click.option(
-    "--section", "section_index", type=int, default=1, show_default=True,
+    "--section",
+    "section_index",
+    type=int,
+    default=1,
+    show_default=True,
     help="1-based section index.",
 )
 
@@ -1219,6 +1405,7 @@ def header() -> None:
 @click.pass_context
 def header_read(ctx: click.Context, section_index: int, which: str) -> None:
     """Read the text of a section header."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -1229,6 +1416,7 @@ def header_read(ctx: click.Context, section_index: int, which: str) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=text,
             )
+
     _run(ctx, go)
 
 
@@ -1239,6 +1427,7 @@ def header_read(ctx: click.Context, section_index: int, which: str) -> None:
 @click.pass_context
 def header_write(ctx: click.Context, section_index: int, which: str, text: str) -> None:
     """Set the text of a section header (atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -1250,6 +1439,7 @@ def header_write(ctx: click.Context, section_index: int, which: str, text: str) 
                 as_text=not ctx.obj["as_json"],
                 text=f"wrote {hf.anchor_id}",
             )
+
     _run(ctx, go)
 
 
@@ -1264,6 +1454,7 @@ def footer() -> None:
 @click.pass_context
 def footer_read(ctx: click.Context, section_index: int, which: str) -> None:
     """Read the text of a section footer."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -1274,6 +1465,7 @@ def footer_read(ctx: click.Context, section_index: int, which: str) -> None:
                 as_text=not ctx.obj["as_json"],
                 text=text,
             )
+
     _run(ctx, go)
 
 
@@ -1284,6 +1476,7 @@ def footer_read(ctx: click.Context, section_index: int, which: str) -> None:
 @click.pass_context
 def footer_write(ctx: click.Context, section_index: int, which: str, text: str) -> None:
     """Set the text of a section footer (atomic-undo)."""
+
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
@@ -1295,6 +1488,7 @@ def footer_write(ctx: click.Context, section_index: int, which: str, text: str) 
                 as_text=not ctx.obj["as_json"],
                 text=f"wrote {hf.anchor_id}",
             )
+
     _run(ctx, go)
 
 
@@ -1383,9 +1577,7 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
                 "op 'insert_image' requires exactly one of 'path' or 'base64'"
             )
         image: str | Path = Path(op["path"]) if "path" in op else op["base64"]
-        kwargs = {
-            k: op[k] for k in ("width", "height", "alt_text", "lock_aspect") if k in op
-        }
+        kwargs = {k: op[k] for k in ("width", "height", "alt_text", "lock_aspect") if k in op}
         doc.anchor_by_id(op["anchor_id"]).insert_image(
             image, wrap=op["wrap"], where=("before" if _op_before(op) else "after"), **kwargs
         )
@@ -1449,12 +1641,21 @@ def _apply_op(doc: Document, op: dict[str, Any]) -> None:
 
 
 @click.command(name="exec")
-@click.option("--script", "script", default=None, type=click.Path(exists=True, dir_okay=False, path_type=Path),
-              help="Path to an ops JSON file.")
-@click.option("--ops", "ops_inline", default=None,
-              help="Inline JSON batch — the same content as a --script file, passed "
-                   "directly. Accepts the full {\"label\", \"ops\", …} object or a bare "
-                   "[…] ops array, or '-' to read JSON from stdin. Alternative to --script.")
+@click.option(
+    "--script",
+    "script",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to an ops JSON file.",
+)
+@click.option(
+    "--ops",
+    "ops_inline",
+    default=None,
+    help="Inline JSON batch — the same content as a --script file, passed "
+    'directly. Accepts the full {"label", "ops", …} object or a bare '
+    "[…] ops array, or '-' to read JSON from stdin. Alternative to --script.",
+)
 @click.pass_context
 def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> None:
     """Apply a batch of ops in a single atomic-undo scope.
@@ -1482,16 +1683,19 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
             raw = click.get_text_stream("stdin").read() if ops_inline == "-" else ops_inline
             source = "inline"
         else:
+            assert script is not None  # guaranteed by the validation above
             raw = script.read_text(encoding="utf-8")
             source = script.name
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError as e:
-            raise click.ClickException(f"ops JSON is malformed: {e}")
+            raise click.ClickException(f"ops JSON is malformed: {e}") from e
         if isinstance(payload, list):
             payload = {"ops": payload}
         if not isinstance(payload, dict):
-            raise click.ClickException('ops JSON must be an object {"ops": [...]} or an array of ops')
+            raise click.ClickException(
+                'ops JSON must be an object {"ops": [...]} or an array of ops'
+            )
         label = str(payload.get("label") or f"CLI: exec {source}")
         tracked = bool(payload.get("tracked", False))
         ops = payload.get("ops") or []
@@ -1527,6 +1731,7 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
                     text=f"applied {ops_run} op(s): {label!r}",
                 )
             else:
+                assert failure_meta is not None  # set together with failure_exc
                 emit(
                     {"ok": False, "ops_run": ops_run, "label": label, "failure": failure_meta},
                     as_text=not ctx.obj["as_json"],
@@ -1535,6 +1740,7 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
                 # Re-raise the original so _run() maps it to the right exit code
                 # (e.g. anchor-not-found → 2, busy → 3, ambiguous → 5).
                 raise failure_exc
+
     _run(ctx, go)
 
 
@@ -1549,10 +1755,16 @@ def _bundled_skill() -> str:
 
 
 @click.command(name="install-skill")
-@click.option("--system", "system", is_flag=True, default=False,
-              help="Install to ~/.agents/skills/ instead of the current project's ./.agents/skills/.")
-@click.option("--force", "force", is_flag=True, default=False,
-              help="Overwrite an existing SKILL.md.")
+@click.option(
+    "--system",
+    "system",
+    is_flag=True,
+    default=False,
+    help="Install to ~/.agents/skills/ instead of the current project's ./.agents/skills/.",
+)
+@click.option(
+    "--force", "force", is_flag=True, default=False, help="Overwrite an existing SKILL.md."
+)
 @click.pass_context
 def install_skill_cmd(ctx: click.Context, system: bool, force: bool) -> None:
     """Install the wordlive agent skill (SKILL.md) for LLM coding tools.
@@ -1569,12 +1781,12 @@ def install_skill_cmd(ctx: click.Context, system: bool, force: bool) -> None:
     try:
         content = _bundled_skill()
     except (FileNotFoundError, ModuleNotFoundError, OSError) as e:
-        raise click.ClickException(f"could not read the bundled skill: {e}")
+        raise click.ClickException(f"could not read the bundled skill: {e}") from e
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content, encoding="utf-8")
     except OSError as e:
-        raise click.ClickException(f"could not write {dest}: {e}")
+        raise click.ClickException(f"could not write {dest}: {e}") from e
     emit(
         {"ok": True, "scope": scope, "path": str(dest), "bytes": len(content.encode("utf-8"))},
         as_text=not ctx.obj["as_json"],

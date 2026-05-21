@@ -40,8 +40,8 @@ from .exceptions import (
     ImageSourceError,
     StyleNotFoundError,
     WordBusyError,
-    WordNotRunningError,
     WordliveError,
+    WordNotRunningError,
 )
 
 __all__ = [

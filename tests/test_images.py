@@ -87,9 +87,9 @@ def test_insert_image_top_bottom_sets_wrap_type(fake_word, png_file):
 @pytest.mark.parametrize(
     "width,expected",
     [
-        (117.0, WdWrapType.SQUARE),       # <= half => Square
-        (421.0, WdWrapType.TOP_BOTTOM),   # >  half => TopBottom
-        (None, WdWrapType.SQUARE),        # default fake width 100 <= half
+        (117.0, WdWrapType.SQUARE),  # <= half => Square
+        (421.0, WdWrapType.TOP_BOTTOM),  # >  half => TopBottom
+        (None, WdWrapType.SQUARE),  # default fake width 100 <= half
     ],
 )
 def test_insert_image_auto_heuristic(fake_word, png_file, width, expected):
@@ -166,8 +166,8 @@ def test_insert_image_from_bytes_tempfiles_then_cleans_up(fake_word):
         doc.bookmarks["Address"].insert_image(_PNG, wrap="inline")
     _, kwargs = _insert_rng(fake_word).InlineShapes.AddPicture.call_args
     tmp_used = kwargs["FileName"]
-    assert tmp_used.endswith(".png")           # extension sniffed from magic bytes
-    assert not os.path.exists(tmp_used)        # removed after embedding
+    assert tmp_used.endswith(".png")  # extension sniffed from magic bytes
+    assert not os.path.exists(tmp_used)  # removed after embedding
 
 
 def test_insert_image_from_base64(fake_word):
@@ -246,8 +246,7 @@ def test_insert_image_on_heading_anchor(fake_word, png_file):
         with doc.edit("img"):
             doc.heading("Risks").insert_image(str(png_file), wrap="inline")
     para = next(
-        p for p in fake_word.ActiveDocument.Paragraphs
-        if p.Range.Text.rstrip("\r\n\x07") == "Risks"
+        p for p in fake_word.ActiveDocument.Paragraphs if p.Range.Text.rstrip("\r\n\x07") == "Risks"
     )
     end = para.Range.End
     fake_word.ActiveDocument.Range(end, end).InlineShapes.AddPicture.assert_called_once()

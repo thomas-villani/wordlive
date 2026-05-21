@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 import wordlive
@@ -64,6 +66,7 @@ def test_bookmark_list_hides_word_internal_bookmarks(monkeypatch):
     )
     app = _make_application([doc_com])
     from wordlive import _com as _com_module
+
     monkeypatch.setattr(_com_module, "get_active_word", lambda: app)
 
     with wordlive.attach() as word:
@@ -72,7 +75,9 @@ def test_bookmark_list_hides_word_internal_bookmarks(monkeypatch):
         assert doc.bookmarks.list() == ["Address"]
         # Opt-in escape hatch surfaces them all.
         assert set(doc.bookmarks.list(include_hidden=True)) == {
-            "Address", "_Toc1234567", "_Ref9876",
+            "Address",
+            "_Toc1234567",
+            "_Ref9876",
         }
         # Direct lookup by name still works (so agents that DO need them aren't blocked).
         assert "_Toc1234567" in doc.bookmarks
@@ -122,13 +127,10 @@ def test_insert_paragraph_after_with_emoji_styles_full_span(fake_word):
     # End of "Introduction" paragraph is at offset 13. The styled range must
     # span 13 → 13+5 (UTF-16 units), covering all of "🎉 hi".
     styled_ranges = [
-        call.args
-        for call in fake_word.ActiveDocument.Range.call_args_list
-        if call.args == (13, 18)
+        call.args for call in fake_word.ActiveDocument.Range.call_args_list if call.args == (13, 18)
     ]
     assert styled_ranges, (
-        f"expected styled Range(13, 18); got "
-        f"{fake_word.ActiveDocument.Range.call_args_list}"
+        f"expected styled Range(13, 18); got {fake_word.ActiveDocument.Range.call_args_list}"
     )
 
 
@@ -160,7 +162,9 @@ def test_insert_paragraph_after_terminal_paragraph_styles_inserted_text(fake_wor
 
     # Content.End is 35; text starts at 35 and spans "Body" (4 UTF-16 units).
     styled = [c.args for c in fake_word.ActiveDocument.Range.call_args_list if c.args == (35, 39)]
-    assert styled, f"expected styled Range(35, 39); got {fake_word.ActiveDocument.Range.call_args_list}"
+    assert styled, (
+        f"expected styled Range(35, 39); got {fake_word.ActiveDocument.Range.call_args_list}"
+    )
 
 
 def test_content_control_missing_raises(fake_word):
@@ -187,6 +191,7 @@ def test_content_control_empty_name_does_not_match_untitled_cc(fake_word, monkey
     )
     app = _make_application([doc_com])
     from wordlive import _com as _com_module
+
     monkeypatch.setattr(_com_module, "get_active_word", lambda: app)
 
     with wordlive.attach() as word:
@@ -222,11 +227,11 @@ def test_outline(fake_word):
 @pytest.mark.parametrize(
     "hresult",
     [
-        0x80010001,    # RPC_E_CALL_REJECTED
-        0x8001010A,    # RPC_E_SERVERCALL_RETRYLATER
-        0x80010005,    # RPC_E_SERVERCALL_REJECTED
-        -2147418111,   # signed RPC_E_CALL_REJECTED
-        -2147417846,   # signed RPC_E_SERVERCALL_RETRYLATER
+        0x80010001,  # RPC_E_CALL_REJECTED
+        0x8001010A,  # RPC_E_SERVERCALL_RETRYLATER
+        0x80010005,  # RPC_E_SERVERCALL_REJECTED
+        -2147418111,  # signed RPC_E_CALL_REJECTED
+        -2147417846,  # signed RPC_E_SERVERCALL_RETRYLATER
     ],
 )
 def test_from_com_error_classifies_busy(hresult):
@@ -412,11 +417,11 @@ def test_headings_contains_by_name_and_index(fake_word):
         h = doc.headings
         assert "Introduction" in h
         assert "Nope" not in h
-        assert 1 in h          # paragraph 1 is a heading
-        assert 2 not in h      # paragraph 2 is body (OutlineLevel=10)
-        assert 99 not in h     # past end of doc
+        assert 1 in h  # paragraph 1 is a heading
+        assert 2 not in h  # paragraph 2 is body (OutlineLevel=10)
+        assert 99 not in h  # past end of doc
         assert object() not in h
-        assert True not in h   # bool quirk-guard
+        assert True not in h  # bool quirk-guard
 
 
 def test_headings_getitem_missing_raises(fake_word):
@@ -449,12 +454,13 @@ def test_heading_section_range_when_heading_is_last_paragraph(monkeypatch):
     doc_com = _make_document(
         paragraphs=[
             {"level": 10, "text": "Body", "start": 0, "end": 5},
-            {"level": 1,  "text": "Last", "start": 5, "end": 10},
+            {"level": 1, "text": "Last", "start": 5, "end": 10},
         ],
         content="Body\rLast\r",
     )
     app = _make_application([doc_com])
     from wordlive import _com as _com_module
+
     monkeypatch.setattr(_com_module, "get_active_word", lambda: app)
 
     with wordlive.attach() as word:
@@ -483,6 +489,7 @@ def test_heading_section_text_stops_at_same_level(fake_word, monkeypatch):
     )
     app = _make_application([doc_com])
     from wordlive import _com as _com_module
+
     monkeypatch.setattr(_com_module, "get_active_word", lambda: app)
 
     with wordlive.attach() as word:

@@ -77,7 +77,9 @@ class WordBusyError(WordliveError):
     Retryable in principle; caller decides.
     """
 
-    def __init__(self, message: str = "Word is busy or in a modal dialog", *, hresult: int | None = None) -> None:
+    def __init__(
+        self, message: str = "Word is busy or in a modal dialog", *, hresult: int | None = None
+    ) -> None:
         super().__init__(message)
         self.hresult = hresult
         self.retryable = True
@@ -86,7 +88,9 @@ class WordBusyError(WordliveError):
 class ComError(WordliveError):
     """Generic wrapper for an unclassified pywintypes.com_error."""
 
-    def __init__(self, message: str, *, hresult: int | None = None, description: str | None = None) -> None:
+    def __init__(
+        self, message: str, *, hresult: int | None = None, description: str | None = None
+    ) -> None:
         super().__init__(message)
         self.hresult = hresult
         self.description = description
@@ -110,7 +114,7 @@ def _decode_com_error(exc: Any) -> tuple[int | None, str | None, str]:
     pywintypes.com_error.args is (hresult, message, exc_info, arg_err) where exc_info,
     when present, is (wcode, source, description, helpfile, helpcontext, scode).
     """
-    args = getattr(exc, "args", ()) or ()
+    args: tuple[Any, ...] = getattr(exc, "args", ()) or ()
     hresult: int | None = None
     description: str | None = None
     message = str(exc)

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from . import _com
 from .exceptions import WordNotRunningError
@@ -34,13 +35,13 @@ class Word:
             self._app.Visible = bool(value)
 
     @property
-    def documents(self) -> "DocumentCollection":
+    def documents(self) -> DocumentCollection:
         from ._document import DocumentCollection
 
         return DocumentCollection(self)
 
     @property
-    def selection(self) -> "Selection":
+    def selection(self) -> Selection:
         from ._selection import Selection
 
         return Selection(self)

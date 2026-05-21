@@ -12,7 +12,8 @@ Word 2013+, so on older builds `done` reads `False` and `resolve()` raises.
 
 from __future__ import annotations
 
-from typing import Any, Iterator, TYPE_CHECKING
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
 
 from . import _com
 from .exceptions import AnchorNotFoundError
@@ -30,7 +31,7 @@ def _clean(raw: Any) -> str:
 class Comment:
     """A single review comment, located by its 1-based document index."""
 
-    def __init__(self, doc: "Document", com: Any, index: int) -> None:
+    def __init__(self, doc: Document, com: Any, index: int) -> None:
         self._doc = doc
         self._com = com
         self._index = index
@@ -102,7 +103,7 @@ class Comment:
 class CommentCollection:
     """Indexable, iterable view over a document's review comments."""
 
-    def __init__(self, doc: "Document") -> None:
+    def __init__(self, doc: Document) -> None:
         self._doc = doc
 
     def __len__(self) -> int:
@@ -126,7 +127,7 @@ class CommentCollection:
                 com = self._doc.com.Comments(i)
             yield Comment(self._doc, com, i)
 
-    def add(self, anchor: "Anchor", text: str, *, author: str | None = None) -> Comment:
+    def add(self, anchor: Anchor, text: str, *, author: str | None = None) -> Comment:
         """Attach a new comment to `anchor`'s range.
 
         `anchor` is any wordlive anchor (bookmark, heading, cell, range, …); its

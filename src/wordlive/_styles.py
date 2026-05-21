@@ -9,7 +9,8 @@ would be indistinguishable from a real failure.
 
 from __future__ import annotations
 
-from typing import Any, Iterator, TYPE_CHECKING
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
 
 from . import _com
 from .constants import WdStyleType
@@ -41,7 +42,7 @@ class Style:
     deletions during the session don't return stale data.
     """
 
-    def __init__(self, doc: "Document", name: str) -> None:
+    def __init__(self, doc: Document, name: str) -> None:
         self._doc = doc
         self._name = name
 
@@ -100,7 +101,7 @@ class Style:
 class StyleCollection:
     """Indexable, iterable view over a document's styles."""
 
-    def __init__(self, doc: "Document") -> None:
+    def __init__(self, doc: Document) -> None:
         self._doc = doc
 
     def __contains__(self, name: object) -> bool:

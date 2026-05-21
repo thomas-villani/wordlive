@@ -12,9 +12,9 @@ import base64
 import binascii
 import os
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 from .exceptions import ImageSourceError
 
@@ -41,9 +41,7 @@ def _sniff_extension(data: bytes) -> str:
     for prefix, ext in _MAGIC:
         if data.startswith(prefix):
             return ext
-    raise ImageSourceError(
-        "unrecognised image data: expected PNG, JPEG, GIF, BMP, or TIFF"
-    )
+    raise ImageSourceError("unrecognised image data: expected PNG, JPEG, GIF, BMP, or TIFF")
 
 
 def _decode_base64(text: str) -> bytes:

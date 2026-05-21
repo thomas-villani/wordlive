@@ -8,7 +8,6 @@ import wordlive
 from wordlive._findreplace import find_matches
 from wordlive.exceptions import AmbiguousMatchError, AnchorNotFoundError
 
-
 # ---------------------------------------------------------------------------
 # Normalization + match math (pure, no fake-COM needed)
 # ---------------------------------------------------------------------------
@@ -72,7 +71,7 @@ def test_document_find_locates_text_in_content(fake_word):
         matches = doc.find("Body text here")
     assert len(matches) == 1
     assert matches[0]["start"] == 13
-    assert matches[0]["end"] == 27   # "Body text here" is 14 chars
+    assert matches[0]["end"] == 27  # "Body text here" is 14 chars
     assert matches[0]["anchor_id"] == "range:13-27"
 
 

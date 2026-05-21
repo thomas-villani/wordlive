@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from . import _com
 
@@ -24,7 +24,7 @@ class SelectionSnapshot:
 class Selection:
     """Wrapper around Application.Selection. Mostly used for reads."""
 
-    def __init__(self, word: "Word") -> None:
+    def __init__(self, word: Word) -> None:
         self._word = word
 
     @property
@@ -82,7 +82,7 @@ class Selection:
                 pass
 
 
-def snapshot(word: "Word") -> SelectionSnapshot:
+def snapshot(word: Word) -> SelectionSnapshot:
     """Capture the user's current Selection and scroll position."""
     with _com.translate_com_errors():
         sel = word.com.Selection
@@ -98,7 +98,7 @@ def snapshot(word: "Word") -> SelectionSnapshot:
     return SelectionSnapshot(start=start, end=end, vertical_percent=vertical)
 
 
-def restore(word: "Word", snap: SelectionSnapshot) -> None:
+def restore(word: Word, snap: SelectionSnapshot) -> None:
     """Best-effort restoration of a previous Selection + scroll position."""
     with _com.translate_com_errors():
         try:

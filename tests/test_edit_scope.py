@@ -43,9 +43,7 @@ def test_edit_restores_selection_by_default(fake_word):
             fake_word.Selection.End = 100
 
     # Restoration calls ActiveDocument.Range(10, 15).Select().
-    restore_calls = [
-        c for c in fake_word.ActiveDocument.Range.call_args_list if c.args == (10, 15)
-    ]
+    restore_calls = [c for c in fake_word.ActiveDocument.Range.call_args_list if c.args == (10, 15)]
     assert restore_calls, "expected ActiveDocument.Range(10, 15) for Selection restoration"
 
 
@@ -59,9 +57,7 @@ def test_allow_cursor_move_suppresses_restoration(fake_word):
             scope.allow_cursor_move()
 
     # No Range(10, 15) call — we opted out of restoring.
-    restore_calls = [
-        c for c in fake_word.ActiveDocument.Range.call_args_list if c.args == (10, 15)
-    ]
+    restore_calls = [c for c in fake_word.ActiveDocument.Range.call_args_list if c.args == (10, 15)]
     assert not restore_calls, "did not expect Selection restoration after allow_cursor_move()"
 
 
@@ -78,7 +74,5 @@ def test_edit_does_not_restore_after_exception(fake_word):
             with doc.edit("doomed"):
                 raise Boom()
 
-    restore_calls = [
-        c for c in fake_word.ActiveDocument.Range.call_args_list if c.args == (10, 15)
-    ]
+    restore_calls = [c for c in fake_word.ActiveDocument.Range.call_args_list if c.args == (10, 15)]
     assert not restore_calls, "should not restore Selection after a failed edit"

@@ -16,7 +16,8 @@ the `.com` escape hatch.
 
 from __future__ import annotations
 
-from typing import Any, Iterator, TYPE_CHECKING
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
 
 from . import _com
 from .constants import (
@@ -70,7 +71,7 @@ def gallery_for(list_type: str) -> WdListGalleryType:
     except KeyError:
         raise ValueError(
             f"unknown list type {list_type!r}; expected one of {list(_CANONICAL_TYPES)}"
-        )
+        ) from None
 
 
 def _read(lf: Any, attr: str, default: Any) -> Any:
@@ -82,7 +83,9 @@ def _read(lf: Any, attr: str, default: Any) -> Any:
     return default if value is None else value
 
 
-def apply_list_template(rng: Any, gallery_type: WdListGalleryType, *, continue_previous: bool) -> None:
+def apply_list_template(
+    rng: Any, gallery_type: WdListGalleryType, *, continue_previous: bool
+) -> None:
     """Apply gallery `gallery_type`'s first template to `rng`'s paragraphs."""
     app = rng.Application
     gallery = app.ListGalleries(int(gallery_type))
@@ -151,7 +154,7 @@ class ListCollection:
     `Document.Lists(n)` ordering.
     """
 
-    def __init__(self, doc: "Document") -> None:
+    def __init__(self, doc: Document) -> None:
         self._doc = doc
 
     def __len__(self) -> int:
@@ -167,7 +170,7 @@ class ListCollection:
                 spans.append((int(rng.Start), int(rng.End)))
         return spans
 
-    def __getitem__(self, index: int) -> "RangeAnchor":
+    def __getitem__(self, index: int) -> RangeAnchor:
         if isinstance(index, bool) or not isinstance(index, int):
             raise TypeError(f"list index must be int, got {type(index).__name__}")
         n = len(self)
@@ -178,7 +181,7 @@ class ListCollection:
             start, end = int(rng.Start), int(rng.End)
         return self._doc.range(start, end)
 
-    def __iter__(self) -> Iterator["RangeAnchor"]:
+    def __iter__(self) -> Iterator[RangeAnchor]:
         for start, end in self._spans():
             yield self._doc.range(start, end)
 

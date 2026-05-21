@@ -8,7 +8,8 @@ they compose with `Document.edit()` for atomic-undo behaviour.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Iterator, TYPE_CHECKING
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
 
 from . import _com, _images, _lists
 from .constants import MsoTriState, WdNumberType, WdParagraphAlignment, WdWrapType
@@ -50,10 +51,11 @@ def _coerce_alignment(value: Any) -> int:
             return int(_ALIGNMENT_NAMES[value.lower()])
         except KeyError:
             raise ValueError(
-                f"unknown alignment {value!r}; expected one of "
-                f"{sorted(set(_ALIGNMENT_NAMES))}"
-            )
-    raise TypeError(f"alignment must be WdParagraphAlignment, int, or str; got {type(value).__name__}")
+                f"unknown alignment {value!r}; expected one of {sorted(set(_ALIGNMENT_NAMES))}"
+            ) from None
+    raise TypeError(
+        f"alignment must be WdParagraphAlignment, int, or str; got {type(value).__name__}"
+    )
 
 
 # Floating wrap keywords -> WdWrapType. "inline" and "auto" are handled
@@ -100,7 +102,7 @@ class Anchor(ABC):
     kind: str = "anchor"
     name: str = ""
 
-    def __init__(self, doc: "Document", name: str) -> None:
+    def __init__(self, doc: Document, name: str) -> None:
         self._doc = doc
         self.name = name
 
@@ -202,7 +204,7 @@ class Anchor(ABC):
 
     def insert_image(
         self,
-        image: "str | Path | bytes",
+        image: str | Path | bytes,
         *,
         wrap: str,
         where: str = "after",
@@ -234,9 +236,7 @@ class Anchor(ABC):
         `ValueError` for an unknown `wrap` or `where`.
         """
         if wrap not in _WRAP_VALUES:
-            raise ValueError(
-                f"unknown wrap {wrap!r}; expected one of {sorted(_WRAP_VALUES)}"
-            )
+            raise ValueError(f"unknown wrap {wrap!r}; expected one of {sorted(_WRAP_VALUES)}")
         if where not in ("before", "after"):
             raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
         with _images.image_on_disk(image) as disk_path:
@@ -250,9 +250,7 @@ class Anchor(ABC):
                     SaveWithDocument=True,
                     Range=insert_rng,
                 )
-                ish.LockAspectRatio = int(
-                    MsoTriState.TRUE if lock_aspect else MsoTriState.FALSE
-                )
+                ish.LockAspectRatio = int(MsoTriState.TRUE if lock_aspect else MsoTriState.FALSE)
                 if width is not None:
                     ish.Width = float(width)
                 if height is not None:
@@ -392,7 +390,7 @@ class RangeAnchor(Anchor):
 
     kind = "range"
 
-    def __init__(self, doc: "Document", start: int, end: int) -> None:
+    def __init__(self, doc: Document, start: int, end: int) -> None:
         start = int(start)
         end = int(end)
         if start < 0 or end < start:
@@ -443,7 +441,7 @@ class Paragraph(Anchor):
 
     kind = "paragraph"
 
-    def __init__(self, doc: "Document", index: int) -> None:
+    def __init__(self, doc: Document, index: int) -> None:
         super().__init__(doc, name=f"para:{index}")
         self._index = index
 
@@ -501,7 +499,7 @@ class ParagraphCollection:
     insertion point for mid-paragraph edits.
     """
 
-    def __init__(self, doc: "Document") -> None:
+    def __init__(self, doc: Document) -> None:
         self._doc = doc
 
     def _count(self) -> int:
@@ -524,7 +522,7 @@ class ParagraphCollection:
         for idx in range(1, count + 1):
             yield Paragraph(self._doc, idx)
 
-    def at(self, offset: int) -> "Paragraph | None":
+    def at(self, offset: int) -> Paragraph | None:
         """Return the paragraph whose range contains `offset`, or None.
 
         Used to map a character offset (e.g. the cursor position) back to a
@@ -611,7 +609,7 @@ class BookmarkCollection:
     them by their exact name through `bookmarks[name]` if you need them.
     """
 
-    def __init__(self, doc: "Document") -> None:
+    def __init__(self, doc: Document) -> None:
         self._doc = doc
 
     def __getitem__(self, name: str) -> Bookmark:
@@ -692,7 +690,7 @@ class ContentControl(Anchor):
 
 
 class ContentControlCollection:
-    def __init__(self, doc: "Document") -> None:
+    def __init__(self, doc: Document) -> None:
         self._doc = doc
 
     def __getitem__(self, name: str) -> ContentControl:
@@ -767,7 +765,7 @@ def _section_range(doc_com: Any, target_para: Any, target_level: int) -> Any:
 
     section_start = int(target_para.Range.End)
     section_end: int | None = None
-    for p in paragraphs[idx + 1:]:
+    for p in paragraphs[idx + 1 :]:
         try:
             lvl = int(p.OutlineLevel)
         except Exception:
@@ -862,7 +860,7 @@ class HeadingCollection:
         doc.headings.list()              # same shape as doc.outline()
     """
 
-    def __init__(self, doc: "Document") -> None:
+    def __init__(self, doc: Document) -> None:
         self._doc = doc
 
     def __getitem__(self, key: str | int) -> Heading:
@@ -934,7 +932,7 @@ class _IndexedHeading(Heading):
     `.name` reads stay informative.
     """
 
-    def __init__(self, doc: "Document", paragraph_index: int) -> None:
+    def __init__(self, doc: Document, paragraph_index: int) -> None:
         super().__init__(doc, name=f"heading:{paragraph_index}")
         self._paragraph_index = paragraph_index
 

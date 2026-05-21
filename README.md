@@ -7,9 +7,15 @@ Built for both human scripting and LLM agents. Windows-only.
 
 ```
 pip install wordlive
+
+# Add to a python project
+uv add wordlive
+
+# Or as a `uv` tool
+uv tool install wordlive
 ```
 
-(Requires Python 3.13+ and `pywin32` on Windows.)
+(Requires Python 3.10+ and `pywin32` on Windows.)
 
 ## Python
 

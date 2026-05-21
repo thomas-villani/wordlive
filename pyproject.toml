@@ -6,7 +6,21 @@ readme = "README.md"
 authors = [
     { name = "Thomas.Villani", email = "thomas.villani@gmail.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Office/Business",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "click>=8.1",
     "pywin32>=306 ; sys_platform == 'win32'",
@@ -16,6 +30,8 @@ dependencies = [
 dev = [
     "pytest>=8",
     "pytest-mock>=3.12",
+    "ruff>=0.8",
+    "mypy>=1.13",
 ]
 docs = [
     "mkdocs>=1.6",
@@ -55,3 +71,33 @@ filename = "pyproject.toml"
 regex = true
 search = '(?m)^version = "{current_version}"'
 replace = 'version = "{new_version}"'
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["site", "dist"]
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: isort, UP: pyupgrade, B: flake8-bugbear.
+select = ["E", "F", "W", "I", "UP", "B"]
+# E501 (line length) is left to the formatter, which wraps code lines; this
+# avoids nagging about long strings/comments the formatter won't break.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Bare attribute access inside `pytest.raises(...)` is the assertion — it
+# triggers a lazy property that must raise. Not a useless expression.
+"tests/**" = ["B018"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/wordlive"]
+warn_redundant_casts = true
+warn_unused_ignores = false
+
+# pywin32 ships no type stubs, and isn't installed off-Windows at all. This one
+# override covers both cases: `import-not-found` on Linux CI (package absent)
+# and `import-untyped` on Windows (present, but no stubs).
+[[tool.mypy.overrides]]
+module = ["pythoncom", "pywintypes", "win32com.*"]
+ignore_missing_imports = true

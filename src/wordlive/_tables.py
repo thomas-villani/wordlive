@@ -18,7 +18,8 @@ own `Table.Cell(row, col)` indexing and may raise inside merged regions.
 
 from __future__ import annotations
 
-from typing import Any, Iterator, TYPE_CHECKING
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
 
 from . import _com
 from ._anchors import Anchor
@@ -49,7 +50,7 @@ class Cell(Anchor):
 
     kind = "cell"
 
-    def __init__(self, table: "Table", row: int, col: int) -> None:
+    def __init__(self, table: Table, row: int, col: int) -> None:
         super().__init__(table._doc, name=f"table:{table.index}:{row}:{col}")
         self._table = table
         self._row = row
@@ -91,7 +92,7 @@ class Table:
     round-trip), so `anchor_id` and cell ids never have to re-scan the document.
     """
 
-    def __init__(self, doc: "Document", com: Any, index: int) -> None:
+    def __init__(self, doc: Document, com: Any, index: int) -> None:
         self._doc = doc
         self._com = com
         self._index = index
@@ -131,18 +132,13 @@ class Table:
         """
         rows, cols = self.row_count, self.column_count
         if not (1 <= row <= rows and 1 <= col <= cols):
-            raise AnchorNotFoundError(
-                "table cell", f"table:{self._index}:{row}:{col}"
-            )
+            raise AnchorNotFoundError("table cell", f"table:{self._index}:{row}:{col}")
         return Cell(self, row, col)
 
     def grid(self) -> list[list[str]]:
         """All cell text as a row-major `list[list[str]]`."""
         rows, cols = self.row_count, self.column_count
-        return [
-            [self.cell(r, c).text for c in range(1, cols + 1)]
-            for r in range(1, rows + 1)
-        ]
+        return [[self.cell(r, c).text for c in range(1, cols + 1)] for r in range(1, rows + 1)]
 
     def read(self) -> dict[str, Any]:
         """Structured dump: metadata plus every cell with its addressable id.
@@ -226,7 +222,7 @@ class TableCollection:
     document order, top to bottom.
     """
 
-    def __init__(self, doc: "Document") -> None:
+    def __init__(self, doc: Document) -> None:
         self._doc = doc
 
     def __len__(self) -> int:

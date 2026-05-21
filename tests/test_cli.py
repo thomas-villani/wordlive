@@ -170,7 +170,10 @@ def test_exec_all_ops_succeed(fake_word, tmp_path: Path):
 def test_exec_inline_ops_json(fake_word):
     """`--ops '{...}'` applies a batch without needing a file on disk."""
     payload = json.dumps(
-        {"label": "Inline", "ops": [{"op": "write_bookmark", "name": "Address", "text": "Inline St"}]}
+        {
+            "label": "Inline",
+            "ops": [{"op": "write_bookmark", "name": "Address", "text": "Inline St"}],
+        }
     )
     code, out, _ = _invoke(["exec", "--ops", payload])
     assert code == EXIT_OK
@@ -272,7 +275,16 @@ def test_exec_insert_paragraph_honours_boolean_before(fake_word, tmp_path: Path)
     script = tmp_path / "ops.json"
     script.write_text(
         json.dumps(
-            {"ops": [{"op": "insert_paragraph", "anchor_id": "para:2", "text": "intro", "before": True}]}
+            {
+                "ops": [
+                    {
+                        "op": "insert_paragraph",
+                        "anchor_id": "para:2",
+                        "text": "intro",
+                        "before": True,
+                    }
+                ]
+            }
         ),
         encoding="utf-8",
     )
@@ -290,7 +302,16 @@ def test_exec_insert_paragraph_where_before_still_works(fake_word, tmp_path: Pat
     script = tmp_path / "ops.json"
     script.write_text(
         json.dumps(
-            {"ops": [{"op": "insert_paragraph", "anchor_id": "para:2", "text": "intro", "where": "before"}]}
+            {
+                "ops": [
+                    {
+                        "op": "insert_paragraph",
+                        "anchor_id": "para:2",
+                        "text": "intro",
+                        "where": "before",
+                    }
+                ]
+            }
         ),
         encoding="utf-8",
     )
@@ -396,9 +417,7 @@ def test_find_no_match_returns_empty(fake_word):
 
 
 def test_replace_fuzzy_single_match(fake_word):
-    code, out, _ = _invoke(
-        ["replace", "--find", "Body text here", "--text", "Replaced"]
-    )
+    code, out, _ = _invoke(["replace", "--find", "Body text here", "--text", "Replaced"])
     assert code == EXIT_OK
     data = json.loads(out)
     assert data["ok"] is True
@@ -435,9 +454,7 @@ def test_replace_fuzzy_occurrence_picks_second(fake_word):
     fake_word.ActiveDocument.Content.Text = "alpha beta alpha beta"
     fake_word.ActiveDocument.Content.End = len("alpha beta alpha beta")
 
-    code, out, _ = _invoke(
-        ["replace", "--find", "alpha", "--text", "X", "--occurrence", "2"]
-    )
+    code, out, _ = _invoke(["replace", "--find", "alpha", "--text", "X", "--occurrence", "2"])
     assert code == EXIT_OK
     data = json.loads(out)
     assert len(data["replacements"]) == 1
@@ -448,18 +465,19 @@ def test_replace_rejects_both_anchor_and_find(fake_word):
     code, _, _ = _invoke(
         [
             "replace",
-            "--anchor-id", "heading:1",
-            "--find", "alpha",
-            "--text", "x",
+            "--anchor-id",
+            "heading:1",
+            "--find",
+            "alpha",
+            "--text",
+            "x",
         ]
     )
     assert code != EXIT_OK
 
 
 def test_replace_rejects_all_with_anchor_id(fake_word):
-    code, _, _ = _invoke(
-        ["replace", "--anchor-id", "heading:1", "--text", "x", "--all"]
-    )
+    code, _, _ = _invoke(["replace", "--anchor-id", "heading:1", "--text", "x", "--all"])
     assert code != EXIT_OK
 
 
@@ -603,9 +621,7 @@ def test_style_apply_happy_path(fake_word):
 
 
 def test_style_apply_bad_anchor_returns_exit_2(fake_word):
-    code, _, _ = _invoke(
-        ["style", "apply", "--anchor-id", "bookmark:Nope", "--name", "Heading 2"]
-    )
+    code, _, _ = _invoke(["style", "apply", "--anchor-id", "bookmark:Nope", "--name", "Heading 2"])
     assert code == EXIT_ANCHOR_NOT_FOUND
 
 
@@ -631,9 +647,12 @@ def test_format_paragraph_indent_and_spacing(fake_word):
     code, out, _ = _invoke(
         [
             "format-paragraph",
-            "--anchor-id", "bookmark:Address",
-            "--left-indent", "36",
-            "--space-before", "6",
+            "--anchor-id",
+            "bookmark:Address",
+            "--left-indent",
+            "36",
+            "--space-before",
+            "6",
         ]
     )
     assert code == EXIT_OK
@@ -801,9 +820,7 @@ def test_table_add_row(fake_word):
 
 
 def test_table_add_row_with_values(fake_word):
-    code, out, _ = _invoke(
-        ["table", "add-row", "--table", "1", "--values", '["X", "Y"]']
-    )
+    code, out, _ = _invoke(["table", "add-row", "--table", "1", "--values", '["X", "Y"]'])
     assert code == EXIT_OK
     # The new row's cells should be addressable and hold the values.
     code, out, _ = _invoke(["table", "read", "1"])
@@ -838,9 +855,7 @@ def test_replace_cell_via_anchor_id(fake_word):
 
 
 def test_style_apply_to_cell(fake_word):
-    code, out, _ = _invoke(
-        ["style", "apply", "--anchor-id", "table:1:1:1", "--name", "Heading 2"]
-    )
+    code, out, _ = _invoke(["style", "apply", "--anchor-id", "table:1:1:1", "--name", "Heading 2"])
     assert code == EXIT_OK
     data = json.loads(out)
     assert data["anchor"]["kind"] == "cell"
@@ -849,9 +864,7 @@ def test_style_apply_to_cell(fake_word):
 def test_exec_supports_set_cell_op(fake_word, tmp_path: Path):
     script = tmp_path / "ops.json"
     script.write_text(
-        json.dumps(
-            {"ops": [{"op": "set_cell", "table": 1, "row": 1, "col": 2, "text": "new"}]}
-        ),
+        json.dumps({"ops": [{"op": "set_cell", "table": 1, "row": 1, "col": 2, "text": "new"}]}),
         encoding="utf-8",
     )
     code, out, _ = _invoke(["exec", "--script", str(script)])
@@ -943,9 +956,7 @@ def test_comment_add_then_list(fake_word):
 
 
 def test_comment_add_bad_anchor_returns_exit_2(fake_word):
-    code, _, _ = _invoke(
-        ["comment", "add", "--anchor-id", "bookmark:Nope", "--text", "x"]
-    )
+    code, _, _ = _invoke(["comment", "add", "--anchor-id", "bookmark:Nope", "--text", "x"])
     assert code == EXIT_ANCHOR_NOT_FOUND
 
 
@@ -1017,7 +1028,12 @@ def test_exec_supports_add_comment_op(fake_word, tmp_path: Path):
         json.dumps(
             {
                 "ops": [
-                    {"op": "add_comment", "anchor_id": "heading:1", "text": "please review", "author": "Bot"},
+                    {
+                        "op": "add_comment",
+                        "anchor_id": "heading:1",
+                        "text": "please review",
+                        "author": "Bot",
+                    },
                 ]
             }
         ),
@@ -1345,6 +1361,7 @@ _PNG_B64 = (
 
 def _png_path(tmp_path: Path) -> Path:
     import base64
+
     p = tmp_path / "pic.png"
     p.write_bytes(base64.b64decode(_PNG_B64))
     return p
@@ -1366,8 +1383,20 @@ def test_insert_image_from_path(fake_word, tmp_path: Path):
 def test_insert_image_square_before(fake_word, tmp_path: Path):
     img = _png_path(tmp_path)
     code, out, _ = _invoke(
-        ["insert-image", "--anchor-id", "bookmark:Address", "--path", str(img),
-         "--wrap", "square", "--before", "--width", "120", "--alt-text", "A diagram"]
+        [
+            "insert-image",
+            "--anchor-id",
+            "bookmark:Address",
+            "--path",
+            str(img),
+            "--wrap",
+            "square",
+            "--before",
+            "--width",
+            "120",
+            "--alt-text",
+            "A diagram",
+        ]
     )
     assert code == EXIT_OK
     data = json.loads(out)
@@ -1394,8 +1423,15 @@ def test_insert_image_from_base64_stdin(fake_word):
 
 def test_insert_image_missing_file_is_exit_other(fake_word, tmp_path: Path):
     code, _, err = _invoke(
-        ["insert-image", "--anchor-id", "bookmark:Address",
-         "--path", str(tmp_path / "nope.png"), "--wrap", "inline"]
+        [
+            "insert-image",
+            "--anchor-id",
+            "bookmark:Address",
+            "--path",
+            str(tmp_path / "nope.png"),
+            "--wrap",
+            "inline",
+        ]
     )
     assert code == EXIT_OTHER
     assert "image" in err.lower()
@@ -1416,8 +1452,17 @@ def test_insert_image_requires_exactly_one_source(fake_word, tmp_path: Path):
     assert code == 2  # click usage error
     # both
     code, _, _ = _invoke(
-        ["insert-image", "--anchor-id", "bookmark:Address",
-         "--path", str(img), "--base64", _PNG_B64, "--wrap", "inline"]
+        [
+            "insert-image",
+            "--anchor-id",
+            "bookmark:Address",
+            "--path",
+            str(img),
+            "--base64",
+            _PNG_B64,
+            "--wrap",
+            "inline",
+        ]
     )
     assert code == 2
 
@@ -1425,7 +1470,15 @@ def test_insert_image_requires_exactly_one_source(fake_word, tmp_path: Path):
 def test_insert_image_bad_wrap_is_usage_error(fake_word, tmp_path: Path):
     img = _png_path(tmp_path)
     code, _, _ = _invoke(
-        ["insert-image", "--anchor-id", "bookmark:Address", "--path", str(img), "--wrap", "diagonal"]
+        [
+            "insert-image",
+            "--anchor-id",
+            "bookmark:Address",
+            "--path",
+            str(img),
+            "--wrap",
+            "diagonal",
+        ]
     )
     assert code == 2  # click.Choice rejects it
 
@@ -1438,8 +1491,12 @@ def test_exec_insert_image_with_path(fake_word, tmp_path: Path):
             {
                 "ops": [
                     {"op": "write_bookmark", "name": "Address", "text": "123 Main"},
-                    {"op": "insert_image", "anchor_id": "bookmark:Address",
-                     "path": str(img), "wrap": "square"},
+                    {
+                        "op": "insert_image",
+                        "anchor_id": "bookmark:Address",
+                        "path": str(img),
+                        "wrap": "square",
+                    },
                 ]
             }
         ),
@@ -1460,8 +1517,12 @@ def test_exec_insert_image_with_base64(fake_word, tmp_path: Path):
         json.dumps(
             {
                 "ops": [
-                    {"op": "insert_image", "anchor_id": "bookmark:Address",
-                     "base64": _PNG_B64, "wrap": "auto"},
+                    {
+                        "op": "insert_image",
+                        "anchor_id": "bookmark:Address",
+                        "base64": _PNG_B64,
+                        "wrap": "auto",
+                    },
                 ]
             }
         ),
@@ -1499,9 +1560,9 @@ def test_install_skill_local(tmp_path: Path, monkeypatch):
     dest = tmp_path / ".agents" / "skills" / "wordlive" / "SKILL.md"
     assert dest.exists()
     body = dest.read_text(encoding="utf-8")
-    assert body.startswith("---")            # agent-skill frontmatter
+    assert body.startswith("---")  # agent-skill frontmatter
     assert "name: wordlive" in body
-    assert "insert-image" in body            # content sanity
+    assert "insert-image" in body  # content sanity
     assert data["bytes"] == len(body.encode("utf-8"))
 
 

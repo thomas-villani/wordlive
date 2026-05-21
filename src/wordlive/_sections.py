@@ -15,7 +15,8 @@ read-only `page_setup()` summary.
 
 from __future__ import annotations
 
-from typing import Any, Iterator, TYPE_CHECKING
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
 
 from . import _com
 from ._anchors import Anchor
@@ -57,7 +58,7 @@ def which_index(which: str) -> WdHeaderFooterIndex:
     except KeyError:
         raise ValueError(
             f"unknown header/footer {which!r}; expected one of ['primary', 'first', 'even']"
-        )
+        ) from None
 
 
 def _safe(obj: Any, attr: str, default: Any) -> Any:
@@ -77,7 +78,7 @@ class HeaderFooter(Anchor):
     `even`.
     """
 
-    def __init__(self, doc: "Document", section_index: int, which: str, *, is_footer: bool) -> None:
+    def __init__(self, doc: Document, section_index: int, which: str, *, is_footer: bool) -> None:
         self._section_index = int(section_index)
         self._which = _CANONICAL_WHICH[int(which_index(which))]
         self._is_footer = bool(is_footer)
@@ -131,7 +132,7 @@ class HeaderFooter(Anchor):
 class Section:
     """Wraps a Word `Section`, located by its 1-based document position."""
 
-    def __init__(self, doc: "Document", com: Any, index: int) -> None:
+    def __init__(self, doc: Document, com: Any, index: int) -> None:
         self._doc = doc
         self._com = com
         self._index = index
@@ -187,7 +188,7 @@ class SectionCollection:
     one section; `doc.sections[1].header()` is the common entry point.
     """
 
-    def __init__(self, doc: "Document") -> None:
+    def __init__(self, doc: Document) -> None:
         self._doc = doc
 
     def __len__(self) -> int:

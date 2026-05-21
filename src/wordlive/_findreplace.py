@@ -16,26 +16,42 @@ from __future__ import annotations
 import unicodedata
 from dataclasses import dataclass
 
-
 _QUOTE_FOLDS = {
-    "‘": "'", "’": "'", "‚": "'", "‛": "'",   # single quotes
-    "“": '"', "”": '"', "„": '"', "‟": '"',   # double quotes
-    "′": "'", "″": '"',                                  # primes
-    "«": '"', "»": '"',                                  # guillemets
+    "‘": "'",
+    "’": "'",
+    "‚": "'",
+    "‛": "'",  # single quotes
+    "“": '"',
+    "”": '"',
+    "„": '"',
+    "‟": '"',  # double quotes
+    "′": "'",
+    "″": '"',  # primes
+    "«": '"',
+    "»": '"',  # guillemets
 }
 
 _DASH_FOLDS = {
-    "‐": "-", "‑": "-", "‒": "-", "–": "-",
-    "—": "-", "―": "-", "−": "-",
+    "‐": "-",
+    "‑": "-",
+    "‒": "-",
+    "–": "-",
+    "—": "-",
+    "―": "-",
+    "−": "-",
 }
 
 _SPACE_FOLDS = {
     " ": " ",  # NBSP
-    " ": " ", " ": " ", " ": " ", " ": " ",
+    " ": " ",
+    " ": " ",
+    " ": " ",
+    " ": " ",
     "\t": " ",
-    "\v": " ", "\f": " ",
+    "\v": " ",
+    "\f": " ",
     "\r": "\n",
-    "": "",   # Word's cell/end-of-row marker
+    "": "",  # Word's cell/end-of-row marker
 }
 
 

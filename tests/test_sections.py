@@ -80,8 +80,13 @@ def test_page_setup_shape(fake_word):
     assert ps["orientation"] == "portrait"
     assert ps["page_width"] == 612.0
     assert {
-        "orientation", "top_margin", "bottom_margin", "left_margin",
-        "right_margin", "page_width", "page_height",
+        "orientation",
+        "top_margin",
+        "bottom_margin",
+        "left_margin",
+        "right_margin",
+        "page_width",
+        "page_height",
     } == set(ps)
 
 

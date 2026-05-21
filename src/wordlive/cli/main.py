@@ -13,10 +13,9 @@ from ..exceptions import (
     AnchorNotFoundError,
     DocumentNotFoundError,
     WordBusyError,
-    WordNotRunningError,
     WordliveError,
+    WordNotRunningError,
 )
-
 
 # Exit codes per spec.md §"CLI Sketch":
 EXIT_OK = 0

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from . import _com, _findreplace
 from ._anchors import (
@@ -22,7 +23,7 @@ from ._edit import EditScope
 from ._lists import ListCollection
 from ._sections import SectionCollection
 from ._selection import Selection
-from ._styles import Style, StyleCollection
+from ._styles import StyleCollection
 from ._tables import TableCollection
 from .exceptions import (
     AmbiguousMatchError,
@@ -31,14 +32,14 @@ from .exceptions import (
 )
 
 if TYPE_CHECKING:
-    from ._app import Word
     from ._anchors import Anchor
+    from ._app import Word
 
 
 class Document:
     """Wraps a Word Document COM object."""
 
-    def __init__(self, word: "Word", doc: Any) -> None:
+    def __init__(self, word: Word, doc: Any) -> None:
         self._word = word
         self._doc = doc
 
@@ -186,7 +187,7 @@ class Document:
         """
         return RangeAnchor(self, start, end)
 
-    def anchor_by_id(self, anchor_id: str) -> "Anchor":
+    def anchor_by_id(self, anchor_id: str) -> Anchor:
         """Resolve an `anchor_id` string into an Anchor.
 
         Recognised forms:
@@ -268,7 +269,7 @@ class Document:
                 raise AnchorNotFoundError(kind, anchor_id) from e
         raise AnchorNotFoundError("anchor", anchor_id)
 
-    def _scope_range(self, scope: "Anchor | None") -> tuple[Any, int]:
+    def _scope_range(self, scope: Anchor | None) -> tuple[Any, int]:
         """Return (COM Range, absolute_start_offset) for a find/replace scope.
 
         Headings expand to their *section* (body under the heading); other
@@ -287,7 +288,7 @@ class Document:
         self,
         text: str,
         *,
-        scope: "Anchor | None" = None,
+        scope: Anchor | None = None,
     ) -> list[dict[str, Any]]:
         """Locate every fuzzy occurrence of `text` within `scope` (or the whole doc).
 
@@ -321,7 +322,7 @@ class Document:
         find: str,
         replace: str,
         *,
-        scope: "Anchor | None" = None,
+        scope: Anchor | None = None,
         all: bool = False,
         occurrence: int | None = None,
     ) -> list[dict[str, Any]]:
@@ -412,7 +413,7 @@ class Document:
         with scope:
             yield scope
 
-    def go_to(self, anchor: "Anchor", scroll: bool = True) -> None:
+    def go_to(self, anchor: Anchor, scroll: bool = True) -> None:
         """Move the user's Selection to the given anchor (rare — most ops preserve it).
 
         Does NOT open an `UndoRecord` — cursor moves don't belong on the user's
@@ -434,7 +435,7 @@ class Document:
 class DocumentCollection:
     """Indexable view over open documents."""
 
-    def __init__(self, word: "Word") -> None:
+    def __init__(self, word: Word) -> None:
         self._word = word
 
     @property

@@ -10,11 +10,11 @@ be reached.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fake COM Application
@@ -84,7 +84,7 @@ class _FakeParagraphs:
             mock = MagicMock(name=f"Para[{p.get('text', '?')[:20]}]")
             mock.OutlineLevel = p.get("level", 10)
             mock.Range = _make_range(p.get("start", 0), p.get("end", 0))
-            mock.Range.Text = (p.get("text", "") + "\r")
+            mock.Range.Text = p.get("text", "") + "\r"
             self._items.append(mock)
 
     def __iter__(self) -> Iterable[Any]:
@@ -112,7 +112,9 @@ class _FakeListFormat:
         self._gallery: int | None = None
         self._continue = False
 
-    def ApplyListTemplate(self, ListTemplate=None, ContinuePreviousList=False, ApplyTo=0, DefaultListBehavior=2, **kw):
+    def ApplyListTemplate(
+        self, ListTemplate=None, ContinuePreviousList=False, ApplyTo=0, DefaultListBehavior=2, **kw
+    ):
         gallery = getattr(ListTemplate, "_gallery", None)
         self._gallery = int(gallery) if gallery is not None else None
         self.ListType = self._GALLERY_TO_TYPE.get(self._gallery, 3)
@@ -189,7 +191,7 @@ class _FakeInlineShape:
         self.LockAspectRatio = -1
         self.converted = None  # the _FakeShape, once ConvertToShape() runs
 
-    def ConvertToShape(self) -> "_FakeShape":
+    def ConvertToShape(self) -> _FakeShape:
         self.converted = _FakeShape(self.Width, self.Height, self.AlternativeText)
         return self.converted
 
@@ -339,7 +341,7 @@ class _FakeTablesCollection:
 class _FakeComment:
     """Mimics a Word Comment: Author, Range (body), Scope (anchored range), Done."""
 
-    def __init__(self, registry: "_FakeComments", index: int, scope: Any, text: str) -> None:
+    def __init__(self, registry: _FakeComments, index: int, scope: Any, text: str) -> None:
         self._registry = registry
         self.Index = index
         self.Author = ""
@@ -443,8 +445,13 @@ class _FakePageSetup:
 
 
 class _FakeSection:
-    def __init__(self, index: int, headers: dict[int, _FakeHeaderFooter],
-                 footers: dict[int, _FakeHeaderFooter], page_setup: _FakePageSetup) -> None:
+    def __init__(
+        self,
+        index: int,
+        headers: dict[int, _FakeHeaderFooter],
+        footers: dict[int, _FakeHeaderFooter],
+        page_setup: _FakePageSetup,
+    ) -> None:
         self.Index = index
         self.Headers = _FakeHeadersFooters(headers)
         self.Footers = _FakeHeadersFooters(footers)
@@ -530,7 +537,7 @@ def _make_document(
     # Lists: build each list's Range through the cached factory so list_info /
     # restart_numbering see the same ListFormat the RangeAnchor resolves to.
     list_objs: list[_FakeWordList] = []
-    for spec in (lists or []):
+    for spec in lists or []:
         rng = _range_factory(spec["start"], spec["end"])
         lf = rng.ListFormat
         lf.ListType = spec.get("type", 3)
@@ -585,7 +592,9 @@ def fake_word(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     """A MagicMock Application with one document, one bookmark, one heading, one CC."""
     doc = _make_document(
         bookmarks={"Address": (13, 24)},
-        content_controls=[{"title": "Signatory", "tag": "sig", "start": 29, "end": 35, "text": "Jane Doe"}],
+        content_controls=[
+            {"title": "Signatory", "tag": "sig", "start": 29, "end": 35, "text": "Jane Doe"}
+        ],
         paragraphs=[
             {"level": 1, "text": "Introduction", "start": 0, "end": 13},
             {"level": 10, "text": "Body text here.", "start": 13, "end": 29},
@@ -597,8 +606,7 @@ def fake_word(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
         # A 2-item numbered list over the body region (offsets 13–29).
         lists=[{"start": 13, "end": 29, "count": 2, "type": 3}],
         # One section with a primary header and footer seeded for read tests.
-        sections=[{"headers": {"primary": "Confidential Draft"},
-                   "footers": {"primary": "Page 1"}}],
+        sections=[{"headers": {"primary": "Confidential Draft"}, "footers": {"primary": "Page 1"}}],
     )
     app = _make_application([doc])
 

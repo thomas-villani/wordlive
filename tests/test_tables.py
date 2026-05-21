@@ -8,7 +8,6 @@ import wordlive
 from wordlive.constants import WdParagraphAlignment
 from wordlive.exceptions import AnchorNotFoundError
 
-
 # ---------------------------------------------------------------------------
 # TableCollection
 # ---------------------------------------------------------------------------

@@ -8,7 +8,6 @@ import wordlive
 from wordlive.constants import WdParagraphAlignment
 from wordlive.exceptions import AnchorNotFoundError, StyleNotFoundError
 
-
 # ---------------------------------------------------------------------------
 # StyleCollection
 # ---------------------------------------------------------------------------
@@ -171,8 +170,7 @@ def test_apply_style_on_heading_writes_through(fake_word):
             doc.heading("Risks").apply_style("Heading 1")
     # Heading anchor exposes the paragraph's Range; check Style landed there.
     para = next(
-        p for p in fake_word.ActiveDocument.Paragraphs
-        if p.Range.Text.rstrip("\r\n\x07") == "Risks"
+        p for p in fake_word.ActiveDocument.Paragraphs if p.Range.Text.rstrip("\r\n\x07") == "Risks"
     )
     assert para.Range.Style.NameLocal == "Heading 1"
 
@@ -180,9 +178,7 @@ def test_apply_style_on_heading_writes_through(fake_word):
 def test_format_paragraph_on_content_control(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active
-        doc.content_controls["Signatory"].format_paragraph(
-            alignment="right", left_indent=24.0
-        )
+        doc.content_controls["Signatory"].format_paragraph(alignment="right", left_indent=24.0)
     cc_mock = next(c for c in fake_word.ActiveDocument.ContentControls if c.Title == "Signatory")
     pf = cc_mock.Range.ParagraphFormat
     assert pf.Alignment == int(WdParagraphAlignment.RIGHT)
@@ -194,8 +190,7 @@ def test_format_paragraph_on_heading(fake_word):
         doc = word.documents.active
         doc.heading("Risks").format_paragraph(space_before=12.0, alignment="center")
     para = next(
-        p for p in fake_word.ActiveDocument.Paragraphs
-        if p.Range.Text.rstrip("\r\n\x07") == "Risks"
+        p for p in fake_word.ActiveDocument.Paragraphs if p.Range.Text.rstrip("\r\n\x07") == "Risks"
     )
     pf = para.Range.ParagraphFormat
     assert pf.SpaceBefore == 12.0

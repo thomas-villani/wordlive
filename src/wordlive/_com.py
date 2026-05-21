@@ -6,11 +6,11 @@ Everything else in wordlive only sees duck-typed dispatch objects.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 from .exceptions import WordNotRunningError, from_com_error
-
 
 _WORD_PROG_ID = "Word.Application"
 
@@ -45,9 +45,7 @@ def get_active_word() -> Any:
     try:
         return GetActiveObject(_WORD_PROG_ID)
     except Exception as e:  # pywintypes.com_error or similar
-        raise WordNotRunningError(
-            "no running Microsoft Word instance found"
-        ) from e
+        raise WordNotRunningError("no running Microsoft Word instance found") from e
 
 
 def launch_word(visible: bool = True) -> Any:
