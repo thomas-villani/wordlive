@@ -61,7 +61,7 @@ depend on the cursor.
 | `HeaderFooter`     | A section's header/footer by (section, which) | Reads the doc structure |
 | `RangeAnchor`      | An arbitrary character span by offsets     | Ephemeral (resolved live)  |
 
-All three subclass [`Anchor`](python-api.md#wordlive.Anchor) and share the
+They all subclass [`Anchor`](python-api.md#wordlive.Anchor) and share the
 same operations:
 
 ```python
@@ -83,10 +83,10 @@ Why not Selection-driven? Two reasons:
 
 ## Anchor IDs
 
-The three anchor kinds each have their own collection (`doc.bookmarks`,
-`doc.content_controls`, `doc.heading(name)`). For programmatic addressing
-across all three — especially from JSON tool-use payloads —  wordlive uses a
-single string scheme:
+Each anchor kind has its own collection (`doc.bookmarks`,
+`doc.content_controls`, `doc.tables`, `doc.sections`, `doc.paragraphs`,
+`doc.heading(name)`, …). For programmatic addressing across all of them —
+especially from JSON tool-use payloads — wordlive uses a single string scheme:
 
 ```
 heading:3            # 1-based paragraph index of a heading

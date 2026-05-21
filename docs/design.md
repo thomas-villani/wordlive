@@ -106,13 +106,18 @@ CLI, fuzzy find/replace, document-scoped styles + paragraph formatting, tables
 (cells as `table:N:R:C` anchors), the collaboration surface (review comments,
 scoped track-changes, and arbitrary `range:START-END` anchors), document
 structure — bullet/numbered lists and section headers/footers
-(`header:S:WHICH` / `footer:S:WHICH` anchors) — and full paragraph addressing:
-every paragraph is a `para:N` anchor (`doc.paragraphs`, `outline --all`),
-`insert` works on any anchor with `--before`/`--after`, and an explicit, opt-in
-cursor surface (`cursor read` / `cursor write`) covers the cases where the user
-genuinely wants to act at their live position. Likely next steps: event sinks
-(`WindowSelectionChange`, `DocumentBeforeSave`), an async wrapper around the
-sync core, and the deeper style cuts (character styles, theme-aware fonts).
+(`header:S:WHICH` / `footer:S:WHICH` anchors), full paragraph addressing (every
+paragraph is a `para:N` anchor — `doc.paragraphs`, `outline --all` — with `insert`
+working on any anchor via `--before`/`--after` and an explicit, opt-in cursor
+surface, `cursor read` / `cursor write`), and **image insertion**
+([`anchor.insert_image(...)`](python-api.md#wordlive.Anchor) /
+`wordlive insert-image`, accepting a file path, raw bytes, or base64, with
+required `wrap`). wordlive also ships an LLM-facing **agent skill** —
+`wordlive install-skill` drops a `SKILL.md` into `.agents/skills/`. Next on the
+visual-content track: reading images back out for vision models, then
+Excel-backed charts; after that, event sinks (`WindowSelectionChange`,
+`DocumentBeforeSave`), an async wrapper around the sync core, and the deeper
+style cuts (character styles, theme-aware fonts).
 
 ## Full design document
 

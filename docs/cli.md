@@ -26,7 +26,7 @@ mode without parsing strings:
 | Code | Meaning                | Source exception           |
 | ---- | ---------------------- | -------------------------- |
 | `0`  | OK                     | —                          |
-| `1`  | Other / unclassified   | `WordliveError` (default), `DocumentNotFoundError` |
+| `1`  | Other / unclassified   | `WordliveError` (default), `DocumentNotFoundError`, `ImageSourceError` |
 | `2`  | Anchor or style missing | `AnchorNotFoundError` / `StyleNotFoundError` (also used for zero-match `find`/`replace --find`) |
 | `3`  | Word busy / modal      | `WordBusyError` (retryable) |
 | `4`  | Word not running       | `WordNotRunningError`      |

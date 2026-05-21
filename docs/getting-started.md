@@ -153,3 +153,6 @@ see [Cookbook §3](cookbook.md#3-add-text-to-a-document).
 - [Cookbook](cookbook.md) — end-to-end recipes including an LLM tool-use loop.
 - [Python API](python-api.md) — auto-generated reference for every public
   symbol.
+- **Driving an LLM agent?** Run `wordlive install-skill` to drop a `SKILL.md`
+  into `./.agents/skills/` (or `--system` for `~/.agents/skills/`) so your
+  coding tool picks up the CLI. See [CLI §install-skill](cli.md#install-skill).
