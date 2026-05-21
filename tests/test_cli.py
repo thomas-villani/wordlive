@@ -1394,3 +1394,49 @@ def test_exec_insert_image_without_source_fails(fake_word, tmp_path: Path):
     )
     code, _, _ = _invoke(["exec", "--script", str(script)])
     assert code == EXIT_OTHER  # ClickException for malformed op
+
+
+# ---------------------------------------------------------------------------
+# install-skill (offline — no Word needed)
+# ---------------------------------------------------------------------------
+
+
+def test_install_skill_local(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = _invoke(["install-skill"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["scope"] == "local"
+    dest = tmp_path / ".agents" / "skills" / "wordlive" / "SKILL.md"
+    assert dest.exists()
+    body = dest.read_text(encoding="utf-8")
+    assert body.startswith("---")            # agent-skill frontmatter
+    assert "name: wordlive" in body
+    assert "insert-image" in body            # content sanity
+    assert data["bytes"] == len(body.encode("utf-8"))
+
+
+def test_install_skill_system(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    code, out, _ = _invoke(["install-skill", "--system"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["scope"] == "system"
+    assert (tmp_path / ".agents" / "skills" / "wordlive" / "SKILL.md").exists()
+
+
+def test_install_skill_refuses_overwrite_without_force(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert _invoke(["install-skill"])[0] == EXIT_OK
+    code, _, err = _invoke(["install-skill"])
+    assert code == EXIT_OTHER
+    assert "force" in err.lower()
+
+
+def test_install_skill_force_overwrites(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _invoke(["install-skill"])
+    code, out, _ = _invoke(["install-skill", "--force"])
+    assert code == EXIT_OK
+    assert json.loads(out)["ok"] is True

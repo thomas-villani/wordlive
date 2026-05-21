@@ -905,6 +905,30 @@ $ wordlive exec --script ops.json
 {"ok": true, "ops_run": 4, "label": "Update report"}
 ```
 
+## `install-skill`
+
+```
+wordlive install-skill [--system] [--force] [--doc DOC_NAME]
+```
+
+Install the bundled **agent skill** (`SKILL.md`) so LLM coding tools can pick up
+how to drive wordlive. By default it writes to the current project at
+`./.agents/skills/wordlive/SKILL.md`; `--system` installs it for your user at
+`~/.agents/skills/wordlive/SKILL.md`. This command is offline — it never touches
+Word. It refuses to clobber an existing file unless you pass `--force`.
+
+```bash
+$ wordlive install-skill
+{"ok": true, "scope": "local", "path": ".../.agents/skills/wordlive/SKILL.md", "bytes": 6172}
+
+$ wordlive install-skill --system --force
+{"ok": true, "scope": "system", "path": "/home/you/.agents/skills/wordlive/SKILL.md", "bytes": 6172}
+```
+
+The skill is a concise CLI reference — anchors, the read/write verbs, image
+insertion, the `exec` batch format, and the exit-code contract — written for an
+agent to load into context. Failures: `1` if the target can't be written.
+
 ## LLM tool-use example
 
 A typical agent loop looks like:

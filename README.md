@@ -80,6 +80,10 @@ wordlive section list
 wordlive header write --section 1 --text "ACME Corporation"
 wordlive footer read --section 1
 
+# Images — from a file or base64 (--wrap is required: inline | auto | square | …):
+wordlive insert-image --anchor-id heading:3 --path diagram.png --wrap auto
+base64 logo.png | wordlive insert-image --anchor-id bookmark:Logo --base64 - --wrap inline --width 96
+
 # Batch multiple ops in a single Ctrl-Z:
 wordlive exec --script ops.json
 ```
@@ -101,6 +105,16 @@ Where `ops.json` looks like:
 ```
 
 Exit codes: `0` ok, `2` anchor-not-found, `3` Word-busy, `4` Word-not-running, `1` other.
+
+## Agent skill
+
+wordlive ships an LLM-facing skill (`SKILL.md`) — a concise CLI reference for
+agents. Drop it into a project or your home directory so coding tools discover it:
+
+```
+wordlive install-skill            # ./.agents/skills/wordlive/SKILL.md
+wordlive install-skill --system   # ~/.agents/skills/wordlive/SKILL.md
+```
 
 ## Design
 

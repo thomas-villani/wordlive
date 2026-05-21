@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from contextlib import nullcontext
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +100,7 @@ def register(group: click.Group) -> None:
     group.add_command(header)
     group.add_command(footer)
     group.add_command(exec_)
+    group.add_command(install_skill_cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -1493,3 +1495,47 @@ def exec_(ctx: click.Context, script: Path) -> None:
                 # (e.g. anchor-not-found → 2, busy → 3, ambiguous → 5).
                 raise failure_exc
     _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# install-skill [--system] [--force]
+# ---------------------------------------------------------------------------
+
+
+def _bundled_skill() -> str:
+    """The packaged agent skill (SKILL.md) text."""
+    return (files("wordlive") / "_skill" / "SKILL.md").read_text(encoding="utf-8")
+
+
+@click.command(name="install-skill")
+@click.option("--system", "system", is_flag=True, default=False,
+              help="Install to ~/.agents/skills/ instead of the current project's ./.agents/skills/.")
+@click.option("--force", "force", is_flag=True, default=False,
+              help="Overwrite an existing SKILL.md.")
+@click.pass_context
+def install_skill_cmd(ctx: click.Context, system: bool, force: bool) -> None:
+    """Install the wordlive agent skill (SKILL.md) for LLM coding tools.
+
+    Writes `.agents/skills/wordlive/SKILL.md` under the current directory
+    (default) or your home directory (`--system`). This is offline — it doesn't
+    touch Word.
+    """
+    base = Path.home() if system else Path.cwd()
+    dest = base / ".agents" / "skills" / "wordlive" / "SKILL.md"
+    scope = "system" if system else "local"
+    if dest.exists() and not force:
+        raise click.ClickException(f"{dest} already exists; pass --force to overwrite")
+    try:
+        content = _bundled_skill()
+    except (FileNotFoundError, ModuleNotFoundError, OSError) as e:
+        raise click.ClickException(f"could not read the bundled skill: {e}")
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content, encoding="utf-8")
+    except OSError as e:
+        raise click.ClickException(f"could not write {dest}: {e}")
+    emit(
+        {"ok": True, "scope": scope, "path": str(dest), "bytes": len(content.encode("utf-8"))},
+        as_text=not ctx.obj["as_json"],
+        text=f"installed wordlive skill → {dest}",
+    )
