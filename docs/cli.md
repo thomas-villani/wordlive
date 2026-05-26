@@ -969,6 +969,34 @@ $ wordlive exec --script ops.json
 {"ok": true, "ops_run": 4, "label": "Update report"}
 ```
 
+## `llm-help`
+
+```
+wordlive llm-help
+```
+
+Print the full **agent guide** — the bundled `SKILL.md` — to stdout: the anchor
+model, every read/write verb, image insertion, the `exec` batch format, and the
+exit-code taxonomy. `wordlive --help` points an agent straight here, so a model
+can get everything it needs in one call without an install step.
+
+Unlike every other command, the output is raw Markdown rather than JSON (and is
+unaffected by `--json/--text`) — it's documentation, exactly like `--help`
+itself, meant to read cleanly into a model's context. The YAML frontmatter that
+fronts the installed skill is stripped. Offline: it never touches Word.
+
+```bash
+$ wordlive llm-help
+# wordlive
+
+`wordlive` drives a **running** Microsoft Word instance over COM (Windows only).
+...
+```
+
+This is the same content [`install-skill`](#install-skill) writes to disk; reach
+for `llm-help` when you just want it in context now, and `install-skill` when you
+want coding tools to discover it on their own.
+
 ## `install-skill`
 
 ```

@@ -61,7 +61,11 @@ def _exit_for(exc: WordliveError) -> int:
 @click.option("--doc", "doc_name", default=None, help="Target document by name (default: active).")
 @click.pass_context
 def main(ctx: click.Context, as_json: bool, doc_name: str | None) -> None:
-    """wordlive — drive a running Microsoft Word instance."""
+    """wordlive — drive a running Microsoft Word instance.
+
+    LLM agent? Run `wordlive llm-help` for the full agent guide in one shot:
+    the anchor model, every command, the exec batch format, and exit codes.
+    """
     ctx.ensure_object(dict)
     ctx.obj["as_json"] = as_json
     ctx.obj["doc_name"] = doc_name

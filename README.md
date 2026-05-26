@@ -119,7 +119,18 @@ Exit codes: `0` ok, `2` anchor-not-found, `3` Word-busy, `4` Word-not-running, `
 ## Agent skill
 
 wordlive ships an LLM-facing skill (`SKILL.md`) — a concise CLI reference for
-agents. Drop it into a project or your home directory so coding tools discover it:
+agents: the anchor model, every verb, the `exec` batch format, and the
+exit-code contract.
+
+An agent that hits `wordlive --help` is pointed straight at `wordlive llm-help`,
+which prints the whole guide to stdout in one shot — no install step, no Word:
+
+```
+wordlive llm-help                 # dump the full agent guide to stdout
+```
+
+Or drop the skill file into a project or your home directory so coding tools
+discover it on their own:
 
 ```
 wordlive install-skill            # ./.agents/skills/wordlive/SKILL.md

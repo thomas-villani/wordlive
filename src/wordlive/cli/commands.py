@@ -100,6 +100,7 @@ def register(group: click.Group) -> None:
     group.add_command(header)
     group.add_command(footer)
     group.add_command(exec_)
+    group.add_command(llm_help_cmd)
     group.add_command(install_skill_cmd)
 
 
@@ -1861,6 +1862,38 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
 def _bundled_skill() -> str:
     """The packaged agent skill (SKILL.md) text."""
     return (files("wordlive") / "_skill" / "SKILL.md").read_text(encoding="utf-8")
+
+
+def _strip_frontmatter(md: str) -> str:
+    """Drop a leading YAML frontmatter block (--- … ---), if present.
+
+    The bundled SKILL.md opens with `name:` / `description:` frontmatter for the
+    agent-skill loader. That metadata is noise when the doc is read straight off
+    stdout, so `llm-help` emits just the Markdown body.
+    """
+    lines = md.splitlines()
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                return "\n".join(lines[i + 1 :]).lstrip("\n")
+    return md
+
+
+@click.command(name="llm-help")
+def llm_help_cmd() -> None:
+    """Print the full wordlive agent guide (the bundled skill) to stdout.
+
+    One-shot orientation for an LLM: the anchor model, every read/write verb,
+    image insertion, the `exec` batch format, and the exit-code taxonomy.
+    `wordlive --help` points here. Output is raw Markdown — not JSON, and
+    unaffected by `--json/--text` — so it reads cleanly straight into a model's
+    context, exactly like `--help` itself. Offline: never touches Word.
+    """
+    try:
+        content = _bundled_skill()
+    except (FileNotFoundError, ModuleNotFoundError, OSError) as e:
+        raise click.ClickException(f"could not read the bundled skill: {e}") from e
+    click.echo(_strip_frontmatter(content))
 
 
 @click.command(name="install-skill")

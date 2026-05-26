@@ -1653,6 +1653,46 @@ def test_exec_insert_image_without_source_fails(fake_word, tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# llm-help (offline — no Word needed)
+# ---------------------------------------------------------------------------
+
+
+def test_llm_help_prints_skill_body():
+    """`llm-help` dumps the bundled guide as raw Markdown — no Word, no JSON."""
+    code, out, _ = _invoke(["llm-help"])
+    assert code == EXIT_OK
+    # Raw Markdown, not a JSON object, and frontmatter is stripped.
+    assert not out.lstrip().startswith("{")
+    assert out.lstrip().startswith("# wordlive")
+    assert "name: wordlive" not in out  # YAML frontmatter dropped
+    # Content sanity: the anchor model, a verb, and the exit-code contract.
+    assert "--anchor-id" in out
+    assert "insert-image" in out
+    assert "Exit codes" in out
+
+
+def test_llm_help_ignores_json_flag():
+    """It's documentation, like --help: raw Markdown even under the JSON default."""
+    code_default, out_default, _ = _invoke(["llm-help"])
+    code_json, out_json, _ = _invoke(["--json", "llm-help"])
+    assert code_default == EXIT_OK and code_json == EXIT_OK
+    assert out_default == out_json
+    assert not out_json.lstrip().startswith("{")
+
+
+def test_llm_help_matches_installed_skill_body(tmp_path: Path, monkeypatch):
+    """`llm-help` output is the body of the same skill `install-skill` writes."""
+    monkeypatch.chdir(tmp_path)
+    _invoke(["install-skill"])
+    installed = (tmp_path / ".agents" / "skills" / "wordlive" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    _, out, _ = _invoke(["llm-help"])
+    # The printed guide is the installed skill minus its YAML frontmatter.
+    assert installed.rstrip().endswith(out.rstrip())
+
+
+# ---------------------------------------------------------------------------
 # install-skill (offline — no Word needed)
 # ---------------------------------------------------------------------------
 
