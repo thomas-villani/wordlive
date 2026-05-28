@@ -221,6 +221,11 @@ def _make_range(start: int, end: int) -> MagicMock:
     # section's page geometry (Letter defaults) for the wrap="auto" heuristic.
     rng.InlineShapes = _FakeInlineShapes()
     rng.PageSetup = _FakePageSetup()
+    # Snapshot support: Range.Information(wdActiveEndPageNumber=3) reports the
+    # page a (collapsed) range sits on. The tiny fake document is all one page,
+    # so report page 1 for any query; tests that need a specific page set
+    # `rng.Information.return_value` on the cached range themselves.
+    rng.Information = MagicMock(name="Information", return_value=1)
     return rng
 
 

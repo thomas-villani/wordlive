@@ -43,3 +43,17 @@ def test_edit_scope_preserves_selection(real_word):
         pass
     after = real_word.selection.info()
     assert (sel["start"], sel["end"]) == (after["start"], after["end"])
+
+
+def test_snapshot_renders_a_png(real_word):
+    """Real Word -> PDF -> PNG: page 1 of the active document rasterises."""
+    pytest.importorskip("pymupdf")
+    try:
+        doc = real_word.documents.active
+    except Exception:
+        pytest.skip("No active document open in Word")
+    shots = doc.snapshot(pages=1, dpi=72)
+    assert len(shots) == 1
+    assert shots[0].page == 1
+    # PNG magic number — proof we got a real raster image back.
+    assert shots[0].png.startswith(b"\x89PNG\r\n\x1a\n")

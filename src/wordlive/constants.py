@@ -153,3 +153,30 @@ class MsoTriState(IntEnum):
 
     TRUE = -1
     FALSE = 0
+
+
+class WdExportFormat(IntEnum):
+    """`Document.ExportAsFixedFormat` output format. Only PDF is used (for snapshots)."""
+
+    PDF = 17
+
+
+class WdExportRange(IntEnum):
+    """Which pages `ExportAsFixedFormat` writes.
+
+    `FROM_TO` pairs with the `From`/`To` (1-based, inclusive) page numbers;
+    `ALL_DOCUMENT` ignores them and exports everything.
+    """
+
+    ALL_DOCUMENT = 0
+    FROM_TO = 3
+
+
+class WdInformation(IntEnum):
+    """`Range.Information(...)` selectors — only the page-number query is used.
+
+    `ACTIVE_END_PAGE_NUMBER` returns the 1-based page a (collapsed) range falls
+    on, which is how an anchor is mapped to the page(s) a snapshot should render.
+    """
+
+    ACTIVE_END_PAGE_NUMBER = 3

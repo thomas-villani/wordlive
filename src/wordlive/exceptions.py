@@ -71,6 +71,21 @@ class ImageSourceError(WordliveError):
         super().__init__(message)
 
 
+class SnapshotError(WordliveError):
+    """A page/section snapshot couldn't be rendered.
+
+    Raised when the optional PDF-rendering backend (PyMuPDF) isn't installed, or
+    when rasterising the exported PDF fails. The PDF export itself goes through
+    Word's COM, so a busy/modal Word surfaces as `WordBusyError`, not this. It's
+    an environment/dependency problem rather than a "named thing is missing", so
+    it maps to the generic exit code (1). Fix by installing the extra:
+    `pip install "wordlive[snapshot]"` (or `uv add "wordlive[snapshot]"`).
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class WordBusyError(WordliveError):
     """Word rejected the RPC — typically a modal dialog or a transient busy state.
 

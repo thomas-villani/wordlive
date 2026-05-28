@@ -1,6 +1,6 @@
 ---
 name: wordlive
-description: Read and edit the Microsoft Word document the user has open right now, from the command line. Inspect structure (outline, paragraphs, tables), make polite edits (text, styles, lists, images, comments, headers/footers), and batch changes into a single atomic undo — all JSON-in / JSON-out with deterministic exit codes. Use when the user wants to read or edit a .docx that is currently open in Word on Windows.
+description: Read and edit the Microsoft Word document the user has open right now, from the command line. Inspect structure (outline, paragraphs, tables), make polite edits (text, styles, lists, images, comments, headers/footers), render a page or section to a PNG so a vision model can see the layout, and batch changes into a single atomic undo — all JSON-in / JSON-out with deterministic exit codes. Use when the user wants to read, edit, or visually render a .docx that is currently open in Word on Windows.
 ---
 
 # wordlive
@@ -66,6 +66,26 @@ wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP 
 - `--wrap` is **required**: `inline` (stays in the text flow), `auto` (floats —
   Square if small, else top-and-bottom), or
   `square|tight|through|top-bottom|behind|front`.
+
+## Snapshot — render page(s) to PNG so you can *see* the layout
+```
+wordlive snapshot [--anchor-id ID | --page N | --pages A-B] [--out FILE] [--dpi 150]
+```
+Word exports a pixel-faithful PDF of the live document and wordlive rasterises
+the requested pages — a true WYSIWYG image (real fonts, spacing, page geometry),
+ideal for judging or iterating on style and formatting.
+- Pick **at most one** target: `--anchor-id` (the page(s) the anchor occupies —
+  a `heading:` expands to its **whole section**), `--page N`, or `--pages A-B`.
+  With none, the whole document renders.
+- With `--out FILE` the image is written to disk (multiple pages become
+  `<stem>-pN<suffix>`); **without `--out`, base64 PNG data is returned inline**
+  in the JSON (`images[].base64`) — feed it straight back to yourself as an image.
+- Needs the optional `snapshot` extra (PyMuPDF). If it's missing the command
+  exits `1` with an install hint (`pip install "wordlive[snapshot]"`).
+```bash
+$ wordlive snapshot --anchor-id heading:3 --out section.png
+{"ok": true, "selector": "heading:3", "dpi": 150, "count": 1, "images": [{"page": 4, "bytes": 81234, "path": "section.png"}]}
+```
 
 ## Batch many edits atomically
 Put several ops in a JSON file; they apply as a **single** undo step. This is the

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from contextlib import nullcontext
 from importlib.resources import files
@@ -86,6 +87,7 @@ def register(group: click.Group) -> None:
     group.add_command(prepend_cmd)
     group.add_command(append_cmd)
     group.add_command(insert_image_cmd)
+    group.add_command(snapshot_cmd)
     group.add_command(cursor)
     group.add_command(find_cmd)
     group.add_command(replace)
@@ -559,6 +561,130 @@ def insert_image_cmd(
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted image {where} {anchor_id} (wrap={wrap})",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# snapshot [--anchor-id ID | --page N | --pages A-B] [--out FILE] [--dpi N]
+# ---------------------------------------------------------------------------
+
+
+def _parse_pages_range(value: str) -> tuple[int, int]:
+    """Parse a `--pages` value like `2-4` into an inclusive `(start, end)` span."""
+    start_str, sep, end_str = value.partition("-")
+    if not sep:
+        raise click.UsageError("--pages must look like 'A-B' (inclusive), e.g. '2-4'")
+    try:
+        start, end = int(start_str), int(end_str)
+    except ValueError as e:
+        raise click.UsageError("--pages must look like 'A-B' (inclusive), e.g. '2-4'") from e
+    if start < 1 or end < start:
+        raise click.UsageError(f"invalid page span {value!r}: need 1 <= start <= end")
+    return start, end
+
+
+def _fmt_snapshot(images: list[dict[str, Any]], dpi: int) -> str:
+    if not images:
+        return "(no pages rendered)"
+    lines: list[str] = []
+    for im in images:
+        size = f"{im['bytes']} bytes"
+        where = im.get("path") or "base64"
+        lines.append(f"page {im['page']}: {size} → {where}")
+    head = f"rendered {len(images)} page(s) at {dpi} dpi"
+    return head + "\n" + "\n".join(lines)
+
+
+@click.command(name="snapshot")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    default=None,
+    help="Render the page(s) this anchor sits on (a heading expands to its whole section).",
+)
+@click.option("--page", "page", type=int, default=None, help="Render a single 1-based page.")
+@click.option(
+    "--pages",
+    "pages_range",
+    default=None,
+    help="Render an inclusive page span, e.g. '2-4'.",
+)
+@click.option(
+    "--out",
+    "out",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write the PNG here. Multiple pages are written as <stem>-p<N><suffix>. "
+    "Without --out, base64 PNG data is returned inline in the JSON.",
+)
+@click.option(
+    "--dpi", "dpi", type=int, default=150, show_default=True, help="Render resolution (dots/inch)."
+)
+@click.pass_context
+def snapshot_cmd(
+    ctx: click.Context,
+    anchor_id: str | None,
+    page: int | None,
+    pages_range: str | None,
+    out: Path | None,
+    dpi: int,
+) -> None:
+    """Render document page(s) to PNG so a vision model can see the layout.
+
+    Word exports a pixel-faithful PDF of the document it has open and wordlive
+    rasterises the requested pages — a true WYSIWYG image (real fonts, spacing,
+    page geometry) for iterating on style and formatting. Read-only.
+
+    Choose at most one target: `--anchor-id` (the page(s) an anchor occupies; a
+    `heading:` expands to its whole section), `--page N`, or `--pages A-B`. With
+    none, the whole document is rendered. With `--out` the image is written to
+    disk (one file per page); otherwise base64 PNG data is returned inline.
+
+    Requires the `snapshot` extra: `pip install "wordlive[snapshot]"`.
+    """
+    targets = [t is not None for t in (anchor_id, page, pages_range)]
+    if sum(targets) > 1:
+        raise click.UsageError("provide at most one of --anchor-id, --page, or --pages")
+    if dpi < 1:
+        raise click.UsageError("--dpi must be >= 1")
+    if page is not None and page < 1:
+        raise click.UsageError("--page must be >= 1")
+    pages_arg: int | tuple[int, int] | None = None
+    if page is not None:
+        pages_arg = page
+    elif pages_range is not None:
+        pages_arg = _parse_pages_range(pages_range)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            if anchor_id is not None:
+                anchor = doc.anchor_by_id(anchor_id)
+                shots = doc.snapshot_anchor(anchor, out, dpi=dpi)
+                selector: Any = anchor_id
+            else:
+                shots = doc.snapshot(out, pages=pages_arg, dpi=dpi)
+                selector = pages_range or page or "all"
+            images: list[dict[str, Any]] = []
+            for s in shots:
+                entry: dict[str, Any] = {"page": s.page, "bytes": len(s.png)}
+                if s.path is not None:
+                    entry["path"] = str(s.path)
+                else:
+                    entry["base64"] = base64.b64encode(s.png).decode("ascii")
+                images.append(entry)
+            emit(
+                {
+                    "ok": True,
+                    "selector": selector,
+                    "dpi": dpi,
+                    "count": len(images),
+                    "images": images,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=_fmt_snapshot(images, dpi),
             )
 
     _run(ctx, go)

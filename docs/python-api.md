@@ -45,6 +45,8 @@ uniformly on bookmarks, content controls, headings, paragraphs, table cells,
 header/footer ranges, and arbitrary range anchors. `insert_image` accepts a
 file path, raw bytes, or a base64 string and embeds the picture; `wrap` is
 required (`"inline"`, `"auto"`, or a float wrap like `"square"`/`"top-bottom"`).
+Every anchor also has `snapshot(...)`, which renders the page(s) it sits on to
+PNG (a heading expands to its whole section) — see [Snapshots](#snapshots).
 
 ::: wordlive.Anchor
 
@@ -152,6 +154,30 @@ snapping the cursor back. Everywhere else, prefer anchors over the cursor.
 
 ::: wordlive.SelectionSnapshot
 
+## Snapshots
+
+[`Document.snapshot(...)`](#wordlive.Document) and
+[`Anchor.snapshot(...)`](#wordlive.Anchor) render page(s) of the live document
+to PNG so a vision model can *see* the layout — Word exports a pixel-faithful
+PDF and wordlive rasterises the requested pages. `Document.snapshot` selects
+pages (all, one, or a span); `Anchor.snapshot` (and
+[`Document.snapshot_anchor`](#wordlive.Document)) renders the page(s) an anchor
+occupies, expanding a heading to its whole section. Both return a list of
+`Snapshot` (one per page) and optionally write the image(s) to `out`. This needs
+the optional `snapshot` extra (PyMuPDF); a missing backend raises
+[`SnapshotError`](#wordlive.SnapshotError).
+
+```python
+import wordlive as wl
+
+with wl.attach() as word:
+    doc = word.documents.active
+    png = doc.heading("Introduction").snapshot()[0].png   # bytes for a model
+    doc.snapshot("report.png", pages=(1, 3))              # write pages 1-3
+```
+
+::: wordlive.Snapshot
+
 ## Exceptions
 
 ::: wordlive.WordliveError
@@ -167,6 +193,8 @@ snapping the cursor back. Everywhere else, prefer anchors over the cursor.
 ::: wordlive.AmbiguousMatchError
 
 ::: wordlive.ImageSourceError
+
+::: wordlive.SnapshotError
 
 ::: wordlive.WordBusyError
 

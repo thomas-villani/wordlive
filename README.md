@@ -17,6 +17,14 @@ uv tool install wordlive
 
 (Requires Python 3.10+ and `pywin32` on Windows.)
 
+Rendering pages to PNG (`snapshot`) needs the optional `snapshot` extra, which
+pulls in PyMuPDF:
+
+```
+pip install "wordlive[snapshot]"
+uv add "wordlive[snapshot]"
+```
+
 ## Python
 
 ```python
@@ -28,6 +36,10 @@ with wl.attach() as word:
     # Reads
     outline = doc.outline()
     bookmarks = doc.bookmarks.list()
+
+    # See it the way a vision model would — render a section to PNG
+    # (needs `wordlive[snapshot]`):
+    png = doc.heading("Introduction").snapshot()[0].png
 
     # Polite writes — preserves the user's cursor and view, atomic Ctrl-Z.
     with doc.edit("Update address block"):
@@ -93,6 +105,12 @@ wordlive footer read --section 1
 # Images — from a file or base64 (--wrap is required: inline | auto | square | …):
 wordlive insert-image --anchor-id heading:3 --path diagram.png --wrap auto
 base64 logo.png | wordlive insert-image --anchor-id bookmark:Logo --base64 - --wrap inline --width 96
+
+# Snapshot — render page(s) to PNG so a vision model can SEE the layout
+# (needs the `snapshot` extra: pip install "wordlive[snapshot]"):
+wordlive snapshot --anchor-id heading:3 --out section.png   # the section's page(s)
+wordlive snapshot --page 2 --out p2.png                     # one page
+wordlive snapshot --pages 1-3                               # base64 PNGs inline (JSON)
 
 # Batch multiple ops in a single Ctrl-Z:
 wordlive exec --script ops.json

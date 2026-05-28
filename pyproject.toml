@@ -27,6 +27,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Page/section rendering (`snapshot`): Word exports a PDF, PyMuPDF rasterises it.
+snapshot = [
+    "pymupdf>=1.24",
+]
 dev = [
     "pytest>=8",
     "pytest-mock>=3.12",
@@ -100,4 +104,11 @@ warn_unused_ignores = false
 # and `import-untyped` on Windows (present, but no stubs).
 [[tool.mypy.overrides]]
 module = ["pythoncom", "pywintypes", "win32com.*"]
+ignore_missing_imports = true
+
+# PyMuPDF is an optional extra (the `snapshot` feature) and isn't installed in
+# the lint environment; its lazy `import pymupdf` / `import fitz` would otherwise
+# trip import-not-found.
+[[tool.mypy.overrides]]
+module = ["pymupdf", "fitz"]
 ignore_missing_imports = true

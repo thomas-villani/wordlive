@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from ._document import Document
+    from ._snapshot import Snapshot
 
 
 _ALIGNMENT_NAMES = {
@@ -265,6 +266,18 @@ class Anchor(ABC):
                 if alt_text is not None:
                     # AlternativeText doesn't always survive the conversion.
                     shape.AlternativeText = alt_text
+
+    def snapshot(self, out: str | Path | None = None, *, dpi: int = 150) -> list[Snapshot]:
+        """Render the page(s) this anchor sits on to PNG — let a model *see* it.
+
+        A heading expands to its whole section; any other anchor renders the
+        page(s) its range spans. Returns a list of
+        [`Snapshot`][wordlive.Snapshot] (one per page); pass `out` to also write
+        the image(s) to disk. Sugar for
+        [`Document.snapshot_anchor`][wordlive.Document.snapshot_anchor]; see it
+        for the full semantics. Requires the `snapshot` extra (PyMuPDF).
+        """
+        return self._doc.snapshot_anchor(self, out, dpi=dpi)
 
     def delete(self) -> None:
         with _com.translate_com_errors():

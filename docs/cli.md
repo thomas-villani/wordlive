@@ -296,6 +296,45 @@ Failures: `1` the image is missing, unreadable, or not a recognised raster
 format (PNG/JPEG/GIF/BMP/TIFF) — an `ImageSourceError`; `2` anchor not found
 or an invalid `--wrap` value; `3` Word busy.
 
+## `snapshot [--anchor-id ID | --page N | --pages A-B]`
+
+```
+wordlive snapshot [--anchor-id ID | --page N | --pages A-B] \
+    [--out FILE] [--dpi 150] [--doc DOC_NAME]
+```
+
+Render document page(s) to PNG so a **vision model can see the layout** — real
+fonts, spacing, and page geometry, not just the text. Word exports a
+pixel-faithful PDF of the document it has open and wordlive rasterises the
+requested pages. Read-only: the document and the user's cursor are untouched.
+
+Pick **at most one** target; with none, the whole document is rendered:
+
+| Target          | Renders |
+| --------------- | ------- |
+| `--anchor-id ID` | the page(s) the anchor occupies — a `heading:` expands to its **whole section** (heading + body) |
+| `--page N`       | a single 1-based page |
+| `--pages A-B`    | an inclusive page span, e.g. `2-4` |
+
+Output: with `--out FILE` the image is written to disk — a single page to `FILE`,
+multiple pages alongside it as `<stem>-p<N><suffix>`. **Without `--out`, base64
+PNG data is returned inline** in the JSON (`images[].base64`), which suits an LLM
+that wants to look at the page directly. `--dpi` (default `150`) sets resolution.
+
+This needs the optional **`snapshot` extra** (PyMuPDF):
+`pip install "wordlive[snapshot]"` (or `uv add "wordlive[snapshot]"`).
+
+```bash
+$ wordlive snapshot --anchor-id heading:3 --out section.png
+{"ok": true, "selector": "heading:3", "dpi": 150, "count": 1, "images": [{"page": 4, "bytes": 81234, "path": "section.png"}]}
+
+$ wordlive snapshot --page 1
+{"ok": true, "selector": 1, "dpi": 150, "count": 1, "images": [{"page": 1, "bytes": 64210, "base64": "iVBORw0KGgo…"}]}
+```
+
+Failures: `1` PyMuPDF isn't installed, or rasterising the PDF failed — a
+`SnapshotError`; `2` `--anchor-id` not found; `3` Word busy.
+
 ## `cursor read` / `cursor write --text "…"`
 
 ```
