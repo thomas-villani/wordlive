@@ -191,6 +191,20 @@ with wl.attach() as word:
 
 ::: wordlive.Snapshot
 
+## Constants
+
+`wordlive.constants` re-exports the typed `IntEnum` mirrors of the Word `Wd*`
+magic numbers wordlive uses internally (alignment, break types, wrap types,
+…). You rarely need these directly — the high-level API takes plain strings
+(`"center"`, `"page"`, `"square"`) and maps them — but they're available for
+`.com` escape-hatch code that talks to the raw object model.
+
+```python
+from wordlive import constants
+
+constants.WdParagraphAlignment.CENTER   # 1
+```
+
 ## Exceptions
 
 ::: wordlive.WordliveError

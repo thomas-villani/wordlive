@@ -112,9 +112,19 @@ working on any anchor via `--before`/`--after` and an explicit, opt-in cursor
 surface, `cursor read` / `cursor write`), and **image insertion**
 ([`anchor.insert_image(...)`](python-api.md#wordlive.Anchor) /
 `wordlive insert-image`, accepting a file path, raw bytes, or base64, with
-required `wrap`). wordlive also ships an LLM-facing **agent skill** —
-`wordlive install-skill` drops a `SKILL.md` into `.agents/skills/`. Next on the
-visual-content track: reading images back out for vision models, then
+required `wrap`), **table creation / deletion**
+([`Document.add_table`](python-api.md#wordlive.Document) /
+[`Anchor.insert_table`](python-api.md#wordlive.Anchor) / `Table.delete`),
+**page / column / section breaks**
+([`Anchor.insert_break`](python-api.md#wordlive.Anchor) and
+`format_paragraph(page_break_before=…)`), and **page / section rendering to
+PNG** for vision models ([`Document.snapshot`](python-api.md#snapshots) /
+[`Anchor.snapshot`](python-api.md#snapshots), via the optional `snapshot`
+extra). wordlive also ships an LLM-facing **agent skill** — `wordlive
+install-skill` drops a `SKILL.md` into `.agents/skills/` — and an **MCP server**
+(`wordlive-mcp`) that exposes the same surface as a handful of dispatch tools
+(see [MCP](mcp.md)). Next on the visual-content track: extracting embedded
+images back out for vision models, then
 Excel-backed charts; after that, event sinks (`WindowSelectionChange`,
 `DocumentBeforeSave`), an async wrapper around the sync core, and the deeper
 style cuts (character styles, theme-aware fonts).

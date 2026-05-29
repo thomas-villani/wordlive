@@ -73,7 +73,7 @@ is the active one).
 | Tool | What it does |
 | --- | --- |
 | `word_read` | Every read, dispatched on `command`: `status`, `outline`, `paragraphs`, `find`, `read_bookmark`, `read_cc`, `read_section`, `table_list`, `table_read`, `styles`, `comments`, `sections`. |
-| `word_write` | Every single atomic-undo edit, dispatched on `command`: `insert`, `append`, `prepend`, `replace`, `write_bookmark`, `write_cc`, `apply_style`, `format_paragraph`, `list`, `comment`, `table`, `header`, `footer`, `track`, `insert_image`. |
+| `word_write` | Every single atomic-undo edit, dispatched on `command`: `insert`, `insert_break`, `append`, `prepend`, `replace`, `write_bookmark`, `write_cc`, `apply_style`, `format_paragraph`, `list`, `comment`, `table` (`action` = `set_cell`/`add_row`/`delete_row`/`create`/`delete`), `header`, `footer`, `track`, `insert_image`. |
 | `word_exec` | Apply a batch of `ops` as a **single** atomic undo — the power tool for multi-step intents. |
 | `word_snapshot` | Render page(s) to PNG so the model can *see* the layout. Returns image content. Needs the `snapshot` extra. |
 

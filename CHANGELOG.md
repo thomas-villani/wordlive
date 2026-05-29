@@ -7,12 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Runnable example scripts under `examples/` (Python + PowerShell) and an
+  **Examples** docs page, linked from the README and getting-started.
+
 ### Changed
 - CI: bumped GitHub Actions off the deprecated Node 20 runtime to current
   Node 24 majors (`checkout` v6, `setup-python` v6, `setup-uv` v8,
   `upload-artifact` v7, `download-artifact` v8, `upload-pages-artifact` v5,
   `deploy-pages` v5).
 - Added this changelog.
+- Docs audit for v0.9.0: corrected the documented Python floor (3.10+), the
+  README exit-code list (added `5`), the MCP `word_write` command list (added
+  `insert_break`), the `design.md` roadmap (snapshot/MCP/tables/breaks shipped),
+  and populated the previously-empty `CLAUDE.md`.
 
 ## [0.9.0] — 2026-05-29
 

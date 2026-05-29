@@ -61,7 +61,7 @@ short string you pass as `--anchor-id`:
 ## Images
 ```
 wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP \
-    [--before | --after] [--width N] [--height N] [--alt-text "…"] [--no-lock-aspect]
+    [--before | --after] [--width N] [--height N] [--alt-text "…"] [--lock-aspect | --no-lock-aspect]
 ```
 - Supply the image as a file (`--path`) **or** base64 (`--base64`; use `--base64 -`
   to read base64 from stdin). Base64 is ideal when you hold image data in memory.

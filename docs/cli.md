@@ -938,7 +938,7 @@ $ wordlive header write --section 1 --text "ACME Corporation — Q2 Report"
 `--text` mode (`wordlive --text header read`) emits just the header text.
 Failures: `2` section out of range, `3` Word busy.
 
-## `exec` — `--script ops.json` or `--ops '{…}'`
+## `exec` — `--script ops.json` or `--ops '{…}'` { #exec-script-opsjson }
 
 ```
 wordlive exec (--script ops.json | --ops JSON | --ops -) [--doc DOC_NAME]
@@ -1152,7 +1152,7 @@ want coding tools to discover it on their own.
 ## `install-skill`
 
 ```
-wordlive install-skill [--system] [--force] [--doc DOC_NAME]
+wordlive install-skill [--system] [--force]
 ```
 
 Install the bundled **agent skill** (`SKILL.md`) so LLM coding tools can pick up
