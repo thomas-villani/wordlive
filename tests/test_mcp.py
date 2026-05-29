@@ -334,6 +334,21 @@ class TestSession:
         result = _call(go)
         assert result.isError is False
         assert any(getattr(c, "type", None) == "image" for c in result.content)
+        # The image rides in `content` ONLY. structured_output=False keeps FastMCP
+        # from inferring an output schema off `-> list[Any]` and re-serialising the
+        # base64 PNG into structuredContent — which would send every image twice.
+        assert result.structuredContent is None
+
+    def test_snapshot_tool_has_no_output_schema(self, fake_word: Any) -> None:
+        # Guards the structured_output=False on word_snapshot: an inferred schema
+        # is what double-encodes the image into structuredContent.
+        async def go() -> Any:
+            server = build_server(InlineWorker())._mcp_server
+            async with create_connected_server_and_client_session(server) as client:
+                tools = {t.name: t for t in (await client.list_tools()).tools}
+                return tools["word_snapshot"].outputSchema
+
+        assert _call(go) is None
 
 
 def test_json_error_payload_is_parseable(fake_word: Any) -> None:

@@ -1,7 +1,7 @@
 [project]
 name = "wordlive-mcpb"
-version = "0.10.0"
+version = "0.10.1"
 requires-python = ">=3.10"
 dependencies = [
-    "wordlive[mcp,snapshot]>=0.10.0",
+    "wordlive[mcp,snapshot]>=0.10.1",
 ]

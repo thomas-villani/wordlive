@@ -618,7 +618,13 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             raise _tool_error(exc, result=result)
         return result
 
-    @mcp.tool()
+    # structured_output=False: this tool returns MCP content blocks (image + text
+    # labels), not structured data. Without it FastMCP infers a wrapped output
+    # schema from the `-> list[Any]` annotation and *re-serialises every block —
+    # including the base64 PNG bytes — into structuredContent*, sending each image
+    # on the wire twice (a large, silent token cost on hosts that forward
+    # structuredContent). Suppressing the schema sends the image exactly once.
+    @mcp.tool(structured_output=False)
     def word_snapshot(
         doc: str | None = None,
         pages: str | None = None,
@@ -630,7 +636,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         Pick at most one target: `anchor` (the page(s) an anchor occupies — a
         heading expands to its whole section), or `pages` ("4" or "2-5"). With
         neither, the whole document renders. Returns image content (and a "page N"
-        label per page). Needs the snapshot extra (PyMuPDF).
+        label per page) inline, so a vision model sees the render directly — no
+        filesystem path that a remote/sandboxed host couldn't open. Needs the
+        snapshot extra (PyMuPDF).
         """
         try:
             rendered = _snapshot_impl(w, doc=doc, pages=pages, anchor=anchor, dpi=dpi)
