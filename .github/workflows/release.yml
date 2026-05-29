@@ -41,6 +41,38 @@ jobs:
           name: dist
           path: dist/
 
+  build-mcpb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verify the bundle version matches the tag
+        run: |
+          version=$(jq -r .version mcpb/manifest.json)
+          tag="${GITHUB_REF_NAME#v}"
+          echo "manifest version: $version"
+          echo "release tag:      $GITHUB_REF_NAME -> $tag"
+          if [ "$version" != "$tag" ]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' does not match mcpb/manifest.json version '$version'. Re-run bump-my-version or retag."
+            exit 1
+          fi
+
+      - name: Build the .mcpb bundle
+        working-directory: mcpb
+        run: |
+          npm install -g @anthropic-ai/mcpb
+          mcpb validate manifest.json
+          mcpb pack . wordlive.mcpb
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mcpb
+          path: mcpb/wordlive.mcpb
+
   pypi-publish:
     needs: build
     runs-on: ubuntu-latest
@@ -60,7 +92,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
 
   github-release:
-    needs: pypi-publish
+    needs: [pypi-publish, build-mcpb]
     runs-on: ubuntu-latest
     permissions:
       contents: write   # to create the Release and upload assets
@@ -70,6 +102,11 @@ jobs:
           name: dist
           path: dist/
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: mcpb
+          path: mcpb-dist/
+
       - name: Create GitHub Release from the tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -78,4 +115,4 @@ jobs:
           --repo "$GITHUB_REPOSITORY"
           --title "$GITHUB_REF_NAME"
           --generate-notes
-          dist/*
+          dist/* mcpb-dist/wordlive.mcpb
