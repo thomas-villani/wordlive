@@ -1283,7 +1283,7 @@ def table_delete_row(ctx: click.Context, table_index: int, row: int) -> None:
     "data",
     default=None,
     help="Row-major JSON 2-D array to populate cells "
-    "(e.g. '[[\"Name\",\"Qty\"],[\"Widget\",\"3\"]]'), or '-' to read it from "
+    '(e.g. \'[["Name","Qty"],["Widget","3"]]\'), or \'-\' to read it from '
     "stdin. Reading from stdin avoids quoting/backslash fights on Windows.",
 )
 @click.pass_context

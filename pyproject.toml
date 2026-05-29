@@ -115,3 +115,10 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["pymupdf", "fitz"]
 ignore_missing_imports = true
+
+# The MCP SDK is an optional extra (the `mcp` server) and isn't installed in the
+# lint environment; the server's lazy `from mcp.server.fastmcp import ...` (and
+# `mcp.types`) would otherwise trip import-not-found. Same policy as snapshot.
+[[tool.mypy.overrides]]
+module = ["mcp.*"]
+ignore_missing_imports = true
