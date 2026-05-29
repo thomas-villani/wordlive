@@ -100,6 +100,19 @@ class WordBusyError(WordliveError):
         self.retryable = True
 
 
+class OpError(WordliveError):
+    """A batch/exec op (or a single dispatched write) was malformed.
+
+    Raised for an unknown op kind, a missing required field, or a mutually
+    exclusive pair given together (e.g. both `path` and `base64` for an image).
+    It's a bad-input error — fix the request — so it maps to the generic exit
+    code (1), the same place `click.ClickException` used to land. Not retryable.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class ComError(WordliveError):
     """Generic wrapper for an unclassified pywintypes.com_error."""
 
@@ -162,3 +175,30 @@ def from_com_error(exc: Any) -> WordliveError:
     if hresult is not None and hresult in _BUSY_HRESULTS:
         return WordBusyError(message, hresult=hresult)
     return ComError(message, hresult=hresult, description=description)
+
+
+def classify(exc: WordliveError) -> tuple[str, bool]:
+    """Map a WordliveError to a stable `(code, retryable)` pair.
+
+    The single source of truth for how a failure is labelled to callers that
+    don't have CLI exit codes — notably the MCP server, which surfaces `code`
+    and `retryable` in its error payloads. The CLI's `_exit_for` mirrors this
+    same taxonomy (anchor_not_found → 2, ambiguous_match → 5, word_busy → 3,
+    word_not_running → 4, everything else → 1).
+
+    `isinstance` is checked subclass-first, so `StyleNotFoundError` resolves as
+    `anchor_not_found` (it subclasses `AnchorNotFoundError`), exactly like the
+    exit-code path. Unknown subclasses fall through to the generic `("error",
+    False)`.
+    """
+    if isinstance(exc, AnchorNotFoundError):
+        return "anchor_not_found", False
+    if isinstance(exc, AmbiguousMatchError):
+        return "ambiguous_match", True
+    if isinstance(exc, WordBusyError):
+        return "word_busy", True
+    if isinstance(exc, WordNotRunningError):
+        return "word_not_running", False
+    if isinstance(exc, DocumentNotFoundError):
+        return "document_not_found", False
+    return "error", False

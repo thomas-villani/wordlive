@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import base64
 import json
-from contextlib import nullcontext
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -13,16 +11,16 @@ import click
 
 from .. import attach
 from .._anchors import Heading
-from .._document import Document
-from ..exceptions import AmbiguousMatchError, WordliveError, WordNotRunningError
+from .._guide import bundled_skill as _bundled_skill
+from .._guide import strip_frontmatter as _strip_frontmatter
+from .._ops import OP_REQUIRED_FIELDS as _OP_REQUIRED_FIELDS  # noqa: F401  (back-compat re-export)
+from .._ops import apply_op as _apply_op  # noqa: F401  (back-compat re-export)
+from .._ops import op_before as _op_before  # noqa: F401  (back-compat re-export)
+from .._ops import pick_doc as _pick_doc
+from .._ops import run_batch as _run_batch
+from .._ops import validate_op as _validate_op  # noqa: F401  (back-compat re-export)
+from ..exceptions import AmbiguousMatchError, WordNotRunningError
 from .main import _run, emit
-
-
-def _pick_doc(word: Any, doc_name: str | None) -> Document:
-    if doc_name is None:
-        return word.documents.active
-    return word.documents[doc_name]
-
 
 # ---------------------------------------------------------------------------
 # Text formatters
@@ -1721,159 +1719,10 @@ def footer_write(ctx: click.Context, section_index: int, which: str, text: str) 
 # ---------------------------------------------------------------------------
 
 
-# Required fields per op kind. Validated up-front so a malformed payload
-# raises a clean click.ClickException ("exec op 'write_bookmark' requires
-# field 'name'") instead of a Python KeyError traceback that would land an
-# LLM tool-use loop on exit code 1 with no actionable signal.
-_OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
-    "write_bookmark": ("name", "text"),
-    "write_cc": ("name", "text"),
-    "insert_paragraph": ("anchor_id", "text"),
-    "append_paragraph": ("text",),
-    "append": ("text",),
-    "prepend_paragraph": ("text",),
-    "prepend": ("text",),
-    "insert_image": ("anchor_id", "wrap"),
-    "replace": ("anchor_id", "text"),
-    "find_replace": ("find", "text"),
-    "apply_style": ("anchor_id", "name"),
-    "format_paragraph": ("anchor_id",),
-    "set_cell": ("table", "row", "col", "text"),
-    "add_row": ("table",),
-    "delete_row": ("table", "row"),
-    "add_comment": ("anchor_id", "text"),
-    "resolve_comment": ("index",),
-    "delete_comment": ("index",),
-    "apply_list": ("anchor_id",),
-    "remove_list": ("anchor_id",),
-    "restart_numbering": ("anchor_id",),
-    "indent_list": ("anchor_id",),
-    "outdent_list": ("anchor_id",),
-    "write_header": ("section", "text"),
-    "write_footer": ("section", "text"),
-}
-
-
-def _op_before(op: dict[str, Any]) -> bool:
-    """Whether an insert op targets *before* its anchor (default: after).
-
-    Accepts either the verbose `"where": "before"|"after"` or the boolean
-    `"before": true` / `"after": true` — the latter mirrors the CLI's
-    `--before/--after` flags, so the natural JSON encoding works regardless of
-    which form an LLM reaches for. An explicit `"before"` wins if both appear.
-    """
-    if "before" in op:
-        return bool(op["before"])
-    if "after" in op:
-        return not bool(op["after"])
-    return op.get("where") == "before"
-
-
-def _validate_op(op: dict[str, Any]) -> str:
-    """Return the op kind after asserting it's known and required keys exist."""
-    if not isinstance(op, dict):
-        raise click.ClickException(f"each op must be an object; got {type(op).__name__}")
-    kind = op.get("op")
-    if kind is None:
-        raise click.ClickException("op is missing the 'op' field")
-    if kind not in _OP_REQUIRED_FIELDS:
-        raise click.ClickException(f"unknown op: {kind!r}")
-    missing = [k for k in _OP_REQUIRED_FIELDS[kind] if k not in op]
-    if missing:
-        raise click.ClickException(
-            f"op {kind!r} is missing required field(s): {', '.join(repr(m) for m in missing)}"
-        )
-    return kind
-
-
-def _apply_op(doc: Document, op: dict[str, Any]) -> None:
-    """Apply a single op from an exec script. Raises WordliveError on bad input."""
-    kind = _validate_op(op)
-    if kind == "write_bookmark":
-        doc.bookmarks[op["name"]].set_text(op["text"])
-    elif kind == "write_cc":
-        doc.content_controls[op["name"]].set_text(op["text"])
-    elif kind == "insert_paragraph":
-        anchor = doc.anchor_by_id(op["anchor_id"])
-        if _op_before(op):
-            anchor.insert_paragraph_before(op["text"], style=op.get("style"))
-        else:
-            anchor.insert_paragraph_after(op["text"], style=op.get("style"))
-    elif kind == "append_paragraph":
-        doc.append_paragraph(op["text"], style=op.get("style"))
-    elif kind == "append":
-        doc.append(op["text"])
-    elif kind == "prepend_paragraph":
-        doc.prepend_paragraph(op["text"], style=op.get("style"))
-    elif kind == "prepend":
-        doc.prepend(op["text"])
-    elif kind == "insert_image":
-        if ("path" in op) == ("base64" in op):
-            raise click.ClickException(
-                "op 'insert_image' requires exactly one of 'path' or 'base64'"
-            )
-        image: str | Path = Path(op["path"]) if "path" in op else op["base64"]
-        kwargs = {k: op[k] for k in ("width", "height", "alt_text", "lock_aspect") if k in op}
-        doc.anchor_by_id(op["anchor_id"]).insert_image(
-            image, wrap=op["wrap"], where=("before" if _op_before(op) else "after"), **kwargs
-        )
-    elif kind == "replace":
-        doc.anchor_by_id(op["anchor_id"]).set_text(op["text"])
-    elif kind == "find_replace":
-        scope = doc.anchor_by_id(op["in"]) if op.get("in") else None
-        doc.find_replace(
-            op["find"],
-            op["text"],
-            scope=scope,
-            all=bool(op.get("all", False)),
-            occurrence=op.get("occurrence"),
-        )
-    elif kind == "apply_style":
-        doc.anchor_by_id(op["anchor_id"]).apply_style(op["name"])
-    elif kind == "format_paragraph":
-        kwargs = {
-            k: op[k]
-            for k in (
-                "alignment",
-                "left_indent",
-                "right_indent",
-                "first_line_indent",
-                "space_before",
-                "space_after",
-            )
-            if k in op
-        }
-        doc.anchor_by_id(op["anchor_id"]).format_paragraph(**kwargs)
-    elif kind == "set_cell":
-        doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
-    elif kind == "add_row":
-        doc.tables[op["table"]].add_row(op.get("values"))
-    elif kind == "delete_row":
-        doc.tables[op["table"]].delete_row(op["row"])
-    elif kind == "add_comment":
-        anchor = doc.anchor_by_id(op["anchor_id"])
-        doc.comments.add(anchor, op["text"], author=op.get("author"))
-    elif kind == "resolve_comment":
-        doc.comments[op["index"]].resolve()
-    elif kind == "delete_comment":
-        doc.comments[op["index"]].delete()
-    elif kind == "apply_list":
-        continue_previous = bool(op.get("continue_previous", op.get("continue", False)))
-        doc.anchor_by_id(op["anchor_id"]).apply_list(
-            op.get("type", "bulleted"), continue_previous=continue_previous
-        )
-    elif kind == "remove_list":
-        doc.anchor_by_id(op["anchor_id"]).remove_list()
-    elif kind == "restart_numbering":
-        doc.anchor_by_id(op["anchor_id"]).restart_numbering()
-    elif kind == "indent_list":
-        doc.anchor_by_id(op["anchor_id"]).indent_list()
-    elif kind == "outdent_list":
-        doc.anchor_by_id(op["anchor_id"]).outdent_list()
-    elif kind == "write_header":
-        doc.sections[op["section"]].header(op.get("which", "primary")).set_text(op["text"])
-    elif kind == "write_footer":
-        doc.sections[op["section"]].footer(op.get("which", "primary")).set_text(op["text"])
+# The batch-op core (`_OP_REQUIRED_FIELDS`, `_validate_op`, `_apply_op`,
+# `_op_before`, `_run_batch`) now lives in `wordlive._ops` so the MCP server can
+# reuse it without importing Click. The names are re-imported above for any
+# existing callers; `exec` below drives the batch through `_run_batch`.
 
 
 @click.command(name="exec")
@@ -1940,38 +1789,19 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
 
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
-            ops_run = 0
-            failure_exc: WordliveError | None = None
-            failure_meta: dict[str, Any] | None = None
-            tracking = doc.tracked_changes() if tracked else nullcontext()
-            with tracking, doc.edit(label):
-                for i, op in enumerate(ops):
-                    try:
-                        _apply_op(doc, op)
-                    except WordliveError as exc:
-                        failure_exc = exc
-                        failure_meta = {
-                            "index": i,
-                            "op": op,
-                            "error": str(exc),
-                            "type": type(exc).__name__,
-                        }
-                        if isinstance(exc, AmbiguousMatchError):
-                            failure_meta["matches"] = exc.matches
-                        break
-                    ops_run += 1
+            result, failure_exc = _run_batch(doc, ops, label=label, tracked=tracked)
             if failure_exc is None:
                 emit(
-                    {"ok": True, "ops_run": ops_run, "label": label},
+                    result,
                     as_text=not ctx.obj["as_json"],
-                    text=f"applied {ops_run} op(s): {label!r}",
+                    text=f"applied {result['ops_run']} op(s): {label!r}",
                 )
             else:
-                assert failure_meta is not None  # set together with failure_exc
+                failure = result["failure"]
                 emit(
-                    {"ok": False, "ops_run": ops_run, "label": label, "failure": failure_meta},
+                    result,
                     as_text=not ctx.obj["as_json"],
-                    text=f"failed at op {failure_meta['index']}: {failure_meta['error']}",
+                    text=f"failed at op {failure['index']}: {failure['error']}",
                 )
                 # Re-raise the original so _run() maps it to the right exit code
                 # (e.g. anchor-not-found → 2, busy → 3, ambiguous → 5).
@@ -1983,26 +1813,6 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
 # ---------------------------------------------------------------------------
 # install-skill [--system] [--force]
 # ---------------------------------------------------------------------------
-
-
-def _bundled_skill() -> str:
-    """The packaged agent skill (SKILL.md) text."""
-    return (files("wordlive") / "_skill" / "SKILL.md").read_text(encoding="utf-8")
-
-
-def _strip_frontmatter(md: str) -> str:
-    """Drop a leading YAML frontmatter block (--- … ---), if present.
-
-    The bundled SKILL.md opens with `name:` / `description:` frontmatter for the
-    agent-skill loader. That metadata is noise when the doc is read straight off
-    stdout, so `llm-help` emits just the Markdown body.
-    """
-    lines = md.splitlines()
-    if lines and lines[0].strip() == "---":
-        for i in range(1, len(lines)):
-            if lines[i].strip() == "---":
-                return "\n".join(lines[i + 1 :]).lstrip("\n")
-    return md
 
 
 @click.command(name="llm-help")

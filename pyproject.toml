@@ -43,6 +43,9 @@ docs = [
     "mkdocstrings[python]>=0.26",
     "mkdocs-include-markdown-plugin>=6.2",
 ]
+mcp = [
+    "mcp>=1.2",
+]
 
 [project.scripts]
 wordlive = "wordlive.cli.main:main"

@@ -1,0 +1,232 @@
+"""Click-free batch-op core, shared by the CLI (`exec`) and the MCP server.
+
+`apply_op` applies one op dict to a document; `run_batch` wraps a list of them
+in a single atomic-undo (and optional Track Changes) scope. Both the CLI and the
+MCP `word_exec` tool funnel through here, so the op vocabulary, validation, and
+failure reporting stay identical across surfaces.
+
+This module deliberately imports no Click — malformed input raises `OpError`
+(generic exit code 1 / `code="error"`), which the CLI's `_run` and the MCP error
+wrapper both already handle.
+"""
+
+from __future__ import annotations
+
+from contextlib import nullcontext
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from .exceptions import AmbiguousMatchError, OpError, WordliveError
+
+if TYPE_CHECKING:
+    from ._app import Word
+    from ._document import Document
+
+
+def pick_doc(word: Word, doc_name: str | None) -> Document:
+    """Resolve the target document: the named one, or the active document."""
+    if doc_name is None:
+        return word.documents.active
+    return word.documents[doc_name]
+
+
+# Required fields per op kind. Validated up-front so a malformed payload raises a
+# clean OpError ("op 'write_bookmark' is missing required field(s): 'name'")
+# instead of a Python KeyError traceback that would land a tool-use loop on a
+# generic error with no actionable signal.
+OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "write_bookmark": ("name", "text"),
+    "write_cc": ("name", "text"),
+    "insert_paragraph": ("anchor_id", "text"),
+    "append_paragraph": ("text",),
+    "append": ("text",),
+    "prepend_paragraph": ("text",),
+    "prepend": ("text",),
+    "insert_image": ("anchor_id", "wrap"),
+    "replace": ("anchor_id", "text"),
+    "find_replace": ("find", "text"),
+    "apply_style": ("anchor_id", "name"),
+    "format_paragraph": ("anchor_id",),
+    "set_cell": ("table", "row", "col", "text"),
+    "add_row": ("table",),
+    "delete_row": ("table", "row"),
+    "add_comment": ("anchor_id", "text"),
+    "resolve_comment": ("index",),
+    "delete_comment": ("index",),
+    "apply_list": ("anchor_id",),
+    "remove_list": ("anchor_id",),
+    "restart_numbering": ("anchor_id",),
+    "indent_list": ("anchor_id",),
+    "outdent_list": ("anchor_id",),
+    "write_header": ("section", "text"),
+    "write_footer": ("section", "text"),
+}
+
+
+def op_before(op: dict[str, Any]) -> bool:
+    """Whether an insert op targets *before* its anchor (default: after).
+
+    Accepts either the verbose `"where": "before"|"after"` or the boolean
+    `"before": true` / `"after": true` — the latter mirrors the CLI's
+    `--before/--after` flags, so the natural JSON encoding works regardless of
+    which form an LLM reaches for. An explicit `"before"` wins if both appear.
+    """
+    if "before" in op:
+        return bool(op["before"])
+    if "after" in op:
+        return not bool(op["after"])
+    return op.get("where") == "before"
+
+
+def validate_op(op: dict[str, Any]) -> str:
+    """Return the op kind after asserting it's known and required keys exist."""
+    if not isinstance(op, dict):
+        raise OpError(f"each op must be an object; got {type(op).__name__}")
+    kind = op.get("op")
+    if kind is None:
+        raise OpError("op is missing the 'op' field")
+    if kind not in OP_REQUIRED_FIELDS:
+        raise OpError(f"unknown op: {kind!r}")
+    missing = [k for k in OP_REQUIRED_FIELDS[kind] if k not in op]
+    if missing:
+        raise OpError(
+            f"op {kind!r} is missing required field(s): {', '.join(repr(m) for m in missing)}"
+        )
+    return kind
+
+
+def apply_op(doc: Document, op: dict[str, Any]) -> None:
+    """Apply a single op from an exec batch. Raises WordliveError on bad input."""
+    kind = validate_op(op)
+    if kind == "write_bookmark":
+        doc.bookmarks[op["name"]].set_text(op["text"])
+    elif kind == "write_cc":
+        doc.content_controls[op["name"]].set_text(op["text"])
+    elif kind == "insert_paragraph":
+        anchor = doc.anchor_by_id(op["anchor_id"])
+        if op_before(op):
+            anchor.insert_paragraph_before(op["text"], style=op.get("style"))
+        else:
+            anchor.insert_paragraph_after(op["text"], style=op.get("style"))
+    elif kind == "append_paragraph":
+        doc.append_paragraph(op["text"], style=op.get("style"))
+    elif kind == "append":
+        doc.append(op["text"])
+    elif kind == "prepend_paragraph":
+        doc.prepend_paragraph(op["text"], style=op.get("style"))
+    elif kind == "prepend":
+        doc.prepend(op["text"])
+    elif kind == "insert_image":
+        if ("path" in op) == ("base64" in op):
+            raise OpError("op 'insert_image' requires exactly one of 'path' or 'base64'")
+        image: str | Path = Path(op["path"]) if "path" in op else op["base64"]
+        kwargs = {k: op[k] for k in ("width", "height", "alt_text", "lock_aspect") if k in op}
+        doc.anchor_by_id(op["anchor_id"]).insert_image(
+            image, wrap=op["wrap"], where=("before" if op_before(op) else "after"), **kwargs
+        )
+    elif kind == "replace":
+        doc.anchor_by_id(op["anchor_id"]).set_text(op["text"])
+    elif kind == "find_replace":
+        scope = doc.anchor_by_id(op["in"]) if op.get("in") else None
+        doc.find_replace(
+            op["find"],
+            op["text"],
+            scope=scope,
+            all=bool(op.get("all", False)),
+            occurrence=op.get("occurrence"),
+        )
+    elif kind == "apply_style":
+        doc.anchor_by_id(op["anchor_id"]).apply_style(op["name"])
+    elif kind == "format_paragraph":
+        kwargs = {
+            k: op[k]
+            for k in (
+                "alignment",
+                "left_indent",
+                "right_indent",
+                "first_line_indent",
+                "space_before",
+                "space_after",
+            )
+            if k in op
+        }
+        doc.anchor_by_id(op["anchor_id"]).format_paragraph(**kwargs)
+    elif kind == "set_cell":
+        doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
+    elif kind == "add_row":
+        doc.tables[op["table"]].add_row(op.get("values"))
+    elif kind == "delete_row":
+        doc.tables[op["table"]].delete_row(op["row"])
+    elif kind == "add_comment":
+        anchor = doc.anchor_by_id(op["anchor_id"])
+        doc.comments.add(anchor, op["text"], author=op.get("author"))
+    elif kind == "resolve_comment":
+        doc.comments[op["index"]].resolve()
+    elif kind == "delete_comment":
+        doc.comments[op["index"]].delete()
+    elif kind == "apply_list":
+        continue_previous = bool(op.get("continue_previous", op.get("continue", False)))
+        doc.anchor_by_id(op["anchor_id"]).apply_list(
+            op.get("type", "bulleted"), continue_previous=continue_previous
+        )
+    elif kind == "remove_list":
+        doc.anchor_by_id(op["anchor_id"]).remove_list()
+    elif kind == "restart_numbering":
+        doc.anchor_by_id(op["anchor_id"]).restart_numbering()
+    elif kind == "indent_list":
+        doc.anchor_by_id(op["anchor_id"]).indent_list()
+    elif kind == "outdent_list":
+        doc.anchor_by_id(op["anchor_id"]).outdent_list()
+    elif kind == "write_header":
+        doc.sections[op["section"]].header(op.get("which", "primary")).set_text(op["text"])
+    elif kind == "write_footer":
+        doc.sections[op["section"]].footer(op.get("which", "primary")).set_text(op["text"])
+
+
+def run_batch(
+    doc: Document,
+    ops: list[dict[str, Any]],
+    *,
+    label: str,
+    tracked: bool = False,
+) -> tuple[dict[str, Any], WordliveError | None]:
+    """Apply `ops` to `doc` in one atomic-undo (and optional tracked) scope.
+
+    Stops at the first failing op, recording a `failure` dict (its index, the op,
+    the error message and type, plus `matches` for an ambiguous find).
+
+    Returns `(result, failure_exc)`:
+      - `result` is `{"ok", "ops_run", "label", "failure"?}`, always present and
+        JSON-serialisable — the payload to emit/return verbatim.
+      - `failure_exc` is the original `WordliveError` on failure, else `None`, so
+        the caller can map it to the right CLI exit code or MCP error code
+        (re-raise it after emitting `result`).
+
+    The successful prefix of ops still rolls back as one undo step.
+    """
+    ops_run = 0
+    failure_exc: WordliveError | None = None
+    failure_meta: dict[str, Any] | None = None
+    tracking = doc.tracked_changes() if tracked else nullcontext()
+    with tracking, doc.edit(label):
+        for i, op in enumerate(ops):
+            try:
+                apply_op(doc, op)
+            except WordliveError as exc:
+                failure_exc = exc
+                failure_meta = {
+                    "index": i,
+                    "op": op,
+                    "error": str(exc),
+                    "type": type(exc).__name__,
+                }
+                if isinstance(exc, AmbiguousMatchError):
+                    failure_meta["matches"] = exc.matches
+                break
+            ops_run += 1
+
+    if failure_exc is None:
+        return {"ok": True, "ops_run": ops_run, "label": label}, None
+
+    assert failure_meta is not None  # set together with failure_exc
+    return {"ok": False, "ops_run": ops_run, "label": label, "failure": failure_meta}, failure_exc

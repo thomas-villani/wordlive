@@ -78,6 +78,7 @@ nav:
   - Concepts: concepts.md
   - Python API: python-api.md
   - CLI: cli.md
+  - MCP server: mcp.md
   - Cookbook: cookbook.md
   - Errors & exit codes: errors.md
   - Design: design.md

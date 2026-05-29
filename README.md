@@ -155,6 +155,26 @@ wordlive install-skill            # ./.agents/skills/wordlive/SKILL.md
 wordlive install-skill --system   # ~/.agents/skills/wordlive/SKILL.md
 ```
 
+## MCP server (Claude Desktop & other agents)
+
+Prefer MCP? `wordlive` ships a server so Claude Desktop and other MCP clients can
+drive your open document directly:
+
+```
+pip install "wordlive[mcp,snapshot]"   # snapshot extra adds the vision tool
+```
+
+Register it in `claude_desktop_config.json`:
+
+```json
+{ "mcpServers": { "wordlive": { "command": "wordlive-mcp" } } }
+```
+
+It exposes four dispatch tools — `word_read`, `word_write`, `word_exec`, and
+`word_snapshot` (which returns a rendered page as an image) — plus a
+`wordlive://guide` resource with the full op reference. Word must be running on the
+same Windows machine. See [docs/mcp.md](https://thomas-villani.github.io/wordlive/mcp/).
+
 ## Design
 
 - **Politeness first** — operations preserve the user's `Selection`, view, and
