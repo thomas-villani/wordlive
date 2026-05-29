@@ -1154,19 +1154,23 @@ want coding tools to discover it on their own.
 ## `install-skill`
 
 ```
-wordlive install-skill [--cli | --python] [--system] [--force]
+wordlive install-skill [--cli | --python | --both] [--system] [--force]
 ```
 
 Install wordlive's bundled **agent skills** so LLM coding tools can pick up how
 to drive it. wordlive ships two: `wordlive-cli` (the command-line workflow) and
-`wordlive-python` (the `import wordlive as wl` API). **Both** are installed by
-default; pass `--cli` or `--python` for just one. They land under the current
-project at `./.agents/skills/<name>/SKILL.md` (or `~/.agents/skills/<name>/` with
-`--system`). Offline — it never touches Word, and refuses to clobber an existing
-file unless you pass `--force`.
+`wordlive-python` (the `import wordlive as wl` API). By default only the **CLI**
+skill is installed; pass `--python` for just the Python one, or `--both` for
+both. They land under the current project at `./.agents/skills/<name>/SKILL.md`
+(or `~/.agents/skills/<name>/` with `--system`). Offline — it never touches
+Word, and refuses to clobber an existing file unless you pass `--force`.
 
 ```bash
 $ wordlive install-skill
+{"ok": true, "scope": "local", "installed": [
+  {"kind": "cli", "name": "wordlive-cli", "path": ".../.agents/skills/wordlive-cli/SKILL.md", "bytes": 6172}]}
+
+$ wordlive install-skill --both
 {"ok": true, "scope": "local", "installed": [
   {"kind": "cli",    "name": "wordlive-cli",    "path": ".../.agents/skills/wordlive-cli/SKILL.md",    "bytes": 6172},
   {"kind": "python", "name": "wordlive-python", "path": ".../.agents/skills/wordlive-python/SKILL.md", "bytes": 7460}]}

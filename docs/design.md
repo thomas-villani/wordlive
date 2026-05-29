@@ -120,10 +120,11 @@ required `wrap`), **table creation / deletion**
 `format_paragraph(page_break_before=…)`), and **page / section rendering to
 PNG** for vision models ([`Document.snapshot`](python-api.md#snapshots) /
 [`Anchor.snapshot`](python-api.md#snapshots), via the optional `snapshot`
-extra). wordlive also ships an LLM-facing **agent skill** — `wordlive
-install-skill` drops a `SKILL.md` into `.agents/skills/` — and an **MCP server**
-(`wordlive-mcp`) that exposes the same surface as a handful of dispatch tools
-(see [MCP](mcp.md)). Next on the visual-content track: extracting embedded
+extra). wordlive also ships two LLM-facing **agent skills** — a CLI guide and an
+`import wordlive as wl` Python guide that `wordlive install-skill` drops into
+`.agents/skills/` — and an **MCP server** (`wordlive-mcp`, registered with
+`wordlive install-mcp` or the one-click `.mcpb` bundle) that exposes the same
+surface as a handful of dispatch tools (see [MCP](mcp.md)). Next on the visual-content track: extracting embedded
 images back out for vision models, then
 Excel-backed charts; after that, event sinks (`WindowSelectionChange`,
 `DocumentBeforeSave`), an async wrapper around the sync core, and the deeper

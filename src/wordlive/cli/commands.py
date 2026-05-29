@@ -2020,9 +2020,18 @@ def llm_help_cmd(python: bool) -> None:
 
 
 @click.command(name="install-skill")
-@click.option("--cli", "cli", is_flag=True, default=False, help="Install only the CLI skill.")
+@click.option(
+    "--cli", "cli", is_flag=True, default=False, help="Install the CLI skill (the default)."
+)
 @click.option(
     "--python", "python", is_flag=True, default=False, help="Install only the Python-API skill."
+)
+@click.option(
+    "--both",
+    "both",
+    is_flag=True,
+    default=False,
+    help="Install both the CLI and Python-API skills.",
 )
 @click.option(
     "--system",
@@ -2036,22 +2045,23 @@ def llm_help_cmd(python: bool) -> None:
 )
 @click.pass_context
 def install_skill_cmd(
-    ctx: click.Context, cli: bool, python: bool, system: bool, force: bool
+    ctx: click.Context, cli: bool, python: bool, both: bool, system: bool, force: bool
 ) -> None:
-    """Install wordlive's agent skills (SKILL.md) for LLM coding tools.
+    """Install wordlive's agent skill(s) (SKILL.md) for LLM coding tools.
 
     wordlive ships two skills — `wordlive-cli` (the command-line workflow) and
-    `wordlive-python` (the `import wordlive as wl` API). By default both are
-    written under `.agents/skills/<name>/SKILL.md`; pass `--cli` or `--python`
-    for just one. They land under the current directory (default) or your home
-    directory (`--system`). Offline — this doesn't touch Word.
+    `wordlive-python` (the `import wordlive as wl` API). By default only the
+    **CLI** skill is installed; pass `--python` for just the Python one, or
+    `--both` for both. They land under `.agents/skills/<name>/SKILL.md` in the
+    current directory (default) or your home directory (`--system`). Offline —
+    this doesn't touch Word.
     """
-    if cli and not python:
-        kinds = ["cli"]
-    elif python and not cli:
+    if both or (cli and python):
+        kinds = ["cli", "python"]
+    elif python:
         kinds = ["python"]
     else:
-        kinds = ["cli", "python"]
+        kinds = ["cli"]
 
     base = Path.home() if system else Path.cwd()
     scope = "system" if system else "local"

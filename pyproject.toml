@@ -3,8 +3,10 @@ name = "wordlive"
 version = "0.9.0"
 description = "Drive a running Microsoft Word instance from Python — xlwings, but for Word, and LLM-friendly."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
-    { name = "Thomas.Villani", email = "thomas.villani@gmail.com" }
+    { name = "Tom Villani, Ph.D.", email = "thomas.villani@gmail.com" }
 ]
 requires-python = ">=3.10"
 classifiers = [

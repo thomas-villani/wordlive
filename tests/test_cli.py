@@ -1748,19 +1748,31 @@ def test_llm_help_matches_installed_skill_body(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_install_skill_installs_both_by_default(tmp_path: Path, monkeypatch):
+def test_install_skill_installs_cli_by_default(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     code, out, _ = _invoke(["install-skill"])
     assert code == EXIT_OK
     data = json.loads(out)
     assert data["ok"] is True
     assert data["scope"] == "local"
+    assert [r["name"] for r in data["installed"]] == ["wordlive-cli"]
+    cli = tmp_path / ".agents" / "skills" / "wordlive-cli" / "SKILL.md"
+    assert cli.exists()
+    assert "name: wordlive-cli" in cli.read_text(encoding="utf-8")
+    # Python skill is NOT installed unless asked for.
+    assert not (tmp_path / ".agents" / "skills" / "wordlive-python").exists()
+
+
+def test_install_skill_both(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = _invoke(["install-skill", "--both"])
+    assert code == EXIT_OK
+    data = json.loads(out)
     names = {r["name"] for r in data["installed"]}
     assert names == {"wordlive-cli", "wordlive-python"}
     cli = tmp_path / ".agents" / "skills" / "wordlive-cli" / "SKILL.md"
     py = tmp_path / ".agents" / "skills" / "wordlive-python" / "SKILL.md"
     assert cli.exists() and py.exists()
-    assert "name: wordlive-cli" in cli.read_text(encoding="utf-8")
     assert "name: wordlive-python" in py.read_text(encoding="utf-8")
 
 

@@ -155,6 +155,9 @@ see [Cookbook §3](cookbook.md#3-add-text-to-a-document).
   drop straight onto an open document.
 - [Python API](python-api.md) — auto-generated reference for every public
   symbol.
-- **Driving an LLM agent?** Run `wordlive install-skill` to drop a `SKILL.md`
-  into `./.agents/skills/` (or `--system` for `~/.agents/skills/`) so your
-  coding tool picks up the CLI. See [CLI §install-skill](cli.md#install-skill).
+- **Driving an LLM agent?** Run `wordlive install-skill` to drop the CLI skill
+  (`--both` adds the `import wordlive as wl` Python skill) into
+  `./.agents/skills/` — or `--system` for `~/.agents/skills/`. To wire up MCP
+  instead, `wordlive install-mcp` registers the server with Claude Desktop or
+  Claude Code. See [CLI §install-skill](cli.md#install-skill) and
+  [MCP](mcp.md).

@@ -15,6 +15,7 @@
     "type": "git",
     "url": "https://github.com/thomas-villani/wordlive"
   },
+  "license": "MIT",
   "keywords": ["word", "docx", "com-automation", "documents", "wordlive"],
   "server": {
     "type": "uv",

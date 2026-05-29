@@ -156,11 +156,13 @@ wordlive llm-help --python        # the Python-API guide
 ```
 
 Or drop the skill files into a project or your home directory so coding tools
-discover them on their own (both by default; `--cli` / `--python` for one):
+discover them on their own (CLI skill by default; `--python` for just Python,
+`--both` for both):
 
 ```
-wordlive install-skill            # ./.agents/skills/wordlive-{cli,python}/SKILL.md
-wordlive install-skill --system   # ~/.agents/skills/wordlive-{cli,python}/SKILL.md
+wordlive install-skill            # ./.agents/skills/wordlive-cli/SKILL.md
+wordlive install-skill --both     # also drops wordlive-python/SKILL.md
+wordlive install-skill --system   # into ~/.agents/skills/ instead
 ```
 
 ## MCP server (Claude Desktop & other agents)
