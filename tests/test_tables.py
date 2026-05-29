@@ -331,7 +331,9 @@ def test_exec_create_table_reports_index(fake_word):
 def test_exec_delete_table(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active
-        run_batch(doc, [{"op": "create_table", "anchor_id": "end", "rows": 1, "cols": 1}], label="c")
+        run_batch(
+            doc, [{"op": "create_table", "anchor_id": "end", "rows": 1, "cols": 1}], label="c"
+        )
         assert len(doc.tables) == 2
         result, exc = run_batch(doc, [{"op": "delete_table", "table": 2}], label="d")
     assert exc is None
