@@ -173,10 +173,14 @@ class WdExportRange(IntEnum):
 
 
 class WdInformation(IntEnum):
-    """`Range.Information(...)` selectors — only the page-number query is used.
+    """`Range.Information(...)` selectors.
 
     `ACTIVE_END_PAGE_NUMBER` returns the 1-based page a (collapsed) range falls
     on, which is how an anchor is mapped to the page(s) a snapshot should render.
+    `WITH_IN_TABLE` is True when the range sits inside a table — used when
+    inserting a new table to detect (and separate) an adjacent table that Word
+    would otherwise silently merge into.
     """
 
     ACTIVE_END_PAGE_NUMBER = 3
+    WITH_IN_TABLE = 12

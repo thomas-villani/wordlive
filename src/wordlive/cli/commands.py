@@ -1185,6 +1185,116 @@ def table_delete_row(ctx: click.Context, table_index: int, row: int) -> None:
     _run(ctx, go)
 
 
+@table.command(name="create")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Position anchor for the new table (heading:/para:/start/end/range:…).",
+)
+@click.option("--rows", "rows", type=int, required=True, help="Number of rows (>= 1).")
+@click.option("--cols", "cols", type=int, required=True, help="Number of columns (>= 1).")
+@click.option(
+    "--style",
+    "style",
+    default=None,
+    help="Table style name (default: the built-in 'Table Grid', so borders show).",
+)
+@click.option(
+    "--header/--no-header",
+    "header",
+    default=False,
+    show_default=True,
+    help="Bold the first row as a header.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
+@click.option(
+    "--data",
+    "data",
+    default=None,
+    help="Row-major JSON 2-D array to populate cells "
+    "(e.g. '[[\"Name\",\"Qty\"],[\"Widget\",\"3\"]]'), or '-' to read it from "
+    "stdin. Reading from stdin avoids quoting/backslash fights on Windows.",
+)
+@click.pass_context
+def table_create(
+    ctx: click.Context,
+    anchor_id: str,
+    rows: int,
+    cols: int,
+    style: str | None,
+    header: bool,
+    before: bool,
+    data: str | None,
+) -> None:
+    """Create a ROWS x COLS table at an anchor (atomic-undo).
+
+    Builds new table structure where wordlive's other verbs only edit existing
+    structure. Fill cells at creation with --data (a row-major JSON array, or
+    '--data -' to read it from stdin); a short array leaves trailing cells
+    empty. --style defaults to 'Table Grid' (visible borders); a style name not
+    defined in the document raises (exit 2). Reports the new table's 1-based
+    index for a follow-up `table set-cell` / `add-row`.
+    """
+    parsed: list[Any] | None = None
+    if data is not None:
+        raw = click.get_text_stream("stdin").read() if data == "-" else data
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise click.UsageError(f"--data must be a JSON 2-D array: {e}") from e
+        if not isinstance(parsed, list):
+            raise click.UsageError("--data must be a JSON array of rows")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: create {rows}x{cols} table at {anchor_id}"):
+                t = anchor.insert_table(
+                    rows,
+                    cols,
+                    where=("before" if before else "after"),
+                    style=style,
+                    data=parsed,
+                    header=header,
+                )
+            emit(
+                {"ok": True, "table": t.index, "rows": t.row_count, "columns": t.column_count},
+                as_text=not ctx.obj["as_json"],
+                text=f"created table:{t.index} ({t.row_count}x{t.column_count}) at {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="delete")
+@click.argument("index", type=int)
+@click.pass_context
+def table_delete(ctx: click.Context, index: int) -> None:
+    """Delete table INDEX (1-based) and all its cells (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[index]  # AnchorNotFoundError (exit 2) if missing
+            with doc.edit(f"CLI: delete table {index}"):
+                t.delete()
+            emit(
+                {"ok": True, "deleted": index},
+                as_text=not ctx.obj["as_json"],
+                text=f"deleted table:{index}",
+            )
+
+    _run(ctx, go)
+
+
 # ---------------------------------------------------------------------------
 # comment list | add | resolve | delete
 # ---------------------------------------------------------------------------
@@ -1755,9 +1865,10 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     to its prior state afterwards).
     Supported ops: write_bookmark, write_cc, insert_paragraph, append_paragraph,
     append, prepend_paragraph, prepend, insert_image, replace, find_replace,
-    apply_style, format_paragraph, set_cell, add_row, delete_row, add_comment,
-    resolve_comment, delete_comment, apply_list, remove_list, restart_numbering,
-    indent_list, outdent_list, write_header, write_footer.
+    apply_style, format_paragraph, set_cell, add_row, delete_row, create_table,
+    delete_table, add_comment, resolve_comment, delete_comment, apply_list,
+    remove_list, restart_numbering, indent_list, outdent_list, write_header,
+    write_footer.
     See docs/cli.md for each op's required and optional fields.
     """
     if (script is None) == (ops_inline is None):

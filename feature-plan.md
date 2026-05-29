@@ -87,7 +87,9 @@ Two parallel tracks; each is its own PR.
 - **Resolved:** bookmarks inside cells round-trip through `set_text` — covered
   by an E2E test (`t_bookmark_in_cell_roundtrip`).
 - Deferred: merged/split-cell grids (cell addressing assumes rectangular),
-  cell-level `add_column`/`delete_column`, table creation/deletion.
+  cell-level `add_column`/`delete_column`. **Table creation/deletion promoted to
+  v0.12** — the 2026-05 agent test proved it's a hard blocker for building a
+  document from a blank page, not a nicety.
 
 ---
 
@@ -299,6 +301,79 @@ heavier than images on two axes: a new dependency and a much larger surface.
 
 ---
 
+## v0.12 — document construction: tables & breaks
+
+**Highest-priority remaining item despite the number** — promoted out of the
+v0.4 "deferred" line by the 2026-05 agent test (build a styled multi-page
+service catalogue from a blank document). That test proved the shape of the gap:
+every verb wordlive has *edits existing structure*, but you cannot **create a
+table** or **force a page break** from nothing. Both are table stakes for the
+"generate a document" workflow — reports, catalogues, templates — which is now a
+first-class use case (`snapshot` + the MCP server shipped specifically to
+support it). Do the breaks first (tiny), then tables.
+
+### Page & section breaks — first-class, not the `\f` hack
+
+The agent test got 7-page layout only by appending paragraphs whose text was a
+literal form-feed (`\f`, which Word reads as `Chr(12)` = a manual page break).
+It works but is undiscoverable, undocumented, and leaves a stray empty paragraph
+at each break.
+
+- **`format_paragraph(page_break_before=True)`** — the *clean* primitive: make
+  every `Heading 1` open a new page via the paragraph property (survives reflow,
+  no stray paragraph). Add as a new key on the existing `format_paragraph`
+  surface + the `format_paragraph` exec op + a CLI flag.
+- **`anchor.insert_break(kind="page" | "column" | "section_next" | "section_continuous")`**
+  → `Range.InsertBreak(Type=wd*Break)`, for explicit one-off breaks. Page is the
+  90% case; section breaks pair with the v0.6 `doc.sections` work and unblock
+  per-section headers/footers and page setup.
+- New `WdBreakType` subset in `constants.py` (internal, not exported — mirrors
+  `WdStyleType` / the `XlChartType` plan).
+- **exec op:** `insert_break` (anchor_id, kind, before?). Small enough to land
+  on its own in a day.
+
+### Table creation / deletion — ✅ shipped
+
+- ~~**`doc.add_table(rows, cols, *, style=None, data=None, header=False)`** plus
+  **`anchor.insert_table(rows, cols, *, where="after", …)`** — `Tables.Add(Range,
+  NumRows, NumColumns)` at the resolved range, then `.Style`, then populate.
+  Returns the v0.4 `Table` wrapper so create → fill → read closes on one
+  object.~~ ✅ — `insert_table` lives on the base `Anchor` (every position
+  anchor gets it for free); `add_table` is sugar for `self.end.insert_table(...)`.
+- ~~**`Table.delete()`** — the missing mirror of v0.4's `add_row` /
+  `delete_row`.~~ ✅
+- ~~**Populate at creation.** `data` is a row-major 2-D list, validated against
+  `rows × cols` up front so a wrong shape is a clean `OpError`. `header=True`
+  styles row 1.~~ ✅ — validation *allows underfill* (short/partial `data`
+  leaves trailing cells empty, matching `add_row`) and rejects only overflow,
+  which is the case that would otherwise blow up mid-insert. `header=True` bolds
+  row 1 (shading deferred — bold reads as a header and needs no constant).
+- ~~**Anchoring.** Creation takes a *position* anchor through `anchor_by_id`;
+  the bare `table:N` continues to address existing tables. The op reports the
+  new table's 1-based index.~~ ✅ — the index is reported on the CLI/MCP single
+  call, and a successful `exec` batch now carries an **`outputs`** array
+  (`{index, op, table, rows, columns}` per structure-creating op), since
+  `run_batch` previously discarded per-op results.
+- ~~**exec ops:** `create_table` / `delete_table`.~~ ✅
+- ~~**CLI:** `wordlive table create … [--data -]` and `wordlive table
+  delete N`.~~ ✅
+- **Decisions made during build:** `style=None` → built-in **`Table Grid`**
+  (visible borders beat invisible gridlines for a thing called "a table"; falls
+  back to no style only if the doc somehow lacks it). AutoFit left at Word's
+  default (fixed column widths) — a fit-window/fit-content policy is a later
+  polish, not a blocker.
+- **Discovered during the live smoke test — adjacent tables merge.** Word
+  *silently fuses* two tables that touch with no paragraph mark between them, so
+  appending a second table at the end (or dropping one beside another) merged
+  them into a single ragged grid. `insert_table` now probes
+  `Range.Information(wdWithInTable)` on each side of the insertion point and
+  drops a separator paragraph wherever it abuts an existing table; ordinary
+  insertions into body text get no stray paragraph. This is the kind of bug only
+  a real-Word run surfaces — the mock can't model the merge.
+- **Deferred (unchanged):** merged/split cells, `add_column` / `delete_column`.
+
+---
+
 ## v0.11+ — defer
 
 - **Events / sinks** — `WithEvents(word.com, Handler)` for
@@ -322,4 +397,27 @@ heavier than images on two axes: a new dependency and a much larger surface.
   bookmarks / CCs / headings / tables, so smoke tests have a known target.
 - **Docs** — `spec.md` is the design doc; a separate `cookbook.md` of
   end-to-end LLM-tool examples is probably more useful than API reference
-  docs at this stage.
+  docs at this stage. The 2026-05 agent-test build (blank doc → styled
+  multi-page catalogue) is a ready-made cookbook entry.
+
+### Papercuts found in the 2026-05 agent test
+
+- **Relative image paths fail.** `insert_image --path foo.png` errors with COM
+  `0x80020009` ("This is not a valid file name") whenever the path is relative,
+  because `InlineShapes.AddPicture` resolves it against *Word's* working
+  directory, not the CLI's. Fix: `Path(p).resolve()` (or resolve against CWD)
+  before handing the path to COM. Pure papercut, no API change — and a likely
+  silent foot-gun for every agent that passes a relative path.
+- **`heading:N` is mis-described in the agent guide.** `SKILL.md` / `llm-help`
+  call it "the Nth heading (1-based)", but the id is actually the *paragraph
+  index* restricted to headings — so the first heading can be `heading:7`. The
+  library docstrings (`_anchors.py`, `_document.py`) already say this correctly;
+  the agent-facing copy lies. Reword to "the Nth *paragraph*, which must be a
+  heading — same index space as `para:N`". `outline` emits the right ids, so
+  copy-don't-compute already works; the fix is purely to stop agents expecting
+  `heading:1` for the first heading.
+- **Inline JSON vs. Windows paths.** `exec --ops '{…}'` with backslash paths
+  mangles reliably under PowerShell quoting + JSON escaping. The guide already
+  documents `--ops -` (stdin) for large payloads; add a one-line note that
+  path-bearing batches should use `--script FILE` or `--ops -` to dodge
+  shell-escaping entirely.

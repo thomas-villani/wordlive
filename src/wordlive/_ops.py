@@ -50,6 +50,8 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "set_cell": ("table", "row", "col", "text"),
     "add_row": ("table",),
     "delete_row": ("table", "row"),
+    "create_table": ("anchor_id", "rows", "cols"),
+    "delete_table": ("table",),
     "add_comment": ("anchor_id", "text"),
     "resolve_comment": ("index",),
     "delete_comment": ("index",),
@@ -95,8 +97,13 @@ def validate_op(op: dict[str, Any]) -> str:
     return kind
 
 
-def apply_op(doc: Document, op: dict[str, Any]) -> None:
-    """Apply a single op from an exec batch. Raises WordliveError on bad input."""
+def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
+    """Apply a single op from an exec batch. Raises WordliveError on bad input.
+
+    Most ops return `None`. Ops that *create* addressable structure return a
+    small result dict so the batch can report it — `create_table` returns
+    `{"table": N, "rows": R, "columns": C}` for the new table's 1-based index.
+    """
     kind = validate_op(op)
     if kind == "write_bookmark":
         doc.bookmarks[op["name"]].set_text(op["text"])
@@ -157,6 +164,18 @@ def apply_op(doc: Document, op: dict[str, Any]) -> None:
         doc.tables[op["table"]].add_row(op.get("values"))
     elif kind == "delete_row":
         doc.tables[op["table"]].delete_row(op["row"])
+    elif kind == "create_table":
+        anchor = doc.anchor_by_id(op["anchor_id"])
+        kwargs = {k: op[k] for k in ("style", "data", "header") if k in op}
+        table = anchor.insert_table(
+            int(op["rows"]),
+            int(op["cols"]),
+            where=("before" if op_before(op) else "after"),
+            **kwargs,
+        )
+        return {"table": table.index, "rows": table.row_count, "columns": table.column_count}
+    elif kind == "delete_table":
+        doc.tables[op["table"]].delete()
     elif kind == "add_comment":
         anchor = doc.anchor_by_id(op["anchor_id"])
         doc.comments.add(anchor, op["text"], author=op.get("author"))
@@ -181,6 +200,9 @@ def apply_op(doc: Document, op: dict[str, Any]) -> None:
         doc.sections[op["section"]].header(op.get("which", "primary")).set_text(op["text"])
     elif kind == "write_footer":
         doc.sections[op["section"]].footer(op.get("which", "primary")).set_text(op["text"])
+    # Only the structure-creating ops (create_table) return early with a result
+    # dict; every other op falls through here and reports nothing.
+    return None
 
 
 def run_batch(
@@ -205,13 +227,14 @@ def run_batch(
     The successful prefix of ops still rolls back as one undo step.
     """
     ops_run = 0
+    outputs: list[dict[str, Any]] = []
     failure_exc: WordliveError | None = None
     failure_meta: dict[str, Any] | None = None
     tracking = doc.tracked_changes() if tracked else nullcontext()
     with tracking, doc.edit(label):
         for i, op in enumerate(ops):
             try:
-                apply_op(doc, op)
+                out = apply_op(doc, op)
             except WordliveError as exc:
                 failure_exc = exc
                 failure_meta = {
@@ -223,10 +246,17 @@ def run_batch(
                 if isinstance(exc, AmbiguousMatchError):
                     failure_meta["matches"] = exc.matches
                 break
+            if out is not None:
+                outputs.append({"index": i, "op": op.get("op"), **out})
             ops_run += 1
 
     if failure_exc is None:
-        return {"ok": True, "ops_run": ops_run, "label": label}, None
+        result: dict[str, Any] = {"ok": True, "ops_run": ops_run, "label": label}
+        if outputs:
+            # Only on success: a failed batch rolls back as one undo step, so
+            # any structure a prior op created no longer exists to report.
+            result["outputs"] = outputs
+        return result, None
 
     assert failure_meta is not None  # set together with failure_exc
     return {"ok": False, "ops_run": ops_run, "label": label, "failure": failure_meta}, failure_exc

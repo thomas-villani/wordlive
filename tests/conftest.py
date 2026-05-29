@@ -275,14 +275,33 @@ class _FakeTable:
     stripping path in `Cell.text` gets exercised.
     """
 
-    def __init__(self, grid: list[list[str]], title: str = "") -> None:
+    def __init__(
+        self,
+        grid: list[list[str]],
+        title: str = "",
+        *,
+        start: int = 0,
+        owner: Any | None = None,
+    ) -> None:
         self.Title = title
+        self.Style: Any = None
+        self._start = start
+        self._owner = owner
         self._rows = [[self._mk_cell_range(text) for text in row] for row in grid]
 
     @staticmethod
     def _mk_cell_range(text: str) -> MagicMock:
         rng = MagicMock(name="CellRange")
-        rng.Text = text + "\r\x07"
+        # Word terminates cell text with CR + the cell mark; populated cells
+        # (set via Range.Text) carry no markers, so only seed them for non-empty
+        # seed text to mirror both states.
+        rng.Text = (text + "\r\x07") if text else "\r\x07"
+        return rng
+
+    @property
+    def Range(self) -> Any:
+        rng = MagicMock(name="TableRange")
+        rng.Start = self._start
         return rng
 
     @property
@@ -299,6 +318,10 @@ class _FakeTable:
         cell = MagicMock(name=f"Cell[{row},{col}]")
         cell.Range = self._rows[row - 1][col - 1]
         return cell
+
+    def Delete(self) -> None:
+        if self._owner is not None:
+            self._owner._remove(self)
 
 
 class _FakeRows:
@@ -327,10 +350,18 @@ class _FakeRows:
 
 
 class _FakeTablesCollection:
-    """Mimics doc.Tables: Count, 1-based call lookup, iteration."""
+    """Mimics doc.Tables: Count, 1-based call lookup, iteration, Add, Delete.
+
+    `Add(Range, NumRows, NumColumns)` builds an empty `_FakeTable` seeded with
+    the insertion range's `Start` and inserts it in document order (sorted by
+    Start), so `index_of` can recover its 1-based position the same way it does
+    against real Word.
+    """
 
     def __init__(self, tables: list[_FakeTable]) -> None:
         self._tables = tables
+        for t in tables:
+            t._owner = self
 
     @property
     def Count(self) -> int:
@@ -341,6 +372,19 @@ class _FakeTablesCollection:
 
     def __iter__(self) -> Iterable[Any]:
         return iter(self._tables)
+
+    def Add(
+        self, Range: Any = None, NumRows: int = 1, NumColumns: int = 1, *args: Any, **kwargs: Any
+    ) -> _FakeTable:
+        start = int(getattr(Range, "Start", 0)) if Range is not None else 0
+        grid = [["" for _ in range(int(NumColumns))] for _ in range(int(NumRows))]
+        t = _FakeTable(grid, start=start, owner=self)
+        self._tables.append(t)
+        self._tables.sort(key=lambda x: x._start)
+        return t
+
+    def _remove(self, table: _FakeTable) -> None:
+        self._tables.remove(table)
 
 
 class _FakeComment:

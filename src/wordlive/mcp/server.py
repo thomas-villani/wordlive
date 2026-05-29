@@ -255,6 +255,23 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             return op
         if action == "delete_row":
             return {"op": "delete_row", "table": need("table"), "row": need("row")}
+        if action == "create":
+            op = {
+                "op": "create_table",
+                "anchor_id": need("anchor_id"),
+                "rows": need("rows"),
+                "cols": need("cols"),
+                "before": bool(p.get("before", False)),
+            }
+            if p.get("style") is not None:
+                op["style"] = p["style"]
+            if p.get("header") is not None:
+                op["header"] = bool(p["header"])
+            if p.get("data") is not None:
+                op["data"] = p["data"]
+            return op
+        if action == "delete":
+            return {"op": "delete_table", "table": need("table")}
         raise OpError(f"unknown table action: {action!r}")
     if command == "header":
         return {
@@ -304,7 +321,11 @@ def _write_impl(worker: Worker, command: str, p: dict[str, Any]) -> dict[str, An
             result, exc = run_batch(doc, [op], label=f"MCP: {command}")
             if exc is not None:
                 raise exc
-            return {"ok": True, "command": command, "ops_run": result["ops_run"]}
+            out = {"ok": True, "command": command, "ops_run": result["ops_run"]}
+            if result.get("outputs"):
+                # e.g. table create reports the new table's 1-based index.
+                out["result"] = result["outputs"][0]
+            return out
 
     return worker.run_on_word(job)
 
@@ -474,6 +495,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         table: int | None = None,
         row: int | None = None,
         col: int | None = None,
+        rows: int | None = None,
+        cols: int | None = None,
+        data: list[Any] | None = None,
+        header: bool | None = None,
         values: list[Any] | None = None,
         section: int | None = None,
         which: str = "primary",
@@ -499,7 +524,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         write_bookmark/write_cc {name,text} · apply_style {anchor_id,name} ·
         format_paragraph {anchor_id,[alignment,*_indent,space_*]} ·
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
-        comment {action=add|resolve|delete,...} · table {action=set_cell|add_row|delete_row,...} ·
+        comment {action=add|resolve|delete,...} ·
+        table {action=set_cell|add_row|delete_row|create|delete,
+               create needs anchor_id,rows,cols,[style,header,data,before]} ·
         header/footer {section,text,[which]} · track {on} ·
         insert_image {anchor_id,wrap, image_base64|path, [before,width,height,alt_text,lock_aspect]}.
 
@@ -525,6 +552,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "table": table,
             "row": row,
             "col": col,
+            "rows": rows,
+            "cols": cols,
+            "data": data,
+            "header": header,
             "values": values,
             "section": section,
             "which": which,

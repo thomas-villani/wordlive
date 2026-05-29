@@ -12,8 +12,14 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from . import _com, _images, _lists
-from .constants import MsoTriState, WdNumberType, WdParagraphAlignment, WdWrapType
-from .exceptions import AnchorNotFoundError
+from .constants import (
+    MsoTriState,
+    WdInformation,
+    WdNumberType,
+    WdParagraphAlignment,
+    WdWrapType,
+)
+from .exceptions import AnchorNotFoundError, OpError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -85,6 +91,45 @@ def _resolve_wrap(wrap: str, inline_shape: Any, insert_rng: Any) -> WdWrapType:
     if float(inline_shape.Width) <= usable / 2:
         return WdWrapType.SQUARE
     return WdWrapType.TOP_BOTTOM
+
+
+def _validate_table_data(data: Any, rows: int, cols: int) -> None:
+    """Check a row-major `data` payload fits a `rows` × `cols` grid.
+
+    Raised before any COM call so a bad shape is a clean `OpError` (exit 1)
+    rather than a "subscript out of range" deep inside Word. Underfilling is
+    allowed — fewer rows, or short rows — and leaves the trailing cells empty
+    (matching `add_row`'s leniency); only *overflowing* the declared grid is an
+    error, since that's the case that would otherwise blow up mid-insert.
+    """
+    if not isinstance(data, list):
+        raise OpError(f"table data must be a list of rows; got {type(data).__name__}")
+    if len(data) > rows:
+        raise OpError(f"table data has {len(data)} rows but the table has only {rows}")
+    for i, row in enumerate(data, start=1):
+        if not isinstance(row, list):
+            raise OpError(f"table data row {i} must be a list; got {type(row).__name__}")
+        if len(row) > cols:
+            raise OpError(
+                f"table data row {i} has {len(row)} cells but the table has only {cols} column(s)"
+            )
+
+
+def _within_table(doc_com: Any, start: int, end: int) -> bool:
+    """Whether the `[start, end)` span sits inside a table.
+
+    Used to detect when a new table's insertion point abuts an existing one —
+    Word silently *merges* two tables with no paragraph mark between them, so
+    `insert_table` drops a separator paragraph on any abutting side. A negative
+    `start` (before the document) or a probe Word rejects reads as "not in a
+    table".
+    """
+    if start < 0:
+        return False
+    try:
+        return bool(doc_com.Range(start, end).Information(int(WdInformation.WITH_IN_TABLE)))
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +311,88 @@ class Anchor(ABC):
                 if alt_text is not None:
                     # AlternativeText doesn't always survive the conversion.
                     shape.AlternativeText = alt_text
+
+    def insert_table(
+        self,
+        rows: int,
+        cols: int,
+        *,
+        where: str = "after",
+        style: str | None = None,
+        data: list[list[Any]] | None = None,
+        header: bool = False,
+    ) -> Any:
+        """Create a `rows` × `cols` table at this anchor and return it.
+
+        The structural counterpart to `insert_image` — it *creates* new
+        document structure rather than editing existing structure. Returns the
+        new [`Table`][wordlive.Table] wrapper so create → fill → read closes on
+        one object; the table's 1-based document index is on `.index`.
+
+        `where` is ``"after"`` (default) or ``"before"`` this anchor's range —
+        so `doc.headings["Pricing"].insert_table(...)` drops a table just under
+        a heading, and `doc.end.insert_table(...)` (i.e.
+        [`Document.add_table`][wordlive.Document.add_table]) appends one.
+
+        `style` names a table style defined in the document (e.g. ``"Table
+        Grid"``); an unknown name raises `StyleNotFoundError` before anything is
+        inserted. `style=None` applies the built-in ``"Table Grid"`` when it's
+        available, so a table has visible borders by default rather than the
+        invisible cell gridlines of a styleless table.
+
+        `data` populates the cells at creation: a row-major 2-D list
+        (``[[r1c1, r1c2], …]``), validated against `rows` × `cols` up front
+        (`OpError` on overflow). A short or partial `data` leaves the remaining
+        cells empty. Filling at creation keeps the whole grid in one atomic
+        undo and beats a `set_cell` storm.
+
+        `header=True` bolds the first row as a header. Wrap in `doc.edit(...)`
+        for atomic undo. Raises `ValueError` for an unknown `where` and
+        `OpError` for a non-positive `rows`/`cols` or a bad `data` shape.
+        """
+        from ._tables import Table, index_of
+
+        if where not in ("before", "after"):
+            raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+        if isinstance(rows, bool) or not isinstance(rows, int) or rows < 1:
+            raise OpError(f"table rows must be a positive integer; got {rows!r}")
+        if isinstance(cols, bool) or not isinstance(cols, int) or cols < 1:
+            raise OpError(f"table cols must be a positive integer; got {cols!r}")
+        if data is not None:
+            _validate_table_data(data, rows, cols)
+        # Resolve the style up-front so a bad name fails before any mutation.
+        if style is not None:
+            style_obj = self._doc.styles[style]  # StyleNotFoundError (exit 2) if missing
+        elif "Table Grid" in self._doc.styles:
+            style_obj = self._doc.styles["Table Grid"]
+        else:
+            style_obj = None
+        with _com.translate_com_errors():
+            doc_com = self._doc.com
+            rng = self._range()
+            pos = int(rng.Start) if where == "before" else int(rng.End)
+            # Word merges two tables that touch with no paragraph mark between
+            # them, so a table appended at the end (or dropped next to another)
+            # would silently fuse into its neighbour. Push a separator paragraph
+            # onto whichever side abuts an existing table; untouched insertions
+            # into ordinary text get no stray paragraph.
+            if _within_table(doc_com, pos - 1, pos):
+                doc_com.Range(pos, pos).Text = "\r"
+                pos += 1
+            if _within_table(doc_com, pos, pos + 1):
+                doc_com.Range(pos, pos).Text = "\r"
+            insert_rng = doc_com.Range(pos, pos)
+            table_com = doc_com.Tables.Add(insert_rng, rows, cols)
+            if style_obj is not None:
+                table_com.Style = style_obj.com
+            if data:
+                for r, row in enumerate(data, start=1):
+                    for c, val in enumerate(row, start=1):
+                        table_com.Cell(r, c).Range.Text = str(val)
+            if header:
+                table_com.Rows(1).Range.Bold = True
+            index = index_of(self._doc.com, table_com)
+        return Table(self._doc, table_com, index)
 
     def snapshot(self, out: str | Path | None = None, *, dpi: int = 150) -> list[Snapshot]:
         """Render the page(s) this anchor sits on to PNG — let a model *see* it.

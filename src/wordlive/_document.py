@@ -28,7 +28,7 @@ from ._sections import SectionCollection
 from ._selection import Selection
 from ._snapshot import Snapshot
 from ._styles import StyleCollection
-from ._tables import TableCollection
+from ._tables import Table, TableCollection
 from .constants import WdInformation
 from .exceptions import (
     AmbiguousMatchError,
@@ -210,6 +210,32 @@ class Document:
         finally:
             with _com.translate_com_errors():
                 self._doc.TrackRevisions = previous
+
+    def add_table(
+        self,
+        rows: int,
+        cols: int,
+        *,
+        style: str | None = None,
+        data: list[list[Any]] | None = None,
+        header: bool = False,
+    ) -> Table:
+        """Append a `rows` × `cols` table at the end of the document and return it.
+
+        The "build a document from the bottom up" helper for tables — the
+        counterpart to [`append_paragraph`][wordlive.Document.append_paragraph].
+        Sugar for `self.end.insert_table(...)`; see
+        [`Anchor.insert_table`][wordlive.Anchor.insert_table] for the full
+        semantics of `style` (defaults to the built-in ``"Table Grid"``), `data`
+        (row-major fill, validated up front), and `header`. To place a table
+        somewhere other than the end, resolve a position anchor and call
+        `insert_table` on it directly (e.g.
+        `doc.headings["Pricing"].insert_table(3, 2, ...)`). Wrap in
+        `doc.edit(...)` for atomic undo.
+        """
+        return self.end.insert_table(
+            rows, cols, where="after", style=style, data=data, header=header
+        )
 
     def heading(self, name: str) -> Heading:
         # Lazy lookup — Heading.__init__ doesn't hit COM. _range() validates.

@@ -600,6 +600,44 @@ $ wordlive replace --anchor-id table:1:2:2 --text "$450"
 
 Failures: `2` table index out of range, `3` Word busy.
 
+## `table create`
+
+```
+wordlive table create --anchor-id ID --rows R --cols C
+                      [--style NAME] [--header] [--before|--after]
+                      [--data '[["…"],…]' | --data -] [--doc DOC_NAME]
+```
+
+Create a new `R`×`C` table at a **position anchor** (`heading:`, `para:`,
+`start`, `end`, `range:` — *not* a bare `table:N`, which addresses an existing
+table). Every other verb edits existing structure; this is how you build a table
+from nothing. Atomic-undo. Reports the new table's 1-based `index` for an
+immediate follow-up `set-cell` / `add-row`.
+
+`--data` populates the cells at creation from a **row-major** JSON 2-D array
+(`[[r1c1, r1c2], …]`), validated against `R`×`C` up front — a short/partial
+array leaves trailing cells empty; an array that *overflows* the grid is a clean
+error (exit 1). Pass `--data -` to read the JSON from stdin, which sidesteps
+Windows quoting/backslash fights (mirrors `exec --ops -`).
+
+`--style` names a table style defined in the document; it defaults to the
+built-in **`Table Grid`** so a new table has visible borders rather than only
+faint gridlines. A style name not in the document fails (exit 2). `--header`
+bolds the first row.
+
+```bash
+$ wordlive table create --anchor-id end --rows 3 --cols 3 --header \
+    --data '[["Tier","Monthly","SLA"],["Wobble","$9","best effort"],["Finch","$99","99.9%"]]'
+{"ok": true, "table": 2, "rows": 3, "columns": 3}
+```
+
+A table appended where another already sits flush against it (e.g. two tables in
+a row at the end of the document) is kept distinct: Word would otherwise merge
+adjacent tables, so a separating paragraph is inserted automatically.
+
+Failures: `1` bad dimensions / `--data` shape, `2` anchor or style not found,
+`3` Word busy, `4` Word not running.
+
 ## `table add-row`
 
 ```
@@ -631,6 +669,23 @@ $ wordlive table delete-row --table 1 --row 3
 ```
 
 Failures: `2` table index or row out of range, `3` Word busy.
+
+## `table delete INDEX`
+
+```
+wordlive table delete INDEX [--doc DOC_NAME]
+```
+
+Delete table `INDEX` (1-based) and all its cells — the structural mirror of
+`table create` / `delete-row`. Atomic-undo. The indices of any tables below it
+shift down by one afterwards.
+
+```bash
+$ wordlive table delete 2
+{"ok": true, "deleted": 2}
+```
+
+Failures: `2` table index out of range, `3` Word busy.
 
 ## `comment list`
 
@@ -904,6 +959,8 @@ Script shape:
 | `set_cell`             | `table`, `row`, `col`, `text`              | —                                 |
 | `add_row`              | `table`                                    | `values`                          |
 | `delete_row`           | `table`, `row`                             | —                                 |
+| `create_table`         | `anchor_id`, `rows`, `cols`                | `style`, `data` (row-major 2-D), `header`, `where` or `before: true` |
+| `delete_table`         | `table`                                    | —                                 |
 | `add_comment`          | `anchor_id`, `text`                        | `author`                          |
 | `resolve_comment`      | `index`                                    | —                                 |
 | `delete_comment`       | `index`                                    | —                                 |
@@ -947,6 +1004,17 @@ values are in points, alignment is one of `left`/`center`/`right`/`justify`.
 index. `set_cell` is shorthand for a `replace` on a `table:N:R:C` anchor;
 `add_row`'s optional `values` is a JSON array matched to columns. All three
 table ops join the same atomic-undo scope as the rest of the batch.
+
+`create_table` builds a new table at a **position** `anchor_id` (`heading:`,
+`para:`, `start`, `end`, `range:` — not a bare `table:N`); `delete_table`
+removes one by 1-based `table` index. `create_table`'s `data` is a row-major 2-D
+array validated against `rows`×`cols` before the batch mutates anything,
+`style` defaults to `Table Grid`, and `header` bolds the first row. Because a
+successful batch reports structure it created, the response carries an
+`outputs` array — `[{"index": <op index>, "op": "create_table", "table": N,
+"rows": R, "columns": C}]` — so a later op (or a follow-up call) can address the
+new table by its reported index. Filling the whole grid through `data` in the
+create op keeps it one atomic undo and avoids a `set_cell` storm.
 
 `add_comment`, `resolve_comment`, and `delete_comment` mirror the `comment`
 verbs — `add_comment` attaches a side-channel annotation to an `anchor_id`

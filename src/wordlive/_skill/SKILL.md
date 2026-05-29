@@ -52,6 +52,7 @@ short string you pass as `--anchor-id`:
 - `wordlive style apply --anchor-id ID --name "Heading 2"` (names: `style list`).
 - `wordlive format-paragraph --anchor-id ID [--alignment center] [--left-indent 36] [--space-before 6] …`
 - `wordlive list apply --anchor-id ID --type bulleted|numbered|outline` (+ `list remove|restart|indent|outdent`).
+- `wordlive table create --anchor-id ID --rows R --cols C [--style NAME] [--header] [--before | --after] [--data '[["…"],…]' | --data -]` — **build a new table** at a *position* anchor (`heading:`/`para:`/`start`/`end`); reports its 1-based `index`. Fill cells row-major with `--data` (use `--data -` for stdin to dodge Windows quoting); `--style` defaults to `Table Grid` (visible borders); `--header` bolds row 1. Edit existing tables with `table add-row`/`delete-row` and `table delete N`; cells are anchors (`table:N:R:C`) you can `replace`/`style apply`/`format-paragraph`.
 - `wordlive comment add --anchor-id ID --text "…"` (+ `comment list` · `comment resolve --index N` · `comment delete --index N`).
 - `wordlive track on|off|status` — tracked changes.
 - `wordlive header write --section S --text "…"` · `footer write --section S --text "…"` (`--which primary|first|even`).
@@ -114,11 +115,14 @@ pass `"before": true` to insert above it (mirrors the CLI's `--before`/`--after`
 Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `append_paragraph`,
 `append`, `prepend_paragraph`, `prepend`, `insert_image`, `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `set_cell`, `add_row`,
-`delete_row`, `add_comment`, `resolve_comment`, `delete_comment`, `apply_list`,
-`remove_list`, `restart_numbering`, `indent_list`, `outdent_list`,
-`write_header`, `write_footer`. (`append_paragraph` / `prepend_paragraph` take
-`text` + optional `style`; `append` / `prepend` take `text` — they add to the
-end / start of the document, no anchor.)
+`delete_row`, `create_table`, `delete_table`, `add_comment`, `resolve_comment`,
+`delete_comment`, `apply_list`, `remove_list`, `restart_numbering`,
+`indent_list`, `outdent_list`, `write_header`, `write_footer`.
+(`append_paragraph` / `prepend_paragraph` take `text` + optional `style`;
+`append` / `prepend` take `text` — they add to the end / start of the document,
+no anchor. `create_table` takes `anchor_id` + `rows` + `cols`, optional `style` /
+`data` (row-major 2-D) / `header`; a successful batch returns an `outputs` array
+reporting each new table's `index`.)
 
 ## Exit codes — branch on these
 | Code | Meaning | Retry? |
