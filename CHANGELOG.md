@@ -7,12 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-05-29
+
+### Added
+- Runnable example scripts under `examples/` (Python + PowerShell) and an
+  **Examples** docs page, linked from the README and getting-started.
+- **Python-API agent skill** (`wordlive-python`) alongside the existing CLI
+  skill (now `wordlive-cli`). `install-skill` installs the CLI skill by default;
+  `--python` installs just the Python one, `--both` installs both. `llm-help
+  --python` prints the Python guide.
+- **MCP bundle** (`mcpb/`) — a one-click `.mcpb` for Claude Desktop, kept in
+  version lock-step with the package via `bump-my-version`.
+- **`wordlive install-mcp`** — register the MCP server in Claude Desktop or
+  Claude Code (`--client`, `--directory`, `--config`, `--print`, `--force`).
+- `wordlive-mcp` console script (`[project.scripts]`), which the MCP docs and
+  bundle already reference.
+- MIT `LICENSE`, with `license` / `license-files` declared in `pyproject.toml`
+  and the bundle manifest.
+
 ### Changed
 - CI: bumped GitHub Actions off the deprecated Node 20 runtime to current
   Node 24 majors (`checkout` v6, `setup-python` v6, `setup-uv` v8,
   `upload-artifact` v7, `download-artifact` v8, `upload-pages-artifact` v5,
   `deploy-pages` v5).
 - Added this changelog.
+- Docs audit for v0.9.0: corrected the documented Python floor (3.10+), the
+  README exit-code list (added `5`), the MCP `word_write` command list (added
+  `insert_break`), the `design.md` roadmap (snapshot/MCP/tables/breaks shipped),
+  and populated the previously-empty `CLAUDE.md`.
 
 ## [0.9.0] — 2026-05-29
 
@@ -80,7 +102,8 @@ v0–v0.8 development line bundled here:
   `wordlive install-skill`, an mkdocs Material docs site, and PyPI
   trusted-publishing on tag push.
 
-[Unreleased]: https://github.com/thomas-villani/wordlive/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/thomas-villani/wordlive/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/thomas-villani/wordlive/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/thomas-villani/wordlive/compare/v0.8.3...v0.9.0
 [0.8.3]: https://github.com/thomas-villani/wordlive/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/thomas-villani/wordlive/compare/v0.8.1...v0.8.2

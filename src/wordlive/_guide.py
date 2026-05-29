@@ -1,25 +1,47 @@
-"""Access to the bundled agent guide (SKILL.md).
+"""Access to the bundled agent guides (the `SKILL.md` files).
 
 Shared by the CLI (`llm-help`, `install-skill`) and the MCP server (the
 `wordlive://guide` resource and server instructions). Named `_guide` rather than
 `_skill` because the package already ships a `_skill/` data directory holding the
-Markdown file — a module of the same name can't coexist with it.
+Markdown files — a module of the same name can't coexist with it.
+
+wordlive ships **two** skills: a CLI-facing guide and a Python-API guide. Each
+lives in its own `.agents/skills/<name>/` directory when installed, so the
+bundled layout mirrors that:
+
+    _skill/wordlive-cli/SKILL.md
+    _skill/wordlive-python/SKILL.md
 """
 
 from __future__ import annotations
 
 from importlib.resources import files
 
+# kind -> installed skill directory name (also the `name:` in each frontmatter).
+SKILLS: dict[str, str] = {
+    "cli": "wordlive-cli",
+    "python": "wordlive-python",
+}
 
-def bundled_skill() -> str:
+
+def skill_name(kind: str = "cli") -> str:
+    """The skill's canonical name / install directory (e.g. ``wordlive-cli``)."""
+    try:
+        return SKILLS[kind]
+    except KeyError as e:
+        raise ValueError(f"unknown skill kind {kind!r}; expected one of {sorted(SKILLS)}") from e
+
+
+def bundled_skill(kind: str = "cli") -> str:
     """The packaged agent skill (SKILL.md) text, frontmatter and all."""
-    return (files("wordlive") / "_skill" / "SKILL.md").read_text(encoding="utf-8")
+    name = skill_name(kind)
+    return (files("wordlive") / "_skill" / name / "SKILL.md").read_text(encoding="utf-8")
 
 
 def strip_frontmatter(md: str) -> str:
     """Drop a leading YAML frontmatter block (--- … ---), if present.
 
-    The bundled SKILL.md opens with `name:` / `description:` frontmatter for the
+    Each bundled SKILL.md opens with `name:` / `description:` frontmatter for the
     agent-skill loader. That metadata is noise when the doc is read straight off
     stdout or served as a resource, so callers emit just the Markdown body.
     """
@@ -31,6 +53,6 @@ def strip_frontmatter(md: str) -> str:
     return md
 
 
-def skill_body() -> str:
+def skill_body(kind: str = "cli") -> str:
     """The bundled guide with its YAML frontmatter stripped."""
-    return strip_frontmatter(bundled_skill())
+    return strip_frontmatter(bundled_skill(kind))

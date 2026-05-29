@@ -1,9 +1,9 @@
 ---
-name: wordlive
+name: wordlive-cli
 description: Read and edit the Microsoft Word document the user has open right now, from the command line. Inspect structure (outline, paragraphs, tables), make polite edits (text, styles, lists, images, comments, headers/footers), render a page or section to a PNG so a vision model can see the layout, and batch changes into a single atomic undo — all JSON-in / JSON-out with deterministic exit codes. Use when the user wants to read, edit, or visually render a .docx that is currently open in Word on Windows.
 ---
 
-# wordlive
+# wordlive (CLI)
 
 `wordlive` drives a **running** Microsoft Word instance over COM (Windows only).
 Unlike `python-docx`, it edits the document the user has **open right now** — and
@@ -61,7 +61,7 @@ short string you pass as `--anchor-id`:
 ## Images
 ```
 wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP \
-    [--before | --after] [--width N] [--height N] [--alt-text "…"] [--no-lock-aspect]
+    [--before | --after] [--width N] [--height N] [--alt-text "…"] [--lock-aspect | --no-lock-aspect]
 ```
 - Supply the image as a file (`--path`) **or** base64 (`--base64`; use `--base64 -`
   to read base64 from stdin). Base64 is ideal when you hold image data in memory.
@@ -145,4 +145,5 @@ bool is the reflow-safe alternative for breaking before a styled paragraph.)
 
 For Python instead of the CLI, `import wordlive as wl` exposes the same model
 (`wl.attach()`, `doc.edit("label")`, anchors with `.set_text()`,
-`.insert_image()`, etc.). Full docs: https://thomas-villani.github.io/wordlive/
+`.insert_image()`, etc.) — see the `wordlive-python` skill (`wordlive llm-help
+--python`). Full docs: https://thomas-villani.github.io/wordlive/

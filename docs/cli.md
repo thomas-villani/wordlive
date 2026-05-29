@@ -938,7 +938,7 @@ $ wordlive header write --section 1 --text "ACME Corporation — Q2 Report"
 `--text` mode (`wordlive --text header read`) emits just the header text.
 Failures: `2` section out of range, `3` Word busy.
 
-## `exec` — `--script ops.json` or `--ops '{…}'`
+## `exec` — `--script ops.json` or `--ops '{…}'` { #exec-script-opsjson }
 
 ```
 wordlive exec (--script ops.json | --ops JSON | --ops -) [--doc DOC_NAME]
@@ -1124,13 +1124,15 @@ $ wordlive exec --script ops.json
 ## `llm-help`
 
 ```
-wordlive llm-help
+wordlive llm-help [--python]
 ```
 
-Print the full **agent guide** — the bundled `SKILL.md` — to stdout: the anchor
-model, every read/write verb, image insertion, the `exec` batch format, and the
-exit-code taxonomy. `wordlive --help` points an agent straight here, so a model
-can get everything it needs in one call without an install step.
+Print a full **agent guide** — a bundled `SKILL.md` — to stdout: the anchor
+model, every verb, image insertion, the `exec` batch format, and the exit-code
+taxonomy. `wordlive --help` points an agent straight here, so a model can get
+everything it needs in one call without an install step. Defaults to the **CLI**
+guide; `--python` prints the **Python-API** (`import wordlive as wl`) guide
+instead.
 
 Unlike every other command, the output is raw Markdown rather than JSON (and is
 unaffected by `--json/--text`) — it's documentation, exactly like `--help`
@@ -1139,7 +1141,7 @@ fronts the installed skill is stripped. Offline: it never touches Word.
 
 ```bash
 $ wordlive llm-help
-# wordlive
+# wordlive (CLI)
 
 `wordlive` drives a **running** Microsoft Word instance over COM (Windows only).
 ...
@@ -1152,26 +1154,78 @@ want coding tools to discover it on their own.
 ## `install-skill`
 
 ```
-wordlive install-skill [--system] [--force] [--doc DOC_NAME]
+wordlive install-skill [--cli | --python | --both] [--system] [--force]
 ```
 
-Install the bundled **agent skill** (`SKILL.md`) so LLM coding tools can pick up
-how to drive wordlive. By default it writes to the current project at
-`./.agents/skills/wordlive/SKILL.md`; `--system` installs it for your user at
-`~/.agents/skills/wordlive/SKILL.md`. This command is offline — it never touches
-Word. It refuses to clobber an existing file unless you pass `--force`.
+Install wordlive's bundled **agent skills** so LLM coding tools can pick up how
+to drive it. wordlive ships two: `wordlive-cli` (the command-line workflow) and
+`wordlive-python` (the `import wordlive as wl` API). By default only the **CLI**
+skill is installed; pass `--python` for just the Python one, or `--both` for
+both. They land under the current project at `./.agents/skills/<name>/SKILL.md`
+(or `~/.agents/skills/<name>/` with `--system`). Offline — it never touches
+Word, and refuses to clobber an existing file unless you pass `--force`.
 
 ```bash
 $ wordlive install-skill
-{"ok": true, "scope": "local", "path": ".../.agents/skills/wordlive/SKILL.md", "bytes": 6172}
+{"ok": true, "scope": "local", "installed": [
+  {"kind": "cli", "name": "wordlive-cli", "path": ".../.agents/skills/wordlive-cli/SKILL.md", "bytes": 6172}]}
 
-$ wordlive install-skill --system --force
-{"ok": true, "scope": "system", "path": "/home/you/.agents/skills/wordlive/SKILL.md", "bytes": 6172}
+$ wordlive install-skill --both
+{"ok": true, "scope": "local", "installed": [
+  {"kind": "cli",    "name": "wordlive-cli",    "path": ".../.agents/skills/wordlive-cli/SKILL.md",    "bytes": 6172},
+  {"kind": "python", "name": "wordlive-python", "path": ".../.agents/skills/wordlive-python/SKILL.md", "bytes": 7460}]}
+
+$ wordlive install-skill --python --system --force
+{"ok": true, "scope": "system", "installed": [
+  {"kind": "python", "name": "wordlive-python", "path": "/home/you/.agents/skills/wordlive-python/SKILL.md", "bytes": 7460}]}
 ```
 
-The skill is a concise CLI reference — anchors, the read/write verbs, image
-insertion, the `exec` batch format, and the exit-code contract — written for an
-agent to load into context. Failures: `1` if the target can't be written.
+Failures: `1` if a target can't be written (every target is checked up front, so
+a missing `--force` fails before anything is written).
+
+## `install-mcp`
+
+```
+wordlive install-mcp [--client claude-desktop|claude-code] [--name NAME]
+    [--directory DIR] [--config PATH] [--print] [--force]
+```
+
+Register wordlive's [MCP server](mcp.md) in an agent's config so a client can
+drive your open document. It merges an `mcpServers.<name>` entry (default name
+`wordlive`) that launches the stdio server with
+`uvx --from "wordlive[mcp,snapshot]" wordlive-mcp` — no separate install step,
+and the `snapshot` extra enables the vision tool. Offline: it only edits config,
+never touches Word — restart the client to load the change.
+
+- `--client claude-desktop` (default) writes the OS-specific
+  `claude_desktop_config.json`; `--client claude-code` writes a project-local
+  `./.mcp.json`.
+- `--directory DIR` registers a **local checkout** via
+  `uv run --directory DIR wordlive-mcp` (for development) instead of the PyPI
+  `uvx` form.
+- `--config PATH` targets a specific config file; `--print` just emits the JSON
+  snippet (writing nothing) so you can paste it into any client.
+- It refuses to overwrite an existing server entry unless you pass `--force`.
+
+```bash
+$ wordlive install-mcp --print
+{
+  "mcpServers": {
+    "wordlive": {
+      "command": "uvx",
+      "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]
+    }
+  }
+}
+
+$ wordlive install-mcp
+{"ok": true, "client": "claude-desktop", "path": ".../Claude/claude_desktop_config.json",
+ "server": "wordlive", "action": "created", "entry": {"command": "uvx", "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]}}
+```
+
+Failures: `1` if the config can't be read/written, isn't a JSON object, or the
+server entry already exists without `--force`. For the bundle (`.mcpb`) and a
+full tool reference, see the [MCP server page](mcp.md).
 
 ## LLM tool-use example
 

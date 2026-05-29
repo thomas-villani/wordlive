@@ -12,6 +12,9 @@ wheels/
 # MkDocs build output
 site/
 
+# Packed MCP bundle (a release artifact, built from mcpb/ with `mcpb pack`)
+*.mcpb
+
 # Personal notes
 notes.md
 

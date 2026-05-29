@@ -80,6 +80,7 @@ nav:
   - CLI: cli.md
   - MCP server: mcp.md
   - Cookbook: cookbook.md
+  - Examples: examples.md
   - Errors & exit codes: errors.md
   - Design: design.md
 

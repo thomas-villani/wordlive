@@ -86,6 +86,13 @@ wordlive table list
 wordlive table read 1
 wordlive replace --anchor-id table:1:2:2 --text "$450"
 wordlive table add-row --table 1 --values '["Lodging", "$600"]'
+wordlive table create --anchor-id end --rows 2 --cols 2 --header \
+    --data '[["Item","Cost"],["Travel","$400"]]'           # build a new table
+wordlive table delete 2
+
+# Page / column / section breaks (explicit one-off mark; for a style use --page-break-before):
+wordlive insert-break --anchor-id heading:3 --kind page
+wordlive format-paragraph --anchor-id heading:3 --page-break-before
 
 # Collaboration: comments + track changes (the polite, non-destructive surface):
 wordlive comment add --anchor-id heading:3 --text "Please expand this." --author Bot
@@ -132,39 +139,52 @@ Where `ops.json` looks like:
 }
 ```
 
-Exit codes: `0` ok, `2` anchor-not-found, `3` Word-busy, `4` Word-not-running, `1` other.
+Exit codes: `0` ok, `1` other, `2` anchor-not-found, `3` Word-busy, `4` Word-not-running, `5` ambiguous-match (`replace --find` hit several).
 
-## Agent skill
+## Agent skills
 
-wordlive ships an LLM-facing skill (`SKILL.md`) — a concise CLI reference for
-agents: the anchor model, every verb, the `exec` batch format, and the
-exit-code contract.
+wordlive ships **two** LLM-facing skills (`SKILL.md`): `wordlive-cli` (the
+command-line workflow) and `wordlive-python` (the `import wordlive as wl` API).
+Each covers the anchor model, every verb, and the exit-code / exception contract.
 
 An agent that hits `wordlive --help` is pointed straight at `wordlive llm-help`,
 which prints the whole guide to stdout in one shot — no install step, no Word:
 
 ```
-wordlive llm-help                 # dump the full agent guide to stdout
+wordlive llm-help                 # the CLI guide
+wordlive llm-help --python        # the Python-API guide
 ```
 
-Or drop the skill file into a project or your home directory so coding tools
-discover it on their own:
+Or drop the skill files into a project or your home directory so coding tools
+discover them on their own (CLI skill by default; `--python` for just Python,
+`--both` for both):
 
 ```
-wordlive install-skill            # ./.agents/skills/wordlive/SKILL.md
-wordlive install-skill --system   # ~/.agents/skills/wordlive/SKILL.md
+wordlive install-skill            # ./.agents/skills/wordlive-cli/SKILL.md
+wordlive install-skill --both     # also drops wordlive-python/SKILL.md
+wordlive install-skill --system   # into ~/.agents/skills/ instead
 ```
 
 ## MCP server (Claude Desktop & other agents)
 
 Prefer MCP? `wordlive` ships a server so Claude Desktop and other MCP clients can
-drive your open document directly:
+drive your open document directly. Three ways to set it up, easiest first:
+
+**1. One-click bundle.** Download `wordlive.mcpb` (built from
+[`mcpb/`](https://github.com/thomas-villani/wordlive/tree/main/mcpb)) and drop it
+onto Claude Desktop → **Settings → Extensions**.
+
+**2. `install-mcp`.** Register the server in your client's config in one command
+(it uses `uvx`, so there's no separate install step):
 
 ```
-pip install "wordlive[mcp,snapshot]"   # snapshot extra adds the vision tool
+wordlive install-mcp                      # → Claude Desktop's config
+wordlive install-mcp --client claude-code # → ./.mcp.json
+wordlive install-mcp --print              # just print the JSON snippet
 ```
 
-Register it in `claude_desktop_config.json`:
+**3. By hand.** `pip install "wordlive[mcp,snapshot]"` (the `snapshot` extra adds
+the vision tool), then add to `claude_desktop_config.json`:
 
 ```json
 { "mcpServers": { "wordlive": { "command": "wordlive-mcp" } } }
@@ -174,6 +194,24 @@ It exposes four dispatch tools — `word_read`, `word_write`, `word_exec`, and
 `word_snapshot` (which returns a rendered page as an image) — plus a
 `wordlive://guide` resource with the full op reference. Word must be running on the
 same Windows machine. See [docs/mcp.md](https://thomas-villani.github.io/wordlive/mcp/).
+
+## Examples
+
+Runnable, out-of-the-box scripts live in
+[`examples/`](https://github.com/thomas-villani/wordlive/tree/main/examples) — Python
+(using the library) and PowerShell (driving the CLI). Each attaches to the
+document you already have open; the read-only and append-only ones are safe to
+try on a real document.
+
+```bash
+python examples/python/read_outline.py            # read-only: print the outline
+python examples/python/append_note.py "Reviewed." # append one paragraph (atomic, polite)
+```
+
+```powershell
+.\examples\powershell\Show-Outline.ps1
+.\examples\powershell\Invoke-WordliveWithRetry.ps1 write bookmark Address --text "123 Main St"
+```
 
 ## Design
 
