@@ -162,6 +162,27 @@ class TestWriteImpl:
         r = _write_impl(W, "track", {"on": True})
         assert r["track_changes"] is True
 
+    def test_insert_break(self, fake_word: Any) -> None:
+        r = _write_impl(
+            W, "insert_break", {"anchor_id": "bookmark:Address", "kind": "section_next"}
+        )
+        assert r["ok"] is True and r["command"] == "insert_break"
+        # Address ends at 24; wdSectionBreakNextPage = 2.
+        fake_word.ActiveDocument.Range(24, 24).InsertBreak.assert_called_once_with(Type=2)
+
+    def test_insert_break_defaults_to_page(self, fake_word: Any) -> None:
+        r = _write_impl(W, "insert_break", {"anchor_id": "bookmark:Address"})
+        assert r["ok"] is True
+        fake_word.ActiveDocument.Range(24, 24).InsertBreak.assert_called_once_with(Type=7)
+
+    def test_format_paragraph_page_break_before(self, fake_word: Any) -> None:
+        r = _write_impl(
+            W, "format_paragraph", {"anchor_id": "bookmark:Address", "page_break_before": True}
+        )
+        assert r["ok"] is True
+        pf = fake_word.ActiveDocument.Bookmarks("Address").Range.ParagraphFormat
+        assert pf.PageBreakBefore is True
+
     def test_missing_required_field_raises(self, fake_word: Any) -> None:
         with pytest.raises(OpError):
             _write_impl(W, "write_bookmark", {"name": "Address"})  # no text

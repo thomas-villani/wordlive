@@ -207,10 +207,18 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             "first_line_indent",
             "space_before",
             "space_after",
+            "page_break_before",
         ):
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command == "insert_break":
+        return {
+            "op": "insert_break",
+            "anchor_id": need("anchor_id"),
+            "kind": p.get("kind") or "page",
+            "before": bool(p.get("before", False)),
+        }
     if command == "list":
         mapping = {
             "apply": "apply_list",
@@ -476,6 +484,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "footer",
             "track",
             "insert_image",
+            "insert_break",
         ],
         doc: str | None = None,
         anchor_id: str | None = None,
@@ -509,6 +518,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         first_line_indent: float | None = None,
         space_before: float | None = None,
         space_after: float | None = None,
+        page_break_before: bool | None = None,
+        kind: str | None = None,
         wrap: str | None = None,
         image_base64: str | None = None,
         path: str | None = None,
@@ -522,11 +533,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         insert {anchor_id,text,[before,style]} · append/prepend {text,[paragraph,style]} ·
         replace {text, find|anchor_id, [all,occurrence,in_anchor]} ·
         write_bookmark/write_cc {name,text} · apply_style {anchor_id,name} ·
-        format_paragraph {anchor_id,[alignment,*_indent,space_*]} ·
+        format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before]} ·
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
         comment {action=add|resolve|delete,...} ·
         table {action=set_cell|add_row|delete_row|create|delete,
                create needs anchor_id,rows,cols,[style,header,data,before]} ·
+        insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
         header/footer {section,text,[which]} · track {on} ·
         insert_image {anchor_id,wrap, image_base64|path, [before,width,height,alt_text,lock_aspect]}.
 
@@ -566,6 +578,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "first_line_indent": first_line_indent,
             "space_before": space_before,
             "space_after": space_after,
+            "page_break_before": page_break_before,
+            "kind": kind,
             "wrap": wrap,
             "image_base64": image_base64,
             "path": path,

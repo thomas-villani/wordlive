@@ -52,6 +52,7 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "delete_row": ("table", "row"),
     "create_table": ("anchor_id", "rows", "cols"),
     "delete_table": ("table",),
+    "insert_break": ("anchor_id",),
     "add_comment": ("anchor_id", "text"),
     "resolve_comment": ("index",),
     "delete_comment": ("index",),
@@ -154,6 +155,7 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
                 "first_line_indent",
                 "space_before",
                 "space_after",
+                "page_break_before",
             )
             if k in op
         }
@@ -176,6 +178,11 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         return {"table": table.index, "rows": table.row_count, "columns": table.column_count}
     elif kind == "delete_table":
         doc.tables[op["table"]].delete()
+    elif kind == "insert_break":
+        doc.anchor_by_id(op["anchor_id"]).insert_break(
+            op.get("kind", "page"),
+            where=("before" if op_before(op) else "after"),
+        )
     elif kind == "add_comment":
         anchor = doc.anchor_by_id(op["anchor_id"])
         doc.comments.add(anchor, op["text"], author=op.get("author"))

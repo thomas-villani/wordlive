@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from . import _com, _images, _lists
 from .constants import (
     MsoTriState,
+    WdBreakType,
     WdInformation,
     WdNumberType,
     WdParagraphAlignment,
@@ -76,6 +77,15 @@ _WRAP_NAMES: dict[str, WdWrapType] = {
     "behind": WdWrapType.BEHIND,
 }
 _WRAP_VALUES: frozenset[str] = frozenset({"inline", "auto", *_WRAP_NAMES})
+
+
+# Break keywords -> WdBreakType. `insert_break(kind=...)` accepts exactly these.
+_BREAK_TYPES: dict[str, WdBreakType] = {
+    "page": WdBreakType.PAGE,
+    "column": WdBreakType.COLUMN,
+    "section_next": WdBreakType.SECTION_NEXT_PAGE,
+    "section_continuous": WdBreakType.SECTION_CONTINUOUS,
+}
 
 
 def _resolve_wrap(wrap: str, inline_shape: Any, insert_rng: Any) -> WdWrapType:
@@ -394,6 +404,43 @@ class Anchor(ABC):
             index = index_of(self._doc.com, table_com)
         return Table(self._doc, table_com, index)
 
+    def insert_break(self, kind: str = "page", *, where: str = "after") -> None:
+        """Insert a page, column, or section break at this anchor.
+
+        The explicit one-off break — the clean alternative to appending a
+        paragraph whose text is a literal form-feed. `kind` is one of:
+
+        - ``"page"`` (default) — a manual page break (the 90% case).
+        - ``"column"`` — a column break (multi-column layouts).
+        - ``"section_next"`` — a section break that starts the new section on
+          the next page.
+        - ``"section_continuous"`` — a section break with no page break, so the
+          new section flows on the same page.
+
+        Section breaks pair with [`Document.sections`][wordlive.Document.sections]:
+        each new section gets its own headers/footers and page setup. To make a
+        *style* (e.g. every `Heading 1`) open a new page without a stray break
+        character, prefer
+        [`format_paragraph(page_break_before=True)`][wordlive.Anchor.format_paragraph]
+        instead — it survives reflow.
+
+        `where` is ``"after"`` (default) or ``"before"`` this anchor's range.
+        Wrap in `doc.edit(...)` for atomic undo. Raises `ValueError` for an
+        unknown `kind` or `where`.
+        """
+        if kind not in _BREAK_TYPES:
+            raise ValueError(
+                f"unknown break kind {kind!r}; expected one of {sorted(_BREAK_TYPES)}"
+            )
+        if where not in ("before", "after"):
+            raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+        break_type = _BREAK_TYPES[kind]
+        with _com.translate_com_errors():
+            rng = self._range()
+            pos = int(rng.Start) if where == "before" else int(rng.End)
+            insert_rng = self._doc.com.Range(pos, pos)
+            insert_rng.InsertBreak(Type=int(break_type))
+
     def snapshot(self, out: str | Path | None = None, *, dpi: int = 150) -> list[Snapshot]:
         """Render the page(s) this anchor sits on to PNG — let a model *see* it.
 
@@ -430,6 +477,7 @@ class Anchor(ABC):
         first_line_indent: float | None = None,
         space_before: float | None = None,
         space_after: float | None = None,
+        page_break_before: bool | None = None,
     ) -> None:
         """Set paragraph-formatting properties on this anchor's range.
 
@@ -438,6 +486,12 @@ class Anchor(ABC):
         `ParagraphFormat.LeftIndent` etc.). `alignment` accepts a
         `WdParagraphAlignment` enum, its int value, or a string
         (`"left"`/`"center"`/`"right"`/`"justify"`).
+
+        `page_break_before=True` forces the paragraph to begin on a new page —
+        the *clean* way to page-break (e.g. apply it to every `Heading 1`): it's
+        a paragraph property that survives reflow and leaves no stray break
+        character, unlike [`insert_break`][wordlive.Anchor.insert_break].
+        `False` clears the property.
         """
         with _com.translate_com_errors():
             pf = self._range().ParagraphFormat
@@ -453,6 +507,8 @@ class Anchor(ABC):
                 pf.SpaceBefore = float(space_before)
             if space_after is not None:
                 pf.SpaceAfter = float(space_after)
+            if page_break_before is not None:
+                pf.PageBreakBefore = bool(page_break_before)
 
     def apply_list(self, list_type: str = "bulleted", *, continue_previous: bool = False) -> None:
         """Turn this anchor's paragraphs into a list.

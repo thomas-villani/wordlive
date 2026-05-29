@@ -82,6 +82,7 @@ def register(group: click.Group) -> None:
     group.add_command(read)
     group.add_command(write)
     group.add_command(insert)
+    group.add_command(insert_break_cmd)
     group.add_command(prepend_cmd)
     group.add_command(append_cmd)
     group.add_command(insert_image_cmd)
@@ -366,6 +367,59 @@ def insert(ctx: click.Context, anchor_id: str, text: str, before: bool, style: s
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# insert-break --anchor-id ID [--kind page|column|...] [--before|--after]
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="insert-break")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Anchor to insert the break relative to (e.g. heading:1, para:3, end).",
+)
+@click.option(
+    "--kind",
+    "kind",
+    type=click.Choice(["page", "column", "section_next", "section_continuous"]),
+    default="page",
+    show_default=True,
+    help="Break kind. Page is the common case; section breaks pair with `section`.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert the break before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_break_cmd(ctx: click.Context, anchor_id: str, kind: str, before: bool) -> None:
+    """Insert a page / column / section break at an anchor (atomic-undo).
+
+    The explicit one-off break, the clean alternative to a literal form-feed
+    paragraph. To make a *style* (e.g. every Heading 1) open a new page without
+    a stray break character, prefer
+    `format-paragraph --anchor-id ID --page-break-before` instead.
+    """
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert {kind} break {where} {anchor_id}"):
+                anchor.insert_break(kind, where=where)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "kind": kind, "where": where},
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted {kind} break {where} {anchor_id}",
             )
 
     _run(ctx, go)
@@ -1020,6 +1074,13 @@ def style_apply(ctx: click.Context, anchor_id: str, name: str) -> None:
     default=None,
     help="Space after paragraph in points.",
 )
+@click.option(
+    "--page-break-before/--no-page-break-before",
+    "page_break_before",
+    default=None,
+    help="Force (or clear) a page break before the paragraph — the clean, "
+    "reflow-safe way to page-break (e.g. on every Heading 1).",
+)
 @click.pass_context
 def format_paragraph_cmd(
     ctx: click.Context,
@@ -1030,6 +1091,7 @@ def format_paragraph_cmd(
     first_line_indent: float | None,
     space_before: float | None,
     space_after: float | None,
+    page_break_before: bool | None,
 ) -> None:
     """Set paragraph-formatting properties on the anchor's range (atomic-undo)."""
     kwargs: dict[str, Any] = {}
@@ -1045,6 +1107,8 @@ def format_paragraph_cmd(
         kwargs["space_before"] = space_before
     if space_after is not None:
         kwargs["space_after"] = space_after
+    if page_break_before is not None:
+        kwargs["page_break_before"] = page_break_before
     if not kwargs:
         raise click.UsageError("pass at least one formatting option")
 
@@ -1866,7 +1930,7 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     Supported ops: write_bookmark, write_cc, insert_paragraph, append_paragraph,
     append, prepend_paragraph, prepend, insert_image, replace, find_replace,
     apply_style, format_paragraph, set_cell, add_row, delete_row, create_table,
-    delete_table, add_comment, resolve_comment, delete_comment, apply_list,
+    delete_table, insert_break, add_comment, resolve_comment, delete_comment, apply_list,
     remove_list, restart_numbering, indent_list, outdent_list, write_header,
     write_footer.
     See docs/cli.md for each op's required and optional fields.

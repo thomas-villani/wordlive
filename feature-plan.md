@@ -312,25 +312,40 @@ table** or **force a page break** from nothing. Both are table stakes for the
 first-class use case (`snapshot` + the MCP server shipped specifically to
 support it). Do the breaks first (tiny), then tables.
 
-### Page & section breaks — first-class, not the `\f` hack
+### Page & section breaks — ✅ shipped
 
 The agent test got 7-page layout only by appending paragraphs whose text was a
 literal form-feed (`\f`, which Word reads as `Chr(12)` = a manual page break).
 It works but is undiscoverable, undocumented, and leaves a stray empty paragraph
 at each break.
 
-- **`format_paragraph(page_break_before=True)`** — the *clean* primitive: make
+- ~~**`format_paragraph(page_break_before=True)`** — the *clean* primitive: make
   every `Heading 1` open a new page via the paragraph property (survives reflow,
   no stray paragraph). Add as a new key on the existing `format_paragraph`
-  surface + the `format_paragraph` exec op + a CLI flag.
-- **`anchor.insert_break(kind="page" | "column" | "section_next" | "section_continuous")`**
-  → `Range.InsertBreak(Type=wd*Break)`, for explicit one-off breaks. Page is the
-  90% case; section breaks pair with the v0.6 `doc.sections` work and unblock
-  per-section headers/footers and page setup.
-- New `WdBreakType` subset in `constants.py` (internal, not exported — mirrors
-  `WdStyleType` / the `XlChartType` plan).
-- **exec op:** `insert_break` (anchor_id, kind, before?). Small enough to land
-  on its own in a day.
+  surface + the `format_paragraph` exec op + a CLI flag.~~ ✅ — new
+  `page_break_before` kwarg on `format_paragraph` (sets `ParagraphFormat.PageBreakBefore`);
+  threaded through the `format_paragraph` exec op + the MCP `format_paragraph`
+  command, with a `--page-break-before/--no-page-break-before` CLI flag (tri-state:
+  `None` leaves it untouched).
+- ~~**`anchor.insert_break(kind="page" | "column" | "section_next" | "section_continuous")`**
+  → `Range.InsertBreak(Type=wd*Break)`, for explicit one-off breaks.~~ ✅ —
+  lives on the base `Anchor` (every position anchor gets it), `where="after"`
+  default mirroring the other insert verbs. Section breaks pair with the v0.6
+  `doc.sections` work and unblock per-section headers/footers and page setup.
+- ~~New `WdBreakType` subset in `constants.py` (internal, not exported — mirrors
+  `WdStyleType` / the `XlChartType` plan).~~ ✅ — `PAGE`/`COLUMN`/`SECTION_NEXT_PAGE`/`SECTION_CONTINUOUS`
+  only; line/text-wrapping and even/odd-page section breaks deferred until needed.
+- ~~**exec op:** `insert_break` (anchor_id, kind, before?).~~ ✅ — plus the
+  `insert-break` CLI command and the MCP `word_write` `insert_break` command;
+  `kind` defaults to `page`.
+- **Decisions made during build:** `insert_break` defaults `where="after"`
+  (consistency with `insert_paragraph`/`insert_image`/`insert_table`); the
+  CLI/MCP/op `kind` defaults to `page` (the 90% case). Two ways to page-break,
+  by design: `insert_break(kind="page")` for an explicit one-off mark vs.
+  `format_paragraph(page_break_before=True)` for a reflow-safe property on a
+  styled paragraph — the docs/guide steer agents to the latter for "every
+  Heading 1 starts a page."
+- **v0.12 is now fully shipped** (tables + breaks).
 
 ### Table creation / deletion — ✅ shipped
 

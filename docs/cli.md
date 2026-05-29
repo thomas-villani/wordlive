@@ -222,6 +222,36 @@ To insert text *inside* a paragraph at a precise offset rather than as a new
 paragraph, target a collapsed range instead — `replace --anchor-id
 range:120-120 --text "…"` — using offsets from `paragraphs` or `find`.
 
+## `insert-break --anchor-id ID [--kind …] [--before | --after]`
+
+```
+wordlive insert-break --anchor-id ID
+    [--kind page|column|section_next|section_continuous]
+    [--before | --after] [--doc DOC_NAME]
+```
+
+Insert an explicit page, column, or section break at any anchor — the clean,
+discoverable replacement for appending a paragraph whose text is a literal
+form-feed. `--kind` defaults to `page` (the common case); `column` breaks a
+multi-column layout, and the two `section_*` kinds start a new document section
+(which can carry its own headers/footers and page setup — see `section`).
+`--after` (default) drops the break just past the anchor; `--before`, just
+before it.
+
+```bash
+$ wordlive insert-break --anchor-id para:12
+{"ok": true, "anchor_id": "para:12", "kind": "page", "where": "after"}
+
+$ wordlive insert-break --anchor-id heading:3 --kind section_next --before
+{"ok": true, "anchor_id": "heading:3", "kind": "section_next", "where": "before"}
+```
+
+To make a *style* (e.g. every `Heading 1`) open a new page without a stray
+break character that drifts on reflow, prefer `format-paragraph --anchor-id ID
+--page-break-before` instead — it's a paragraph property, not an inserted mark.
+Failures: `1` unknown `--kind` (usage error), `2` anchor not found, `3` Word
+busy.
+
 ## `prepend --text "…"` / `append --text "…"`
 
 ```
@@ -529,6 +559,7 @@ wordlive format-paragraph --anchor-id ID
     [--alignment left|center|centre|right|justify]
     [--left-indent POINTS] [--right-indent POINTS] [--first-line-indent POINTS]
     [--space-before POINTS] [--space-after POINTS]
+    [--page-break-before | --no-page-break-before]
     [--doc DOC_NAME]
 ```
 
@@ -536,7 +567,11 @@ wordlive format-paragraph --anchor-id ID
 
 Set paragraph-formatting properties on the anchor's range. At least one
 formatting flag is required. Indent and spacing values are in **points** —
-the unit Word's COM API uses natively for these fields. Atomic-undo.
+the unit Word's COM API uses natively for these fields.
+`--page-break-before` forces the paragraph to begin on a new page (and
+`--no-page-break-before` clears it) — the *clean*, reflow-safe way to
+page-break, leaving no stray break character (contrast `insert-break`, which
+inserts an explicit one-off break). Atomic-undo.
 
 ```bash
 $ wordlive format-paragraph --anchor-id heading:3 \
@@ -955,12 +990,13 @@ Script shape:
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
-| `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after` |
+| `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after`, `page_break_before` |
 | `set_cell`             | `table`, `row`, `col`, `text`              | —                                 |
 | `add_row`              | `table`                                    | `values`                          |
 | `delete_row`           | `table`, `row`                             | —                                 |
 | `create_table`         | `anchor_id`, `rows`, `cols`                | `style`, `data` (row-major 2-D), `header`, `where` or `before: true` |
 | `delete_table`         | `table`                                    | —                                 |
+| `insert_break`         | `anchor_id`                                | `kind` (`page`/`column`/`section_next`/`section_continuous`), `where` or `before: true` |
 | `add_comment`          | `anchor_id`, `text`                        | `author`                          |
 | `resolve_comment`      | `index`                                    | —                                 |
 | `delete_comment`       | `index`                                    | —                                 |
@@ -999,6 +1035,9 @@ match the command's flags. A bad image source surfaces as the batch's
 `apply_style` and `format_paragraph` are the same as their dedicated CLI
 verbs — the style must already exist in the document, indent and spacing
 values are in points, alignment is one of `left`/`center`/`right`/`justify`.
+`format_paragraph`'s `page_break_before` (a bool) forces or clears a
+reflow-safe page break before the paragraph — the clean way to page-break a
+style without a stray break character.
 
 `set_cell`, `add_row`, and `delete_row` operate on tables by 1-based `table`
 index. `set_cell` is shorthand for a `replace` on a `table:N:R:C` anchor;
@@ -1015,6 +1054,12 @@ successful batch reports structure it created, the response carries an
 "rows": R, "columns": C}]` — so a later op (or a follow-up call) can address the
 new table by its reported index. Filling the whole grid through `data` in the
 create op keeps it one atomic undo and avoids a `set_cell` storm.
+
+`insert_break` mirrors the `insert-break` command — an explicit page, column,
+or section break at any `anchor_id`. `kind` defaults to `page`; placement
+accepts the same `where` / `before` forms as the other insert ops. For a
+reflow-safe page break tied to a paragraph (rather than a one-off mark), use a
+`format_paragraph` op with `page_break_before` instead.
 
 `add_comment`, `resolve_comment`, and `delete_comment` mirror the `comment`
 verbs — `add_comment` attaches a side-channel annotation to an `anchor_id`

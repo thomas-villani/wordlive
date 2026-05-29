@@ -172,6 +172,22 @@ class WdExportRange(IntEnum):
     FROM_TO = 3
 
 
+class WdBreakType(IntEnum):
+    """`Range.InsertBreak(Type=...)` values — the break kinds `insert_break` exposes.
+
+    A deliberate subset of Word's full `WdBreakType`: the page/column break and
+    the two section breaks the v0.12 plan calls for. The line/text-wrapping
+    breaks (6, 9–11) and even/odd-page section breaks (4, 5) are omitted until a
+    use case needs them, mirroring how `WdStyleType` was kept narrow.
+    `insert_break(kind=...)` maps its string keys onto these members.
+    """
+
+    SECTION_NEXT_PAGE = 2
+    SECTION_CONTINUOUS = 3
+    PAGE = 7
+    COLUMN = 8
+
+
 class WdInformation(IntEnum):
     """`Range.Information(...)` selectors.
 

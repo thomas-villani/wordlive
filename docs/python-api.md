@@ -39,8 +39,8 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 
 Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
 `insert_paragraph_before/after(...)`, `insert_image(...)`, `insert_table(...)`,
-and the list verbs (`apply_list`, `remove_list`, `list_info`,
-`restart_numbering`, `indent_list`, `outdent_list`) from
+`insert_break(...)`, and the list verbs (`apply_list`, `remove_list`,
+`list_info`, `restart_numbering`, `indent_list`, `outdent_list`) from
 [`Anchor`](#wordlive.Anchor), so the same calls work uniformly on bookmarks,
 content controls, headings, paragraphs, table cells, header/footer ranges, and
 arbitrary range anchors. `insert_image` accepts a file path, raw bytes, or a
@@ -48,6 +48,9 @@ base64 string and embeds the picture; `wrap` is required (`"inline"`, `"auto"`,
 or a float wrap like `"square"`/`"top-bottom"`). `insert_table(rows, cols, …)`
 creates a new table at the anchor and returns its [`Table`](#wordlive.Table)
 (append at the end with [`Document.add_table`](#wordlive.Document)).
+`insert_break(kind="page"|"column"|"section_next"|"section_continuous")` drops
+an explicit break; for a reflow-safe page break tied to a paragraph (e.g. every
+`Heading 1`), pass `page_break_before=True` to `format_paragraph` instead.
 Every anchor also has `snapshot(...)`, which renders the page(s) it sits on to
 PNG (a heading expands to its whole section) — see [Snapshots](#snapshots).
 
