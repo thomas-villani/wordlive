@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Runnable example scripts under `examples/` (Python + PowerShell) and an
   **Examples** docs page, linked from the README and getting-started.
+- **Python-API agent skill** (`wordlive-python`) alongside the existing CLI
+  skill (now `wordlive-cli`). `install-skill` installs both by default (`--cli` /
+  `--python` for one); `llm-help --python` prints the Python guide.
+- **MCP bundle** (`mcpb/`) — a one-click `.mcpb` for Claude Desktop, kept in
+  version lock-step with the package via `bump-my-version`.
+- **`wordlive install-mcp`** — register the MCP server in Claude Desktop or
+  Claude Code (`--client`, `--directory`, `--config`, `--print`, `--force`).
+- `wordlive-mcp` console script (`[project.scripts]`), which the MCP docs and
+  bundle already reference.
 
 ### Changed
 - CI: bumped GitHub Actions off the deprecated Node 20 runtime to current

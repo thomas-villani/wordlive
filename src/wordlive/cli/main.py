@@ -63,8 +63,11 @@ def _exit_for(exc: WordliveError) -> int:
 def main(ctx: click.Context, as_json: bool, doc_name: str | None) -> None:
     """wordlive — drive a running Microsoft Word instance.
 
-    LLM agent? Run `wordlive llm-help` for the full agent guide in one shot:
-    the anchor model, every command, the exec batch format, and exit codes.
+    LLM agent? Run `wordlive llm-help` for the full agent guide in one shot: the
+    anchor model, every command, the exec batch format, and exit codes (add
+    `--python` for the Python-API guide). `wordlive install-skill` drops those
+    guides into `.agents/skills/`, and `wordlive install-mcp` registers the MCP
+    server with Claude Desktop or Claude Code.
     """
     ctx.ensure_object(dict)
     ctx.obj["as_json"] = as_json

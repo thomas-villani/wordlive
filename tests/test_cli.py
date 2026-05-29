@@ -1699,18 +1699,27 @@ def test_exec_insert_image_without_source_fails(fake_word, tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_llm_help_prints_skill_body():
-    """`llm-help` dumps the bundled guide as raw Markdown — no Word, no JSON."""
+def test_llm_help_prints_cli_skill_body():
+    """`llm-help` dumps the CLI guide as raw Markdown — no Word, no JSON."""
     code, out, _ = _invoke(["llm-help"])
     assert code == EXIT_OK
     # Raw Markdown, not a JSON object, and frontmatter is stripped.
     assert not out.lstrip().startswith("{")
-    assert out.lstrip().startswith("# wordlive")
+    assert out.lstrip().startswith("# wordlive (CLI)")
     assert "name: wordlive" not in out  # YAML frontmatter dropped
     # Content sanity: the anchor model, a verb, and the exit-code contract.
     assert "--anchor-id" in out
     assert "insert-image" in out
     assert "Exit codes" in out
+
+
+def test_llm_help_python_prints_python_guide():
+    """`llm-help --python` dumps the Python-API guide instead of the CLI one."""
+    code, out, _ = _invoke(["llm-help", "--python"])
+    assert code == EXIT_OK
+    assert out.lstrip().startswith("# wordlive (Python API)")
+    assert "import wordlive as wl" in out
+    assert 'doc.edit("' in out  # the atomic-undo idiom
 
 
 def test_llm_help_ignores_json_flag():
@@ -1723,10 +1732,10 @@ def test_llm_help_ignores_json_flag():
 
 
 def test_llm_help_matches_installed_skill_body(tmp_path: Path, monkeypatch):
-    """`llm-help` output is the body of the same skill `install-skill` writes."""
+    """`llm-help` output is the body of the same CLI skill `install-skill` writes."""
     monkeypatch.chdir(tmp_path)
-    _invoke(["install-skill"])
-    installed = (tmp_path / ".agents" / "skills" / "wordlive" / "SKILL.md").read_text(
+    _invoke(["install-skill", "--cli"])
+    installed = (tmp_path / ".agents" / "skills" / "wordlive-cli" / "SKILL.md").read_text(
         encoding="utf-8"
     )
     _, out, _ = _invoke(["llm-help"])
@@ -1739,20 +1748,38 @@ def test_llm_help_matches_installed_skill_body(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_install_skill_local(tmp_path: Path, monkeypatch):
+def test_install_skill_installs_both_by_default(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     code, out, _ = _invoke(["install-skill"])
     assert code == EXIT_OK
     data = json.loads(out)
     assert data["ok"] is True
     assert data["scope"] == "local"
-    dest = tmp_path / ".agents" / "skills" / "wordlive" / "SKILL.md"
-    assert dest.exists()
-    body = dest.read_text(encoding="utf-8")
-    assert body.startswith("---")  # agent-skill frontmatter
-    assert "name: wordlive" in body
-    assert "insert-image" in body  # content sanity
-    assert data["bytes"] == len(body.encode("utf-8"))
+    names = {r["name"] for r in data["installed"]}
+    assert names == {"wordlive-cli", "wordlive-python"}
+    cli = tmp_path / ".agents" / "skills" / "wordlive-cli" / "SKILL.md"
+    py = tmp_path / ".agents" / "skills" / "wordlive-python" / "SKILL.md"
+    assert cli.exists() and py.exists()
+    assert "name: wordlive-cli" in cli.read_text(encoding="utf-8")
+    assert "name: wordlive-python" in py.read_text(encoding="utf-8")
+
+
+def test_install_skill_cli_only(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = _invoke(["install-skill", "--cli"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert [r["name"] for r in data["installed"]] == ["wordlive-cli"]
+    assert not (tmp_path / ".agents" / "skills" / "wordlive-python").exists()
+
+
+def test_install_skill_python_only(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = _invoke(["install-skill", "--python"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert [r["name"] for r in data["installed"]] == ["wordlive-python"]
+    assert (tmp_path / ".agents" / "skills" / "wordlive-python" / "SKILL.md").exists()
 
 
 def test_install_skill_system(tmp_path: Path, monkeypatch):
@@ -1761,7 +1788,7 @@ def test_install_skill_system(tmp_path: Path, monkeypatch):
     assert code == EXIT_OK
     data = json.loads(out)
     assert data["scope"] == "system"
-    assert (tmp_path / ".agents" / "skills" / "wordlive" / "SKILL.md").exists()
+    assert (tmp_path / ".agents" / "skills" / "wordlive-cli" / "SKILL.md").exists()
 
 
 def test_install_skill_refuses_overwrite_without_force(tmp_path: Path, monkeypatch):
@@ -1778,3 +1805,69 @@ def test_install_skill_force_overwrites(tmp_path: Path, monkeypatch):
     code, out, _ = _invoke(["install-skill", "--force"])
     assert code == EXIT_OK
     assert json.loads(out)["ok"] is True
+
+
+# ---------------------------------------------------------------------------
+# install-mcp (offline — no Word needed)
+# ---------------------------------------------------------------------------
+
+
+def test_install_mcp_print_emits_pypi_snippet():
+    """`--print` returns the uvx-from-PyPI entry without writing any file."""
+    code, out, _ = _invoke(["install-mcp", "--print"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    entry = data["mcpServers"]["wordlive"]
+    assert entry["command"] == "uvx"
+    assert entry["args"] == ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]
+
+
+def test_install_mcp_print_directory_uses_local_checkout():
+    """`--directory` switches to `uv run --directory DIR wordlive-mcp` (dev)."""
+    code, out, _ = _invoke(["install-mcp", "--print", "--directory", "C:/checkout"])
+    assert code == EXIT_OK
+    entry = json.loads(out)["mcpServers"]["wordlive"]
+    assert entry["command"] == "uv"
+    assert entry["args"] == ["run", "--directory", "C:/checkout", "wordlive-mcp"]
+
+
+def test_install_mcp_writes_config(tmp_path: Path):
+    cfg = tmp_path / "claude_desktop_config.json"
+    code, out, _ = _invoke(["install-mcp", "--config", str(cfg)])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["action"] == "created"
+    written = json.loads(cfg.read_text(encoding="utf-8"))
+    assert written["mcpServers"]["wordlive"]["command"] == "uvx"
+
+
+def test_install_mcp_merges_into_existing_config(tmp_path: Path):
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}), encoding="utf-8")
+    code, _, _ = _invoke(["install-mcp", "--config", str(cfg)])
+    assert code == EXIT_OK
+    written = json.loads(cfg.read_text(encoding="utf-8"))
+    assert set(written["mcpServers"]) == {"other", "wordlive"}  # existing entry preserved
+
+
+def test_install_mcp_claude_code_writes_local_mcp_json(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    code, _, _ = _invoke(["install-mcp", "--client", "claude-code"])
+    assert code == EXIT_OK
+    assert (tmp_path / ".mcp.json").exists()
+
+
+def test_install_mcp_refuses_overwrite_without_force(tmp_path: Path):
+    cfg = tmp_path / "cfg.json"
+    assert _invoke(["install-mcp", "--config", str(cfg)])[0] == EXIT_OK
+    code, _, err = _invoke(["install-mcp", "--config", str(cfg)])
+    assert code == EXIT_OTHER
+    assert "force" in err.lower()
+
+
+def test_install_mcp_force_updates(tmp_path: Path):
+    cfg = tmp_path / "cfg.json"
+    _invoke(["install-mcp", "--config", str(cfg)])
+    code, out, _ = _invoke(["install-mcp", "--config", str(cfg), "--force"])
+    assert code == EXIT_OK
+    assert json.loads(out)["action"] == "updated"

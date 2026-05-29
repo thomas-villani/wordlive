@@ -141,37 +141,48 @@ Where `ops.json` looks like:
 
 Exit codes: `0` ok, `1` other, `2` anchor-not-found, `3` Word-busy, `4` Word-not-running, `5` ambiguous-match (`replace --find` hit several).
 
-## Agent skill
+## Agent skills
 
-wordlive ships an LLM-facing skill (`SKILL.md`) — a concise CLI reference for
-agents: the anchor model, every verb, the `exec` batch format, and the
-exit-code contract.
+wordlive ships **two** LLM-facing skills (`SKILL.md`): `wordlive-cli` (the
+command-line workflow) and `wordlive-python` (the `import wordlive as wl` API).
+Each covers the anchor model, every verb, and the exit-code / exception contract.
 
 An agent that hits `wordlive --help` is pointed straight at `wordlive llm-help`,
 which prints the whole guide to stdout in one shot — no install step, no Word:
 
 ```
-wordlive llm-help                 # dump the full agent guide to stdout
+wordlive llm-help                 # the CLI guide
+wordlive llm-help --python        # the Python-API guide
 ```
 
-Or drop the skill file into a project or your home directory so coding tools
-discover it on their own:
+Or drop the skill files into a project or your home directory so coding tools
+discover them on their own (both by default; `--cli` / `--python` for one):
 
 ```
-wordlive install-skill            # ./.agents/skills/wordlive/SKILL.md
-wordlive install-skill --system   # ~/.agents/skills/wordlive/SKILL.md
+wordlive install-skill            # ./.agents/skills/wordlive-{cli,python}/SKILL.md
+wordlive install-skill --system   # ~/.agents/skills/wordlive-{cli,python}/SKILL.md
 ```
 
 ## MCP server (Claude Desktop & other agents)
 
 Prefer MCP? `wordlive` ships a server so Claude Desktop and other MCP clients can
-drive your open document directly:
+drive your open document directly. Three ways to set it up, easiest first:
+
+**1. One-click bundle.** Download `wordlive.mcpb` (built from
+[`mcpb/`](https://github.com/thomas-villani/wordlive/tree/main/mcpb)) and drop it
+onto Claude Desktop → **Settings → Extensions**.
+
+**2. `install-mcp`.** Register the server in your client's config in one command
+(it uses `uvx`, so there's no separate install step):
 
 ```
-pip install "wordlive[mcp,snapshot]"   # snapshot extra adds the vision tool
+wordlive install-mcp                      # → Claude Desktop's config
+wordlive install-mcp --client claude-code # → ./.mcp.json
+wordlive install-mcp --print              # just print the JSON snippet
 ```
 
-Register it in `claude_desktop_config.json`:
+**3. By hand.** `pip install "wordlive[mcp,snapshot]"` (the `snapshot` extra adds
+the vision tool), then add to `claude_desktop_config.json`:
 
 ```json
 { "mcpServers": { "wordlive": { "command": "wordlive-mcp" } } }

@@ -11,32 +11,44 @@ write is a single Ctrl-Z), and failures come back with a stable error `code` and
 
 ## Install
 
-The server is an optional extra:
+Three ways, easiest first. All three end with the same `word_*` tools in your
+client — pick whichever fits.
+
+### 1. One-click bundle (`.mcpb`)
+
+The repo ships an **MCP bundle** in
+[`mcpb/`](https://github.com/thomas-villani/wordlive/tree/main/mcpb) — a single
+`wordlive.mcpb` file you drag onto Claude Desktop → **Settings → Extensions** to
+install in one click, no JSON editing. The bundle carries no code: it declares a
+dependency on the published `wordlive[mcp,snapshot]` package and Claude Desktop's
+`uv` runtime resolves it on first run. Needs [`uv`](https://docs.astral.sh/uv/)
+on `PATH`. See [`mcpb/README.md`](https://github.com/thomas-villani/wordlive/blob/main/mcpb/README.md)
+to download or rebuild it.
+
+### 2. `wordlive install-mcp`
+
+Let the CLI write the config entry for you (it launches the server with `uvx`,
+so there's no separate install step):
 
 ```
-pip install "wordlive[mcp]"
-# or, with the snapshot (vision) tool too:
-pip install "wordlive[mcp,snapshot]"
+wordlive install-mcp                       # merge into Claude Desktop's config
+wordlive install-mcp --client claude-code  # write a project-local ./.mcp.json
+wordlive install-mcp --print               # just print the JSON snippet
+wordlive install-mcp --directory .         # dev: run a local checkout via uv run
+```
 
-# uv
+It merges an `mcpServers.wordlive` entry (using `uvx --from "wordlive[mcp,snapshot]"
+wordlive-mcp`) into the target config, refusing to clobber an existing entry
+without `--force`. Offline — it never touches Word. Restart the client afterward.
+
+### 3. By hand
+
+Install the optional extra, then add the entry yourself:
+
+```
+pip install "wordlive[mcp,snapshot]"   # snapshot extra adds the vision tool
 uv tool install "wordlive[mcp,snapshot]"
 ```
-
-## Run
-
-```
-wordlive-mcp            # console script (stdio transport)
-python -m wordlive.mcp  # equivalent
-```
-
-The server speaks MCP over **stdio** — the transport Claude Desktop spawns. Word
-must already be running on the same machine (wordlive *attaches*; it never launches
-or closes Word).
-
-## Register with Claude Desktop
-
-Add an entry to `claude_desktop_config.json` (Claude Desktop → Settings →
-Developer → Edit Config):
 
 ```json
 {
@@ -62,7 +74,19 @@ your environment explicitly (note the doubled backslashes in JSON):
 }
 ```
 
-Restart Claude Desktop, open a `.docx` in Word, and the `word_*` tools appear.
+Claude Desktop's config lives at *Settings → Developer → Edit Config*. Restart
+Claude Desktop, open a `.docx` in Word, and the `word_*` tools appear.
+
+## Run
+
+```
+wordlive-mcp            # console script (stdio transport)
+python -m wordlive.mcp  # equivalent
+```
+
+The server speaks MCP over **stdio** — the transport Claude Desktop spawns. Word
+must already be running on the same machine (wordlive *attaches*; it never launches
+or closes Word).
 
 ## Tools
 

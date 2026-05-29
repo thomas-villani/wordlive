@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +14,8 @@ import click
 from .. import attach
 from .._anchors import Heading
 from .._guide import bundled_skill as _bundled_skill
-from .._guide import strip_frontmatter as _strip_frontmatter
+from .._guide import skill_body as _skill_body
+from .._guide import skill_name as _skill_name
 from .._ops import OP_REQUIRED_FIELDS as _OP_REQUIRED_FIELDS  # noqa: F401  (back-compat re-export)
 from .._ops import apply_op as _apply_op  # noqa: F401  (back-compat re-export)
 from .._ops import op_before as _op_before  # noqa: F401  (back-compat re-export)
@@ -103,6 +106,7 @@ def register(group: click.Group) -> None:
     group.add_command(exec_)
     group.add_command(llm_help_cmd)
     group.add_command(install_skill_cmd)
+    group.add_command(install_mcp_cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -1986,28 +1990,40 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
 
 
 # ---------------------------------------------------------------------------
-# install-skill [--system] [--force]
+# llm-help / install-skill / install-mcp  (offline — no Word needed)
 # ---------------------------------------------------------------------------
 
 
 @click.command(name="llm-help")
-def llm_help_cmd() -> None:
+@click.option(
+    "--python",
+    "python",
+    is_flag=True,
+    default=False,
+    help="Print the Python-API guide instead of the CLI guide.",
+)
+def llm_help_cmd(python: bool) -> None:
     """Print the full wordlive agent guide (the bundled skill) to stdout.
 
-    One-shot orientation for an LLM: the anchor model, every read/write verb,
-    image insertion, the `exec` batch format, and the exit-code taxonomy.
-    `wordlive --help` points here. Output is raw Markdown — not JSON, and
-    unaffected by `--json/--text` — so it reads cleanly straight into a model's
-    context, exactly like `--help` itself. Offline: never touches Word.
+    One-shot orientation for an LLM: the anchor model, every verb, image
+    insertion, the `exec` batch format, and the exit-code taxonomy. `wordlive
+    --help` points here. Defaults to the CLI guide; `--python` prints the
+    Python-API (`import wordlive as wl`) guide instead. Output is raw Markdown —
+    not JSON, and unaffected by `--json/--text` — so it reads cleanly straight
+    into a model's context, exactly like `--help`. Offline: never touches Word.
     """
+    kind = "python" if python else "cli"
     try:
-        content = _bundled_skill()
-    except (FileNotFoundError, ModuleNotFoundError, OSError) as e:
+        click.echo(_skill_body(kind))
+    except (FileNotFoundError, ModuleNotFoundError, OSError, ValueError) as e:
         raise click.ClickException(f"could not read the bundled skill: {e}") from e
-    click.echo(_strip_frontmatter(content))
 
 
 @click.command(name="install-skill")
+@click.option("--cli", "cli", is_flag=True, default=False, help="Install only the CLI skill.")
+@click.option(
+    "--python", "python", is_flag=True, default=False, help="Install only the Python-API skill."
+)
 @click.option(
     "--system",
     "system",
@@ -2019,29 +2035,201 @@ def llm_help_cmd() -> None:
     "--force", "force", is_flag=True, default=False, help="Overwrite an existing SKILL.md."
 )
 @click.pass_context
-def install_skill_cmd(ctx: click.Context, system: bool, force: bool) -> None:
-    """Install the wordlive agent skill (SKILL.md) for LLM coding tools.
+def install_skill_cmd(
+    ctx: click.Context, cli: bool, python: bool, system: bool, force: bool
+) -> None:
+    """Install wordlive's agent skills (SKILL.md) for LLM coding tools.
 
-    Writes `.agents/skills/wordlive/SKILL.md` under the current directory
-    (default) or your home directory (`--system`). This is offline — it doesn't
-    touch Word.
+    wordlive ships two skills — `wordlive-cli` (the command-line workflow) and
+    `wordlive-python` (the `import wordlive as wl` API). By default both are
+    written under `.agents/skills/<name>/SKILL.md`; pass `--cli` or `--python`
+    for just one. They land under the current directory (default) or your home
+    directory (`--system`). Offline — this doesn't touch Word.
     """
+    if cli and not python:
+        kinds = ["cli"]
+    elif python and not cli:
+        kinds = ["python"]
+    else:
+        kinds = ["cli", "python"]
+
     base = Path.home() if system else Path.cwd()
-    dest = base / ".agents" / "skills" / "wordlive" / "SKILL.md"
     scope = "system" if system else "local"
-    if dest.exists() and not force:
-        raise click.ClickException(f"{dest} already exists; pass --force to overwrite")
+    dests = [(kind, base / ".agents" / "skills" / _skill_name(kind) / "SKILL.md") for kind in kinds]
+
+    # Check every target up front so we never half-write when --force is absent.
+    clashes = [str(dest) for _, dest in dests if dest.exists()]
+    if clashes and not force:
+        raise click.ClickException(
+            "already exists (pass --force to overwrite): " + ", ".join(clashes)
+        )
+
+    installed = []
     try:
-        content = _bundled_skill()
-    except (FileNotFoundError, ModuleNotFoundError, OSError) as e:
-        raise click.ClickException(f"could not read the bundled skill: {e}") from e
-    try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content, encoding="utf-8")
-    except OSError as e:
-        raise click.ClickException(f"could not write {dest}: {e}") from e
+        for kind, dest in dests:
+            content = _bundled_skill(kind)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
+            installed.append(
+                {
+                    "kind": kind,
+                    "name": _skill_name(kind),
+                    "path": str(dest),
+                    "bytes": len(content.encode("utf-8")),
+                }
+            )
+    except (FileNotFoundError, ModuleNotFoundError, OSError, ValueError) as e:
+        raise click.ClickException(f"could not install the skill: {e}") from e
+
     emit(
-        {"ok": True, "scope": scope, "path": str(dest), "bytes": len(content.encode("utf-8"))},
+        {"ok": True, "scope": scope, "installed": installed},
         as_text=not ctx.obj["as_json"],
-        text=f"installed wordlive skill → {dest}",
+        text="installed:\n" + "\n".join(f"  {r['name']} → {r['path']}" for r in installed),
+    )
+
+
+# ---------------------------------------------------------------------------
+# install-mcp — register the MCP server in an agent's config
+# ---------------------------------------------------------------------------
+
+
+def _claude_desktop_config_path() -> Path:
+    """Where Claude Desktop keeps `claude_desktop_config.json` on this OS."""
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base / "Claude" / "claude_desktop_config.json"
+    if sys.platform == "darwin":
+        return (
+            Path.home()
+            / "Library"
+            / "Application Support"
+            / "Claude"
+            / "claude_desktop_config.json"
+        )
+    return Path.home() / ".config" / "Claude" / "claude_desktop_config.json"
+
+
+def _mcp_server_entry(directory: str | None) -> dict[str, Any]:
+    """The `mcpServers` entry that launches the wordlive stdio server.
+
+    Default (repo-less) form runs the published package straight from PyPI with
+    `uvx` — `wordlive-mcp` is a console script *inside* `wordlive`, so it needs
+    `--from "wordlive[mcp,snapshot]"` to tell uv which package provides it (and
+    the `snapshot` extra enables the vision tool). With `--directory` (a local
+    checkout) wordlive *is* the project, so a plain `uv run wordlive-mcp`
+    resolves it without `--from`.
+    """
+    if directory:
+        return {"command": "uv", "args": ["run", "--directory", directory, "wordlive-mcp"]}
+    return {"command": "uvx", "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]}
+
+
+@click.command(name="install-mcp")
+@click.option(
+    "--client",
+    type=click.Choice(["claude-desktop", "claude-code"]),
+    default="claude-desktop",
+    help="Which MCP client's config to write (default: claude-desktop).",
+)
+@click.option(
+    "--name", "server_name", default="wordlive", help="Server key to register (default: wordlive)."
+)
+@click.option(
+    "--directory",
+    "directory",
+    default=None,
+    help="Register a local checkout via `uv run --directory DIR` (dev), instead of the default `uvx --from wordlive[mcp,snapshot]`.",
+)
+@click.option(
+    "--config",
+    "config_path",
+    default=None,
+    type=click.Path(),
+    help="Write to this config file instead of the client's default location.",
+)
+@click.option(
+    "--print",
+    "print_only",
+    is_flag=True,
+    default=False,
+    help="Print the JSON server snippet to stdout instead of writing any file.",
+)
+@click.option(
+    "--force", "force", is_flag=True, default=False, help="Overwrite an existing server entry."
+)
+@click.pass_context
+def install_mcp_cmd(
+    ctx: click.Context,
+    client: str,
+    server_name: str,
+    directory: str | None,
+    config_path: str | None,
+    print_only: bool,
+    force: bool,
+) -> None:
+    """Register the wordlive MCP server in an agent's config.
+
+    Merges an `mcpServers.<name>` entry into Claude Desktop's
+    `claude_desktop_config.json` (default) or a Claude Code `.mcp.json`
+    (`--client claude-code`, project-local). The entry launches the stdio server
+    with `uvx --from "wordlive[mcp,snapshot]" wordlive-mcp` (no separate install
+    needed), or `uv run --directory DIR wordlive-mcp` for a local checkout. Use
+    `--print` to just emit the snippet for any client. Offline — never touches
+    Word; restart the client to pick up the change.
+    """
+    entry = _mcp_server_entry(directory)
+
+    if print_only:
+        emit(
+            {"ok": True, "server": server_name, "entry": entry, "mcpServers": {server_name: entry}},
+            as_text=not ctx.obj["as_json"],
+            text=json.dumps({"mcpServers": {server_name: entry}}, indent=2),
+        )
+        return
+
+    if config_path is not None:
+        target = Path(config_path)
+    elif client == "claude-desktop":
+        target = _claude_desktop_config_path()
+    else:  # claude-code: portable, project-local server file
+        target = Path.cwd() / ".mcp.json"
+
+    cfg: dict[str, Any] = {}
+    if target.exists():
+        try:
+            raw = target.read_text(encoding="utf-8").strip()
+            cfg = json.loads(raw) if raw else {}
+        except (OSError, json.JSONDecodeError) as e:
+            raise click.ClickException(f"could not read existing config {target}: {e}") from e
+        if not isinstance(cfg, dict):
+            raise click.ClickException(f"existing config {target} is not a JSON object")
+
+    servers = cfg.setdefault("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise click.ClickException(f"'mcpServers' in {target} is not a JSON object")
+    action = "updated" if server_name in servers else "created"
+    if server_name in servers and not force:
+        raise click.ClickException(
+            f"server '{server_name}' is already in {target}; pass --force to overwrite"
+        )
+    servers[server_name] = entry
+
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    except OSError as e:
+        raise click.ClickException(f"could not write {target}: {e}") from e
+
+    emit(
+        {
+            "ok": True,
+            "client": client,
+            "path": str(target),
+            "server": server_name,
+            "action": action,
+            "entry": entry,
+        },
+        as_text=not ctx.obj["as_json"],
+        text=f"{action} server '{server_name}' → {target}\n(restart {client} to load it)",
     )
