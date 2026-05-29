@@ -429,9 +429,7 @@ class Anchor(ABC):
         unknown `kind` or `where`.
         """
         if kind not in _BREAK_TYPES:
-            raise ValueError(
-                f"unknown break kind {kind!r}; expected one of {sorted(_BREAK_TYPES)}"
-            )
+            raise ValueError(f"unknown break kind {kind!r}; expected one of {sorted(_BREAK_TYPES)}")
         if where not in ("before", "after"):
             raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
         break_type = _BREAK_TYPES[kind]
