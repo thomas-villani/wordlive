@@ -32,6 +32,7 @@ from ._edit import EditScope
 from ._lists import ListCollection
 from ._sections import HeaderFooter, Section, SectionCollection
 from ._selection import Selection, SelectionSnapshot
+from ._snapshot import Snapshot
 from ._styles import Style, StyleCollection
 from ._tables import Cell, Table, TableCollection
 from .exceptions import (
@@ -40,6 +41,7 @@ from .exceptions import (
     ComError,
     DocumentNotFoundError,
     ImageSourceError,
+    SnapshotError,
     StyleNotFoundError,
     WordBusyError,
     WordliveError,
@@ -73,6 +75,8 @@ __all__ = [
     "SectionCollection",
     "Selection",
     "SelectionSnapshot",
+    "Snapshot",
+    "SnapshotError",
     "StartAnchor",
     "Style",
     "StyleCollection",

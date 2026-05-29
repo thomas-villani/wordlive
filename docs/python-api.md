@@ -38,13 +38,21 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 ## Anchors
 
 Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
-`insert_paragraph_before/after(...)`, `insert_image(...)`, and the list verbs
-(`apply_list`, `remove_list`, `list_info`, `restart_numbering`, `indent_list`,
-`outdent_list`) from [`Anchor`](#wordlive.Anchor), so the same calls work
-uniformly on bookmarks, content controls, headings, paragraphs, table cells,
-header/footer ranges, and arbitrary range anchors. `insert_image` accepts a
-file path, raw bytes, or a base64 string and embeds the picture; `wrap` is
-required (`"inline"`, `"auto"`, or a float wrap like `"square"`/`"top-bottom"`).
+`insert_paragraph_before/after(...)`, `insert_image(...)`, `insert_table(...)`,
+`insert_break(...)`, and the list verbs (`apply_list`, `remove_list`,
+`list_info`, `restart_numbering`, `indent_list`, `outdent_list`) from
+[`Anchor`](#wordlive.Anchor), so the same calls work uniformly on bookmarks,
+content controls, headings, paragraphs, table cells, header/footer ranges, and
+arbitrary range anchors. `insert_image` accepts a file path, raw bytes, or a
+base64 string and embeds the picture; `wrap` is required (`"inline"`, `"auto"`,
+or a float wrap like `"square"`/`"top-bottom"`). `insert_table(rows, cols, …)`
+creates a new table at the anchor and returns its [`Table`](#wordlive.Table)
+(append at the end with [`Document.add_table`](#wordlive.Document)).
+`insert_break(kind="page"|"column"|"section_next"|"section_continuous")` drops
+an explicit break; for a reflow-safe page break tied to a paragraph (e.g. every
+`Heading 1`), pass `page_break_before=True` to `format_paragraph` instead.
+Every anchor also has `snapshot(...)`, which renders the page(s) it sits on to
+PNG (a heading expands to its whole section) — see [Snapshots](#snapshots).
 
 ::: wordlive.Anchor
 
@@ -83,6 +91,13 @@ table by 1-based position or `Title`, then read or edit it. A
 [`Cell`](#wordlive.Cell) *is* an [`Anchor`](#wordlive.Anchor) — its id is
 `table:N:R:C`, so `doc.anchor_by_id("table:1:2:3")` returns a cell that works
 with `set_text`, `apply_style`, and `format_paragraph` like any other anchor.
+
+Create tables with [`Document.add_table(rows, cols, …)`](#wordlive.Document)
+(append at the end) or [`Anchor.insert_table(...)`](#wordlive.Anchor) (at any
+position anchor); both return the new [`Table`](#wordlive.Table), populate cells
+from a row-major `data` grid, default to the `Table Grid` style, and keep
+appended tables from merging into an adjacent one. `Table.delete()` removes a
+whole table — the structural mirror of `add_row` / `delete_row`.
 
 ::: wordlive.TableCollection
 
@@ -152,6 +167,30 @@ snapping the cursor back. Everywhere else, prefer anchors over the cursor.
 
 ::: wordlive.SelectionSnapshot
 
+## Snapshots
+
+[`Document.snapshot(...)`](#wordlive.Document) and
+[`Anchor.snapshot(...)`](#wordlive.Anchor) render page(s) of the live document
+to PNG so a vision model can *see* the layout — Word exports a pixel-faithful
+PDF and wordlive rasterises the requested pages. `Document.snapshot` selects
+pages (all, one, or a span); `Anchor.snapshot` (and
+[`Document.snapshot_anchor`](#wordlive.Document)) renders the page(s) an anchor
+occupies, expanding a heading to its whole section. Both return a list of
+`Snapshot` (one per page) and optionally write the image(s) to `out`. This needs
+the optional `snapshot` extra (PyMuPDF); a missing backend raises
+[`SnapshotError`](#wordlive.SnapshotError).
+
+```python
+import wordlive as wl
+
+with wl.attach() as word:
+    doc = word.documents.active
+    png = doc.heading("Introduction").snapshot()[0].png   # bytes for a model
+    doc.snapshot("report.png", pages=(1, 3))              # write pages 1-3
+```
+
+::: wordlive.Snapshot
+
 ## Exceptions
 
 ::: wordlive.WordliveError
@@ -167,6 +206,8 @@ snapping the cursor back. Everywhere else, prefer anchors over the cursor.
 ::: wordlive.AmbiguousMatchError
 
 ::: wordlive.ImageSourceError
+
+::: wordlive.SnapshotError
 
 ::: wordlive.WordBusyError
 

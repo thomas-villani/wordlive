@@ -90,6 +90,48 @@ def test_insert_missing_anchor(fake_word):
     assert "heading" in err.lower()
 
 
+def test_insert_break_page_after(fake_word):
+    code, out, _ = _invoke(["insert-break", "--anchor-id", "bookmark:Address"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data == {"ok": True, "anchor_id": "bookmark:Address", "kind": "page", "where": "after"}
+    # Address ends at 24; the page break is inserted there (wdPageBreak = 7).
+    fake_word.ActiveDocument.Range(24, 24).InsertBreak.assert_called_once_with(Type=7)
+
+
+def test_insert_break_section_before(fake_word):
+    code, out, _ = _invoke(
+        ["insert-break", "--anchor-id", "bookmark:Address", "--kind", "section_next", "--before"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["kind"] == "section_next"
+    assert data["where"] == "before"
+    # Address starts at 13; wdSectionBreakNextPage = 2.
+    fake_word.ActiveDocument.Range(13, 13).InsertBreak.assert_called_once_with(Type=2)
+
+
+def test_insert_break_bad_kind_is_usage_error(fake_word):
+    code, _, _ = _invoke(["insert-break", "--anchor-id", "bookmark:Address", "--kind", "nope"])
+    assert code != EXIT_OK
+
+
+def test_insert_break_missing_anchor_returns_exit_2(fake_word):
+    code, _, err = _invoke(["insert-break", "--anchor-id", "bookmark:Nope"])
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
+def test_format_paragraph_page_break_before(fake_word):
+    code, out, _ = _invoke(
+        ["format-paragraph", "--anchor-id", "bookmark:Address", "--page-break-before"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["applied"]["page_break_before"] is True
+    pf = fake_word.ActiveDocument.Bookmarks("Address").Range.ParagraphFormat
+    assert pf.PageBreakBefore is True
+
+
 def test_append_paragraph_default(fake_word):
     code, out, _ = _invoke(["append", "--text", "Closing note."])
     assert code == EXIT_OK

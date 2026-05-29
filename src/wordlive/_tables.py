@@ -39,6 +39,26 @@ def _strip_cell_text(raw: Any) -> str:
     return str(raw or "").rstrip("\r\n\x07")
 
 
+def index_of(doc_com: Any, table_com: Any) -> int:
+    """1-based document position of `table_com` within `doc_com.Tables`.
+
+    Tables can't overlap, so matching on `Range.Start` uniquely identifies the
+    table even though Word hands back a fresh wrapper on each collection access
+    (so identity comparison is unreliable). Used to report the index of a
+    freshly-created table. Falls back to the table count if no start matches —
+    which shouldn't happen for a table that was just added.
+    """
+    with _com.translate_com_errors():
+        target = int(table_com.Range.Start)
+        for i, t in enumerate(doc_com.Tables, start=1):
+            try:
+                if int(t.Range.Start) == target:
+                    return i
+            except Exception:
+                continue
+        return int(doc_com.Tables.Count)
+
+
 class Cell(Anchor):
     """A single table cell, addressed by 1-based (row, column).
 
@@ -202,6 +222,17 @@ class Table:
             raise AnchorNotFoundError("table row", f"table:{self._index}:row:{index}")
         with _com.translate_com_errors():
             self._com.Rows(index).Delete()
+
+    def delete(self) -> None:
+        """Delete this entire table — the structural mirror of `add_row`.
+
+        Removes the table and all its cells from the document. Afterwards this
+        `Table` (and any `Cell` anchors derived from it) is stale; the indices
+        of any tables that followed it shift down by one, so re-resolve through
+        `doc.tables` before addressing another.
+        """
+        with _com.translate_com_errors():
+            self._com.Delete()
 
     def __iter__(self) -> Iterator[Cell]:
         """Iterate cells row-major."""

@@ -1,6 +1,6 @@
 ---
 name: wordlive
-description: Read and edit the Microsoft Word document the user has open right now, from the command line. Inspect structure (outline, paragraphs, tables), make polite edits (text, styles, lists, images, comments, headers/footers), and batch changes into a single atomic undo — all JSON-in / JSON-out with deterministic exit codes. Use when the user wants to read or edit a .docx that is currently open in Word on Windows.
+description: Read and edit the Microsoft Word document the user has open right now, from the command line. Inspect structure (outline, paragraphs, tables), make polite edits (text, styles, lists, images, comments, headers/footers), render a page or section to a PNG so a vision model can see the layout, and batch changes into a single atomic undo — all JSON-in / JSON-out with deterministic exit codes. Use when the user wants to read, edit, or visually render a .docx that is currently open in Word on Windows.
 ---
 
 # wordlive
@@ -50,8 +50,10 @@ short string you pass as `--anchor-id`:
 - `wordlive replace --anchor-id ID --text "…"` — overwrite a range.
 - `wordlive replace --find "old" --text "new" [--all | --occurrence N] [--in ID]` — fuzzy find + replace.
 - `wordlive style apply --anchor-id ID --name "Heading 2"` (names: `style list`).
-- `wordlive format-paragraph --anchor-id ID [--alignment center] [--left-indent 36] [--space-before 6] …`
+- `wordlive format-paragraph --anchor-id ID [--alignment center] [--left-indent 36] [--space-before 6] [--page-break-before] …` — `--page-break-before` is the clean, reflow-safe way to make a paragraph (e.g. a `Heading 1`) start a new page, leaving no stray break character.
+- `wordlive insert-break --anchor-id ID [--kind page|column|section_next|section_continuous] [--before | --after]` — an **explicit** one-off page/column/section break (the discoverable replacement for a literal form-feed paragraph). `--kind` defaults to `page`. Section breaks start a new section that can carry its own headers/footers + page setup. For a break that follows a *style*, prefer `format-paragraph --page-break-before`.
 - `wordlive list apply --anchor-id ID --type bulleted|numbered|outline` (+ `list remove|restart|indent|outdent`).
+- `wordlive table create --anchor-id ID --rows R --cols C [--style NAME] [--header] [--before | --after] [--data '[["…"],…]' | --data -]` — **build a new table** at a *position* anchor (`heading:`/`para:`/`start`/`end`); reports its 1-based `index`. Fill cells row-major with `--data` (use `--data -` for stdin to dodge Windows quoting); `--style` defaults to `Table Grid` (visible borders); `--header` bolds row 1. Edit existing tables with `table add-row`/`delete-row` and `table delete N`; cells are anchors (`table:N:R:C`) you can `replace`/`style apply`/`format-paragraph`.
 - `wordlive comment add --anchor-id ID --text "…"` (+ `comment list` · `comment resolve --index N` · `comment delete --index N`).
 - `wordlive track on|off|status` — tracked changes.
 - `wordlive header write --section S --text "…"` · `footer write --section S --text "…"` (`--which primary|first|even`).
@@ -66,6 +68,26 @@ wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP 
 - `--wrap` is **required**: `inline` (stays in the text flow), `auto` (floats —
   Square if small, else top-and-bottom), or
   `square|tight|through|top-bottom|behind|front`.
+
+## Snapshot — render page(s) to PNG so you can *see* the layout
+```
+wordlive snapshot [--anchor-id ID | --page N | --pages A-B] [--out FILE] [--dpi 150]
+```
+Word exports a pixel-faithful PDF of the live document and wordlive rasterises
+the requested pages — a true WYSIWYG image (real fonts, spacing, page geometry),
+ideal for judging or iterating on style and formatting.
+- Pick **at most one** target: `--anchor-id` (the page(s) the anchor occupies —
+  a `heading:` expands to its **whole section**), `--page N`, or `--pages A-B`.
+  With none, the whole document renders.
+- With `--out FILE` the image is written to disk (multiple pages become
+  `<stem>-pN<suffix>`); **without `--out`, base64 PNG data is returned inline**
+  in the JSON (`images[].base64`) — feed it straight back to yourself as an image.
+- Needs the optional `snapshot` extra (PyMuPDF). If it's missing the command
+  exits `1` with an install hint (`pip install "wordlive[snapshot]"`).
+```bash
+$ wordlive snapshot --anchor-id heading:3 --out section.png
+{"ok": true, "selector": "heading:3", "dpi": 150, "count": 1, "images": [{"page": 4, "bytes": 81234, "path": "section.png"}]}
+```
 
 ## Batch many edits atomically
 Put several ops in a JSON file; they apply as a **single** undo step. This is the
@@ -94,11 +116,16 @@ pass `"before": true` to insert above it (mirrors the CLI's `--before`/`--after`
 Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `append_paragraph`,
 `append`, `prepend_paragraph`, `prepend`, `insert_image`, `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `set_cell`, `add_row`,
-`delete_row`, `add_comment`, `resolve_comment`, `delete_comment`, `apply_list`,
-`remove_list`, `restart_numbering`, `indent_list`, `outdent_list`,
-`write_header`, `write_footer`. (`append_paragraph` / `prepend_paragraph` take
-`text` + optional `style`; `append` / `prepend` take `text` — they add to the
-end / start of the document, no anchor.)
+`delete_row`, `create_table`, `delete_table`, `insert_break`, `add_comment`, `resolve_comment`,
+`delete_comment`, `apply_list`, `remove_list`, `restart_numbering`,
+`indent_list`, `outdent_list`, `write_header`, `write_footer`.
+(`append_paragraph` / `prepend_paragraph` take `text` + optional `style`;
+`append` / `prepend` take `text` — they add to the end / start of the document,
+no anchor. `create_table` takes `anchor_id` + `rows` + `cols`, optional `style` /
+`data` (row-major 2-D) / `header`; a successful batch returns an `outputs` array
+reporting each new table's `index`. `insert_break` takes `anchor_id`, optional
+`kind` (default `page`) and `before`; `format_paragraph`'s `page_break_before`
+bool is the reflow-safe alternative for breaking before a styled paragraph.)
 
 ## Exit codes — branch on these
 | Code | Meaning | Retry? |

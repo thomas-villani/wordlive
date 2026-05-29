@@ -153,3 +153,50 @@ class MsoTriState(IntEnum):
 
     TRUE = -1
     FALSE = 0
+
+
+class WdExportFormat(IntEnum):
+    """`Document.ExportAsFixedFormat` output format. Only PDF is used (for snapshots)."""
+
+    PDF = 17
+
+
+class WdExportRange(IntEnum):
+    """Which pages `ExportAsFixedFormat` writes.
+
+    `FROM_TO` pairs with the `From`/`To` (1-based, inclusive) page numbers;
+    `ALL_DOCUMENT` ignores them and exports everything.
+    """
+
+    ALL_DOCUMENT = 0
+    FROM_TO = 3
+
+
+class WdBreakType(IntEnum):
+    """`Range.InsertBreak(Type=...)` values — the break kinds `insert_break` exposes.
+
+    A deliberate subset of Word's full `WdBreakType`: the page/column break and
+    the two section breaks the v0.12 plan calls for. The line/text-wrapping
+    breaks (6, 9–11) and even/odd-page section breaks (4, 5) are omitted until a
+    use case needs them, mirroring how `WdStyleType` was kept narrow.
+    `insert_break(kind=...)` maps its string keys onto these members.
+    """
+
+    SECTION_NEXT_PAGE = 2
+    SECTION_CONTINUOUS = 3
+    PAGE = 7
+    COLUMN = 8
+
+
+class WdInformation(IntEnum):
+    """`Range.Information(...)` selectors.
+
+    `ACTIVE_END_PAGE_NUMBER` returns the 1-based page a (collapsed) range falls
+    on, which is how an anchor is mapped to the page(s) a snapshot should render.
+    `WITH_IN_TABLE` is True when the range sits inside a table — used when
+    inserting a new table to detect (and separate) an adjacent table that Word
+    would otherwise silently merge into.
+    """
+
+    ACTIVE_END_PAGE_NUMBER = 3
+    WITH_IN_TABLE = 12

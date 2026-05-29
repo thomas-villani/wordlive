@@ -222,6 +222,36 @@ To insert text *inside* a paragraph at a precise offset rather than as a new
 paragraph, target a collapsed range instead — `replace --anchor-id
 range:120-120 --text "…"` — using offsets from `paragraphs` or `find`.
 
+## `insert-break --anchor-id ID [--kind …] [--before | --after]`
+
+```
+wordlive insert-break --anchor-id ID
+    [--kind page|column|section_next|section_continuous]
+    [--before | --after] [--doc DOC_NAME]
+```
+
+Insert an explicit page, column, or section break at any anchor — the clean,
+discoverable replacement for appending a paragraph whose text is a literal
+form-feed. `--kind` defaults to `page` (the common case); `column` breaks a
+multi-column layout, and the two `section_*` kinds start a new document section
+(which can carry its own headers/footers and page setup — see `section`).
+`--after` (default) drops the break just past the anchor; `--before`, just
+before it.
+
+```bash
+$ wordlive insert-break --anchor-id para:12
+{"ok": true, "anchor_id": "para:12", "kind": "page", "where": "after"}
+
+$ wordlive insert-break --anchor-id heading:3 --kind section_next --before
+{"ok": true, "anchor_id": "heading:3", "kind": "section_next", "where": "before"}
+```
+
+To make a *style* (e.g. every `Heading 1`) open a new page without a stray
+break character that drifts on reflow, prefer `format-paragraph --anchor-id ID
+--page-break-before` instead — it's a paragraph property, not an inserted mark.
+Failures: `1` unknown `--kind` (usage error), `2` anchor not found, `3` Word
+busy.
+
 ## `prepend --text "…"` / `append --text "…"`
 
 ```
@@ -295,6 +325,45 @@ $ base64 logo.png | wordlive insert-image --anchor-id bookmark:Header --base64 -
 Failures: `1` the image is missing, unreadable, or not a recognised raster
 format (PNG/JPEG/GIF/BMP/TIFF) — an `ImageSourceError`; `2` anchor not found
 or an invalid `--wrap` value; `3` Word busy.
+
+## `snapshot [--anchor-id ID | --page N | --pages A-B]`
+
+```
+wordlive snapshot [--anchor-id ID | --page N | --pages A-B] \
+    [--out FILE] [--dpi 150] [--doc DOC_NAME]
+```
+
+Render document page(s) to PNG so a **vision model can see the layout** — real
+fonts, spacing, and page geometry, not just the text. Word exports a
+pixel-faithful PDF of the document it has open and wordlive rasterises the
+requested pages. Read-only: the document and the user's cursor are untouched.
+
+Pick **at most one** target; with none, the whole document is rendered:
+
+| Target          | Renders |
+| --------------- | ------- |
+| `--anchor-id ID` | the page(s) the anchor occupies — a `heading:` expands to its **whole section** (heading + body) |
+| `--page N`       | a single 1-based page |
+| `--pages A-B`    | an inclusive page span, e.g. `2-4` |
+
+Output: with `--out FILE` the image is written to disk — a single page to `FILE`,
+multiple pages alongside it as `<stem>-p<N><suffix>`. **Without `--out`, base64
+PNG data is returned inline** in the JSON (`images[].base64`), which suits an LLM
+that wants to look at the page directly. `--dpi` (default `150`) sets resolution.
+
+This needs the optional **`snapshot` extra** (PyMuPDF):
+`pip install "wordlive[snapshot]"` (or `uv add "wordlive[snapshot]"`).
+
+```bash
+$ wordlive snapshot --anchor-id heading:3 --out section.png
+{"ok": true, "selector": "heading:3", "dpi": 150, "count": 1, "images": [{"page": 4, "bytes": 81234, "path": "section.png"}]}
+
+$ wordlive snapshot --page 1
+{"ok": true, "selector": 1, "dpi": 150, "count": 1, "images": [{"page": 1, "bytes": 64210, "base64": "iVBORw0KGgo…"}]}
+```
+
+Failures: `1` PyMuPDF isn't installed, or rasterising the PDF failed — a
+`SnapshotError`; `2` `--anchor-id` not found; `3` Word busy.
 
 ## `cursor read` / `cursor write --text "…"`
 
@@ -490,6 +559,7 @@ wordlive format-paragraph --anchor-id ID
     [--alignment left|center|centre|right|justify]
     [--left-indent POINTS] [--right-indent POINTS] [--first-line-indent POINTS]
     [--space-before POINTS] [--space-after POINTS]
+    [--page-break-before | --no-page-break-before]
     [--doc DOC_NAME]
 ```
 
@@ -497,7 +567,11 @@ wordlive format-paragraph --anchor-id ID
 
 Set paragraph-formatting properties on the anchor's range. At least one
 formatting flag is required. Indent and spacing values are in **points** —
-the unit Word's COM API uses natively for these fields. Atomic-undo.
+the unit Word's COM API uses natively for these fields.
+`--page-break-before` forces the paragraph to begin on a new page (and
+`--no-page-break-before` clears it) — the *clean*, reflow-safe way to
+page-break, leaving no stray break character (contrast `insert-break`, which
+inserts an explicit one-off break). Atomic-undo.
 
 ```bash
 $ wordlive format-paragraph --anchor-id heading:3 \
@@ -561,6 +635,44 @@ $ wordlive replace --anchor-id table:1:2:2 --text "$450"
 
 Failures: `2` table index out of range, `3` Word busy.
 
+## `table create`
+
+```
+wordlive table create --anchor-id ID --rows R --cols C
+                      [--style NAME] [--header] [--before|--after]
+                      [--data '[["…"],…]' | --data -] [--doc DOC_NAME]
+```
+
+Create a new `R`×`C` table at a **position anchor** (`heading:`, `para:`,
+`start`, `end`, `range:` — *not* a bare `table:N`, which addresses an existing
+table). Every other verb edits existing structure; this is how you build a table
+from nothing. Atomic-undo. Reports the new table's 1-based `index` for an
+immediate follow-up `set-cell` / `add-row`.
+
+`--data` populates the cells at creation from a **row-major** JSON 2-D array
+(`[[r1c1, r1c2], …]`), validated against `R`×`C` up front — a short/partial
+array leaves trailing cells empty; an array that *overflows* the grid is a clean
+error (exit 1). Pass `--data -` to read the JSON from stdin, which sidesteps
+Windows quoting/backslash fights (mirrors `exec --ops -`).
+
+`--style` names a table style defined in the document; it defaults to the
+built-in **`Table Grid`** so a new table has visible borders rather than only
+faint gridlines. A style name not in the document fails (exit 2). `--header`
+bolds the first row.
+
+```bash
+$ wordlive table create --anchor-id end --rows 3 --cols 3 --header \
+    --data '[["Tier","Monthly","SLA"],["Wobble","$9","best effort"],["Finch","$99","99.9%"]]'
+{"ok": true, "table": 2, "rows": 3, "columns": 3}
+```
+
+A table appended where another already sits flush against it (e.g. two tables in
+a row at the end of the document) is kept distinct: Word would otherwise merge
+adjacent tables, so a separating paragraph is inserted automatically.
+
+Failures: `1` bad dimensions / `--data` shape, `2` anchor or style not found,
+`3` Word busy, `4` Word not running.
+
 ## `table add-row`
 
 ```
@@ -592,6 +704,23 @@ $ wordlive table delete-row --table 1 --row 3
 ```
 
 Failures: `2` table index or row out of range, `3` Word busy.
+
+## `table delete INDEX`
+
+```
+wordlive table delete INDEX [--doc DOC_NAME]
+```
+
+Delete table `INDEX` (1-based) and all its cells — the structural mirror of
+`table create` / `delete-row`. Atomic-undo. The indices of any tables below it
+shift down by one afterwards.
+
+```bash
+$ wordlive table delete 2
+{"ok": true, "deleted": 2}
+```
+
+Failures: `2` table index out of range, `3` Word busy.
 
 ## `comment list`
 
@@ -861,10 +990,13 @@ Script shape:
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
-| `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after` |
+| `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after`, `page_break_before` |
 | `set_cell`             | `table`, `row`, `col`, `text`              | —                                 |
 | `add_row`              | `table`                                    | `values`                          |
 | `delete_row`           | `table`, `row`                             | —                                 |
+| `create_table`         | `anchor_id`, `rows`, `cols`                | `style`, `data` (row-major 2-D), `header`, `where` or `before: true` |
+| `delete_table`         | `table`                                    | —                                 |
+| `insert_break`         | `anchor_id`                                | `kind` (`page`/`column`/`section_next`/`section_continuous`), `where` or `before: true` |
 | `add_comment`          | `anchor_id`, `text`                        | `author`                          |
 | `resolve_comment`      | `index`                                    | —                                 |
 | `delete_comment`       | `index`                                    | —                                 |
@@ -903,11 +1035,31 @@ match the command's flags. A bad image source surfaces as the batch's
 `apply_style` and `format_paragraph` are the same as their dedicated CLI
 verbs — the style must already exist in the document, indent and spacing
 values are in points, alignment is one of `left`/`center`/`right`/`justify`.
+`format_paragraph`'s `page_break_before` (a bool) forces or clears a
+reflow-safe page break before the paragraph — the clean way to page-break a
+style without a stray break character.
 
 `set_cell`, `add_row`, and `delete_row` operate on tables by 1-based `table`
 index. `set_cell` is shorthand for a `replace` on a `table:N:R:C` anchor;
 `add_row`'s optional `values` is a JSON array matched to columns. All three
 table ops join the same atomic-undo scope as the rest of the batch.
+
+`create_table` builds a new table at a **position** `anchor_id` (`heading:`,
+`para:`, `start`, `end`, `range:` — not a bare `table:N`); `delete_table`
+removes one by 1-based `table` index. `create_table`'s `data` is a row-major 2-D
+array validated against `rows`×`cols` before the batch mutates anything,
+`style` defaults to `Table Grid`, and `header` bolds the first row. Because a
+successful batch reports structure it created, the response carries an
+`outputs` array — `[{"index": <op index>, "op": "create_table", "table": N,
+"rows": R, "columns": C}]` — so a later op (or a follow-up call) can address the
+new table by its reported index. Filling the whole grid through `data` in the
+create op keeps it one atomic undo and avoids a `set_cell` storm.
+
+`insert_break` mirrors the `insert-break` command — an explicit page, column,
+or section break at any `anchor_id`. `kind` defaults to `page`; placement
+accepts the same `where` / `before` forms as the other insert ops. For a
+reflow-safe page break tied to a paragraph (rather than a one-off mark), use a
+`format_paragraph` op with `page_break_before` instead.
 
 `add_comment`, `resolve_comment`, and `delete_comment` mirror the `comment`
 verbs — `add_comment` attaches a side-channel annotation to an `anchor_id`

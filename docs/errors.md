@@ -16,6 +16,7 @@ Exception
     │   └── StyleNotFoundError
     ├── AmbiguousMatchError
     ├── ImageSourceError
+    ├── SnapshotError
     ├── WordBusyError
     └── ComError
 ```
@@ -75,6 +76,15 @@ It's a *bad-input* error — not a missing named thing — so it maps to the
 generic exit code (1) rather than reusing the anchor-not-found code.
 **Not retryable**: fix the input.
 
+### `SnapshotError`
+A page/section [`snapshot`](python-api.md#snapshots) couldn't be rendered —
+almost always because the optional PDF backend (PyMuPDF) isn't installed, or
+because rasterising the exported PDF failed. The PDF export itself goes through
+Word's COM, so a busy/modal Word surfaces as [`WordBusyError`](#wordbusyerror),
+not this. It's an environment/dependency problem, so it maps to the generic exit
+code (1). Fix by installing the extra: `pip install "wordlive[snapshot]"` (or
+`uv add "wordlive[snapshot]"`). **Not retryable** until the backend is present.
+
 ### `WordBusyError`
 Word rejected the COM RPC. This usually means a modal dialog is open (Save
 As, Find & Replace, etc.) or Word is mid-operation. **Retryable** with
@@ -112,7 +122,7 @@ The CLI maps the exception hierarchy onto six exit codes, defined in
 | Exit | Exception(s)                                | Meaning                          | Retry?                |
 | ---- | ------------------------------------------- | -------------------------------- | --------------------- |
 | `0`  | —                                           | success                          | —                     |
-| `1`  | `WordliveError` (default), `DocumentNotFoundError`, `ImageSourceError` | other / unclassified | depends on cause |
+| `1`  | `WordliveError` (default), `DocumentNotFoundError`, `ImageSourceError`, `SnapshotError` | other / unclassified | depends on cause |
 | `2`  | `AnchorNotFoundError`, `StyleNotFoundError`  | bookmark / cc / heading / style missing, or `find` had zero matches | yes, after re-reading content |
 | `3`  | `WordBusyError`                              | modal dialog or busy RPC         | **yes**, with back-off |
 | `4`  | `WordNotRunningError`                        | no Word instance                 | only if user launches Word |

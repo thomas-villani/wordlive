@@ -17,6 +17,14 @@ uv tool install wordlive
 
 (Requires Python 3.10+ and `pywin32` on Windows.)
 
+Rendering pages to PNG (`snapshot`) needs the optional `snapshot` extra, which
+pulls in PyMuPDF:
+
+```
+pip install "wordlive[snapshot]"
+uv add "wordlive[snapshot]"
+```
+
 ## Python
 
 ```python
@@ -28,6 +36,10 @@ with wl.attach() as word:
     # Reads
     outline = doc.outline()
     bookmarks = doc.bookmarks.list()
+
+    # See it the way a vision model would — render a section to PNG
+    # (needs `wordlive[snapshot]`):
+    png = doc.heading("Introduction").snapshot()[0].png
 
     # Polite writes — preserves the user's cursor and view, atomic Ctrl-Z.
     with doc.edit("Update address block"):
@@ -94,6 +106,12 @@ wordlive footer read --section 1
 wordlive insert-image --anchor-id heading:3 --path diagram.png --wrap auto
 base64 logo.png | wordlive insert-image --anchor-id bookmark:Logo --base64 - --wrap inline --width 96
 
+# Snapshot — render page(s) to PNG so a vision model can SEE the layout
+# (needs the `snapshot` extra: pip install "wordlive[snapshot]"):
+wordlive snapshot --anchor-id heading:3 --out section.png   # the section's page(s)
+wordlive snapshot --page 2 --out p2.png                     # one page
+wordlive snapshot --pages 1-3                               # base64 PNGs inline (JSON)
+
 # Batch multiple ops in a single Ctrl-Z:
 wordlive exec --script ops.json
 ```
@@ -136,6 +154,26 @@ discover it on their own:
 wordlive install-skill            # ./.agents/skills/wordlive/SKILL.md
 wordlive install-skill --system   # ~/.agents/skills/wordlive/SKILL.md
 ```
+
+## MCP server (Claude Desktop & other agents)
+
+Prefer MCP? `wordlive` ships a server so Claude Desktop and other MCP clients can
+drive your open document directly:
+
+```
+pip install "wordlive[mcp,snapshot]"   # snapshot extra adds the vision tool
+```
+
+Register it in `claude_desktop_config.json`:
+
+```json
+{ "mcpServers": { "wordlive": { "command": "wordlive-mcp" } } }
+```
+
+It exposes four dispatch tools — `word_read`, `word_write`, `word_exec`, and
+`word_snapshot` (which returns a rendered page as an image) — plus a
+`wordlive://guide` resource with the full op reference. Word must be running on the
+same Windows machine. See [docs/mcp.md](https://thomas-villani.github.io/wordlive/mcp/).
 
 ## Design
 

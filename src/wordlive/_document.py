@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
-from . import _com, _findreplace
+from . import _com, _findreplace, _snapshot
 from ._anchors import (
     BookmarkCollection,
     ContentControlCollection,
@@ -26,8 +26,10 @@ from ._edit import EditScope
 from ._lists import ListCollection
 from ._sections import SectionCollection
 from ._selection import Selection
+from ._snapshot import Snapshot
 from ._styles import StyleCollection
-from ._tables import TableCollection
+from ._tables import Table, TableCollection
+from .constants import WdInformation
 from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
@@ -35,6 +37,8 @@ from .exceptions import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ._anchors import Anchor
     from ._app import Word
 
@@ -206,6 +210,32 @@ class Document:
         finally:
             with _com.translate_com_errors():
                 self._doc.TrackRevisions = previous
+
+    def add_table(
+        self,
+        rows: int,
+        cols: int,
+        *,
+        style: str | None = None,
+        data: list[list[Any]] | None = None,
+        header: bool = False,
+    ) -> Table:
+        """Append a `rows` × `cols` table at the end of the document and return it.
+
+        The "build a document from the bottom up" helper for tables — the
+        counterpart to [`append_paragraph`][wordlive.Document.append_paragraph].
+        Sugar for `self.end.insert_table(...)`; see
+        [`Anchor.insert_table`][wordlive.Anchor.insert_table] for the full
+        semantics of `style` (defaults to the built-in ``"Table Grid"``), `data`
+        (row-major fill, validated up front), and `header`. To place a table
+        somewhere other than the end, resolve a position anchor and call
+        `insert_table` on it directly (e.g.
+        `doc.headings["Pricing"].insert_table(3, 2, ...)`). Wrap in
+        `doc.edit(...)` for atomic undo.
+        """
+        return self.end.insert_table(
+            rows, cols, where="after", style=style, data=data, header=header
+        )
 
     def heading(self, name: str) -> Heading:
         # Lazy lookup — Heading.__init__ doesn't hit COM. _range() validates.
@@ -527,6 +557,93 @@ class Document:
                     }
                 )
         return out
+
+    def _page_of(self, position: int) -> int:
+        """1-based page number that document offset `position` falls on."""
+        with _com.translate_com_errors():
+            rng = self._doc.Range(int(position), int(position))
+            return int(rng.Information(int(WdInformation.ACTIVE_END_PAGE_NUMBER)))
+
+    @staticmethod
+    def _resolve_page_arg(pages: int | tuple[int, int] | None) -> tuple[int | None, int | None]:
+        """Normalise a `pages` argument into a `(from, to)` 1-based span (or all)."""
+        if pages is None:
+            return None, None
+        if isinstance(pages, bool):  # bool is an int subclass — reject before the int branch
+            raise ValueError(f"pages must be an int or (start, end) tuple, not {pages!r}")
+        if isinstance(pages, int):
+            if pages < 1:
+                raise ValueError(f"page number must be >= 1, got {pages}")
+            return pages, pages
+        if isinstance(pages, (tuple, list)) and len(pages) == 2:
+            start, end = int(pages[0]), int(pages[1])
+            if start < 1 or end < start:
+                raise ValueError(f"invalid page span: {pages!r}")
+            return start, end
+        raise ValueError(f"pages must be an int or (start, end) tuple, got {pages!r}")
+
+    def _anchor_page_span(self, anchor: Anchor) -> tuple[int, int]:
+        """Page span an anchor occupies. Headings expand to their whole section.
+
+        Mirrors `_scope_range`'s heading-means-its-body rule, so a snapshot of a
+        `heading:` anchor shows the section a model is editing, not just the
+        heading line.
+        """
+        with _com.translate_com_errors():
+            if isinstance(anchor, Heading):
+                head = anchor.com
+                start, end = int(head.Start), int(anchor.section_range().End)
+            else:
+                rng = anchor.com
+                start, end = int(rng.Start), int(rng.End)
+        from_page = self._page_of(start)
+        to_page = max(from_page, self._page_of(max(start, end)))
+        return from_page, to_page
+
+    def snapshot(
+        self,
+        out: str | Path | None = None,
+        *,
+        pages: int | tuple[int, int] | None = None,
+        dpi: int = 150,
+    ) -> list[Snapshot]:
+        """Render document page(s) to PNG so a vision model can *see* the layout.
+
+        Word exports a pixel-faithful PDF of the live document and wordlive
+        rasterises the requested pages — a true WYSIWYG image (real fonts,
+        spacing, page geometry), ideal for iterating on style and formatting.
+
+        `pages` selects what to render: `None` (default) renders every page,
+        an `int` a single 1-based page, and a `(start, end)` tuple an inclusive
+        span. Returns one [`Snapshot`][wordlive.Snapshot] per page (so a single
+        page is a one-element list); read `.png` for the bytes.
+
+        If `out` is given the image is also written there: a single page to `out`
+        itself, multiple pages alongside it as `<stem>-p<N><suffix>`.
+
+        `dpi` controls resolution; ~150 reads well for a vision model without
+        bloating the image. Read-only — the document and the user's cursor are
+        untouched. Requires the `snapshot` extra (PyMuPDF), else
+        [`SnapshotError`][wordlive.SnapshotError].
+        """
+        from_page, to_page = self._resolve_page_arg(pages)
+        rendered = _snapshot.render(self._doc, from_page=from_page, to_page=to_page, dpi=dpi)
+        return _snapshot.build_snapshots(rendered, out)
+
+    def snapshot_anchor(
+        self, anchor: Anchor, out: str | Path | None = None, *, dpi: int = 150
+    ) -> list[Snapshot]:
+        """Render the page(s) an anchor sits on. Backs [`Anchor.snapshot`][wordlive.Anchor.snapshot].
+
+        A `heading:` anchor expands to its whole section (the heading plus the
+        body beneath it, up to the next same-or-higher heading); any other
+        anchor renders the page(s) its range spans. See
+        [`snapshot`][wordlive.Document.snapshot] for `out`/`dpi` semantics and
+        the return shape.
+        """
+        from_page, to_page = self._anchor_page_span(anchor)
+        rendered = _snapshot.render(self._doc, from_page=from_page, to_page=to_page, dpi=dpi)
+        return _snapshot.build_snapshots(rendered, out)
 
     @contextmanager
     def edit(self, label: str) -> Iterator[EditScope]:

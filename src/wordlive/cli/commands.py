@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
+import base64
 import json
-from contextlib import nullcontext
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -12,16 +11,16 @@ import click
 
 from .. import attach
 from .._anchors import Heading
-from .._document import Document
-from ..exceptions import AmbiguousMatchError, WordliveError, WordNotRunningError
+from .._guide import bundled_skill as _bundled_skill
+from .._guide import strip_frontmatter as _strip_frontmatter
+from .._ops import OP_REQUIRED_FIELDS as _OP_REQUIRED_FIELDS  # noqa: F401  (back-compat re-export)
+from .._ops import apply_op as _apply_op  # noqa: F401  (back-compat re-export)
+from .._ops import op_before as _op_before  # noqa: F401  (back-compat re-export)
+from .._ops import pick_doc as _pick_doc
+from .._ops import run_batch as _run_batch
+from .._ops import validate_op as _validate_op  # noqa: F401  (back-compat re-export)
+from ..exceptions import AmbiguousMatchError, WordNotRunningError
 from .main import _run, emit
-
-
-def _pick_doc(word: Any, doc_name: str | None) -> Document:
-    if doc_name is None:
-        return word.documents.active
-    return word.documents[doc_name]
-
 
 # ---------------------------------------------------------------------------
 # Text formatters
@@ -83,9 +82,11 @@ def register(group: click.Group) -> None:
     group.add_command(read)
     group.add_command(write)
     group.add_command(insert)
+    group.add_command(insert_break_cmd)
     group.add_command(prepend_cmd)
     group.add_command(append_cmd)
     group.add_command(insert_image_cmd)
+    group.add_command(snapshot_cmd)
     group.add_command(cursor)
     group.add_command(find_cmd)
     group.add_command(replace)
@@ -372,6 +373,59 @@ def insert(ctx: click.Context, anchor_id: str, text: str, before: bool, style: s
 
 
 # ---------------------------------------------------------------------------
+# insert-break --anchor-id ID [--kind page|column|...] [--before|--after]
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="insert-break")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Anchor to insert the break relative to (e.g. heading:1, para:3, end).",
+)
+@click.option(
+    "--kind",
+    "kind",
+    type=click.Choice(["page", "column", "section_next", "section_continuous"]),
+    default="page",
+    show_default=True,
+    help="Break kind. Page is the common case; section breaks pair with `section`.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert the break before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_break_cmd(ctx: click.Context, anchor_id: str, kind: str, before: bool) -> None:
+    """Insert a page / column / section break at an anchor (atomic-undo).
+
+    The explicit one-off break, the clean alternative to a literal form-feed
+    paragraph. To make a *style* (e.g. every Heading 1) open a new page without
+    a stray break character, prefer
+    `format-paragraph --anchor-id ID --page-break-before` instead.
+    """
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert {kind} break {where} {anchor_id}"):
+                anchor.insert_break(kind, where=where)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "kind": kind, "where": where},
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted {kind} break {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
 # prepend / append --text "..." [--paragraph|--inline] [--style "..."]
 # ---------------------------------------------------------------------------
 
@@ -559,6 +613,130 @@ def insert_image_cmd(
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted image {where} {anchor_id} (wrap={wrap})",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# snapshot [--anchor-id ID | --page N | --pages A-B] [--out FILE] [--dpi N]
+# ---------------------------------------------------------------------------
+
+
+def _parse_pages_range(value: str) -> tuple[int, int]:
+    """Parse a `--pages` value like `2-4` into an inclusive `(start, end)` span."""
+    start_str, sep, end_str = value.partition("-")
+    if not sep:
+        raise click.UsageError("--pages must look like 'A-B' (inclusive), e.g. '2-4'")
+    try:
+        start, end = int(start_str), int(end_str)
+    except ValueError as e:
+        raise click.UsageError("--pages must look like 'A-B' (inclusive), e.g. '2-4'") from e
+    if start < 1 or end < start:
+        raise click.UsageError(f"invalid page span {value!r}: need 1 <= start <= end")
+    return start, end
+
+
+def _fmt_snapshot(images: list[dict[str, Any]], dpi: int) -> str:
+    if not images:
+        return "(no pages rendered)"
+    lines: list[str] = []
+    for im in images:
+        size = f"{im['bytes']} bytes"
+        where = im.get("path") or "base64"
+        lines.append(f"page {im['page']}: {size} → {where}")
+    head = f"rendered {len(images)} page(s) at {dpi} dpi"
+    return head + "\n" + "\n".join(lines)
+
+
+@click.command(name="snapshot")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    default=None,
+    help="Render the page(s) this anchor sits on (a heading expands to its whole section).",
+)
+@click.option("--page", "page", type=int, default=None, help="Render a single 1-based page.")
+@click.option(
+    "--pages",
+    "pages_range",
+    default=None,
+    help="Render an inclusive page span, e.g. '2-4'.",
+)
+@click.option(
+    "--out",
+    "out",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write the PNG here. Multiple pages are written as <stem>-p<N><suffix>. "
+    "Without --out, base64 PNG data is returned inline in the JSON.",
+)
+@click.option(
+    "--dpi", "dpi", type=int, default=150, show_default=True, help="Render resolution (dots/inch)."
+)
+@click.pass_context
+def snapshot_cmd(
+    ctx: click.Context,
+    anchor_id: str | None,
+    page: int | None,
+    pages_range: str | None,
+    out: Path | None,
+    dpi: int,
+) -> None:
+    """Render document page(s) to PNG so a vision model can see the layout.
+
+    Word exports a pixel-faithful PDF of the document it has open and wordlive
+    rasterises the requested pages — a true WYSIWYG image (real fonts, spacing,
+    page geometry) for iterating on style and formatting. Read-only.
+
+    Choose at most one target: `--anchor-id` (the page(s) an anchor occupies; a
+    `heading:` expands to its whole section), `--page N`, or `--pages A-B`. With
+    none, the whole document is rendered. With `--out` the image is written to
+    disk (one file per page); otherwise base64 PNG data is returned inline.
+
+    Requires the `snapshot` extra: `pip install "wordlive[snapshot]"`.
+    """
+    targets = [t is not None for t in (anchor_id, page, pages_range)]
+    if sum(targets) > 1:
+        raise click.UsageError("provide at most one of --anchor-id, --page, or --pages")
+    if dpi < 1:
+        raise click.UsageError("--dpi must be >= 1")
+    if page is not None and page < 1:
+        raise click.UsageError("--page must be >= 1")
+    pages_arg: int | tuple[int, int] | None = None
+    if page is not None:
+        pages_arg = page
+    elif pages_range is not None:
+        pages_arg = _parse_pages_range(pages_range)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            if anchor_id is not None:
+                anchor = doc.anchor_by_id(anchor_id)
+                shots = doc.snapshot_anchor(anchor, out, dpi=dpi)
+                selector: Any = anchor_id
+            else:
+                shots = doc.snapshot(out, pages=pages_arg, dpi=dpi)
+                selector = pages_range or page or "all"
+            images: list[dict[str, Any]] = []
+            for s in shots:
+                entry: dict[str, Any] = {"page": s.page, "bytes": len(s.png)}
+                if s.path is not None:
+                    entry["path"] = str(s.path)
+                else:
+                    entry["base64"] = base64.b64encode(s.png).decode("ascii")
+                images.append(entry)
+            emit(
+                {
+                    "ok": True,
+                    "selector": selector,
+                    "dpi": dpi,
+                    "count": len(images),
+                    "images": images,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=_fmt_snapshot(images, dpi),
             )
 
     _run(ctx, go)
@@ -896,6 +1074,13 @@ def style_apply(ctx: click.Context, anchor_id: str, name: str) -> None:
     default=None,
     help="Space after paragraph in points.",
 )
+@click.option(
+    "--page-break-before/--no-page-break-before",
+    "page_break_before",
+    default=None,
+    help="Force (or clear) a page break before the paragraph — the clean, "
+    "reflow-safe way to page-break (e.g. on every Heading 1).",
+)
 @click.pass_context
 def format_paragraph_cmd(
     ctx: click.Context,
@@ -906,6 +1091,7 @@ def format_paragraph_cmd(
     first_line_indent: float | None,
     space_before: float | None,
     space_after: float | None,
+    page_break_before: bool | None,
 ) -> None:
     """Set paragraph-formatting properties on the anchor's range (atomic-undo)."""
     kwargs: dict[str, Any] = {}
@@ -921,6 +1107,8 @@ def format_paragraph_cmd(
         kwargs["space_before"] = space_before
     if space_after is not None:
         kwargs["space_after"] = space_after
+    if page_break_before is not None:
+        kwargs["page_break_before"] = page_break_before
     if not kwargs:
         raise click.UsageError("pass at least one formatting option")
 
@@ -1056,6 +1244,116 @@ def table_delete_row(ctx: click.Context, table_index: int, row: int) -> None:
                 {"ok": True, "table": table_index, "rows": t.row_count},
                 as_text=not ctx.obj["as_json"],
                 text=f"deleted row {row} from table:{table_index} (now {t.row_count} rows)",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="create")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Position anchor for the new table (heading:/para:/start/end/range:…).",
+)
+@click.option("--rows", "rows", type=int, required=True, help="Number of rows (>= 1).")
+@click.option("--cols", "cols", type=int, required=True, help="Number of columns (>= 1).")
+@click.option(
+    "--style",
+    "style",
+    default=None,
+    help="Table style name (default: the built-in 'Table Grid', so borders show).",
+)
+@click.option(
+    "--header/--no-header",
+    "header",
+    default=False,
+    show_default=True,
+    help="Bold the first row as a header.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
+@click.option(
+    "--data",
+    "data",
+    default=None,
+    help="Row-major JSON 2-D array to populate cells "
+    "(e.g. '[[\"Name\",\"Qty\"],[\"Widget\",\"3\"]]'), or '-' to read it from "
+    "stdin. Reading from stdin avoids quoting/backslash fights on Windows.",
+)
+@click.pass_context
+def table_create(
+    ctx: click.Context,
+    anchor_id: str,
+    rows: int,
+    cols: int,
+    style: str | None,
+    header: bool,
+    before: bool,
+    data: str | None,
+) -> None:
+    """Create a ROWS x COLS table at an anchor (atomic-undo).
+
+    Builds new table structure where wordlive's other verbs only edit existing
+    structure. Fill cells at creation with --data (a row-major JSON array, or
+    '--data -' to read it from stdin); a short array leaves trailing cells
+    empty. --style defaults to 'Table Grid' (visible borders); a style name not
+    defined in the document raises (exit 2). Reports the new table's 1-based
+    index for a follow-up `table set-cell` / `add-row`.
+    """
+    parsed: list[Any] | None = None
+    if data is not None:
+        raw = click.get_text_stream("stdin").read() if data == "-" else data
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise click.UsageError(f"--data must be a JSON 2-D array: {e}") from e
+        if not isinstance(parsed, list):
+            raise click.UsageError("--data must be a JSON array of rows")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: create {rows}x{cols} table at {anchor_id}"):
+                t = anchor.insert_table(
+                    rows,
+                    cols,
+                    where=("before" if before else "after"),
+                    style=style,
+                    data=parsed,
+                    header=header,
+                )
+            emit(
+                {"ok": True, "table": t.index, "rows": t.row_count, "columns": t.column_count},
+                as_text=not ctx.obj["as_json"],
+                text=f"created table:{t.index} ({t.row_count}x{t.column_count}) at {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="delete")
+@click.argument("index", type=int)
+@click.pass_context
+def table_delete(ctx: click.Context, index: int) -> None:
+    """Delete table INDEX (1-based) and all its cells (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[index]  # AnchorNotFoundError (exit 2) if missing
+            with doc.edit(f"CLI: delete table {index}"):
+                t.delete()
+            emit(
+                {"ok": True, "deleted": index},
+                as_text=not ctx.obj["as_json"],
+                text=f"deleted table:{index}",
             )
 
     _run(ctx, go)
@@ -1595,159 +1893,10 @@ def footer_write(ctx: click.Context, section_index: int, which: str, text: str) 
 # ---------------------------------------------------------------------------
 
 
-# Required fields per op kind. Validated up-front so a malformed payload
-# raises a clean click.ClickException ("exec op 'write_bookmark' requires
-# field 'name'") instead of a Python KeyError traceback that would land an
-# LLM tool-use loop on exit code 1 with no actionable signal.
-_OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
-    "write_bookmark": ("name", "text"),
-    "write_cc": ("name", "text"),
-    "insert_paragraph": ("anchor_id", "text"),
-    "append_paragraph": ("text",),
-    "append": ("text",),
-    "prepend_paragraph": ("text",),
-    "prepend": ("text",),
-    "insert_image": ("anchor_id", "wrap"),
-    "replace": ("anchor_id", "text"),
-    "find_replace": ("find", "text"),
-    "apply_style": ("anchor_id", "name"),
-    "format_paragraph": ("anchor_id",),
-    "set_cell": ("table", "row", "col", "text"),
-    "add_row": ("table",),
-    "delete_row": ("table", "row"),
-    "add_comment": ("anchor_id", "text"),
-    "resolve_comment": ("index",),
-    "delete_comment": ("index",),
-    "apply_list": ("anchor_id",),
-    "remove_list": ("anchor_id",),
-    "restart_numbering": ("anchor_id",),
-    "indent_list": ("anchor_id",),
-    "outdent_list": ("anchor_id",),
-    "write_header": ("section", "text"),
-    "write_footer": ("section", "text"),
-}
-
-
-def _op_before(op: dict[str, Any]) -> bool:
-    """Whether an insert op targets *before* its anchor (default: after).
-
-    Accepts either the verbose `"where": "before"|"after"` or the boolean
-    `"before": true` / `"after": true` — the latter mirrors the CLI's
-    `--before/--after` flags, so the natural JSON encoding works regardless of
-    which form an LLM reaches for. An explicit `"before"` wins if both appear.
-    """
-    if "before" in op:
-        return bool(op["before"])
-    if "after" in op:
-        return not bool(op["after"])
-    return op.get("where") == "before"
-
-
-def _validate_op(op: dict[str, Any]) -> str:
-    """Return the op kind after asserting it's known and required keys exist."""
-    if not isinstance(op, dict):
-        raise click.ClickException(f"each op must be an object; got {type(op).__name__}")
-    kind = op.get("op")
-    if kind is None:
-        raise click.ClickException("op is missing the 'op' field")
-    if kind not in _OP_REQUIRED_FIELDS:
-        raise click.ClickException(f"unknown op: {kind!r}")
-    missing = [k for k in _OP_REQUIRED_FIELDS[kind] if k not in op]
-    if missing:
-        raise click.ClickException(
-            f"op {kind!r} is missing required field(s): {', '.join(repr(m) for m in missing)}"
-        )
-    return kind
-
-
-def _apply_op(doc: Document, op: dict[str, Any]) -> None:
-    """Apply a single op from an exec script. Raises WordliveError on bad input."""
-    kind = _validate_op(op)
-    if kind == "write_bookmark":
-        doc.bookmarks[op["name"]].set_text(op["text"])
-    elif kind == "write_cc":
-        doc.content_controls[op["name"]].set_text(op["text"])
-    elif kind == "insert_paragraph":
-        anchor = doc.anchor_by_id(op["anchor_id"])
-        if _op_before(op):
-            anchor.insert_paragraph_before(op["text"], style=op.get("style"))
-        else:
-            anchor.insert_paragraph_after(op["text"], style=op.get("style"))
-    elif kind == "append_paragraph":
-        doc.append_paragraph(op["text"], style=op.get("style"))
-    elif kind == "append":
-        doc.append(op["text"])
-    elif kind == "prepend_paragraph":
-        doc.prepend_paragraph(op["text"], style=op.get("style"))
-    elif kind == "prepend":
-        doc.prepend(op["text"])
-    elif kind == "insert_image":
-        if ("path" in op) == ("base64" in op):
-            raise click.ClickException(
-                "op 'insert_image' requires exactly one of 'path' or 'base64'"
-            )
-        image: str | Path = Path(op["path"]) if "path" in op else op["base64"]
-        kwargs = {k: op[k] for k in ("width", "height", "alt_text", "lock_aspect") if k in op}
-        doc.anchor_by_id(op["anchor_id"]).insert_image(
-            image, wrap=op["wrap"], where=("before" if _op_before(op) else "after"), **kwargs
-        )
-    elif kind == "replace":
-        doc.anchor_by_id(op["anchor_id"]).set_text(op["text"])
-    elif kind == "find_replace":
-        scope = doc.anchor_by_id(op["in"]) if op.get("in") else None
-        doc.find_replace(
-            op["find"],
-            op["text"],
-            scope=scope,
-            all=bool(op.get("all", False)),
-            occurrence=op.get("occurrence"),
-        )
-    elif kind == "apply_style":
-        doc.anchor_by_id(op["anchor_id"]).apply_style(op["name"])
-    elif kind == "format_paragraph":
-        kwargs = {
-            k: op[k]
-            for k in (
-                "alignment",
-                "left_indent",
-                "right_indent",
-                "first_line_indent",
-                "space_before",
-                "space_after",
-            )
-            if k in op
-        }
-        doc.anchor_by_id(op["anchor_id"]).format_paragraph(**kwargs)
-    elif kind == "set_cell":
-        doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
-    elif kind == "add_row":
-        doc.tables[op["table"]].add_row(op.get("values"))
-    elif kind == "delete_row":
-        doc.tables[op["table"]].delete_row(op["row"])
-    elif kind == "add_comment":
-        anchor = doc.anchor_by_id(op["anchor_id"])
-        doc.comments.add(anchor, op["text"], author=op.get("author"))
-    elif kind == "resolve_comment":
-        doc.comments[op["index"]].resolve()
-    elif kind == "delete_comment":
-        doc.comments[op["index"]].delete()
-    elif kind == "apply_list":
-        continue_previous = bool(op.get("continue_previous", op.get("continue", False)))
-        doc.anchor_by_id(op["anchor_id"]).apply_list(
-            op.get("type", "bulleted"), continue_previous=continue_previous
-        )
-    elif kind == "remove_list":
-        doc.anchor_by_id(op["anchor_id"]).remove_list()
-    elif kind == "restart_numbering":
-        doc.anchor_by_id(op["anchor_id"]).restart_numbering()
-    elif kind == "indent_list":
-        doc.anchor_by_id(op["anchor_id"]).indent_list()
-    elif kind == "outdent_list":
-        doc.anchor_by_id(op["anchor_id"]).outdent_list()
-    elif kind == "write_header":
-        doc.sections[op["section"]].header(op.get("which", "primary")).set_text(op["text"])
-    elif kind == "write_footer":
-        doc.sections[op["section"]].footer(op.get("which", "primary")).set_text(op["text"])
+# The batch-op core (`_OP_REQUIRED_FIELDS`, `_validate_op`, `_apply_op`,
+# `_op_before`, `_run_batch`) now lives in `wordlive._ops` so the MCP server can
+# reuse it without importing Click. The names are re-imported above for any
+# existing callers; `exec` below drives the batch through `_run_batch`.
 
 
 @click.command(name="exec")
@@ -1780,9 +1929,10 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     to its prior state afterwards).
     Supported ops: write_bookmark, write_cc, insert_paragraph, append_paragraph,
     append, prepend_paragraph, prepend, insert_image, replace, find_replace,
-    apply_style, format_paragraph, set_cell, add_row, delete_row, add_comment,
-    resolve_comment, delete_comment, apply_list, remove_list, restart_numbering,
-    indent_list, outdent_list, write_header, write_footer.
+    apply_style, format_paragraph, set_cell, add_row, delete_row, create_table,
+    delete_table, insert_break, add_comment, resolve_comment, delete_comment, apply_list,
+    remove_list, restart_numbering, indent_list, outdent_list, write_header,
+    write_footer.
     See docs/cli.md for each op's required and optional fields.
     """
     if (script is None) == (ops_inline is None):
@@ -1814,38 +1964,19 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
 
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
-            ops_run = 0
-            failure_exc: WordliveError | None = None
-            failure_meta: dict[str, Any] | None = None
-            tracking = doc.tracked_changes() if tracked else nullcontext()
-            with tracking, doc.edit(label):
-                for i, op in enumerate(ops):
-                    try:
-                        _apply_op(doc, op)
-                    except WordliveError as exc:
-                        failure_exc = exc
-                        failure_meta = {
-                            "index": i,
-                            "op": op,
-                            "error": str(exc),
-                            "type": type(exc).__name__,
-                        }
-                        if isinstance(exc, AmbiguousMatchError):
-                            failure_meta["matches"] = exc.matches
-                        break
-                    ops_run += 1
+            result, failure_exc = _run_batch(doc, ops, label=label, tracked=tracked)
             if failure_exc is None:
                 emit(
-                    {"ok": True, "ops_run": ops_run, "label": label},
+                    result,
                     as_text=not ctx.obj["as_json"],
-                    text=f"applied {ops_run} op(s): {label!r}",
+                    text=f"applied {result['ops_run']} op(s): {label!r}",
                 )
             else:
-                assert failure_meta is not None  # set together with failure_exc
+                failure = result["failure"]
                 emit(
-                    {"ok": False, "ops_run": ops_run, "label": label, "failure": failure_meta},
+                    result,
                     as_text=not ctx.obj["as_json"],
-                    text=f"failed at op {failure_meta['index']}: {failure_meta['error']}",
+                    text=f"failed at op {failure['index']}: {failure['error']}",
                 )
                 # Re-raise the original so _run() maps it to the right exit code
                 # (e.g. anchor-not-found → 2, busy → 3, ambiguous → 5).
@@ -1857,26 +1988,6 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
 # ---------------------------------------------------------------------------
 # install-skill [--system] [--force]
 # ---------------------------------------------------------------------------
-
-
-def _bundled_skill() -> str:
-    """The packaged agent skill (SKILL.md) text."""
-    return (files("wordlive") / "_skill" / "SKILL.md").read_text(encoding="utf-8")
-
-
-def _strip_frontmatter(md: str) -> str:
-    """Drop a leading YAML frontmatter block (--- … ---), if present.
-
-    The bundled SKILL.md opens with `name:` / `description:` frontmatter for the
-    agent-skill loader. That metadata is noise when the doc is read straight off
-    stdout, so `llm-help` emits just the Markdown body.
-    """
-    lines = md.splitlines()
-    if lines and lines[0].strip() == "---":
-        for i in range(1, len(lines)):
-            if lines[i].strip() == "---":
-                return "\n".join(lines[i + 1 :]).lstrip("\n")
-    return md
 
 
 @click.command(name="llm-help")

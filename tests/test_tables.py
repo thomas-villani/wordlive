@@ -5,8 +5,9 @@ from __future__ import annotations
 import pytest
 
 import wordlive
+from wordlive._ops import run_batch
 from wordlive.constants import WdParagraphAlignment
-from wordlive.exceptions import AnchorNotFoundError
+from wordlive.exceptions import AnchorNotFoundError, OpError, StyleNotFoundError
 
 # ---------------------------------------------------------------------------
 # TableCollection
@@ -207,6 +208,146 @@ def test_delete_row_out_of_range_raises(fake_word):
         with pytest.raises(AnchorNotFoundError) as exc_info:
             t.delete_row(9)
     assert exc_info.value.kind == "table row"
+
+
+# ---------------------------------------------------------------------------
+# Table creation / deletion
+# ---------------------------------------------------------------------------
+
+
+def test_add_table_appends_and_returns(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("add table"):
+            t = doc.add_table(2, 3)
+        assert t.index == 2  # appended after the seeded "Grid" table
+        assert t.row_count == 2
+        assert t.column_count == 3
+        assert len(doc.tables) == 2
+
+
+def test_add_table_populates_data(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("add table with data"):
+            t = doc.add_table(2, 2, data=[["Name", "Qty"], ["Widget", "3"]])
+        assert t.grid() == [["Name", "Qty"], ["Widget", "3"]]
+
+
+def test_add_table_partial_data_leaves_cells_empty(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("add table partial"):
+            t = doc.add_table(2, 2, data=[["only-one"]])
+        assert t.grid() == [["only-one", ""], ["", ""]]
+
+
+def test_add_table_data_overflow_raises(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(OpError):
+            doc.add_table(1, 2, data=[["a", "b", "c"]])  # 3 cells > 2 columns
+        with pytest.raises(OpError):
+            doc.add_table(1, 2, data=[["a"], ["b"]])  # 2 rows > 1 row
+
+
+def test_add_table_bad_dimensions_raise(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(OpError):
+            doc.add_table(0, 2)
+        with pytest.raises(OpError):
+            doc.add_table(2, -1)
+
+
+def test_insert_table_at_heading(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("table under heading"):
+            t = doc.headings["Introduction"].insert_table(2, 2)
+        assert t.row_count == 2 and t.column_count == 2
+        assert len(doc.tables) == 2
+
+
+def test_insert_table_unknown_style_raises(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(StyleNotFoundError):
+            doc.add_table(2, 2, style="No Such Table Style")
+        # The bad style is rejected before any table is created.
+        assert len(doc.tables) == 1
+
+
+def test_insert_table_applies_explicit_style(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("styled table"):
+            t = doc.add_table(2, 2, style="Heading 1")  # any style defined in the doc
+        applied = fake_word.ActiveDocument.Tables(t.index).Style
+        assert applied is not None
+        assert applied.NameLocal == "Heading 1"
+
+
+def test_table_delete_removes_table(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("add then delete"):
+            t = doc.add_table(2, 2)
+        assert len(doc.tables) == 2
+        with doc.edit("delete table"):
+            doc.tables[t.index].delete()
+        assert len(doc.tables) == 1
+
+
+# ---------------------------------------------------------------------------
+# exec ops: create_table / delete_table
+# ---------------------------------------------------------------------------
+
+
+def test_exec_create_table_reports_index(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [
+                {
+                    "op": "create_table",
+                    "anchor_id": "end",
+                    "rows": 2,
+                    "cols": 2,
+                    "data": [["A", "B"], ["C", "D"]],
+                }
+            ],
+            label="test",
+        )
+    assert exc is None
+    assert result["ok"] is True
+    assert result["outputs"] == [
+        {"index": 0, "op": "create_table", "table": 2, "rows": 2, "columns": 2}
+    ]
+    assert doc.tables[2].grid() == [["A", "B"], ["C", "D"]]
+
+
+def test_exec_delete_table(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        run_batch(doc, [{"op": "create_table", "anchor_id": "end", "rows": 1, "cols": 1}], label="c")
+        assert len(doc.tables) == 2
+        result, exc = run_batch(doc, [{"op": "delete_table", "table": 2}], label="d")
+    assert exc is None
+    assert result["ok"] is True
+    assert len(doc.tables) == 1
+
+
+def test_exec_create_table_missing_field_fails_cleanly(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc, [{"op": "create_table", "anchor_id": "end", "rows": 2}], label="bad"
+        )
+    assert exc is not None
+    assert result["ok"] is False
+    assert "cols" in result["failure"]["error"]
 
 
 # ---------------------------------------------------------------------------

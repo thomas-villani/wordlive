@@ -12,13 +12,21 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from . import _com, _images, _lists
-from .constants import MsoTriState, WdNumberType, WdParagraphAlignment, WdWrapType
-from .exceptions import AnchorNotFoundError
+from .constants import (
+    MsoTriState,
+    WdBreakType,
+    WdInformation,
+    WdNumberType,
+    WdParagraphAlignment,
+    WdWrapType,
+)
+from .exceptions import AnchorNotFoundError, OpError
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from ._document import Document
+    from ._snapshot import Snapshot
 
 
 _ALIGNMENT_NAMES = {
@@ -71,6 +79,15 @@ _WRAP_NAMES: dict[str, WdWrapType] = {
 _WRAP_VALUES: frozenset[str] = frozenset({"inline", "auto", *_WRAP_NAMES})
 
 
+# Break keywords -> WdBreakType. `insert_break(kind=...)` accepts exactly these.
+_BREAK_TYPES: dict[str, WdBreakType] = {
+    "page": WdBreakType.PAGE,
+    "column": WdBreakType.COLUMN,
+    "section_next": WdBreakType.SECTION_NEXT_PAGE,
+    "section_continuous": WdBreakType.SECTION_CONTINUOUS,
+}
+
+
 def _resolve_wrap(wrap: str, inline_shape: Any, insert_rng: Any) -> WdWrapType:
     """Resolve a wrap keyword to a concrete `WdWrapType` for a floating shape.
 
@@ -84,6 +101,45 @@ def _resolve_wrap(wrap: str, inline_shape: Any, insert_rng: Any) -> WdWrapType:
     if float(inline_shape.Width) <= usable / 2:
         return WdWrapType.SQUARE
     return WdWrapType.TOP_BOTTOM
+
+
+def _validate_table_data(data: Any, rows: int, cols: int) -> None:
+    """Check a row-major `data` payload fits a `rows` × `cols` grid.
+
+    Raised before any COM call so a bad shape is a clean `OpError` (exit 1)
+    rather than a "subscript out of range" deep inside Word. Underfilling is
+    allowed — fewer rows, or short rows — and leaves the trailing cells empty
+    (matching `add_row`'s leniency); only *overflowing* the declared grid is an
+    error, since that's the case that would otherwise blow up mid-insert.
+    """
+    if not isinstance(data, list):
+        raise OpError(f"table data must be a list of rows; got {type(data).__name__}")
+    if len(data) > rows:
+        raise OpError(f"table data has {len(data)} rows but the table has only {rows}")
+    for i, row in enumerate(data, start=1):
+        if not isinstance(row, list):
+            raise OpError(f"table data row {i} must be a list; got {type(row).__name__}")
+        if len(row) > cols:
+            raise OpError(
+                f"table data row {i} has {len(row)} cells but the table has only {cols} column(s)"
+            )
+
+
+def _within_table(doc_com: Any, start: int, end: int) -> bool:
+    """Whether the `[start, end)` span sits inside a table.
+
+    Used to detect when a new table's insertion point abuts an existing one —
+    Word silently *merges* two tables with no paragraph mark between them, so
+    `insert_table` drops a separator paragraph on any abutting side. A negative
+    `start` (before the document) or a probe Word rejects reads as "not in a
+    table".
+    """
+    if start < 0:
+        return False
+    try:
+        return bool(doc_com.Range(start, end).Information(int(WdInformation.WITH_IN_TABLE)))
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +322,137 @@ class Anchor(ABC):
                     # AlternativeText doesn't always survive the conversion.
                     shape.AlternativeText = alt_text
 
+    def insert_table(
+        self,
+        rows: int,
+        cols: int,
+        *,
+        where: str = "after",
+        style: str | None = None,
+        data: list[list[Any]] | None = None,
+        header: bool = False,
+    ) -> Any:
+        """Create a `rows` × `cols` table at this anchor and return it.
+
+        The structural counterpart to `insert_image` — it *creates* new
+        document structure rather than editing existing structure. Returns the
+        new [`Table`][wordlive.Table] wrapper so create → fill → read closes on
+        one object; the table's 1-based document index is on `.index`.
+
+        `where` is ``"after"`` (default) or ``"before"`` this anchor's range —
+        so `doc.headings["Pricing"].insert_table(...)` drops a table just under
+        a heading, and `doc.end.insert_table(...)` (i.e.
+        [`Document.add_table`][wordlive.Document.add_table]) appends one.
+
+        `style` names a table style defined in the document (e.g. ``"Table
+        Grid"``); an unknown name raises `StyleNotFoundError` before anything is
+        inserted. `style=None` applies the built-in ``"Table Grid"`` when it's
+        available, so a table has visible borders by default rather than the
+        invisible cell gridlines of a styleless table.
+
+        `data` populates the cells at creation: a row-major 2-D list
+        (``[[r1c1, r1c2], …]``), validated against `rows` × `cols` up front
+        (`OpError` on overflow). A short or partial `data` leaves the remaining
+        cells empty. Filling at creation keeps the whole grid in one atomic
+        undo and beats a `set_cell` storm.
+
+        `header=True` bolds the first row as a header. Wrap in `doc.edit(...)`
+        for atomic undo. Raises `ValueError` for an unknown `where` and
+        `OpError` for a non-positive `rows`/`cols` or a bad `data` shape.
+        """
+        from ._tables import Table, index_of
+
+        if where not in ("before", "after"):
+            raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+        if isinstance(rows, bool) or not isinstance(rows, int) or rows < 1:
+            raise OpError(f"table rows must be a positive integer; got {rows!r}")
+        if isinstance(cols, bool) or not isinstance(cols, int) or cols < 1:
+            raise OpError(f"table cols must be a positive integer; got {cols!r}")
+        if data is not None:
+            _validate_table_data(data, rows, cols)
+        # Resolve the style up-front so a bad name fails before any mutation.
+        if style is not None:
+            style_obj = self._doc.styles[style]  # StyleNotFoundError (exit 2) if missing
+        elif "Table Grid" in self._doc.styles:
+            style_obj = self._doc.styles["Table Grid"]
+        else:
+            style_obj = None
+        with _com.translate_com_errors():
+            doc_com = self._doc.com
+            rng = self._range()
+            pos = int(rng.Start) if where == "before" else int(rng.End)
+            # Word merges two tables that touch with no paragraph mark between
+            # them, so a table appended at the end (or dropped next to another)
+            # would silently fuse into its neighbour. Push a separator paragraph
+            # onto whichever side abuts an existing table; untouched insertions
+            # into ordinary text get no stray paragraph.
+            if _within_table(doc_com, pos - 1, pos):
+                doc_com.Range(pos, pos).Text = "\r"
+                pos += 1
+            if _within_table(doc_com, pos, pos + 1):
+                doc_com.Range(pos, pos).Text = "\r"
+            insert_rng = doc_com.Range(pos, pos)
+            table_com = doc_com.Tables.Add(insert_rng, rows, cols)
+            if style_obj is not None:
+                table_com.Style = style_obj.com
+            if data:
+                for r, row in enumerate(data, start=1):
+                    for c, val in enumerate(row, start=1):
+                        table_com.Cell(r, c).Range.Text = str(val)
+            if header:
+                table_com.Rows(1).Range.Bold = True
+            index = index_of(self._doc.com, table_com)
+        return Table(self._doc, table_com, index)
+
+    def insert_break(self, kind: str = "page", *, where: str = "after") -> None:
+        """Insert a page, column, or section break at this anchor.
+
+        The explicit one-off break — the clean alternative to appending a
+        paragraph whose text is a literal form-feed. `kind` is one of:
+
+        - ``"page"`` (default) — a manual page break (the 90% case).
+        - ``"column"`` — a column break (multi-column layouts).
+        - ``"section_next"`` — a section break that starts the new section on
+          the next page.
+        - ``"section_continuous"`` — a section break with no page break, so the
+          new section flows on the same page.
+
+        Section breaks pair with [`Document.sections`][wordlive.Document.sections]:
+        each new section gets its own headers/footers and page setup. To make a
+        *style* (e.g. every `Heading 1`) open a new page without a stray break
+        character, prefer
+        [`format_paragraph(page_break_before=True)`][wordlive.Anchor.format_paragraph]
+        instead — it survives reflow.
+
+        `where` is ``"after"`` (default) or ``"before"`` this anchor's range.
+        Wrap in `doc.edit(...)` for atomic undo. Raises `ValueError` for an
+        unknown `kind` or `where`.
+        """
+        if kind not in _BREAK_TYPES:
+            raise ValueError(
+                f"unknown break kind {kind!r}; expected one of {sorted(_BREAK_TYPES)}"
+            )
+        if where not in ("before", "after"):
+            raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+        break_type = _BREAK_TYPES[kind]
+        with _com.translate_com_errors():
+            rng = self._range()
+            pos = int(rng.Start) if where == "before" else int(rng.End)
+            insert_rng = self._doc.com.Range(pos, pos)
+            insert_rng.InsertBreak(Type=int(break_type))
+
+    def snapshot(self, out: str | Path | None = None, *, dpi: int = 150) -> list[Snapshot]:
+        """Render the page(s) this anchor sits on to PNG — let a model *see* it.
+
+        A heading expands to its whole section; any other anchor renders the
+        page(s) its range spans. Returns a list of
+        [`Snapshot`][wordlive.Snapshot] (one per page); pass `out` to also write
+        the image(s) to disk. Sugar for
+        [`Document.snapshot_anchor`][wordlive.Document.snapshot_anchor]; see it
+        for the full semantics. Requires the `snapshot` extra (PyMuPDF).
+        """
+        return self._doc.snapshot_anchor(self, out, dpi=dpi)
+
     def delete(self) -> None:
         with _com.translate_com_errors():
             self._range().Delete()
@@ -290,6 +477,7 @@ class Anchor(ABC):
         first_line_indent: float | None = None,
         space_before: float | None = None,
         space_after: float | None = None,
+        page_break_before: bool | None = None,
     ) -> None:
         """Set paragraph-formatting properties on this anchor's range.
 
@@ -298,6 +486,12 @@ class Anchor(ABC):
         `ParagraphFormat.LeftIndent` etc.). `alignment` accepts a
         `WdParagraphAlignment` enum, its int value, or a string
         (`"left"`/`"center"`/`"right"`/`"justify"`).
+
+        `page_break_before=True` forces the paragraph to begin on a new page —
+        the *clean* way to page-break (e.g. apply it to every `Heading 1`): it's
+        a paragraph property that survives reflow and leaves no stray break
+        character, unlike [`insert_break`][wordlive.Anchor.insert_break].
+        `False` clears the property.
         """
         with _com.translate_com_errors():
             pf = self._range().ParagraphFormat
@@ -313,6 +507,8 @@ class Anchor(ABC):
                 pf.SpaceBefore = float(space_before)
             if space_after is not None:
                 pf.SpaceAfter = float(space_after)
+            if page_break_before is not None:
+                pf.PageBreakBefore = bool(page_break_before)
 
     def apply_list(self, list_type: str = "bulleted", *, continue_previous: bool = False) -> None:
         """Turn this anchor's paragraphs into a list.
