@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-05-29
+
+### Fixed
+- `word_snapshot` no longer double-encodes its rendered pages. The tool returns
+  each page as an MCP image content block, but its `-> list[Any]` return made
+  FastMCP infer a structured-output schema and re-serialise the base64 PNG bytes
+  into `structuredContent` as well — sending every page twice (a large, silent
+  token cost on hosts that forward `structuredContent`). Marked the tool
+  `structured_output=False` so the image is sent exactly once.
+
+### Changed
+- CI: the release workflow now packs `mcpb/` into `wordlive.mcpb` and attaches it
+  to the GitHub Release (built outside the PyPI upload, so it never reaches PyPI).
+
 ## [0.10.0] — 2026-05-29
 
 ### Added
