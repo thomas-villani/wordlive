@@ -1,0 +1,88 @@
+# Changelog
+
+All notable changes to **wordlive** are documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Changed
+- CI: bumped GitHub Actions off the deprecated Node 20 runtime to current
+  Node 24 majors (`checkout` v6, `setup-python` v6, `setup-uv` v8,
+  `upload-artifact` v7, `download-artifact` v8, `upload-pages-artifact` v5,
+  `deploy-pages` v5).
+- Added this changelog.
+
+## [0.9.0] — 2026-05-29
+
+First release since 0.8.3. Bundles four features that were developed earlier but
+had not yet been published.
+
+### Added
+- **Snapshots** — `Document.snapshot(...)` / `Anchor.snapshot(...)` and the
+  `wordlive snapshot` command render page(s) or a section to PNG (Word exports a
+  pixel-faithful PDF, PyMuPDF rasterises it) so a vision model can *see* the
+  layout. Requires the optional `snapshot` extra (PyMuPDF).
+- **MCP server** (`wordlive-mcp`) — four dispatch tools (`word_read`,
+  `word_write`, `word_exec`, `word_snapshot`) plus a `wordlive://guide` resource,
+  for Claude Desktop and other agents. Requires the optional `mcp` extra.
+- **Table creation / deletion** — `Document.add_table(...)`,
+  `Anchor.insert_table(...)`, and `Table.delete()`; the `wordlive table create`
+  / `table delete` commands; and the `create_table` / `delete_table` exec ops.
+  Populates cells from a row-major `data` grid, defaults to the `Table Grid`
+  style, and separates appended tables so Word doesn't silently merge adjacent
+  ones.
+- **Page / column / section breaks** — `Anchor.insert_break(kind=...)` and
+  `format_paragraph(page_break_before=...)`; the `wordlive insert-break` command
+  and a `--page-break-before` flag on `format-paragraph`; the `insert_break` exec
+  op and a `page_break_before` field on `format_paragraph`.
+
+## [0.8.3] — 2026-05-26
+
+### Added
+- `llm-help` command that dumps the full agent guide to stdout.
+
+## [0.8.2] — 2026-05-21
+
+### Added
+- `append` / `prepend` helpers and `start` / `end` anchors for the document
+  edges, so a document can be built top-down from a blank page.
+
+### Changed
+- CI: lint + test workflow across Python 3.10–3.15.
+
+## [0.8.1] — 2026-05-21
+
+### Added
+- Inline `exec` JSON via `--ops` (and `--ops -` for stdin), terminal-paragraph
+  append, and `before`/`after` placement on exec insert ops.
+
+### Changed
+- Tooling: `bump-my-version` configuration.
+
+## [0.8.0] — 2026-05-21
+
+Initial PyPI release. Drives a running Microsoft Word instance over COM
+(Windows), with a JSON-in / JSON-out CLI built for LLM agents. Highlights of the
+v0–v0.8 development line bundled here:
+
+### Added
+- Live automation core: `attach()` / `connect()`, anchors (bookmark, content
+  control, heading, paragraph, range, cell, header/footer, start/end),
+  `Document.edit()` atomic-undo with cursor/selection preservation, typed
+  exceptions, and deterministic CLI exit codes.
+- Reading: `status`, `outline`, `paragraphs`, `find` (fuzzy), `read section`.
+- Writing: `replace`, `insert`, fuzzy find/replace, styles + `format-paragraph`,
+  tables (read/edit), comments, track changes, lists & numbering, sections /
+  headers / footers, and image insertion (path / bytes / base64).
+- Batch edits via `exec` (single atomic undo), the bundled agent skill +
+  `wordlive install-skill`, an mkdocs Material docs site, and PyPI
+  trusted-publishing on tag push.
+
+[Unreleased]: https://github.com/thomas-villani/wordlive/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/thomas-villani/wordlive/compare/v0.8.3...v0.9.0
+[0.8.3]: https://github.com/thomas-villani/wordlive/compare/v0.8.2...v0.8.3
+[0.8.2]: https://github.com/thomas-villani/wordlive/compare/v0.8.1...v0.8.2
+[0.8.1]: https://github.com/thomas-villani/wordlive/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/thomas-villani/wordlive/releases/tag/v0.8.0
