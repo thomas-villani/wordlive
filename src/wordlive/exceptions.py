@@ -24,10 +24,14 @@ class DocumentNotFoundError(WordliveError):
 class AnchorNotFoundError(WordliveError):
     """The requested anchor (bookmark / content control / heading) does not exist."""
 
-    def __init__(self, kind: str, name: str) -> None:
-        super().__init__(f"{kind} not found: {name!r}")
+    def __init__(self, kind: str, name: str, *, hint: str | None = None) -> None:
+        message = f"{kind} not found: {name!r}"
+        if hint:
+            message += f"; {hint}"
+        super().__init__(message)
         self.kind = kind
         self.name = name
+        self.hint = hint
 
 
 class StyleNotFoundError(AnchorNotFoundError):
@@ -55,6 +59,31 @@ class AmbiguousMatchError(WordliveError):
         )
         self.find = find
         self.matches = matches
+
+
+class ReplaceVerificationError(WordliveError):
+    """A resolved replacement target didn't match the located text — refused to write.
+
+    Word's table position model diverges from rendered `Range.Text` offsets, so a
+    find/replace whose match resolves to the wrong span (historically inside a
+    table) could silently overwrite a neighbouring cell while returning success.
+    wordlive verifies each target against the located match before writing and
+    raises this instead of corrupting the document. If you hit it, re-scope the
+    replace to the cell anchor (`scope=doc.anchor_by_id("table:N:R:C")`). Maps to
+    the generic exit code (1). Not retryable as-is — the same call drifts again.
+    """
+
+    def __init__(
+        self, find: str, expected: str, resolved: str, *, anchor_id: str | None = None
+    ) -> None:
+        super().__init__(
+            f"replacement target for {find!r} resolved to {resolved!r}, expected "
+            f"{expected!r}; refusing to overwrite (re-scope to the cell anchor)"
+        )
+        self.find = find
+        self.expected = expected
+        self.resolved = resolved
+        self.anchor_id = anchor_id
 
 
 class ImageSourceError(WordliveError):
@@ -183,18 +212,23 @@ def classify(exc: WordliveError) -> tuple[str, bool]:
     The single source of truth for how a failure is labelled to callers that
     don't have CLI exit codes — notably the MCP server, which surfaces `code`
     and `retryable` in its error payloads. The CLI's `_exit_for` mirrors this
-    same taxonomy (anchor_not_found → 2, ambiguous_match → 5, word_busy → 3,
-    word_not_running → 4, everything else → 1).
+    same taxonomy (anchor_not_found / style_not_found → 2, ambiguous_match → 5,
+    word_busy → 3, word_not_running → 4, everything else including
+    replace_verification → 1).
 
-    `isinstance` is checked subclass-first, so `StyleNotFoundError` resolves as
-    `anchor_not_found` (it subclasses `AnchorNotFoundError`), exactly like the
-    exit-code path. Unknown subclasses fall through to the generic `("error",
-    False)`.
+    `isinstance` is checked subclass-first, so `StyleNotFoundError` gets its own
+    `style_not_found` code (checked before its `AnchorNotFoundError` base) while
+    still mapping to exit code 2 on the CLI side (`_exit_for` matches the base).
+    Unknown subclasses fall through to the generic `("error", False)`.
     """
+    if isinstance(exc, StyleNotFoundError):
+        return "style_not_found", False
     if isinstance(exc, AnchorNotFoundError):
         return "anchor_not_found", False
     if isinstance(exc, AmbiguousMatchError):
         return "ambiguous_match", True
+    if isinstance(exc, ReplaceVerificationError):
+        return "replace_verification", False
     if isinstance(exc, WordBusyError):
         return "word_busy", True
     if isinstance(exc, WordNotRunningError):

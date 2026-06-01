@@ -5,6 +5,41 @@ All notable changes to **wordlive** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **find/replace no longer crashes on the final paragraph.** A match in the
+  document's last paragraph (and `add_table` / `create_table` anchored at the very
+  end) wrote a range that straddled Word's undeletable terminal paragraph mark,
+  raising COM `0x80020009`. The replace target is now clamped off that mark, and
+  table insertion opens a trailing paragraph first.
+- **find/replace inside table cells no longer corrupts neighbouring cells.**
+  `Range.Text` offsets don't line up with Word document positions across table
+  structure, so a whole-document `occurrence`/`all` replace could silently
+  overwrite the wrong cell while returning success. Matching is now segmented at
+  table-cell boundaries so offsets stay exact, and every write is verified against
+  the located text — a mismatch raises the new `ReplaceVerificationError`
+  (`code: "replace_verification"`, exit 1) instead of corrupting the document.
+- **Inline images read back as a `[image]` token** instead of a phantom control
+  character that polluted text reads and diffs (`heading.text`, paragraph / cell /
+  header / footer / comment reads).
+- **`section_continuous` / `section_next` breaks no longer pollute the outline.**
+  The break paragraph inherited the anchor's style (a heading-anchored break
+  became an empty heading in the navigation outline / TOC); it's now reset to
+  `Normal`, matching `create_table`'s cell reset. Page/column breaks are
+  unaffected.
+- `StyleNotFoundError` now surfaces a distinct `code: "style_not_found"` to MCP
+  clients (the CLI exit code stays `2`), instead of reusing `anchor_not_found`.
+- A malformed anchor scheme (e.g. `banana:7`) now reports "unknown anchor type"
+  and lists the valid types, distinguishing it from a valid-scheme-but-missing
+  target.
+
+### Added
+- `insert_image(block=True)` (CLI `--block`, `word_write` / `word_exec`
+  `insert_image` `block` field) places the image in its own new `Normal`
+  paragraph instead of embedding it in the anchor's text run — so an inline image
+  anchored `before` a heading lands on its own line above it rather than mid-line.
+
 ## [0.11.0] — 2026-06-01
 
 ### Added

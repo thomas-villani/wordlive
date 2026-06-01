@@ -226,6 +226,22 @@ def test_add_table_appends_and_returns(fake_word):
         assert len(doc.tables) == 2
 
 
+def test_add_table_at_document_end_opens_trailing_paragraph(fake_word):
+    # Tables.Add at the document's final (undeletable) paragraph mark crashes
+    # Word; insert_table must open a trailing paragraph first. Disable the
+    # abutting-table separators so only the terminal-boundary guard can fire.
+    fake_word.ActiveDocument.Range(33, 34).Information.return_value = 0
+    fake_word.ActiveDocument.Range(34, 35).Information.return_value = 0
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("add table at end"):
+            doc.add_table(2, 2)
+        assert len(doc.tables) == 2
+    # Content.End is 35 in the fixture; the final mark sits at 34. The guard
+    # opened a separator paragraph there so the table lands before it.
+    assert fake_word.ActiveDocument.Range(34, 34).Text == "\r"
+
+
 def test_add_table_populates_data(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active

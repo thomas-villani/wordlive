@@ -557,6 +557,13 @@ _WRAP_CHOICES = ["inline", "auto", "square", "tight", "through", "top-bottom", "
     show_default="--after",
     help="Insert before the anchor instead of after it.",
 )
+@click.option(
+    "--block/--no-block",
+    "block",
+    default=False,
+    show_default="--no-block",
+    help="Place the image on its own new (Normal) line instead of in the anchor's text run.",
+)
 @click.option("--width", "width", type=float, default=None, help="Width in points (optional).")
 @click.option("--height", "height", type=float, default=None, help="Height in points (optional).")
 @click.option("--alt-text", "alt_text", default=None, help="Alternative (accessibility) text.")
@@ -575,6 +582,7 @@ def insert_image_cmd(
     b64: str | None,
     wrap: str,
     before: bool,
+    block: bool,
     width: float | None,
     height: float | None,
     alt_text: str | None,
@@ -602,6 +610,7 @@ def insert_image_cmd(
                     image,
                     wrap=wrap,
                     where=where,
+                    block=block,
                     width=width,
                     height=height,
                     alt_text=alt_text,
@@ -614,6 +623,7 @@ def insert_image_cmd(
                     "anchor": {"kind": anchor.kind, "name": anchor.name},
                     "wrap": wrap,
                     "where": where,
+                    "block": block,
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted image {where} {anchor_id} (wrap={wrap})",

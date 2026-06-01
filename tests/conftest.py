@@ -205,7 +205,9 @@ class _FakeInlineShapes:
 
     @property
     def Count(self) -> int:
-        return 1
+        # No picture present unless a test wires one up; range_text() reads this
+        # to decide whether to tokenize inline shapes.
+        return 0
 
 
 def _make_range(start: int, end: int) -> MagicMock:
@@ -221,6 +223,11 @@ def _make_range(start: int, end: int) -> MagicMock:
     # section's page geometry (Letter defaults) for the wrap="auto" heuristic.
     rng.InlineShapes = _FakeInlineShapes()
     rng.PageSetup = _FakePageSetup()
+    # A plain range contains no tables; find/replace's segment fast-path checks
+    # Range.Tables.Count to decide whether table-boundary segmentation is needed.
+    # Tests that exercise the in-table path set a positive Count on their range.
+    rng.Tables = MagicMock(name="RangeTables")
+    rng.Tables.Count = 0
     # Snapshot support: Range.Information(wdActiveEndPageNumber=3) reports the
     # page a (collapsed) range sits on. The tiny fake document is all one page,
     # so report page 1 for any query; tests that need a specific page set
@@ -296,6 +303,11 @@ class _FakeTable:
         # (set via Range.Text) carry no markers, so only seed them for non-empty
         # seed text to mirror both states.
         rng.Text = (text + "\r\x07") if text else "\r\x07"
+        rng.Start = 0
+        # No inline shapes by default, so range_text() reads cell text verbatim.
+        ish = MagicMock(name="CellInlineShapes")
+        ish.Count = 0
+        rng.InlineShapes = ish
         return rng
 
     @property

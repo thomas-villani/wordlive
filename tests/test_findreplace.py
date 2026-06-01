@@ -5,8 +5,12 @@ from __future__ import annotations
 import pytest
 
 import wordlive
-from wordlive._findreplace import find_matches
-from wordlive.exceptions import AmbiguousMatchError, AnchorNotFoundError
+from wordlive._findreplace import find_matches, normalized_equal
+from wordlive.exceptions import (
+    AmbiguousMatchError,
+    AnchorNotFoundError,
+    ReplaceVerificationError,
+)
 
 # ---------------------------------------------------------------------------
 # Normalization + match math (pure, no fake-COM needed)
@@ -142,3 +146,86 @@ def test_document_find_replace_occurrence_out_of_range_raises(fake_word):
         doc = word.documents.active
         with pytest.raises(AnchorNotFoundError):
             doc.find_replace("Body text here", "x", occurrence=5)
+
+
+# ---------------------------------------------------------------------------
+# Terminal paragraph clamp (Fix 1a)
+# ---------------------------------------------------------------------------
+
+
+def test_find_replace_last_paragraph_targets_before_final_mark(fake_word):
+    # A real document always ends with an undeletable paragraph mark; a match in
+    # the last paragraph must target up to (not including) that mark or Word
+    # raises COM 0x80020009.
+    fake_word.ActiveDocument.Content.Text = "alpha beta\r"
+    fake_word.ActiveDocument.Content.End = len("alpha beta\r")  # 11; \r sits at 10
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("fr"):
+            applied = doc.find_replace("beta", "X")
+    assert len(applied) == 1
+    # Target ends at 10 (the \r position), never 11 (== Content.End).
+    fake_word.ActiveDocument.Range.assert_any_call(6, 10)
+
+
+def test_find_replace_clamps_target_away_from_content_end(fake_word):
+    # Degenerate: the match offset reaches Content.End (this fake string has no
+    # trailing mark). The clamp must pull the write target back to End-1 rather
+    # than straddle the final paragraph mark.
+    fake_word.ActiveDocument.Content.Text = "alpha beta"
+    fake_word.ActiveDocument.Content.End = 10
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("fr"):
+            doc.find_replace("beta", "X")
+    calls = [c.args for c in fake_word.ActiveDocument.Range.call_args_list]
+    assert (6, 10) not in calls  # never the raw, crashing span
+    assert (6, 9) in calls  # clamped to End-1
+
+
+# ---------------------------------------------------------------------------
+# Replace verification safety-net (Fix 2a)
+# ---------------------------------------------------------------------------
+
+
+def test_find_replace_refuses_when_resolved_target_mismatches(fake_word):
+    # Simulate an offset map that drifted onto unrelated, non-empty text (the
+    # table-cell corruption signature): the write must be refused, not applied.
+    fake_word.ActiveDocument.Content.Text = "alpha beta"
+    fake_word.ActiveDocument.Content.End = 10
+    fake_word.ActiveDocument.Range(0, 5).Text = "WRONG"
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(ReplaceVerificationError) as exc_info:
+            with doc.edit("fr"):
+                doc.find_replace("alpha", "Z")
+    assert exc_info.value.expected == "alpha"
+    assert exc_info.value.resolved == "WRONG"
+
+
+def test_find_replace_proceeds_when_resolved_target_empty(fake_word):
+    # An empty resolved target (the fake's default, or a genuinely empty range)
+    # is treated as unverifiable, not a mismatch — the replace still applies.
+    fake_word.ActiveDocument.Content.Text = "alpha beta"
+    fake_word.ActiveDocument.Content.End = 10
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("fr"):
+            applied = doc.find_replace("alpha", "Z")
+    assert len(applied) == 1
+    assert fake_word.ActiveDocument.Range(0, 5).Text == "Z"
+
+
+def test_normalized_equal_folds_cosmetic_differences():
+    assert normalized_equal("say “hi”", 'say "hi"')
+    assert normalized_equal("a — b", "a - b")
+    assert not normalized_equal("alpha", "beta")
+
+
+def test_replace_verification_error_classifies_distinctly():
+    from wordlive.cli.main import _exit_for
+    from wordlive.exceptions import classify
+
+    exc = ReplaceVerificationError("None", "None", "Looks", anchor_id="range:5-9")
+    assert classify(exc) == ("replace_verification", False)
+    assert _exit_for(exc) == 1  # generic exit code, not anchor/ambiguous

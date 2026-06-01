@@ -15,6 +15,7 @@ Exception
     ├── AnchorNotFoundError
     │   └── StyleNotFoundError
     ├── AmbiguousMatchError
+    ├── ReplaceVerificationError
     ├── ImageSourceError
     ├── SnapshotError
     ├── WordBusyError
@@ -59,7 +60,9 @@ exit code (2) and the same retry guidance, and `except AnchorNotFoundError`
 catches it too. `.kind` is always `"style"` and `.name` is the requested style
 name. Raised by `Document.styles[name]`, `Anchor.apply_style(name)`, and
 `Anchor.insert_paragraph_before/after(text, style=name)`. **Retryable after
-reading `doc.styles.list()`** to see what's actually defined.
+reading `doc.styles.list()`** to see what's actually defined. To MCP clients it
+surfaces a distinct `code: "style_not_found"` (the CLI exit code is still `2`),
+so a missing style is told apart from a missing bookmark/heading.
 
 ### `AmbiguousMatchError`
 A fuzzy `find_replace` matched more than one occurrence and the caller didn't
@@ -67,6 +70,17 @@ say `all=True` or pass an `occurrence`. The exception carries `.find` (the
 search string) and `.matches` (a list of `{anchor_id, start, end, text}`
 dicts) so an agent can pick a specific occurrence and retry. **Retryable** by
 narrowing the call with `occurrence=N` or `all=True`.
+
+### `ReplaceVerificationError`
+A fuzzy `find_replace` resolved a write target whose text didn't match what was
+located, so wordlive refused to write rather than corrupt the document. This
+guards the case where `Range.Text` offsets diverge from Word's document positions
+across table structure — a whole-document replace could otherwise overwrite a
+neighbouring cell while returning success. Carries `.find`, `.expected` (the
+located text), `.resolved` (what the target actually held), and `.anchor_id`. It
+maps to the generic exit code (1) and `code: "replace_verification"` for MCP
+clients. **Not retryable as-is** — re-scope the replace to the cell anchor
+(`scope=doc.anchor_by_id("table:N:R:C")`), which addresses one cell at a time.
 
 ### `ImageSourceError`
 The image handed to [`insert_image`](python-api.md#wordlive.Anchor) couldn't be
@@ -122,7 +136,7 @@ The CLI maps the exception hierarchy onto six exit codes, defined in
 | Exit | Exception(s)                                | Meaning                          | Retry?                |
 | ---- | ------------------------------------------- | -------------------------------- | --------------------- |
 | `0`  | —                                           | success                          | —                     |
-| `1`  | `WordliveError` (default), `DocumentNotFoundError`, `ImageSourceError`, `SnapshotError` | other / unclassified | depends on cause |
+| `1`  | `WordliveError` (default), `DocumentNotFoundError`, `ImageSourceError`, `SnapshotError`, `ReplaceVerificationError` | other / unclassified | depends on cause |
 | `2`  | `AnchorNotFoundError`, `StyleNotFoundError`  | bookmark / cc / heading / style missing, or `find` had zero matches | yes, after re-reading content |
 | `3`  | `WordBusyError`                              | modal dialog or busy RPC         | **yes**, with back-off |
 | `4`  | `WordNotRunningError`                        | no Word instance                 | only if user launches Word |

@@ -145,8 +145,10 @@ A failed tool call comes back flagged as an error whose message is a JSON object
 
 | `code` | Meaning | `retryable` |
 | --- | --- | --- |
-| `anchor_not_found` | anchor or style missing, or `find` matched zero | no — re-read first |
+| `anchor_not_found` | anchor missing, or `find` matched zero | no — re-read first |
+| `style_not_found` | a named style isn't defined in the document | no — read `styles` first |
 | `ambiguous_match` | `find` matched several | yes — pass `occurrence`/`all` |
+| `replace_verification` | a `find_replace` target couldn't be verified (e.g. a whole-doc match inside a table) | no — scope to the cell anchor (`table:N:R:C`) |
 | `word_busy` | a modal dialog is open | **yes** — back off and retry |
 | `word_not_running` | Word isn't running | no — until Word is opened |
 | `document_not_found` | no document by that name | no |
