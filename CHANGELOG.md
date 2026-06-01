@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Normal` paragraph style regardless of the insertion anchor, instead of
   inheriting the anchor paragraph's style. A table dropped under a `Heading 2` no
   longer renders its cells as heading text or pollutes the navigation outline.
+### Changed
+- CI: the release workflow's `actions/setup-node` is bumped `v4` → `v5` (off the
+  deprecated Node 20 action runtime; GitHub forces Node 24 after 2026-06-16), and
+  the bundle build now uses Node 22 LTS instead of Node 20.
 
 ## [0.10.2] — 2026-05-31
 
