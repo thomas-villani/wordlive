@@ -27,13 +27,12 @@ import subprocess
 import sys
 import tempfile
 import traceback
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any, Callable, Iterator
 
 import wordlive as wl
 from wordlive import AmbiguousMatchError, AnchorNotFoundError, StyleNotFoundError
 from wordlive._document import Document
-
 
 # ---------------------------------------------------------------------------
 # Test document layout
@@ -50,7 +49,10 @@ DOC_PARAGRAPHS: list[tuple[str, str | None]] = [
     ("Introduction", "Heading 1"),
     ("Welcome to the wordlive E2E test document.", None),
     ("Risks", "Heading 2"),
-    ("Risk one is documented. Risk two is documented. The token SINGLE_TOKEN appears only here.", None),
+    (
+        "Risk one is documented. Risk two is documented. The token SINGLE_TOKEN appears only here.",
+        None,
+    ),
     ("Action items", "Heading 2"),
     ("MULTI_TOKEN appears here. Then MULTI_TOKEN again. And MULTI_TOKEN a third time.", None),
     ("Smart quotes test", "Heading 2"),
@@ -175,11 +177,11 @@ def temp_doc(word: wl.Word, *, keep: bool) -> Iterator[Document]:
     finally:
         if keep:
             print(f"(leaving test document open: {doc.name})")
-            return
-        try:
-            doc.com.Close(SaveChanges=0)  # wdDoNotSaveChanges
-        except Exception as e:  # noqa: BLE001
-            print(f"  warn: could not close test document: {e}")
+        else:
+            try:
+                doc.com.Close(SaveChanges=0)  # wdDoNotSaveChanges
+            except Exception as e:  # noqa: BLE001
+                print(f"  warn: could not close test document: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +201,10 @@ def t_outline(_word: wl.Word, doc: Document) -> None:
     texts = [it["text"] for it in items]
     for expected in ("Introduction", "Risks", "Action items", "Smart quotes test", "Conclusion"):
         expect(expected in texts, f"heading {expected!r} missing from outline: {texts}")
-    expect(all(it["anchor_id"].startswith("heading:") for it in items), "outline anchor_ids must start with 'heading:'")
+    expect(
+        all(it["anchor_id"].startswith("heading:") for it in items),
+        "outline anchor_ids must start with 'heading:'",
+    )
 
 
 def t_anchor_by_id_heading(_word: wl.Word, doc: Document) -> None:
@@ -239,16 +244,26 @@ def t_cc_read_and_write(_word: wl.Word, doc: Document) -> None:
 def t_find_smart_quotes(_word: wl.Word, doc: Document) -> None:
     # Search with straight quotes; the doc has curly quotes.
     matches = doc.find('"hello world"')
-    expect(len(matches) == 1, f"expected 1 fuzzy match for curly-quote phrase, got {len(matches)}: {matches}")
-    expect("hello world" in matches[0]["text"], f"matched text missing phrase: {matches[0]['text']!r}")
+    expect(
+        len(matches) == 1,
+        f"expected 1 fuzzy match for curly-quote phrase, got {len(matches)}: {matches}",
+    )
+    expect(
+        "hello world" in matches[0]["text"], f"matched text missing phrase: {matches[0]['text']!r}"
+    )
 
 
 def t_find_replace_single(_word: wl.Word, doc: Document) -> None:
     with doc.edit("E2E: find/replace SINGLE_TOKEN"):
         applied = doc.find_replace("SINGLE_TOKEN", "ONCE_REPLACED")
     expect(len(applied) == 1, f"expected exactly 1 replacement, got {len(applied)}")
-    expect("ONCE_REPLACED" in str(doc.com.Content.Text), "replacement string missing from doc content")
-    expect("SINGLE_TOKEN" not in str(doc.com.Content.Text), "original token still present after single replace")
+    expect(
+        "ONCE_REPLACED" in str(doc.com.Content.Text), "replacement string missing from doc content"
+    )
+    expect(
+        "SINGLE_TOKEN" not in str(doc.com.Content.Text),
+        "original token still present after single replace",
+    )
 
 
 def t_find_replace_ambiguous(_word: wl.Word, doc: Document) -> None:
@@ -256,8 +271,13 @@ def t_find_replace_ambiguous(_word: wl.Word, doc: Document) -> None:
         with doc.edit("E2E: ambiguous"):
             doc.find_replace("MULTI_TOKEN", "WRONG")
     except AmbiguousMatchError as e:
-        expect(len(e.matches) >= 2, f"AmbiguousMatchError must carry >=2 matches, got {len(e.matches)}")
-        expect("MULTI_TOKEN" in str(doc.com.Content.Text), "ambiguous call must not mutate the document")
+        expect(
+            len(e.matches) >= 2, f"AmbiguousMatchError must carry >=2 matches, got {len(e.matches)}"
+        )
+        expect(
+            "MULTI_TOKEN" in str(doc.com.Content.Text),
+            "ambiguous call must not mutate the document",
+        )
         return
     raise AssertionError("expected AmbiguousMatchError for 3-match MULTI_TOKEN replace")
 
@@ -268,7 +288,10 @@ def t_find_replace_occurrence(_word: wl.Word, doc: Document) -> None:
     expect(len(applied) == 1, f"expected 1 replacement at occurrence=1, got {len(applied)}")
     text = str(doc.com.Content.Text)
     expect("OCC1" in text, "OCC1 missing from doc after occurrence=1 replace")
-    expect(text.count("MULTI_TOKEN") == 2, f"expected 2 MULTI_TOKEN left, got {text.count('MULTI_TOKEN')}")
+    expect(
+        text.count("MULTI_TOKEN") == 2,
+        f"expected 2 MULTI_TOKEN left, got {text.count('MULTI_TOKEN')}",
+    )
 
 
 def t_find_replace_all(_word: wl.Word, doc: Document) -> None:
@@ -276,7 +299,9 @@ def t_find_replace_all(_word: wl.Word, doc: Document) -> None:
         applied = doc.find_replace("MULTI_TOKEN", "ALL", all=True)
     expect(len(applied) == 2, f"expected 2 replacements with --all, got {len(applied)}")
     expect("MULTI_TOKEN" not in str(doc.com.Content.Text), "MULTI_TOKEN remained after --all")
-    expect(str(doc.com.Content.Text).count("ALL") >= 2, "fewer than 2 'ALL' tokens after --all replace")
+    expect(
+        str(doc.com.Content.Text).count("ALL") >= 2, "fewer than 2 'ALL' tokens after --all replace"
+    )
 
 
 def t_find_replace_zero(_word: wl.Word, doc: Document) -> None:
@@ -284,7 +309,9 @@ def t_find_replace_zero(_word: wl.Word, doc: Document) -> None:
         with doc.edit("E2E: zero matches"):
             doc.find_replace("ZZZ_DOES_NOT_EXIST_ZZZ", "x")
     except AnchorNotFoundError as e:
-        expect(e.kind == "find", f"AnchorNotFoundError for find should set kind='find', got {e.kind!r}")
+        expect(
+            e.kind == "find", f"AnchorNotFoundError for find should set kind='find', got {e.kind!r}"
+        )
         return
     raise AssertionError("expected AnchorNotFoundError for zero-match find_replace")
 
@@ -302,7 +329,10 @@ def t_section_scoped_replace(_word: wl.Word, doc: Document) -> None:
     expect(len(applied) >= 1, "expected at least one replacement inside Risks section")
     risks_after = doc.heading("Risks").section_text()
     expect("documented" not in risks_after, "'documented' should be gone from Risks section")
-    expect(doc.heading("Conclusion").section_text() == before_conclusion, "Conclusion section must not be mutated by Risks-scoped replace")
+    expect(
+        doc.heading("Conclusion").section_text() == before_conclusion,
+        "Conclusion section must not be mutated by Risks-scoped replace",
+    )
 
 
 def t_selection_preserved(word: wl.Word, doc: Document) -> None:
@@ -370,7 +400,10 @@ def t_apply_style_missing_raises(_word: wl.Word, doc: Document) -> None:
         expect(exc.kind == "style", f"expected kind='style', got {exc.kind!r}")
         expect(exc.name == "NoSuchStyleXyz", f"expected name='NoSuchStyleXyz', got {exc.name!r}")
         # StyleNotFoundError must be catchable as AnchorNotFoundError for backwards compat.
-        expect(isinstance(exc, AnchorNotFoundError), "StyleNotFoundError should subclass AnchorNotFoundError")
+        expect(
+            isinstance(exc, AnchorNotFoundError),
+            "StyleNotFoundError should subclass AnchorNotFoundError",
+        )
         return
     raise AssertionError("expected StyleNotFoundError, but no exception was raised")
 
@@ -457,7 +490,10 @@ def t_comment_add_and_list(_word: wl.Word, doc: Document) -> None:
         c = doc.comments.add(doc.heading("Risks"), "Needs review", author="wordlive E2E")
     expect(len(doc.comments) == before + 1, "comment count did not grow")
     expect(c.text == "Needs review", f"comment body mismatch: {c.text!r}")
-    expect("Risks" in doc.comments[c.index].scope_text, f"comment scope mismatch: {doc.comments[c.index].scope_text!r}")
+    expect(
+        "Risks" in doc.comments[c.index].scope_text,
+        f"comment scope mismatch: {doc.comments[c.index].scope_text!r}",
+    )
     rows = doc.comments.list()
     expect(any(r["text"] == "Needs review" for r in rows), f"comment missing from list(): {rows}")
 
@@ -478,7 +514,10 @@ def t_comment_delete(_word: wl.Word, doc: Document) -> None:
     idx = c.index
     with doc.edit("E2E: delete comment"):
         doc.comments[idx].delete()
-    expect(len(doc.comments) == before, f"comment count should return to {before}, got {len(doc.comments)}")
+    expect(
+        len(doc.comments) == before,
+        f"comment count should return to {before}, got {len(doc.comments)}",
+    )
 
 
 def t_tracked_changes_records_revision(_word: wl.Word, doc: Document) -> None:
@@ -625,9 +664,15 @@ def t_cli_status(_word: wl.Word, _doc: Document) -> None:
         text=True,
         timeout=30,
     )
-    expect(result.returncode == 0, f"wordlive status exited {result.returncode}: {result.stderr.strip()}")
+    expect(
+        result.returncode == 0,
+        f"wordlive status exited {result.returncode}: {result.stderr.strip()}",
+    )
     payload = json.loads(result.stdout.strip().splitlines()[-1])
-    expect(isinstance(payload, list), f"wordlive status JSON should be a list, got {type(payload).__name__}")
+    expect(
+        isinstance(payload, list),
+        f"wordlive status JSON should be a list, got {type(payload).__name__}",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -669,7 +714,9 @@ def t_insert_image_floating_square(_word: wl.Word, doc: Document) -> None:
         doc.bookmarks[BOOKMARK_NAME].insert_image(_E2E_PNG, wrap="square", width=120.0)
     expect(_shape_count(doc) == before + 1, "floating image was not added")
     shp = doc.com.Shapes(doc.com.Shapes.Count)
-    expect(int(shp.WrapFormat.Type) == 0, f"wrap type should be Square(0), got {shp.WrapFormat.Type}")
+    expect(
+        int(shp.WrapFormat.Type) == 0, f"wrap type should be Square(0), got {shp.WrapFormat.Type}"
+    )
 
 
 def t_insert_image_auto_small_is_square(_word: wl.Word, doc: Document) -> None:
@@ -679,7 +726,10 @@ def t_insert_image_auto_small_is_square(_word: wl.Word, doc: Document) -> None:
         doc.bookmarks[BOOKMARK_NAME].insert_image(_E2E_PNG, wrap="auto", width=72.0)
     expect(_shape_count(doc) == before + 1, "auto image was not added")
     shp = doc.com.Shapes(doc.com.Shapes.Count)
-    expect(int(shp.WrapFormat.Type) == 0, f"auto-small should resolve to Square(0), got {shp.WrapFormat.Type}")
+    expect(
+        int(shp.WrapFormat.Type) == 0,
+        f"auto-small should resolve to Square(0), got {shp.WrapFormat.Type}",
+    )
 
 
 def t_insert_image_from_base64(_word: wl.Word, doc: Document) -> None:
@@ -703,7 +753,9 @@ def t_insert_image_missing_raises(_word: wl.Word, doc: Document) -> None:
     raised = False
     try:
         with doc.edit("E2E: missing image"):
-            doc.bookmarks[BOOKMARK_NAME].insert_image(r"C:\nope\definitely-missing.png", wrap="inline")
+            doc.bookmarks[BOOKMARK_NAME].insert_image(
+                r"C:\nope\definitely-missing.png", wrap="inline"
+            )
     except wl.ImageSourceError:
         raised = True
     expect(raised, "a missing/invalid image should raise ImageSourceError, not a bare ComError")
@@ -716,7 +768,9 @@ def t_insert_image_missing_raises(_word: wl.Word, doc: Document) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--keep", action="store_true", help="Leave the test document open after the run.")
+    parser.add_argument(
+        "--keep", action="store_true", help="Leave the test document open after the run."
+    )
     parser.add_argument("--verbose", action="store_true", help="Print full tracebacks on failures.")
     parser.add_argument("--no-cli", action="store_true", help="Skip the subprocess CLI smoke test.")
     args = parser.parse_args()
@@ -741,62 +795,132 @@ def main() -> int:
             h.run("find tolerates smart quotes", lambda: t_find_smart_quotes(word, doc))
 
             # Polite writes.
-            h.run("bookmark read + set_text round-trip", lambda: t_bookmark_read_and_write(word, doc))
-            h.run("content control read + set_text round-trip", lambda: t_cc_read_and_write(word, doc))
+            h.run(
+                "bookmark read + set_text round-trip", lambda: t_bookmark_read_and_write(word, doc)
+            )
+            h.run(
+                "content control read + set_text round-trip", lambda: t_cc_read_and_write(word, doc)
+            )
             h.run("selection preserved across edit", lambda: t_selection_preserved(word, doc))
-            h.run("insert_paragraph_after lands in body", lambda: t_insert_paragraph_after(word, doc))
+            h.run(
+                "insert_paragraph_after lands in body", lambda: t_insert_paragraph_after(word, doc)
+            )
 
             # Fuzzy find/replace matrix. Order matters: ambiguous before occurrence, occurrence before all.
             h.run("find_replace single match", lambda: t_find_replace_single(word, doc))
-            h.run("find_replace ambiguous raises AmbiguousMatchError", lambda: t_find_replace_ambiguous(word, doc))
-            h.run("find_replace occurrence=1 hits exactly one", lambda: t_find_replace_occurrence(word, doc))
+            h.run(
+                "find_replace ambiguous raises AmbiguousMatchError",
+                lambda: t_find_replace_ambiguous(word, doc),
+            )
+            h.run(
+                "find_replace occurrence=1 hits exactly one",
+                lambda: t_find_replace_occurrence(word, doc),
+            )
             h.run("find_replace --all hits the rest", lambda: t_find_replace_all(word, doc))
-            h.run("find_replace zero matches raises AnchorNotFoundError(find)", lambda: t_find_replace_zero(word, doc))
-            h.run("section-scoped replace only touches that section", lambda: t_section_scoped_replace(word, doc))
+            h.run(
+                "find_replace zero matches raises AnchorNotFoundError(find)",
+                lambda: t_find_replace_zero(word, doc),
+            )
+            h.run(
+                "section-scoped replace only touches that section",
+                lambda: t_section_scoped_replace(word, doc),
+            )
 
             # Styles + paragraph formatting.
             h.run("doc.styles.list includes built-ins", lambda: t_styles_list(word, doc))
-            h.run("apply_style writes through to the range", lambda: t_apply_style_to_bookmark(word, doc))
-            h.run("format_paragraph sets alignment/indent/spacing", lambda: t_format_paragraph(word, doc))
-            h.run("apply_style with missing name raises StyleNotFoundError", lambda: t_apply_style_missing_raises(word, doc))
+            h.run(
+                "apply_style writes through to the range",
+                lambda: t_apply_style_to_bookmark(word, doc),
+            )
+            h.run(
+                "format_paragraph sets alignment/indent/spacing",
+                lambda: t_format_paragraph(word, doc),
+            )
+            h.run(
+                "apply_style with missing name raises StyleNotFoundError",
+                lambda: t_apply_style_missing_raises(word, doc),
+            )
 
             # Tables.
             h.run("tables.list reports the test table", lambda: t_tables_list(word, doc))
             h.run("table.read returns cells with anchor ids", lambda: t_table_read(word, doc))
             h.run("cell set_text round-trips", lambda: t_cell_set_text(word, doc))
-            h.run("cell resolves + writes via anchor_by_id", lambda: t_cell_via_anchor_id(word, doc))
-            h.run("bookmark inside a cell round-trips via set_text", lambda: t_bookmark_in_cell_roundtrip(word, doc))
+            h.run(
+                "cell resolves + writes via anchor_by_id", lambda: t_cell_via_anchor_id(word, doc)
+            )
+            h.run(
+                "bookmark inside a cell round-trips via set_text",
+                lambda: t_bookmark_in_cell_roundtrip(word, doc),
+            )
             h.run("apply_style writes through to a cell", lambda: t_apply_style_to_cell(word, doc))
             h.run("table.add_row appends and fills cells", lambda: t_add_row(word, doc))
             h.run("table.delete_row removes a row", lambda: t_delete_row(word, doc))
 
             # Collaboration (v0.5): range anchors, comments, track changes.
-            h.run("find hit resolves to a RangeAnchor via anchor_by_id", lambda: t_range_anchor_from_find(word, doc))
-            h.run("comments.add attaches + appears in list", lambda: t_comment_add_and_list(word, doc))
+            h.run(
+                "find hit resolves to a RangeAnchor via anchor_by_id",
+                lambda: t_range_anchor_from_find(word, doc),
+            )
+            h.run(
+                "comments.add attaches + appears in list", lambda: t_comment_add_and_list(word, doc)
+            )
             h.run("comment.resolve sets done (Word 2013+)", lambda: t_comment_resolve(word, doc))
             h.run("comment.delete removes the comment", lambda: t_comment_delete(word, doc))
-            h.run("tracked_changes records a revision then restores the flag", lambda: t_tracked_changes_records_revision(word, doc))
+            h.run(
+                "tracked_changes records a revision then restores the flag",
+                lambda: t_tracked_changes_records_revision(word, doc),
+            )
 
             # Document structure (v0.6): lists, sections, headers/footers.
-            h.run("apply_list numbers a paragraph then remove_list clears it", lambda: t_list_apply_numbered_and_remove(word, doc))
+            h.run(
+                "apply_list numbers a paragraph then remove_list clears it",
+                lambda: t_list_apply_numbered_and_remove(word, doc),
+            )
             h.run("restart_numbering keeps the list", lambda: t_list_restart_numbering(word, doc))
             h.run("sections.list reports page setup", lambda: t_sections_list(word, doc))
             h.run("header set_text round-trips", lambda: t_header_write_and_read(word, doc))
-            h.run("footer resolves + writes via anchor_by_id", lambda: t_footer_via_anchor_id(word, doc))
+            h.run(
+                "footer resolves + writes via anchor_by_id",
+                lambda: t_footer_via_anchor_id(word, doc),
+            )
 
             # Paragraph addressing + cursor surface (v0.7).
-            h.run("paragraphs addresses body text (para:N)", lambda: t_paragraphs_addresses_body(word, doc))
+            h.run(
+                "paragraphs addresses body text (para:N)",
+                lambda: t_paragraphs_addresses_body(word, doc),
+            )
             h.run("para:N set_text round-trips", lambda: t_para_set_text_round_trip(word, doc))
-            h.run("insert_paragraph_before/after on a para:N anchor", lambda: t_insert_relative_to_paragraph(word, doc))
-            h.run("cursor read resolves para:N + cursor write inserts", lambda: t_cursor_read_and_write(word, doc))
+            h.run(
+                "insert_paragraph_before/after on a para:N anchor",
+                lambda: t_insert_relative_to_paragraph(word, doc),
+            )
+            h.run(
+                "cursor read resolves para:N + cursor write inserts",
+                lambda: t_cursor_read_and_write(word, doc),
+            )
 
             # Visual content (v0.8): image insertion.
-            h.run("insert_image inline from a file path", lambda: t_insert_image_inline_from_path(word, doc))
-            h.run("insert_image square floats + sets wrap type", lambda: t_insert_image_floating_square(word, doc))
-            h.run("insert_image wrap=auto small resolves to Square", lambda: t_insert_image_auto_small_is_square(word, doc))
+            h.run(
+                "insert_image inline from a file path",
+                lambda: t_insert_image_inline_from_path(word, doc),
+            )
+            h.run(
+                "insert_image square floats + sets wrap type",
+                lambda: t_insert_image_floating_square(word, doc),
+            )
+            h.run(
+                "insert_image wrap=auto small resolves to Square",
+                lambda: t_insert_image_auto_small_is_square(word, doc),
+            )
             h.run("insert_image from base64 embeds", lambda: t_insert_image_from_base64(word, doc))
-            h.run("insert_image alt_text round-trips on the shape", lambda: t_insert_image_alt_text(word, doc))
-            h.run("insert_image missing file raises ImageSourceError", lambda: t_insert_image_missing_raises(word, doc))
+            h.run(
+                "insert_image alt_text round-trips on the shape",
+                lambda: t_insert_image_alt_text(word, doc),
+            )
+            h.run(
+                "insert_image missing file raises ImageSourceError",
+                lambda: t_insert_image_missing_raises(word, doc),
+            )
 
             if not args.no_cli:
                 h.run("CLI: wordlive status (subprocess)", lambda: t_cli_status(word, doc))

