@@ -51,8 +51,9 @@ Address content by ANCHOR id, never the live cursor:
 
 Make single edits with `word_write` (dispatch on `command`); batch several into one
 atomic undo with `word_exec(ops=[...])`. Render a page or section to an image with
-`word_snapshot`. Read the `wordlive://guide` resource for the full op vocabulary
-and field reference.
+`word_snapshot`. For the full op vocabulary, anchor model, and field reference,
+call `word_read(command="guide")` first (it needs neither Word nor a document) —
+the same text is also the `wordlive://guide` resource where your client surfaces it.
 """.strip()
 
 
@@ -99,6 +100,12 @@ def _need(p: dict[str, Any], key: str, command: str) -> Any:
 
 
 def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
+    if command == "guide":
+        # The full agent guide — the same text served by the wordlive://guide
+        # resource, but reachable as a tool call (resources aren't surfaced by
+        # every MCP client). Needs neither Word nor the worker thread.
+        return {"guide": skill_body()}
+
     def job() -> Any:
         with attach() as word:
             if command == "status":
@@ -181,7 +188,8 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get("style") is not None:
                 op["style"] = p["style"]
             return op
-        return {"op": command, "text": text}
+        # paragraph=False → the inline "continue the adjacent paragraph" variant.
+        return {"op": f"{command}_inline", "text": text}
     if command == "replace":
         text = need("text")
         if p.get("find") is not None:
@@ -333,6 +341,10 @@ def _write_impl(worker: Worker, command: str, p: dict[str, Any]) -> dict[str, An
             if result.get("outputs"):
                 # e.g. table create reports the new table's 1-based index.
                 out["result"] = result["outputs"][0]
+            if result.get("warnings"):
+                # Surface ignored/unknown fields (e.g. a style passed to an
+                # op that doesn't take one) instead of swallowing them.
+                out["warnings"] = result["warnings"]
             return out
 
     return worker.run_on_word(job)
@@ -418,6 +430,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
     def word_read(
         command: Literal[
             "status",
+            "guide",
             "outline",
             "paragraphs",
             "find",
@@ -443,7 +456,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
     ) -> Any:
         """Read from the open Word document. Dispatch on `command`:
 
-        status (no doc needed) · outline [all_paragraphs] · paragraphs [start,count] ·
+        guide (no Word needed — returns the full agent guide: anchor model, the
+        word_exec op vocabulary, and every field; read this first) ·
+        status (no doc needed; reports name/path/saved/is_active per open doc) ·
+        outline [all_paragraphs] · paragraphs [start,count] ·
         find {text,[in_anchor]} · read_bookmark {name} · read_cc {name} ·
         read_section {heading | anchor_id} · table_list · table_read {table} ·
         styles · comments · sections. `doc` targets a document by name (default:
@@ -530,7 +546,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
     ) -> dict[str, Any]:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
-        insert {anchor_id,text,[before,style]} · append/prepend {text,[paragraph,style]} ·
+        insert {anchor_id,text,[before,style]} ·
+        append/prepend {text,[style]} — new final/first paragraph; pass paragraph=false
+            to continue the adjacent paragraph inline (an inline append takes no style) ·
         replace {text, find|anchor_id, [all,occurrence,in_anchor]} ·
         write_bookmark/write_cc {name,text} · apply_style {anchor_id,name} ·
         format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before]} ·
@@ -542,8 +560,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         header/footer {section,text,[which]} · track {on} ·
         insert_image {anchor_id,wrap, image_base64|path, [before,width,height,alt_text,lock_aspect]}.
 
-        For several edits in one undo step, use word_exec instead. See the
-        wordlive://guide resource for every field.
+        For several edits in one undo step, use word_exec instead. Call
+        word_read(command="guide") for the full anchor model and field reference.
         """
         params = {
             "doc": doc,
@@ -607,8 +625,34 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         {"op":"insert_paragraph","anchor_id":"heading:2","text":"…","style":"Body Text"},
         {"op":"find_replace","find":"Q3","text":"Q4","all":true}. Set `tracked`
         true to record the batch as tracked changes. Stops at the first failing
-        op and reports it. The full op vocabulary is in the wordlive://guide
-        resource.
+        op and reports `failure` (its `index`, `error`, `type`). Fields an op
+        doesn't use are reported in `warnings`, not silently dropped.
+
+        Anchor ids (the `anchor_id` of placement ops):
+          heading:N · para:N (any paragraph) · bookmark:NAME · cc:NAME ·
+          table:N:R:C (a cell) · range:START-END (what `find` emits — for
+          replace/comments, NOT a placement target) · header:S:WHICH ·
+          footer:S:WHICH · start · end. heading:N / para:N are positional and
+          renumber on structural inserts — re-read outline/paragraphs after one.
+          bookmark:/cc: are name-based and survive edits.
+
+        Ops (required fields → behaviour):
+          write_bookmark {name,text} · write_cc {name,text} ·
+          insert_paragraph {anchor_id,text,[style,before]} — new paragraph by an anchor ·
+          append {text,[style]} / prepend {text,[style]} — new final/first paragraph ·
+          append_inline {text} / prepend_inline {text} — continue the last/first paragraph (NO style) ·
+          append_paragraph / prepend_paragraph — explicit synonyms of append/prepend ·
+          replace {anchor_id,text} · find_replace {find,text,[all,occurrence,in]} ·
+          apply_style {anchor_id,name} · format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before]} ·
+          insert_image {anchor_id,wrap, path|base64, [before,width,height,alt_text,lock_aspect]} ·
+          insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
+          create_table {anchor_id,rows,cols,[style,data,header,before]} — cells default to Normal; returns the new index in outputs ·
+          set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} · delete_table {table} ·
+          add_comment {anchor_id,text,[author]} · resolve_comment {index} · delete_comment {index} ·
+          apply_list {anchor_id,[type=bulleted|numbered|outline,continue_previous]} · remove_list/restart_numbering/indent_list/outdent_list {anchor_id} ·
+          write_header/write_footer {section,text,[which=primary|first|even]}.
+
+        Call word_read(command="guide") for the full field reference.
         """
         try:
             result, exc = _exec_impl(w, ops, doc=doc, label=label, tracked=tracked)

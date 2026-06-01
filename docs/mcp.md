@@ -96,16 +96,22 @@ is the active one).
 
 | Tool | What it does |
 | --- | --- |
-| `word_read` | Every read, dispatched on `command`: `status`, `outline`, `paragraphs`, `find`, `read_bookmark`, `read_cc`, `read_section`, `table_list`, `table_read`, `styles`, `comments`, `sections`. |
-| `word_write` | Every single atomic-undo edit, dispatched on `command`: `insert`, `insert_break`, `append`, `prepend`, `replace`, `write_bookmark`, `write_cc`, `apply_style`, `format_paragraph`, `list`, `comment`, `table` (`action` = `set_cell`/`add_row`/`delete_row`/`create`/`delete`), `header`, `footer`, `track`, `insert_image`. |
+| `word_read` | Every read, dispatched on `command`: `guide`, `status`, `outline`, `paragraphs`, `find`, `read_bookmark`, `read_cc`, `read_section`, `table_list`, `table_read`, `styles`, `comments`, `sections`. |
+| `word_write` | Every single atomic-undo edit, dispatched on `command`: `insert`, `insert_break`, `append`, `prepend`, `replace`, `write_bookmark`, `write_cc`, `apply_style`, `format_paragraph`, `list`, `comment`, `table` (`action` = `set_cell`/`add_row`/`delete_row`/`create`/`delete`), `header`, `footer`, `track`, `insert_image`. `append`/`prepend` add a new paragraph (optional `style`); pass `paragraph: false` to continue the adjacent paragraph inline (no `style`). |
 | `word_exec` | Apply a batch of `ops` as a **single** atomic undo — the power tool for multi-step intents. |
 | `word_snapshot` | Render page(s) to PNG so the model can *see* the layout. Returns image content. Needs the `snapshot` extra. |
 
 The anchor model (`heading:N`, `para:N`, `bookmark:NAME`, `cc:NAME`,
 `table:N:R:C`, `range:START-END`, `header:S:WHICH` / `footer:S:WHICH`, `start` /
-`end`) and the full `word_exec` op vocabulary are documented in the
-**`wordlive://guide`** resource the server exposes — the same one-page guide as
-`wordlive llm-help`. See also [CLI](cli.md) for each op's fields.
+`end`) and the full `word_exec` op vocabulary are documented in the one-page
+guide. Fetch it as a tool call with **`word_read(command="guide")`** (it needs
+neither Word nor a document) — the most reliable path, since not every MCP
+client surfaces resources. The same text is also the **`wordlive://guide`**
+resource and `wordlive llm-help`. See also [CLI](cli.md) for each op's fields.
+
+`heading:N` / `para:N` are **positional** and renumber when a structural edit
+shifts the document, so re-read `outline` / `paragraphs` after an insert before
+reusing ids; `bookmark:NAME` / `cc:NAME` are name-based and survive edits.
 
 ### Batches
 
@@ -123,7 +129,9 @@ The anchor model (`heading:N`, `para:N`, `bookmark:NAME`, `cc:NAME`,
 ```
 
 It stops at the first failing op and reports its `index`, `op`, and error `type`;
-the successful prefix still rolls back as one undo step.
+the successful prefix still rolls back as one undo step. A field an op doesn't
+use (a typo, or `style` on an inline append) is reported in a `warnings` array on
+the result rather than silently dropped.
 
 ## Errors
 

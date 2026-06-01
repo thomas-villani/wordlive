@@ -43,12 +43,14 @@ retry guidance.
 wordlive status
 ```
 
-List all open documents and mark which is active.
+List all open documents and mark which is active. Each entry carries a `name`
+(always non-empty — `Document1` for a document never saved), the on-disk `path`
+(empty until the document is saved), a `saved` flag, and `is_active`.
 
 ```bash
 $ wordlive status
-[{"name": "Report.docx", "path": "C:\\Users\\me\\Report.docx", "is_active": true},
- {"name": "Draft.docx",  "path": "C:\\Users\\me\\Draft.docx",  "is_active": false}]
+[{"name": "Report.docx", "path": "C:\\Users\\me\\Report.docx", "saved": true,  "is_active": true},
+ {"name": "Document2",   "path": "",                           "saved": false, "is_active": false}]
 ```
 
 Failures: `4` if Word isn't running (returns `[]` to stdout *and* the error
@@ -982,10 +984,10 @@ Script shape:
 | `write_bookmark`       | `name`, `text`                             | —                                 |
 | `write_cc`             | `name`, `text`                             | —                                 |
 | `insert_paragraph`     | `anchor_id`, `text`                        | `where` (`after`/`before`) or `before: true`, `style` |
-| `append_paragraph`     | `text`                                     | `style`                           |
-| `append`               | `text`                                     | —                                 |
-| `prepend_paragraph`    | `text`                                     | `style`                           |
-| `prepend`              | `text`                                     | —                                 |
+| `append`               | `text`                                     | `style`                           |
+| `append_inline`        | `text`                                     | —                                 |
+| `prepend`              | `text`                                     | `style`                           |
+| `prepend_inline`       | `text`                                     | —                                 |
 | `insert_image`         | `anchor_id`, `wrap`, and one of `path` / `base64` | `where` or `before: true`, `width`, `height`, `alt_text`, `lock_aspect` |
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
@@ -994,7 +996,7 @@ Script shape:
 | `set_cell`             | `table`, `row`, `col`, `text`              | —                                 |
 | `add_row`              | `table`                                    | `values`                          |
 | `delete_row`           | `table`, `row`                             | —                                 |
-| `create_table`         | `anchor_id`, `rows`, `cols`                | `style`, `data` (row-major 2-D), `header`, `where` or `before: true` |
+| `create_table`         | `anchor_id`, `rows`, `cols`                | `style`, `data` (row-major 2-D), `header`, `where` or `before: true` (new cells default to the `Normal` paragraph style) |
 | `delete_table`         | `table`                                    | —                                 |
 | `insert_break`         | `anchor_id`                                | `kind` (`page`/`column`/`section_next`/`section_continuous`), `where` or `before: true` |
 | `add_comment`          | `anchor_id`, `text`                        | `author`                          |
@@ -1020,11 +1022,18 @@ verbose `"where": "before"|"after"` or the boolean `"before": true` — the latt
 mirrors the command's `--before`/`--after` flags, so the same intent encodes the
 same way whether you type it or batch it. (`insert_image` accepts both forms too.)
 
-`append_paragraph` and `append` mirror the `append` command — they add a new
-final paragraph (optional `style`, validated first) or inline text at the very
-end of the document, with no anchor to resolve. Equivalent to an
-`insert_paragraph` op targeting the `end` anchor. `prepend_paragraph` and
-`prepend` are their start-of-document mirrors (the `start` anchor).
+`append` adds a new final **paragraph** at the very end of the document
+(optional `style`, validated first) — no anchor to resolve, equivalent to an
+`insert_paragraph` op targeting the `end` anchor. `append_inline` instead
+**continues** the document's last paragraph and takes `text` only (no `style`).
+`prepend` / `prepend_inline` are their start-of-document mirrors (the `start`
+anchor). `append_paragraph` / `prepend_paragraph` remain as explicit synonyms
+of `append` / `prepend`.
+
+Any field an op doesn't recognise (a typo, or a `style` handed to an inline
+append) is reported in a top-level `warnings` array on the batch result — the op
+still runs, but the ignored field is surfaced rather than silently dropped, so a
+successful-looking response can't mask a payload you got wrong.
 
 `insert_image` mirrors `insert-image`. Supply the image with either a `path`
 (read from disk) or `base64` (inline data — the natural choice in a JSON op,

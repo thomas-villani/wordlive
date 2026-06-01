@@ -288,6 +288,20 @@ def test_insert_table_applies_explicit_style(fake_word):
         assert applied.NameLocal == "Heading 1"
 
 
+def test_insert_table_resets_cells_to_normal(fake_word):
+    # New cells must default to the body style regardless of the anchor's
+    # paragraph style — no inheriting Heading 2 from the heading above.
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("table under heading"):
+            t = doc.headings["Risks"].insert_table(2, 2)
+        tbl = fake_word.ActiveDocument.Tables(t.index)
+        for r in (1, 2):
+            for c in (1, 2):
+                style = tbl.Cell(r, c).Range.Style
+                assert style is not None and style.NameLocal == "Normal"
+
+
 def test_table_delete_removes_table(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active
