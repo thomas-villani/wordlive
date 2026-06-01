@@ -160,6 +160,20 @@ def test_insert_image_path_str_used_directly(fake_word, png_file):
     assert os.path.exists(kwargs["FileName"])  # a real file, not a temp
 
 
+def test_insert_image_relative_path_resolved_to_absolute(fake_word, png_file, monkeypatch):
+    """A relative path must reach COM absolute: AddPicture resolves a relative
+    name against Word's working directory, not ours, so a bare relative path
+    silently fails with 0x80020009.
+    """
+    monkeypatch.chdir(png_file.parent)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.bookmarks["Address"].insert_image(png_file.name, wrap="inline")
+    _, kwargs = _insert_rng(fake_word).InlineShapes.AddPicture.call_args
+    assert os.path.isabs(kwargs["FileName"])
+    assert os.path.samefile(kwargs["FileName"], str(png_file))
+
+
 def test_insert_image_from_bytes_tempfiles_then_cleans_up(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active
