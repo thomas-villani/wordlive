@@ -92,7 +92,10 @@ def image_on_disk(image: str | Path | bytes) -> Iterator[str]:
                 pass
         except OSError as e:
             raise ImageSourceError(f"image file is unreadable: {str(path)!r}") from e
-        yield str(path)
+        # AddPicture resolves a relative path against *Word's* working directory,
+        # not the caller's, so a relative path silently fails with COM 0x80020009
+        # ("not a valid file name"). Hand COM an absolute path.
+        yield str(path.resolve())
         return
 
     ext = _sniff_extension(data)

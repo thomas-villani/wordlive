@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] — 2026-05-31
+
+### Fixed
+- `insert_image` now resolves a relative path to an absolute one before handing
+  it to `InlineShapes.AddPicture`. Word resolves a relative filename against
+  *its own* working directory, not the caller's, so a relative `--path` (or
+  `image=` argument) previously failed with COM `0x80020009` ("not a valid file
+  name"). Relative paths from the CLI's working directory now embed correctly.
+
 ## [0.10.1] — 2026-05-29
 
 ### Fixed
