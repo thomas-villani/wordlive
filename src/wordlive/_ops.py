@@ -40,8 +40,10 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_paragraph": ("anchor_id", "text"),
     "append_paragraph": ("text",),
     "append": ("text",),
+    "append_inline": ("text",),
     "prepend_paragraph": ("text",),
     "prepend": ("text",),
+    "prepend_inline": ("text",),
     "insert_image": ("anchor_id", "wrap"),
     "replace": ("anchor_id", "text"),
     "find_replace": ("find", "text"),
@@ -64,6 +66,76 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "write_header": ("section", "text"),
     "write_footer": ("section", "text"),
 }
+
+# `before` / `after` / `where` all steer an insert op's side (see `op_before`),
+# so any op that calls it accepts the trio.
+_WHERE_FIELDS = ("before", "after", "where")
+
+# Optional fields each op *reads*. Combined with the required set (and the
+# implicit `op` key), this is the full vocabulary an op understands — anything
+# else in the payload is silently ignored by `apply_op`, which is exactly the
+# silent-success footgun the warnings below surface. Keep an entry for every op
+# in OP_REQUIRED_FIELDS so `unexpected_fields` can flag stray keys on all of them.
+OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
+    "write_bookmark": (),
+    "write_cc": (),
+    "insert_paragraph": ("style", *_WHERE_FIELDS),
+    "append_paragraph": ("style",),
+    "append": ("style",),
+    "append_inline": (),
+    "prepend_paragraph": ("style",),
+    "prepend": ("style",),
+    "prepend_inline": (),
+    "insert_image": (
+        "path",
+        "base64",
+        "width",
+        "height",
+        "alt_text",
+        "lock_aspect",
+        *_WHERE_FIELDS,
+    ),
+    "replace": (),
+    "find_replace": ("in", "all", "occurrence"),
+    "apply_style": (),
+    "format_paragraph": (
+        "alignment",
+        "left_indent",
+        "right_indent",
+        "first_line_indent",
+        "space_before",
+        "space_after",
+        "page_break_before",
+    ),
+    "set_cell": (),
+    "add_row": ("values",),
+    "delete_row": (),
+    "create_table": ("style", "data", "header", *_WHERE_FIELDS),
+    "delete_table": (),
+    "insert_break": ("kind", *_WHERE_FIELDS),
+    "add_comment": ("author",),
+    "resolve_comment": (),
+    "delete_comment": (),
+    "apply_list": ("type", "continue_previous", "continue"),
+    "remove_list": (),
+    "restart_numbering": (),
+    "indent_list": (),
+    "outdent_list": (),
+    "write_header": ("which",),
+    "write_footer": ("which",),
+}
+
+
+def unexpected_fields(op: dict[str, Any], kind: str) -> list[str]:
+    """Fields present on `op` that its `kind` neither requires nor reads.
+
+    `apply_op` ignores unknown keys, so a typo (``anchorid``) or a field that
+    doesn't apply to this op (``style`` on a bare ``append_inline``) would
+    otherwise vanish with no signal — silent success with wrong output. The
+    caller turns each returned name into a soft warning in the batch result.
+    """
+    known = {"op", *OP_REQUIRED_FIELDS.get(kind, ()), *OP_OPTIONAL_FIELDS.get(kind, ())}
+    return [k for k in op if k not in known]
 
 
 def op_before(op: dict[str, Any]) -> bool:
@@ -116,13 +188,16 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             anchor.insert_paragraph_before(op["text"], style=op.get("style"))
         else:
             anchor.insert_paragraph_after(op["text"], style=op.get("style"))
-    elif kind == "append_paragraph":
+    elif kind in ("append", "append_paragraph"):
+        # `append` is the natural name for the common case — a new final
+        # paragraph (matching its description and `append_paragraph`). The
+        # inline "continue the last paragraph" variant is `append_inline`.
         doc.append_paragraph(op["text"], style=op.get("style"))
-    elif kind == "append":
+    elif kind == "append_inline":
         doc.append(op["text"])
-    elif kind == "prepend_paragraph":
+    elif kind in ("prepend", "prepend_paragraph"):
         doc.prepend_paragraph(op["text"], style=op.get("style"))
-    elif kind == "prepend":
+    elif kind == "prepend_inline":
         doc.prepend(op["text"])
     elif kind == "insert_image":
         if ("path" in op) == ("base64" in op):
@@ -235,6 +310,7 @@ def run_batch(
     """
     ops_run = 0
     outputs: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
     failure_exc: WordliveError | None = None
     failure_meta: dict[str, Any] | None = None
     tracking = doc.tracked_changes() if tracked else nullcontext()
@@ -253,6 +329,19 @@ def run_batch(
                 if isinstance(exc, AmbiguousMatchError):
                     failure_meta["matches"] = exc.matches
                 break
+            # The op applied, so its kind is valid; flag any stray fields it
+            # ignored so a silent-but-wrong payload (e.g. `style` on an inline
+            # append, or a typo'd key) doesn't pass as a clean success.
+            kind = op.get("op")
+            for field in unexpected_fields(op, str(kind)):
+                warnings.append(
+                    {
+                        "index": i,
+                        "op": kind,
+                        "field": field,
+                        "message": f"op {kind!r} does not use field {field!r}; it was ignored",
+                    }
+                )
             if out is not None:
                 outputs.append({"index": i, "op": op.get("op"), **out})
             ops_run += 1
@@ -263,7 +352,12 @@ def run_batch(
             # Only on success: a failed batch rolls back as one undo step, so
             # any structure a prior op created no longer exists to report.
             result["outputs"] = outputs
+        if warnings:
+            result["warnings"] = warnings
         return result, None
 
     assert failure_meta is not None  # set together with failure_exc
-    return {"ok": False, "ops_run": ops_run, "label": label, "failure": failure_meta}, failure_exc
+    result = {"ok": False, "ops_run": ops_run, "label": label, "failure": failure_meta}
+    if warnings:
+        result["warnings"] = warnings
+    return result, failure_exc

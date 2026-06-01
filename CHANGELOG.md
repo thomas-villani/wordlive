@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `word_read(command="guide")` — the full agent guide (anchor model, the
+  `word_exec` op vocabulary, every field) is now fetchable as a **tool call**,
+  not only the `wordlive://guide` resource. Resources aren't surfaced by every
+  MCP client, so the guide the tool descriptions point at was unreachable in
+  practice; the command needs neither Word nor a document. The `word_exec` /
+  `word_write` tool docstrings also now inline the anchor taxonomy and op list so
+  the essentials survive the projection into the MCP tool surface.
+- `wordlive status` (and `word_read(command="status")`) now reports a `saved`
+  flag and always a non-empty `name` (`Document1` for an unsaved document), so a
+  caller can reliably confirm which document it is about to edit. The active
+  document is matched by full path, robust when several unsaved documents share a
+  blank path.
+- `exec` / `word_exec` batches now return a `warnings` array flagging any field
+  an op doesn't use (a typo, or a `style` handed to an inline append). The op
+  still applies, but the ignored field is surfaced instead of silently dropped —
+  closing the "successful-looking response hiding a wrong payload" footgun.
+
+### Changed
+- **Breaking (op vocabulary):** the `append` and `prepend` exec ops now add a new
+  **paragraph** (taking `text` + optional `style`), matching their description
+  and the `append_paragraph` / `prepend_paragraph` synonyms. The inline
+  "continue the adjacent paragraph" behaviour moved to the new `append_inline` /
+  `prepend_inline` ops (`text` only — no `style`). Previously a bare `append`
+  concatenated inline and silently ignored any `style`, so a batch meant to build
+  a styled document could collapse into one paragraph with no warning. The CLI
+  `append` / `prepend` commands (with `--inline`) and the Python API
+  (`Document.append` vs `append_paragraph`) are unchanged.
+- New table cells created by `create_table` / `insert_table` now default to the
+  `Normal` paragraph style regardless of the insertion anchor, instead of
+  inheriting the anchor paragraph's style. A table dropped under a `Heading 2` no
+  longer renders its cells as heading text or pollutes the navigation outline.
 ### Changed
 - CI: the release workflow's `actions/setup-node` is bumped `v4` → `v5` (off the
   deprecated Node 20 action runtime; GitHub forces Node 24 after 2026-06-16), and

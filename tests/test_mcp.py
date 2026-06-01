@@ -93,6 +93,16 @@ class TestReadImpl:
         rows = _read_impl(W, "status", {})
         assert rows[0]["name"] == "Test.docx"
         assert rows[0]["is_active"] is True
+        # Always a usable identifier + a saved flag so the agent can confirm
+        # its target before writing.
+        assert rows[0]["name"]
+        assert "saved" in rows[0]
+
+    def test_guide_needs_no_word(self, no_word: Any) -> None:
+        # The guide is fetchable as a tool call even when Word isn't running —
+        # it never touches COM.
+        out = _read_impl(W, "guide", {})
+        assert "guide" in out and "anchor" in out["guide"].lower()
 
     def test_outline(self, fake_word: Any) -> None:
         items = _read_impl(W, "outline", {})
@@ -158,6 +168,16 @@ class TestWriteImpl:
         r = _write_impl(W, "replace", {"find": "Body", "text": "Corpus"})
         assert r["ok"] is True
 
+    def test_append_defaults_to_new_paragraph(self, fake_word: Any) -> None:
+        r = _write_impl(W, "append", {"text": "Tail."})
+        assert r["ok"] is True
+        assert fake_word.ActiveDocument.Range(34, 34).Text == "\rTail."
+
+    def test_append_paragraph_false_is_inline(self, fake_word: Any) -> None:
+        r = _write_impl(W, "append", {"text": " more", "paragraph": False})
+        assert r["ok"] is True
+        fake_word.ActiveDocument.Content.InsertAfter.assert_called_once_with(" more")
+
     def test_track(self, fake_word: Any) -> None:
         r = _write_impl(W, "track", {"on": True})
         assert r["track_changes"] is True
@@ -210,6 +230,12 @@ class TestExecImpl:
         result, exc = _exec_impl(W, ops, doc=None, label="t", tracked=False)
         assert exc is None
         assert result["ok"] is True and result["ops_run"] == 2
+
+    def test_batch_warns_on_ignored_field(self, fake_word: Any) -> None:
+        ops = [{"op": "append_inline", "text": "x", "style": "Heading 1"}]
+        result, exc = _exec_impl(W, ops, doc=None, label="t", tracked=False)
+        assert exc is None and result["ok"] is True
+        assert any(w["field"] == "style" for w in result.get("warnings", []))
 
     def test_batch_failure_reports_first_bad_op(self, fake_word: Any) -> None:
         ops = [

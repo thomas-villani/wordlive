@@ -284,12 +284,33 @@ def test_exec_supports_append_paragraph_op(fake_word):
     assert fake_word.ActiveDocument.Range(34, 34).Text == "\rTail."
 
 
-def test_exec_supports_append_op(fake_word):
-    payload = json.dumps({"ops": [{"op": "append", "text": " more"}]})
+def test_exec_append_op_creates_a_new_paragraph(fake_word):
+    # `append` now means a new final paragraph (matching its description and
+    # `append_paragraph`), not inline concatenation.
+    payload = json.dumps({"ops": [{"op": "append", "text": "Tail.", "style": "Body Text"}]})
+    code, out, _ = _invoke(["exec", "--ops", payload])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+    assert fake_word.ActiveDocument.Range(34, 34).Text == "\rTail."
+
+
+def test_exec_supports_append_inline_op(fake_word):
+    payload = json.dumps({"ops": [{"op": "append_inline", "text": " more"}]})
     code, out, _ = _invoke(["exec", "--ops", payload])
     assert code == EXIT_OK
     assert json.loads(out)["ops_run"] == 1
     fake_word.ActiveDocument.Content.InsertAfter.assert_called_once_with(" more")
+
+
+def test_exec_append_inline_with_style_warns(fake_word):
+    # An inline append takes no style; the ignored field surfaces as a warning
+    # rather than silently vanishing.
+    payload = json.dumps({"ops": [{"op": "append_inline", "text": "x", "style": "Heading 1"}]})
+    code, out, _ = _invoke(["exec", "--ops", payload])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ops_run"] == 1
+    assert any(w["field"] == "style" for w in data.get("warnings", []))
 
 
 def test_exec_append_paragraph_missing_text_reports_cleanly(fake_word):
@@ -308,12 +329,33 @@ def test_exec_supports_prepend_paragraph_op(fake_word):
     assert fake_word.ActiveDocument.Range(0, 0).Text == "Title\r"
 
 
-def test_exec_supports_prepend_op(fake_word):
-    payload = json.dumps({"ops": [{"op": "prepend", "text": "Note: "}]})
+def test_exec_prepend_op_creates_a_new_paragraph(fake_word):
+    payload = json.dumps({"ops": [{"op": "prepend", "text": "Title", "style": "Heading 1"}]})
+    code, out, _ = _invoke(["exec", "--ops", payload])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 1
+    assert fake_word.ActiveDocument.Range(0, 0).Text == "Title\r"
+
+
+def test_exec_supports_prepend_inline_op(fake_word):
+    payload = json.dumps({"ops": [{"op": "prepend_inline", "text": "Note: "}]})
     code, out, _ = _invoke(["exec", "--ops", payload])
     assert code == EXIT_OK
     assert json.loads(out)["ops_run"] == 1
     fake_word.ActiveDocument.Content.InsertBefore.assert_called_once_with("Note: ")
+
+
+def test_exec_unknown_field_warns_but_succeeds(fake_word):
+    # A typo'd / inapplicable field is reported, not silently dropped — the op
+    # still applies.
+    payload = json.dumps(
+        {"ops": [{"op": "write_bookmark", "name": "Address", "text": "X", "anchorid": "oops"}]}
+    )
+    code, out, _ = _invoke(["exec", "--ops", payload])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ops_run"] == 1
+    assert any(w["field"] == "anchorid" for w in data.get("warnings", []))
 
 
 def test_exec_inline_ops_json(fake_word):

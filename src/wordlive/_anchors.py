@@ -377,6 +377,13 @@ class Anchor(ABC):
             style_obj = self._doc.styles["Table Grid"]
         else:
             style_obj = None
+        # New cells inherit the *paragraph* style at the insertion point — drop a
+        # table right after a `Heading 2` and Word makes every cell Heading 2,
+        # which renders as large heading text and pollutes the navigation
+        # outline. Reset the cells to the body default (`Normal`) so a table
+        # looks like a table regardless of where it was anchored. The table
+        # `style` above (borders etc.) and `header` bolding still apply on top.
+        normal_obj = self._doc.styles["Normal"] if "Normal" in self._doc.styles else None
         with _com.translate_com_errors():
             doc_com = self._doc.com
             rng = self._range()
@@ -395,6 +402,14 @@ class Anchor(ABC):
             table_com = doc_com.Tables.Add(insert_rng, rows, cols)
             if style_obj is not None:
                 table_com.Style = style_obj.com
+            if normal_obj is not None:
+                # Per-cell rather than table_com.Range.Style: a paragraph style
+                # set on the whole table range can bleed onto the paragraph that
+                # follows the table; the cell loop is contained and explicit.
+                normal_com = normal_obj.com
+                for r in range(1, rows + 1):
+                    for c in range(1, cols + 1):
+                        table_com.Cell(r, c).Range.Style = normal_com
             if data:
                 for r, row in enumerate(data, start=1):
                     for c, val in enumerate(row, start=1):

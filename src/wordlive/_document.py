@@ -714,21 +714,40 @@ class DocumentCollection:
             return int(self._com_collection.Count)
 
     def list(self) -> list[dict[str, Any]]:
-        """`[{name, path, is_active}, ...]` — used by `wordlive status`."""
+        """`[{name, path, saved, is_active}, ...]` — used by `wordlive status`.
+
+        `name` is the document's window name (e.g. ``Report.docx``, or
+        ``Document1`` for one never saved) and is always non-empty so a caller
+        can confirm which document it is about to edit. `saved` is whether the
+        document has an on-disk location yet; `path` is that full path, or empty
+        for an unsaved document. The active document is matched by full path
+        (falling back to name), which is robust when several unsaved documents
+        share a blank path.
+        """
         out: list[dict[str, Any]] = []
         with _com.translate_com_errors():
             active_name: str | None
+            active_full: str | None
             try:
-                active_name = str(self._word.com.ActiveDocument.Name)
+                active = self._word.com.ActiveDocument
+                active_name = str(active.Name)
+                active_full = str(active.FullName)
             except Exception:
-                active_name = None
+                active_name = active_full = None
             for doc in self._com_collection:
-                name = str(doc.Name)
+                name = str(doc.Name or "")
+                full = str(doc.FullName or "")
+                try:
+                    on_disk = bool(str(doc.Path or ""))
+                except Exception:
+                    on_disk = False
+                is_active = (full == active_full) if full and active_full else (name == active_name)
                 out.append(
                     {
-                        "name": name,
-                        "path": str(doc.FullName),
-                        "is_active": name == active_name,
+                        "name": name or full or "Document",
+                        "path": full if on_disk else "",
+                        "saved": on_disk,
+                        "is_active": bool(is_active),
                     }
                 )
         return out

@@ -37,6 +37,12 @@ short string you pass as `--anchor-id`:
 | `header:S:WHICH` / `footer:S:WHICH` | header/footer of section S (`primary` / `first` / `even`) |
 | `start` / `end`      | the position before the first / past the last paragraph (prepend / append targets) |
 
+`heading:N` and `para:N` are **positional** — they renumber when a structural
+edit (a new paragraph, an inserted table) shifts the document, so re-read
+`outline` / `paragraphs` after one before reusing ids downstream (an exit `2`
+`anchor_not_found` is the signal you skipped that). `bookmark:NAME` and `cc:NAME`
+are name-based and survive edits — reach for them when you need a durable handle.
+
 ## Reading
 - `wordlive read bookmark NAME` · `read cc NAME` · `read section "Heading Text"`
 - `wordlive find --text "phrase"` — locate before editing; returns `range:` ids.
@@ -53,7 +59,7 @@ short string you pass as `--anchor-id`:
 - `wordlive format-paragraph --anchor-id ID [--alignment center] [--left-indent 36] [--space-before 6] [--page-break-before] …` — `--page-break-before` is the clean, reflow-safe way to make a paragraph (e.g. a `Heading 1`) start a new page, leaving no stray break character.
 - `wordlive insert-break --anchor-id ID [--kind page|column|section_next|section_continuous] [--before | --after]` — an **explicit** one-off page/column/section break (the discoverable replacement for a literal form-feed paragraph). `--kind` defaults to `page`. Section breaks start a new section that can carry its own headers/footers + page setup. For a break that follows a *style*, prefer `format-paragraph --page-break-before`.
 - `wordlive list apply --anchor-id ID --type bulleted|numbered|outline` (+ `list remove|restart|indent|outdent`).
-- `wordlive table create --anchor-id ID --rows R --cols C [--style NAME] [--header] [--before | --after] [--data '[["…"],…]' | --data -]` — **build a new table** at a *position* anchor (`heading:`/`para:`/`start`/`end`); reports its 1-based `index`. Fill cells row-major with `--data` (use `--data -` for stdin to dodge Windows quoting); `--style` defaults to `Table Grid` (visible borders); `--header` bolds row 1. Edit existing tables with `table add-row`/`delete-row` and `table delete N`; cells are anchors (`table:N:R:C`) you can `replace`/`style apply`/`format-paragraph`.
+- `wordlive table create --anchor-id ID --rows R --cols C [--style NAME] [--header] [--before | --after] [--data '[["…"],…]' | --data -]` — **build a new table** at a *position* anchor (`heading:`/`para:`/`start`/`end`); reports its 1-based `index`. Fill cells row-major with `--data` (use `--data -` for stdin to dodge Windows quoting); `--style` defaults to `Table Grid` (visible borders); `--header` bolds row 1. New cells default to the `Normal` paragraph style regardless of the anchor, so a table dropped under a heading doesn't inherit that heading style. Edit existing tables with `table add-row`/`delete-row` and `table delete N`; cells are anchors (`table:N:R:C`) you can `replace`/`style apply`/`format-paragraph`.
 - `wordlive comment add --anchor-id ID --text "…"` (+ `comment list` · `comment resolve --index N` · `comment delete --index N`).
 - `wordlive track on|off|status` — tracked changes.
 - `wordlive header write --section S --text "…"` · `footer write --section S --text "…"` (`--which primary|first|even`).
@@ -108,24 +114,31 @@ Run with `wordlive exec --script ops.json`, or pass the JSON inline with
 for large payloads like base64 images, which can blow the command-line length
 limit). Add `"tracked": true` at the top level to record the whole batch as
 tracked changes. On failure it stops at the first bad op and reports `failure`
-with the op `index`, `error`, and `type`.
+with the op `index`, `error`, and `type`. A field an op doesn't use (a typo, or
+`style` on an inline append) is reported in a `warnings` array on the result
+rather than silently dropped — so a clean-looking success can't hide a payload
+you got wrong.
 
 `insert_paragraph` and `insert_image` default to inserting **after** the anchor;
 pass `"before": true` to insert above it (mirrors the CLI's `--before`/`--after`).
 
-Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `append_paragraph`,
-`append`, `prepend_paragraph`, `prepend`, `insert_image`, `replace`,
+Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `append`,
+`append_inline`, `prepend`, `prepend_inline`, `insert_image`, `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `set_cell`, `add_row`,
 `delete_row`, `create_table`, `delete_table`, `insert_break`, `add_comment`, `resolve_comment`,
 `delete_comment`, `apply_list`, `remove_list`, `restart_numbering`,
 `indent_list`, `outdent_list`, `write_header`, `write_footer`.
-(`append_paragraph` / `prepend_paragraph` take `text` + optional `style`;
-`append` / `prepend` take `text` — they add to the end / start of the document,
-no anchor. `create_table` takes `anchor_id` + `rows` + `cols`, optional `style` /
-`data` (row-major 2-D) / `header`; a successful batch returns an `outputs` array
-reporting each new table's `index`. `insert_break` takes `anchor_id`, optional
-`kind` (default `page`) and `before`; `format_paragraph`'s `page_break_before`
-bool is the reflow-safe alternative for breaking before a styled paragraph.)
+(`append` / `prepend` add a new final / first **paragraph** and take `text` +
+optional `style`, no anchor — `append_paragraph` / `prepend_paragraph` are
+explicit synonyms. `append_inline` / `prepend_inline` instead **continue** the
+last / first paragraph and take `text` only — no `style`. `create_table` takes
+`anchor_id` + `rows` + `cols`, optional `style` / `data` (row-major 2-D) /
+`header`; new cells default to the `Normal` paragraph style regardless of the
+anchor, so they don't inherit a heading style from the paragraph above. A
+successful batch returns an `outputs` array reporting each new table's `index`.
+`insert_break` takes `anchor_id`, optional `kind` (default `page`) and `before`;
+`format_paragraph`'s `page_break_before` bool is the reflow-safe alternative for
+breaking before a styled paragraph.)
 
 ## Exit codes — branch on these
 | Code | Meaning | Retry? |

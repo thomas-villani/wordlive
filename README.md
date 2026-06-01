@@ -191,9 +191,11 @@ the vision tool), then add to `claude_desktop_config.json`:
 ```
 
 It exposes four dispatch tools — `word_read`, `word_write`, `word_exec`, and
-`word_snapshot` (which returns a rendered page as an image) — plus a
-`wordlive://guide` resource with the full op reference. Word must be running on the
-same Windows machine. See [docs/mcp.md](https://thomas-villani.github.io/wordlive/mcp/).
+`word_snapshot` (which returns a rendered page as an image). The full op
+vocabulary and anchor model are in the one-page guide, fetchable as a tool call
+with `word_read(command="guide")` (also the `wordlive://guide` resource). Word
+must be running on the same Windows machine. See
+[docs/mcp.md](https://thomas-villani.github.io/wordlive/mcp/).
 
 ## Examples
 
