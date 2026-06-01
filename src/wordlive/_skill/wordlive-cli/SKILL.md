@@ -28,7 +28,7 @@ short string you pass as `--anchor-id`:
 
 | Anchor id            | Refers to |
 | -------------------- | --------- |
-| `heading:N`          | the Nth heading (1-based; see `outline`) |
+| `heading:N`          | the Nth *paragraph*, which must be a heading — same index space as `para:N`, so the first heading is rarely `heading:1` (copy the id from `outline`) |
 | `para:N`             | the Nth paragraph, any kind (see `paragraphs`) |
 | `bookmark:NAME`      | a bookmark |
 | `cc:NAME`            | a content control (by title) |
@@ -54,7 +54,7 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive append --text "…" [--inline] [--style "Body Text"]` — add a new final paragraph at the very end of the document (`--inline` continues the last paragraph). The high-level "end of doc" helper; same as `insert --anchor-id end`.
 - `wordlive prepend --text "…" [--inline] [--style "Body Text"]` — the mirror: add to the very start of the document (same as `insert --anchor-id start`).
 - `wordlive replace --anchor-id ID --text "…"` — overwrite a range.
-- `wordlive replace --find "old" --text "new" [--all | --occurrence N] [--in ID]` — fuzzy find + replace.
+- `wordlive replace --find "old" --text "new" [--all | --occurrence N] [--in ID]` — fuzzy find + replace. To edit **inside a table**, scope it to the cell (`--in table:N:R:C`); an unverifiable whole-document match fails (exit 1, `replace_verification`) rather than risk overwriting the wrong cell.
 - `wordlive style apply --anchor-id ID --name "Heading 2"` (names: `style list`).
 - `wordlive format-paragraph --anchor-id ID [--alignment center] [--left-indent 36] [--space-before 6] [--page-break-before] …` — `--page-break-before` is the clean, reflow-safe way to make a paragraph (e.g. a `Heading 1`) start a new page, leaving no stray break character.
 - `wordlive insert-break --anchor-id ID [--kind page|column|section_next|section_continuous] [--before | --after]` — an **explicit** one-off page/column/section break (the discoverable replacement for a literal form-feed paragraph). `--kind` defaults to `page`. Section breaks start a new section that can carry its own headers/footers + page setup. For a break that follows a *style*, prefer `format-paragraph --page-break-before`.
@@ -67,13 +67,16 @@ are name-based and survive edits — reach for them when you need a durable hand
 ## Images
 ```
 wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP \
-    [--before | --after] [--width N] [--height N] [--alt-text "…"] [--lock-aspect | --no-lock-aspect]
+    [--before | --after] [--block] [--width N] [--height N] [--alt-text "…"] [--lock-aspect | --no-lock-aspect]
 ```
 - Supply the image as a file (`--path`) **or** base64 (`--base64`; use `--base64 -`
   to read base64 from stdin). Base64 is ideal when you hold image data in memory.
 - `--wrap` is **required**: `inline` (stays in the text flow), `auto` (floats —
   Square if small, else top-and-bottom), or
   `square|tight|through|top-bottom|behind|front`.
+- `--block` puts the image on its own new line (a `Normal` paragraph) instead of
+  in the anchor's text run — use with `--before` at a heading to land it above
+  the heading rather than mid-line.
 
 ## Snapshot — render page(s) to PNG so you can *see* the layout
 ```
@@ -144,7 +147,7 @@ breaking before a styled paragraph.)
 | Code | Meaning | Retry? |
 | ---- | ------- | ------ |
 | 0 | success | — |
-| 1 | other / bad input (e.g. a missing or malformed image) | fix the input |
+| 1 | other / bad input (e.g. a missing/malformed image, or an unverifiable in-table `replace --find`) | fix the input (for a table match, scope with `--in table:N:R:C`) |
 | 2 | anchor or style not found, or `find` matched zero | re-read with `outline` / `paragraphs`, then retry |
 | 3 | Word busy (a modal dialog is open) | **yes** — back off and retry |
 | 4 | Word not running | only after the user opens Word |

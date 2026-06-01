@@ -89,6 +89,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_image": (
         "path",
         "base64",
+        "block",
         "width",
         "height",
         "alt_text",
@@ -203,7 +204,9 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         if ("path" in op) == ("base64" in op):
             raise OpError("op 'insert_image' requires exactly one of 'path' or 'base64'")
         image: str | Path = Path(op["path"]) if "path" in op else op["base64"]
-        kwargs = {k: op[k] for k in ("width", "height", "alt_text", "lock_aspect") if k in op}
+        kwargs = {
+            k: op[k] for k in ("block", "width", "height", "alt_text", "lock_aspect") if k in op
+        }
         doc.anchor_by_id(op["anchor_id"]).insert_image(
             image, wrap=op["wrap"], where=("before" if op_before(op) else "after"), **kwargs
         )

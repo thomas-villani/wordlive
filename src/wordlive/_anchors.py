@@ -49,6 +49,37 @@ def _utf16_len(s: str) -> int:
     return len(s.encode("utf-16-le")) // 2
 
 
+def range_text(rng: Any) -> str:
+    """Read a COM range's text with inline shapes surfaced as ``[image]`` tokens.
+
+    Word represents each inline shape (embedded picture / OLE object) as a single
+    placeholder character in the text stream. That character is *not* a reserved
+    control code — it varies by build and is indistinguishable by value from real
+    text (a forward slash, on some Word versions) — so a naive string replace
+    would clobber genuine characters. Instead we locate the shapes via the
+    ``InlineShapes`` collection and swap only the character at each shape's own
+    position, leaving real text untouched. A range with no inline shapes returns
+    its raw text unchanged.
+    """
+    raw = str(rng.Text or "")
+    try:
+        shapes = rng.InlineShapes
+        count = int(shapes.Count)
+        if count <= 0:
+            return raw
+        base = int(rng.Start)
+        offsets = sorted({int(shapes.Item(i).Range.Start) - base for i in range(1, count + 1)})
+    except Exception:
+        # If the shape geometry can't be read, fall back to the raw text rather
+        # than risk mangling it — a phantom char is better than a crash.
+        return raw
+    chars = list(raw)
+    for off in reversed(offsets):
+        if 0 <= off < len(chars):
+            chars[off] = "[image]"
+    return "".join(chars)
+
+
 def _coerce_alignment(value: Any) -> int:
     if isinstance(value, WdParagraphAlignment):
         return int(value)
@@ -174,7 +205,7 @@ class Anchor(ABC):
     @property
     def text(self) -> str:
         with _com.translate_com_errors():
-            return str(self._range().Text or "")
+            return range_text(self._range())
 
     @property
     @abstractmethod
@@ -264,6 +295,7 @@ class Anchor(ABC):
         *,
         wrap: str,
         where: str = "after",
+        block: bool = False,
         width: float | None = None,
         height: float | None = None,
         alt_text: str | None = None,
@@ -288,6 +320,13 @@ class Anchor(ABC):
 
         `where` is ``"after"`` (default) or ``"before"`` the anchor's range.
 
+        `block` places the image in its own new paragraph (reset to ``Normal``)
+        rather than embedding it in the anchor's text run — so
+        ``heading.insert_image(..., wrap="inline", where="before", block=True)``
+        drops the image on its own line *above* the heading instead of joining
+        the heading text. Without it, an inline image anchored at a heading lands
+        mid-run and the heading text trails it on the same line.
+
         Raises `ImageSourceError` for a missing/unreadable/invalid image and
         `ValueError` for an unknown `wrap` or `where`.
         """
@@ -295,11 +334,22 @@ class Anchor(ABC):
             raise ValueError(f"unknown wrap {wrap!r}; expected one of {sorted(_WRAP_VALUES)}")
         if where not in ("before", "after"):
             raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+        # New paragraphs inherit the anchor's style — a block image above a
+        # heading would otherwise become a heading-styled (and outline-polluting)
+        # paragraph. Reset it to the body default, like insert_table does.
+        normal_obj = self._doc.styles["Normal"] if block and "Normal" in self._doc.styles else None
         with _images.image_on_disk(image) as disk_path:
             with _com.translate_com_errors():
+                doc_com = self._doc.com
                 rng = self._range()
                 pos = int(rng.Start) if where == "before" else int(rng.End)
-                insert_rng = self._doc.com.Range(pos, pos)
+                if block:
+                    # Open a fresh paragraph at the insertion point and target it,
+                    # so the image sits on its own line instead of in the run.
+                    doc_com.Range(pos, pos).Text = "\r"
+                    if normal_obj is not None:
+                        doc_com.Range(pos, pos).Paragraphs(1).Range.Style = normal_obj.com
+                insert_rng = doc_com.Range(pos, pos)
                 ish = insert_rng.InlineShapes.AddPicture(
                     FileName=disk_path,
                     LinkToFile=False,
@@ -388,6 +438,15 @@ class Anchor(ABC):
             doc_com = self._doc.com
             rng = self._range()
             pos = int(rng.Start) if where == "before" else int(rng.End)
+            # Word's final paragraph mark is undeletable and Tables.Add needs a
+            # paragraph *after* the insertion point to anchor the table; at/after
+            # that mark there is none, so the add raises COM 0x80020009. Push a
+            # trailing paragraph first so the table lands before it (a document
+            # can't end with a table anyway — Word keeps a paragraph after one).
+            doc_end = int(doc_com.Content.End)
+            if pos >= doc_end - 1:
+                pos = max(0, doc_end - 1)
+                doc_com.Range(pos, pos).Text = "\r"
             # Word merges two tables that touch with no paragraph mark between
             # them, so a table appended at the end (or dropped next to another)
             # would silently fuse into its neighbour. Push a separator paragraph
@@ -448,11 +507,26 @@ class Anchor(ABC):
         if where not in ("before", "after"):
             raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
         break_type = _BREAK_TYPES[kind]
+        # A section break creates a *new* paragraph to carry the break, and that
+        # paragraph inherits the anchor's style — drop one before a `Heading 1`
+        # and Word makes the break paragraph a heading, leaving a spurious empty
+        # entry in the navigation outline / TOC. Reset it to `Normal` so the break
+        # is invisible to the outline. (Page/column breaks are an in-paragraph
+        # character and create no such paragraph, so they need no reset.)
+        is_section = kind in ("section_next", "section_continuous")
+        normal_obj = (
+            self._doc.styles["Normal"] if is_section and "Normal" in self._doc.styles else None
+        )
         with _com.translate_com_errors():
             rng = self._range()
             pos = int(rng.Start) if where == "before" else int(rng.End)
             insert_rng = self._doc.com.Range(pos, pos)
             insert_rng.InsertBreak(Type=int(break_type))
+            if normal_obj is not None:
+                # The break now occupies the position we inserted at; the
+                # paragraph containing `pos` is the break paragraph.
+                break_para = self._doc.com.Range(pos, pos).Paragraphs(1)
+                break_para.Range.Style = normal_obj.com
 
     def snapshot(self, out: str | Path | None = None, *, dpi: int = 150) -> list[Snapshot]:
         """Render the page(s) this anchor sits on to PNG — let a model *see* it.
@@ -1002,7 +1076,7 @@ class ContentControl(Anchor):
     def text(self) -> str:
         with _com.translate_com_errors():
             cc = self._cc()
-            return str(cc.Range.Text or "")
+            return range_text(cc.Range)
 
     def set_text(self, text: str) -> None:
         with _com.translate_com_errors():
@@ -1045,9 +1119,8 @@ class ContentControlCollection:
 
 
 def paragraph_text(para: Any) -> str:
-    """Heading text minus the trailing paragraph mark."""
-    raw = str(para.Range.Text or "")
-    return raw.rstrip("\r\n\x07")
+    """Heading text minus the trailing paragraph mark, inline shapes tokenized."""
+    return range_text(para.Range).rstrip("\r\n\x07")
 
 
 def _find_heading_paragraph(doc_com: Any, name: str) -> tuple[Any, int] | None:

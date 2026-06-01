@@ -45,7 +45,9 @@ Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
 content controls, headings, paragraphs, table cells, header/footer ranges, and
 arbitrary range anchors. `insert_image` accepts a file path, raw bytes, or a
 base64 string and embeds the picture; `wrap` is required (`"inline"`, `"auto"`,
-or a float wrap like `"square"`/`"top-bottom"`). `insert_table(rows, cols, …)`
+or a float wrap like `"square"`/`"top-bottom"`), and `block=True` places the
+image on its own new line rather than in the anchor's text run.
+`insert_table(rows, cols, …)`
 creates a new table at the anchor and returns its [`Table`](#wordlive.Table)
 (append at the end with [`Document.add_table`](#wordlive.Document)).
 `insert_break(kind="page"|"column"|"section_next"|"section_continuous")` drops
@@ -218,6 +220,8 @@ constants.WdParagraphAlignment.CENTER   # 1
 ::: wordlive.StyleNotFoundError
 
 ::: wordlive.AmbiguousMatchError
+
+::: wordlive.ReplaceVerificationError
 
 ::: wordlive.ImageSourceError
 

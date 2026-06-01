@@ -57,7 +57,7 @@ from its id with `doc.anchor_by_id(...)`, or use the typed accessors:
 
 | id form | accessor | refers to |
 | --- | --- | --- |
-| `heading:N` | `doc.heading("Text")` / `anchor_by_id` | the Nth heading (1-based) |
+| `heading:N` | `doc.heading("Text")` / `anchor_by_id` | the Nth *paragraph*, which must be a heading — same index space as `para:N` (so the first heading is rarely `heading:1`; copy from `outline()`) |
 | `para:N` | `doc.paragraphs[N]` | the Nth paragraph (any kind) |
 | `bookmark:NAME` | `doc.bookmarks["NAME"]` | a bookmark |
 | `cc:NAME` | `doc.content_controls["NAME"]` | a content control (by Title, then Tag) |
@@ -127,6 +127,9 @@ Returns the list of replacements applied. Word's range-replace preserves the
 matched span's character formatting (bold stays bold). Raises
 `AmbiguousMatchError` (carries `.matches`) if there's more than one match and
 neither `all` nor `occurrence=N` was given; `AnchorNotFoundError` on zero matches.
+To edit text **inside a table**, scope to the cell — `scope=doc.tables[N].cell(R, C)`
+(or `doc.anchor_by_id("table:N:R:C")`); a whole-document match that can't be
+verified raises `ReplaceVerificationError` rather than risk the wrong cell.
 
 ### Append / prepend, build a doc from either end
 
@@ -150,6 +153,8 @@ with doc.edit("Add figure"):
 
 `wrap` is **required**: `"inline"`, `"auto"` (Square if small, else top-and-bottom),
 or a float wrap (`"square"`/`"tight"`/`"through"`/`"top-bottom"`/`"behind"`/`"front"`).
+Pass `block=True` to drop the image on its own new line (e.g. with `where="before"`
+at a heading, so it lands above the heading instead of joining the heading text).
 A bad/unreadable/non-raster source raises `ImageSourceError` before anything is
 inserted.
 
@@ -229,6 +234,7 @@ Catch the base `wl.WordliveError` for everything wordlive raises.
 | `AnchorNotFoundError` | bookmark/cc/heading/cell/range/… missing, or `find` matched zero | after re-reading state |
 | `StyleNotFoundError` | style not defined in the doc (subclass of the above) | after `doc.styles.list()` |
 | `AmbiguousMatchError` | `find_replace` hit several; `.matches` lists them | yes — pass `all`/`occurrence` |
+| `ReplaceVerificationError` | `find_replace` target unverifiable (e.g. a whole-doc match inside a table) | no — scope to the cell (`table:N:R:C`) |
 | `ImageSourceError` | bad/unreadable/non-raster image | no — fix the input |
 | `SnapshotError` | PyMuPDF missing or PDF rasterise failed | no — install `wordlive[snapshot]` |
 | `WordBusyError` | a modal dialog is open / mid-operation; `.retryable` is True | **yes** — back off and retry |

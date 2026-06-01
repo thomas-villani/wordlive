@@ -294,8 +294,8 @@ Failures: `2` style not found, `3` Word busy.
 
 ```
 wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP \
-    [--before | --after] [--width N] [--height N] [--alt-text "…"] \
-    [--lock-aspect | --no-lock-aspect] [--doc DOC_NAME]
+    [--before | --after] [--block | --no-block] [--width N] [--height N] \
+    [--alt-text "…"] [--lock-aspect | --no-lock-aspect] [--doc DOC_NAME]
 ```
 
 Embed an image at **any** anchor. Exactly one image source is required:
@@ -315,6 +315,9 @@ image's natural size; `--width`/`--height` (points) override it and
 | `square` `tight` `through` `top-bottom` `front` `behind` | Floats with that wrap type.                    |
 
 `--after` (default) places the image just below the anchor; `--before` above.
+`--block` puts the image on its own new (`Normal`) line instead of in the
+anchor's text run — use it with `--before` at a heading so the image lands on its
+own line above the heading instead of joining the heading text.
 
 ```bash
 $ wordlive insert-image --anchor-id heading:2 --path diagram.png --wrap auto
@@ -988,7 +991,7 @@ Script shape:
 | `append_inline`        | `text`                                     | —                                 |
 | `prepend`              | `text`                                     | `style`                           |
 | `prepend_inline`       | `text`                                     | —                                 |
-| `insert_image`         | `anchor_id`, `wrap`, and one of `path` / `base64` | `where` or `before: true`, `width`, `height`, `alt_text`, `lock_aspect` |
+| `insert_image`         | `anchor_id`, `wrap`, and one of `path` / `base64` | `where` or `before: true`, `block`, `width`, `height`, `alt_text`, `lock_aspect` |
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
@@ -1013,7 +1016,11 @@ Script shape:
 The `find_replace` op mirrors `wordlive replace --find …` — fuzzy whitespace
 + smart-quote match, optional `in` anchor to scope it, and either `all` or
 `occurrence` to handle multi-match. Ambiguous-match failures surface in the
-batch response's `failure.matches` so the LLM can rewrite the op and retry.
+batch response's `failure.matches` so the LLM can rewrite the op and retry. To
+edit text **inside a table**, scope the replace to the cell anchor
+(`"in": "table:N:R:C"`); a match resolved through a whole-document scope that
+can't be verified raises a `replace_verification` failure rather than risk
+overwriting the wrong cell.
 
 `insert_paragraph` mirrors the `insert` command: a new paragraph relative to
 any anchor, with placement defaulting to `after` and an optional `style` that's
@@ -1038,8 +1045,9 @@ successful-looking response can't mask a payload you got wrong.
 `insert_image` mirrors `insert-image`. Supply the image with either a `path`
 (read from disk) or `base64` (inline data — the natural choice in a JSON op,
 with no command-line length limit). `wrap` is required; the optional fields
-match the command's flags. A bad image source surfaces as the batch's
-`failure` with `type: "ImageSourceError"`.
+match the command's flags, including `block` (place the image on its own new
+`Normal` line instead of in the anchor's text run). A bad image source surfaces
+as the batch's `failure` with `type: "ImageSourceError"`.
 
 `apply_style` and `format_paragraph` are the same as their dedicated CLI
 verbs — the style must already exist in the document, indent and spacing

@@ -56,6 +56,29 @@ def test_insert_break_maps_each_kind(fake_word, kind, expected):
     rng.InsertBreak.assert_called_once_with(Type=int(expected))
 
 
+def test_insert_break_section_resets_break_paragraph_to_normal(fake_word):
+    # A section break creates a new paragraph that inherits the anchor's style;
+    # it must be reset to Normal so it doesn't pollute the heading outline.
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("break"):
+            doc.bookmarks["Address"].insert_break("section_continuous")
+    rng = fake_word.ActiveDocument.Range(24, 24)
+    style = rng.Paragraphs(1).Range.Style
+    assert style is not None and style.NameLocal == "Normal"
+
+
+def test_insert_break_page_does_not_touch_paragraph_style(fake_word):
+    # Page breaks are an in-paragraph character — no new paragraph, no reset.
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("break"):
+            doc.bookmarks["Address"].insert_break("page")
+    rng = fake_word.ActiveDocument.Range(24, 24)
+    # Style was never assigned a real style object (still a bare auto-mock).
+    assert not isinstance(getattr(rng.Paragraphs(1).Range.Style, "NameLocal", None), str)
+
+
 def test_insert_break_unknown_kind_raises(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active

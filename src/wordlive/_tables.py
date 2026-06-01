@@ -22,7 +22,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from . import _com
-from ._anchors import Anchor
+from ._anchors import Anchor, range_text
 from .exceptions import AnchorNotFoundError
 
 if TYPE_CHECKING:
@@ -98,7 +98,7 @@ class Cell(Anchor):
     @property
     def text(self) -> str:
         with _com.translate_com_errors():
-            return _strip_cell_text(self._cell().Range.Text)
+            return _strip_cell_text(range_text(self._cell().Range))
 
     def set_text(self, text: str) -> None:
         with _com.translate_com_errors():

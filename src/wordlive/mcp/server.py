@@ -316,6 +316,8 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             op["base64"] = p["image_base64"]
         else:
             op["path"] = p["path"]
+        if p.get("block"):
+            op["block"] = True
         for k in ("width", "height", "alt_text", "lock_aspect"):
             if p.get(k) is not None:
                 op[k] = p[k]
@@ -539,6 +541,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         wrap: str | None = None,
         image_base64: str | None = None,
         path: str | None = None,
+        block: bool | None = None,
         width: float | None = None,
         height: float | None = None,
         alt_text: str | None = None,
@@ -558,7 +561,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
                create needs anchor_id,rows,cols,[style,header,data,before]} ·
         insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
         header/footer {section,text,[which]} · track {on} ·
-        insert_image {anchor_id,wrap, image_base64|path, [before,width,height,alt_text,lock_aspect]}.
+        insert_image {anchor_id,wrap, image_base64|path,
+            [before,block,width,height,alt_text,lock_aspect]} — block puts the image on its
+            own new line instead of in the anchor's text run.
 
         For several edits in one undo step, use word_exec instead. Call
         word_read(command="guide") for the full anchor model and field reference.
@@ -601,6 +606,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "wrap": wrap,
             "image_base64": image_base64,
             "path": path,
+            "block": block,
             "width": width,
             "height": height,
             "alt_text": alt_text,
@@ -644,7 +650,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           append_paragraph / prepend_paragraph — explicit synonyms of append/prepend ·
           replace {anchor_id,text} · find_replace {find,text,[all,occurrence,in]} ·
           apply_style {anchor_id,name} · format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before]} ·
-          insert_image {anchor_id,wrap, path|base64, [before,width,height,alt_text,lock_aspect]} ·
+          insert_image {anchor_id,wrap, path|base64, [before,block,width,height,alt_text,lock_aspect]} ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           create_table {anchor_id,rows,cols,[style,data,header,before]} — cells default to Normal; returns the new index in outputs ·
           set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} · delete_table {table} ·

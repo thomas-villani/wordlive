@@ -122,6 +122,16 @@ def _normalize(s: str, *, collapse_whitespace: bool = True) -> _Normalized:
     return _Normalized(text="".join(out_chars), offsets=out_offsets)
 
 
+def normalized_equal(a: str, b: str) -> bool:
+    """Whether `a` and `b` are equal under find/replace normalization.
+
+    Used by `find_replace` to verify a resolved Word range matches the located
+    text before overwriting it (the fuzzy folds mean a smart-quote vs straight
+    round-trip still counts as equal).
+    """
+    return _normalize(a).text == _normalize(b).text
+
+
 @dataclass(frozen=True)
 class Match:
     """A located occurrence of a `find` string inside a scope's text.

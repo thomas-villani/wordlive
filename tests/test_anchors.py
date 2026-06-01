@@ -320,6 +320,19 @@ def test_anchor_by_id_missing_colon(fake_word):
             doc.anchor_by_id("no-colon-here")
 
 
+def test_anchor_by_id_unknown_scheme_hints_valid_types(fake_word):
+    # A malformed scheme should say it's an unknown *type*, not look like a
+    # valid-scheme-but-missing-target, so the message lists what's accepted.
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(AnchorNotFoundError) as exc_info:
+            doc.anchor_by_id("banana:7")
+    msg = str(exc_info.value)
+    assert "unknown anchor type" in msg
+    assert "'banana'" in msg
+    assert "heading/para/bookmark" in msg
+
+
 def test_anchor_by_id_non_integer_heading(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active

@@ -19,7 +19,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from . import _com
-from ._anchors import Anchor
+from ._anchors import Anchor, range_text
 from .constants import WdHeaderFooterIndex, WdOrientation
 from .exceptions import AnchorNotFoundError
 
@@ -110,7 +110,7 @@ class HeaderFooter(Anchor):
         # Strip the trailing paragraph mark so a one-line header reads cleanly,
         # mirroring Cell.text / paragraph_text.
         with _com.translate_com_errors():
-            return str(self._hf().Range.Text or "").rstrip("\r\n\x07")
+            return range_text(self._hf().Range).rstrip("\r\n\x07")
 
     def set_text(self, text: str) -> None:
         with _com.translate_com_errors():

@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import base64
 import os
+from unittest.mock import MagicMock
 
 import pytest
 
 import wordlive
+from wordlive._anchors import range_text
 from wordlive.constants import WdWrapType
 from wordlive.exceptions import ImageSourceError
 
@@ -77,6 +79,71 @@ def test_insert_image_top_bottom_sets_wrap_type(fake_word, png_file):
         doc.bookmarks["Address"].insert_image(str(png_file), wrap="top-bottom")
     shape = _insert_rng(fake_word).InlineShapes.shape.converted
     assert shape.WrapFormat.Type == int(WdWrapType.TOP_BOTTOM)
+
+
+# ---------------------------------------------------------------------------
+# block placement + inline-shape read token
+# ---------------------------------------------------------------------------
+
+
+def test_insert_image_block_opens_new_paragraph_reset_to_normal(fake_word, png_file):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("img"):
+            doc.bookmarks["Address"].insert_image(str(png_file), wrap="inline", block=True)
+    rng = _insert_rng(fake_word)  # collapsed at the Address end (24)
+    # A fresh paragraph is opened to hold the image, reset to the body default
+    # so a block image above a heading doesn't become a heading-styled line.
+    assert rng.Text == "\r"
+    style = rng.Paragraphs(1).Range.Style
+    assert style is not None and style.NameLocal == "Normal"
+    rng.InlineShapes.AddPicture.assert_called_once()
+
+
+def test_insert_image_without_block_does_not_open_paragraph(fake_word, png_file):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("img"):
+            doc.bookmarks["Address"].insert_image(str(png_file), wrap="inline")
+    # No standalone paragraph: the range's text is untouched by a stray \r.
+    assert _insert_rng(fake_word).Text != "\r"
+
+
+def _range_with_shapes(text, start, shape_starts):
+    """A MagicMock COM range whose InlineShapes report the given absolute starts."""
+    rng = MagicMock()
+    rng.Text = text
+    rng.Start = start
+    shapes = MagicMock()
+    shapes.Count = len(shape_starts)
+    items = []
+    for s in shape_starts:
+        item = MagicMock()
+        item.Range.Start = s
+        items.append(item)
+    shapes.Item.side_effect = lambda i: items[i - 1]
+    rng.InlineShapes = shapes
+    return rng
+
+
+def test_range_text_tokenizes_inline_shape_by_position():
+    # Word represents an inline shape as one placeholder char; we replace it at
+    # the shape's own position, not by value.
+    rng = _range_with_shapes("/The Problem\r", start=0, shape_starts=[0])
+    assert range_text(rng) == "[image]The Problem\r"
+
+
+def test_range_text_leaves_real_slashes_untouched():
+    # The placeholder is indistinguishable by value (a real "/" on some builds),
+    # so a range with no inline shapes must pass slashes through verbatim.
+    rng = _range_with_shapes("c:/tmp and/or 12/25", start=0, shape_starts=[])
+    assert range_text(rng) == "c:/tmp and/or 12/25"
+
+
+def test_range_text_handles_multiple_shapes():
+    rng = _range_with_shapes("/a/b", start=10, shape_starts=[10, 12])
+    # offsets 0 and 2 (absolute 10, 12) become tokens; the 'a' and 'b' stay.
+    assert range_text(rng) == "[image]a[image]b"
 
 
 # ---------------------------------------------------------------------------

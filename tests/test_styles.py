@@ -44,6 +44,19 @@ def test_styles_getitem_missing_raises_style_not_found(fake_word):
     assert isinstance(exc_info.value, AnchorNotFoundError)
 
 
+def test_style_not_found_classifies_distinctly_but_keeps_exit_2():
+    from wordlive.cli.main import _exit_for
+    from wordlive.exceptions import classify
+
+    exc = StyleNotFoundError("NoSuchStyle")
+    # MCP-facing code is distinct from a plain anchor miss …
+    assert classify(exc) == ("style_not_found", False)
+    # … but the CLI exit code is still 2 (it subclasses AnchorNotFoundError).
+    assert _exit_for(exc) == 2
+    # A plain anchor miss keeps its original code.
+    assert classify(AnchorNotFoundError("bookmark", "Foo")) == ("anchor_not_found", False)
+
+
 def test_styles_iter_yields_style_wrappers(fake_word):
     with wordlive.attach() as word:
         styles = list(word.documents.active.styles)

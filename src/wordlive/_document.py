@@ -19,6 +19,7 @@ from ._anchors import (
     StartAnchor,
     _IndexedHeading,
     _utf16_len,
+    _within_table,
     paragraph_text,
 )
 from ._comments import CommentCollection
@@ -34,6 +35,7 @@ from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
     DocumentNotFoundError,
+    ReplaceVerificationError,
 )
 
 if TYPE_CHECKING:
@@ -339,7 +341,14 @@ class Document:
             except ValueError as e:
                 # Unknown WHICH (primary/first/even) — surface as a missing anchor.
                 raise AnchorNotFoundError(kind, anchor_id) from e
-        raise AnchorNotFoundError("anchor", anchor_id)
+        raise AnchorNotFoundError(
+            "anchor",
+            anchor_id,
+            hint=(
+                f"unknown anchor type {kind!r}; expected one of "
+                "start/end/heading/para/bookmark/cc/table/range/header/footer"
+            ),
+        )
 
     def _scope_range(self, scope: Anchor | None) -> tuple[Any, int]:
         """Return (COM Range, absolute_start_offset) for a find/replace scope.
@@ -355,6 +364,66 @@ class Document:
             else:
                 rng = scope.com
             return rng, int(rng.Start)
+
+    def _scope_segments(self, scope: Anchor | None) -> list[tuple[int, str]]:
+        """Split a find/replace scope into segments with an exact text↔position map.
+
+        `Range.Text` string offsets line up 1:1 with Word document positions
+        *within* a single body run or a single table cell, but NOT across table
+        structure: once a range spans cells, `len(Range.Text) != End - Start`, so
+        matching on a whole-document `.Text` and adding `base + offset` silently
+        drifts into a neighbouring cell. Segmenting at table-cell boundaries keeps
+        every segment's offsets exact — contiguous non-table paragraphs form one
+        body segment (so cross-paragraph matches still work) and each table cell
+        is its own segment. Each tuple is `(base_position, text)`; a match at
+        `m.start` inside a segment maps back to the absolute `base + m.start`.
+
+        Segments come out in document order (ascending base), so the matches the
+        callers build from them preserve the original document ordering.
+        """
+        with _com.translate_com_errors():
+            rng, base = self._scope_range(scope)
+            # Fast path: a scope with no table structure maps 1:1 already, so one
+            # segment over the whole range reproduces the original behavior (and
+            # avoids per-paragraph reads the test fake doesn't model). Only ranges
+            # that actually span a table need the boundary-aware walk below.
+            try:
+                has_table = int(rng.Tables.Count) > 0
+            except (TypeError, ValueError, AttributeError):
+                has_table = False
+            if not has_table:
+                return [(base, str(rng.Text or ""))]
+            doc_com = self._doc  # the raw COM document (see _scope_range)
+            segments: list[tuple[int, str]] = []
+            seg_key: object | None = None
+            seg_start: int | None = None
+            seg_end: int | None = None
+
+            def flush() -> None:
+                nonlocal seg_key, seg_start, seg_end
+                if seg_start is not None and seg_end is not None and seg_end > seg_start:
+                    text = str(doc_com.Range(seg_start, seg_end).Text or "")
+                    segments.append((seg_start, text))
+                seg_key = seg_start = seg_end = None
+
+            for para in rng.Paragraphs:
+                pr = para.Range
+                ps, pe = int(pr.Start), int(pr.End)
+                if _within_table(doc_com, ps, pe):
+                    # Key by the containing cell so two adjacent cells never share
+                    # a segment (a range spanning them would break the 1:1 map).
+                    try:
+                        key: object = int(pr.Cells(1).Range.Start)
+                    except Exception:
+                        key = ps  # defensive: give this paragraph its own segment
+                else:
+                    key = "body"
+                if key != seg_key:
+                    flush()
+                    seg_key, seg_start = key, ps
+                seg_end = pe
+            flush()
+        return segments
 
     def find(
         self,
@@ -373,21 +442,24 @@ class Document:
         `anchor_by_id` to a `RangeAnchor` — so a hit can be fed straight back
         into `replace --anchor-id` or `comments.add`. The offsets are live,
         though, so use them before further edits shift the document.
-        """
-        with _com.translate_com_errors():
-            rng, base = self._scope_range(scope)
-            haystack = str(rng.Text or "")
 
-        matches = _findreplace.find_matches(haystack, text)
-        return [
-            {
-                "anchor_id": f"range:{base + m.start}-{base + m.end}",
-                "start": base + m.start,
-                "end": base + m.end,
-                "text": m.text,
-            }
-            for m in matches
-        ]
+        Matches are located per *segment* (contiguous body text or a single table
+        cell) so the returned offsets stay exact even inside tables; see
+        `_scope_segments`.
+        """
+        segments = self._scope_segments(scope)
+        results: list[dict[str, Any]] = []
+        for base, haystack in segments:
+            for m in _findreplace.find_matches(haystack, text):
+                results.append(
+                    {
+                        "anchor_id": f"range:{base + m.start}-{base + m.end}",
+                        "start": base + m.start,
+                        "end": base + m.end,
+                        "text": m.text,
+                    }
+                )
+        return results
 
     def find_replace(
         self,
@@ -415,40 +487,59 @@ class Document:
 
         Returns the list of replacements actually applied, each
         `{anchor_id, start, end, text}` in their pre-replacement coordinates.
+
+        Matching is segment-aware (see `_scope_segments`), so a match inside a
+        table cell resolves to the right cell rather than drifting into its
+        neighbour. As a backstop, each write is verified against the located text
+        and raises `ReplaceVerificationError` rather than overwriting the wrong
+        span.
         """
-        with _com.translate_com_errors():
-            rng, base = self._scope_range(scope)
-            haystack = str(rng.Text or "")
-
-        matches = _findreplace.find_matches(haystack, find)
-        if not matches:
-            raise AnchorNotFoundError("find", find)
-
-        match_payloads = [
+        segments = self._scope_segments(scope)
+        match_payloads: list[dict[str, Any]] = [
             {
                 "anchor_id": f"range:{base + m.start}-{base + m.end}",
                 "start": base + m.start,
                 "end": base + m.end,
                 "text": m.text,
             }
-            for m in matches
+            for base, haystack in segments
+            for m in _findreplace.find_matches(haystack, find)
         ]
+        if not match_payloads:
+            raise AnchorNotFoundError("find", find)
 
         if occurrence is not None:
-            if occurrence < 1 or occurrence > len(matches):
+            if occurrence < 1 or occurrence > len(match_payloads):
                 raise AnchorNotFoundError("find", f"{find} (occurrence {occurrence})")
             to_apply = [match_payloads[occurrence - 1]]
         elif all:
             to_apply = match_payloads
-        elif len(matches) == 1:
+        elif len(match_payloads) == 1:
             to_apply = match_payloads
         else:
             raise AmbiguousMatchError(find, match_payloads)
 
         with _com.translate_com_errors():
+            # Word's final paragraph mark is undeletable; a range whose End reaches
+            # Content.End straddles it and raises COM 0x80020009. Clamp the write
+            # target (not the returned payload, which promises pre-edit offsets).
+            doc_end = int(self._doc.Content.End)
             # Apply in reverse so earlier offsets don't shift.
             for m in reversed(to_apply):
-                target = self._doc.Range(m["start"], m["end"])
+                start, end = m["start"], min(m["end"], doc_end - 1)
+                if end <= start:
+                    # Clamped away to nothing (match was only the trailing mark).
+                    continue
+                target = self._doc.Range(start, end)
+                # Verify the resolved span before writing. An empty resolved text
+                # means we can't check (the fake COM, or a genuinely empty range)
+                # — proceed. A non-empty mismatch means the offset map drifted
+                # (table position divergence): refuse rather than corrupt.
+                resolved = str(target.Text or "")
+                if resolved and not _findreplace.normalized_equal(resolved, m["text"]):
+                    raise ReplaceVerificationError(
+                        find, m["text"], resolved, anchor_id=m["anchor_id"]
+                    )
                 target.Text = replace
         return to_apply
 
