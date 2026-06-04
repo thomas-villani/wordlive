@@ -33,7 +33,7 @@ with wl.attach() as word:        # attach to the already-running Word (raises if
 ```python
 doc.outline()                       # [{"level", "text", "anchor_id": "heading:N"}, …]
 doc.paragraphs.list()               # every paragraph: index, anchor_id "para:N", level,
-                                    #   is_heading, start, end, text
+                                    #   style (Word style name), is_heading, start, end, text
 doc.find("the risk register")       # fuzzy; [{"anchor_id": "range:S-E", "start","end","text"}]
 doc.bookmarks["Address"].text       # bookmark text
 doc.content_controls["Signatory"].text

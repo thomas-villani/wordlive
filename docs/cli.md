@@ -84,15 +84,17 @@ wordlive paragraphs [--doc DOC_NAME]
 ```
 
 List **every** paragraph in document order — headings, body text, and list
-items alike — each with a `para:N` anchor, its outline `level`, an
-`is_heading` flag, character `start`/`end` offsets, and its text. `outline
---all` is an alias.
+items alike — each with a `para:N` anchor, its outline `level`, the applied
+Word `style` name, an `is_heading` flag, character `start`/`end` offsets, and
+its text. `outline --all` is an alias. Use `style` to mirror an existing
+document's formatting: `level` is `10` for *every* non-heading paragraph, so
+only the style name tells a `List Number` item apart from `Normal` body text.
 
 ```bash
 $ wordlive paragraphs
-[{"index": 1, "anchor_id": "para:1", "level": 1,  "is_heading": true,  "start": 0,  "end": 13, "text": "Introduction"},
- {"index": 2, "anchor_id": "para:2", "level": 10, "is_heading": false, "start": 13, "end": 29, "text": "Body text here."},
- {"index": 3, "anchor_id": "para:3", "level": 2,  "is_heading": true,  "start": 29, "end": 35, "text": "Risks"}]
+[{"index": 1, "anchor_id": "para:1", "level": 1,  "style": "Heading 1",   "is_heading": true,  "start": 0,  "end": 13, "text": "Introduction"},
+ {"index": 2, "anchor_id": "para:2", "level": 10, "style": "List Number", "is_heading": false, "start": 13, "end": 29, "text": "First item."},
+ {"index": 3, "anchor_id": "para:3", "level": 2,  "style": "Heading 2",   "is_heading": true,  "start": 29, "end": 35, "text": "Risks"}]
 ```
 
 `para:N` shares its index space with `heading:N` — paragraph 1 is both

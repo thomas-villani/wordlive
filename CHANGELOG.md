@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `insert_image` `block` field) places the image in its own new `Normal`
   paragraph instead of embedding it in the anchor's text run — so an inline image
   anchored `before` a heading lands on its own line above it rather than mid-line.
+- **`paragraphs` now reports each paragraph's applied `style` name** (e.g.
+  `"List Number"`, `"Normal"`) alongside `level`. Word's `OutlineLevel` is `10`
+  for every non-heading paragraph, so the style name is what lets a caller tell a
+  list item from body text and mirror an existing document's formatting on the
+  first write. Surfaces through `doc.paragraphs.list()`, CLI `paragraphs`, and
+  `word_read(command="paragraphs")`.
 
 ## [0.11.0] — 2026-06-01
 

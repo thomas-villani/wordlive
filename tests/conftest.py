@@ -85,6 +85,8 @@ class _FakeParagraphs:
             mock.OutlineLevel = p.get("level", 10)
             mock.Range = _make_range(p.get("start", 0), p.get("end", 0))
             mock.Range.Text = p.get("text", "") + "\r"
+            # Applied paragraph style name, surfaced by ParagraphCollection.list().
+            mock.Range.Style.NameLocal = p.get("style", "Normal")
             self._items.append(mock)
 
     def __iter__(self) -> Iterable[Any]:

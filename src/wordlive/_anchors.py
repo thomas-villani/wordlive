@@ -931,7 +931,15 @@ class ParagraphCollection:
         return None
 
     def list(self) -> list[dict[str, Any]]:
-        """Every paragraph as `[{index, anchor_id, level, is_heading, start, end, text}, ...]`."""
+        """Every paragraph as `[{index, anchor_id, level, style, is_heading, start, end, text}, ...]`.
+
+        `style` is the paragraph's applied Word style name (e.g. ``"Normal"``,
+        ``"List Number"``, ``"Heading 2"``) — the handle to feed back into
+        `apply_style` / a write's `style=` to mirror existing formatting, since
+        `level` (Word's `OutlineLevel`) is `10` for *all* non-heading paragraphs
+        and so can't distinguish a list item from body text. It's `None` if the
+        style can't be read.
+        """
         out: list[dict[str, Any]] = []
         with _com.translate_com_errors():
             for idx, para in enumerate(self._doc.com.Paragraphs, start=1):
@@ -939,12 +947,17 @@ class ParagraphCollection:
                     level = int(para.OutlineLevel)
                 except Exception:
                     level = 10
+                try:
+                    style: str | None = str(para.Range.Style.NameLocal)
+                except Exception:
+                    style = None
                 rng = para.Range
                 out.append(
                     {
                         "index": idx,
                         "anchor_id": f"para:{idx}",
                         "level": level,
+                        "style": style,
                         "is_heading": level < 10,
                         "start": int(rng.Start),
                         "end": int(rng.End),
