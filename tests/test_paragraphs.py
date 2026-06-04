@@ -21,8 +21,34 @@ def test_paragraphs_list_shape(fake_word):
     assert [r["is_heading"] for r in rows] == [True, False, True]
     assert [r["level"] for r in rows] == [1, 10, 2]
     assert [r["text"] for r in rows] == ["Introduction", "Body text here.", "Risks"]
+    # Every row carries the applied style name (default fixture is all Normal).
+    assert [r["style"] for r in rows] == ["Normal", "Normal", "Normal"]
     # Offsets are emitted for range:START-END targeting.
     assert (rows[1]["start"], rows[1]["end"]) == (13, 29)
+
+
+def test_paragraphs_list_surfaces_style_names(fake_word, monkeypatch):
+    """`style` distinguishes list items from body text where `level` (10) can't."""
+    from tests.conftest import _make_application, _make_document
+
+    doc_com = _make_document(
+        paragraphs=[
+            {"level": 1, "text": "Accomplishments", "start": 0, "end": 16, "style": "Heading 1"},
+            {"level": 10, "text": "Shipped v2", "start": 16, "end": 27, "style": "List Number"},
+            {"level": 10, "text": "A closing note.", "start": 27, "end": 43, "style": "Normal"},
+        ],
+        content="Accomplishments\rShipped v2\rA closing note.\r",
+    )
+    app = _make_application([doc_com])
+    from wordlive import _com as _com_module
+
+    monkeypatch.setattr(_com_module, "get_active_word", lambda: app)
+
+    with wordlive.attach() as word:
+        rows = word.documents.active.paragraphs.list()
+    # Both body rows report level 10, but style tells the list item apart.
+    assert [r["level"] for r in rows] == [1, 10, 10]
+    assert [r["style"] for r in rows] == ["Heading 1", "List Number", "Normal"]
 
 
 def test_getitem_returns_paragraph(fake_word):
