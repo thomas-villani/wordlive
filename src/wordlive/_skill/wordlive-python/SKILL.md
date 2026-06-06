@@ -83,6 +83,10 @@ a.insert_paragraph_before("…", style="Body Text")
 a.insert_paragraph_after("New paragraph.", style="Body Text")
 a.apply_style("Heading 2")
 a.format_paragraph(alignment="center", space_before=6, page_break_before=True)
+a.format_run(bold=True, color="#FF0000", highlight="yellow", size="12pt")  # character formatting
+a.set_shading(fill="navy")              # range/cell background fill
+a.set_borders(sides="all", style="single", weight=0.5, color="black")
+a.add_tab_stop("3in", align="right", leader="dots")
 a.insert_break(kind="page")             # page | column | section_next | section_continuous
 a.insert_image("diagram.png", wrap="auto")
 a.insert_table(2, 2, data=[["Item", "Cost"], ["Travel", "$400"]], header=True)
@@ -90,6 +94,16 @@ a.apply_list("numbered")                # + remove_list/list_info/restart_number
 a.snapshot("section.png")               # render the page(s) it sits on (heading → whole section)
 a.delete()
 a.com                                   # raw COM Range
+```
+
+Define and configure styles (the brand/template primitive — `add` once, then
+`apply_style` everywhere):
+
+```python
+brand = doc.styles.add("Brand Heading", based_on="Heading 1", next_style="Body Text")
+brand.format_run(bold=True, color="#1F3864", size="16pt")   # style's font defaults
+brand.format_paragraph(space_before=12, space_after=4)      # style's paragraph defaults
+doc.anchor_by_id("heading:3").apply_style("Brand Heading")
 ```
 
 ## Writing — wrap mutations in `doc.edit("label")`

@@ -38,6 +38,7 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 ## Anchors
 
 Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
+`format_run(...)`, `set_shading(...)`, `set_borders(...)`, `add_tab_stop(...)`,
 `insert_paragraph_before/after(...)`, `insert_image(...)`, `insert_table(...)`,
 `insert_break(...)`, and the list verbs (`apply_list`, `remove_list`,
 `list_info`, `restart_numbering`, `indent_list`, `outdent_list`) from
@@ -53,8 +54,14 @@ creates a new table at the anchor and returns its [`Table`](#wordlive.Table)
 `insert_break(kind="page"|"column"|"section_next"|"section_continuous")` drops
 an explicit break; for a reflow-safe page break tied to a paragraph (e.g. every
 `Heading 1`), pass `page_break_before=True` to `format_paragraph` instead.
-Every anchor also has `snapshot(...)`, which renders the page(s) it sits on to
-PNG (a heading expands to its whole section) — see [Snapshots](#snapshots).
+`format_run(...)` sets character formatting (bold/italic/underline, `font`,
+`size`, `color`, `highlight`, sub/superscript, caps, `spacing`) — the run-level
+layer, ideal with a `range:START-END` anchor to style a phrase. `set_shading`,
+`set_borders`, and `add_tab_stop` add range/cell fill, borders, and tab stops;
+colours accept a name, hex, or `(r, g, b)` and sizes/positions accept points or
+a unit string (`"12pt"`, `"1in"`). Every anchor also has `snapshot(...)`, which
+renders the page(s) it sits on to PNG (a heading expands to its whole section) —
+see [Snapshots](#snapshots).
 
 ::: wordlive.Anchor
 
@@ -78,9 +85,15 @@ PNG (a heading expands to its whole section) — see [Snapshots](#snapshots).
 
 ## Styles
 
-Styles are document-scoped, read-only handles. `Document.styles` is a
+Styles are document-scoped handles. `Document.styles` is a
 [`StyleCollection`](#wordlive.StyleCollection); apply styles to anchors via
-[`Anchor.apply_style`](#wordlive.Anchor).
+[`Anchor.apply_style`](#wordlive.Anchor). Define a new style with
+`doc.styles.add(name, type="paragraph", based_on=…, next_style=…)`, which returns
+a writable [`Style`](#wordlive.Style): set its defaults with `style.format_run(…)`
+/ `style.format_paragraph(…)` (the same kwargs as the anchor methods, minus
+`highlight`) and chain styles via `style.base_style` / `style.next_paragraph_style`.
+The brand/template workflow: `add` a house style once, then `apply_style` it
+everywhere.
 
 ::: wordlive.Style
 

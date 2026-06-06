@@ -545,7 +545,8 @@ wordlive style apply --anchor-id ID --name "Heading 2" [--doc DOC_NAME]
 ```
 
 Apply a style to the anchor's range. Atomic-undo. The style must already
-exist in the document — wordlive does not create styles on demand.
+exist in the document — define one first with [`style add`](#style-add-name)
+if needed.
 
 ```bash
 $ wordlive style apply --anchor-id heading:3 --name "Heading 2"
@@ -594,6 +595,110 @@ left alone. If the anchor spans a partial paragraph (e.g., a bookmark
 covering five words inside a longer paragraph), Word applies the formatting
 to the *enclosing* paragraph — that's the COM behaviour, not a wordlive
 quirk. Failures: `2` anchor not found, `3` Word busy.
+
+## `format-run --anchor-id ID [...]`
+
+```
+wordlive format-run --anchor-id ID
+    [--bold | --no-bold] [--italic | --no-italic]
+    [--underline | --no-underline] [--strikethrough | --no-strikethrough]
+    [--font NAME] [--size POINTS|UNIT] [--color NAME|HEX|R,G,B]
+    [--highlight NAME] [--subscript | --no-subscript]
+    [--superscript | --no-superscript] [--small-caps | --no-small-caps]
+    [--all-caps | --no-all-caps] [--spacing POINTS|UNIT]
+    [--doc DOC_NAME]
+```
+
+Set **character-formatting** (run-level) properties on the anchor's range —
+the *bold this phrase* layer, distinct from `style apply` (named styles) and
+`format-paragraph` (paragraph scope). Pairs naturally with a `range:START-END`
+anchor to style a sub-paragraph span. At least one flag is required; only the
+flags you pass are written. Atomic-undo.
+
+`--color` takes a colour name (`red`, `navy`, …), a hex string (`#FF0000` or
+`FF0000`), or comma-separated `R,G,B`. `--highlight` is a named text-highlight
+palette colour (`yellow`, `green`, …, or `none` to clear). `--size`/`--spacing`
+accept a bare number (points) or a unit string (`12pt`, `1.5mm`).
+
+```bash
+$ wordlive format-run --anchor-id range:120-145 --bold --color FF0000 --highlight yellow
+{"ok": true,
+ "anchor_id": "range:120-145",
+ "anchor": {"kind": "range", "name": "range:120-145"},
+ "applied": {"bold": true, "color": "FF0000", "highlight": "yellow"}}
+```
+
+Failures: `2` anchor not found, `1` bad colour/size/highlight value, `3` Word busy.
+
+## `shading --anchor-id ID --fill COLOR`
+
+```
+wordlive shading --anchor-id ID --fill NAME|HEX|R,G,B [--doc DOC_NAME]
+```
+
+Set the background-fill shading of the anchor's range. Because a table cell is
+an anchor (`table:N:R:C`), this is also how you shade a cell. Atomic-undo.
+
+## `borders --anchor-id ID [...]`
+
+```
+wordlive borders --anchor-id ID
+    [--sides all|box|top|bottom|left|right|horizontal|vertical]
+    [--style single|double|dot|dash|dash-dot|none]
+    [--weight POINTS] [--color NAME|HEX|R,G,B] [--doc DOC_NAME]
+```
+
+Draw borders on the anchor's range or cell. `--sides` is comma-separated for
+several edges (default `all` = the four outer edges). `--weight` is in points,
+snapped to Word's discrete line-width set (0.25/0.5/0.75/1/1.5/2.25/3 pt).
+Page-wide and table-wide borders are out of scope (this sets per-range/per-cell
+borders). Atomic-undo.
+
+## `tab-stop --anchor-id ID --position POS [...]`
+
+```
+wordlive tab-stop --anchor-id ID --position POINTS|UNIT
+    [--align left|center|right|decimal|bar]
+    [--leader none|dots|dashes|lines|heavy|middle-dot] [--doc DOC_NAME]
+```
+
+Add a tab stop to the anchor's paragraph(s) — `--leader dots` gives the dotted
+fill of a price list or table-of-contents row without a table. `--position`
+accepts points or a unit string (`3in`). Atomic-undo.
+
+## `style add NAME [...]`
+
+```
+wordlive style add NAME
+    [--type paragraph|character|table|list]
+    [--based-on NAME] [--next-style NAME] [--doc DOC_NAME]
+```
+
+Define a new style. `--based-on` is the inheritance parent; `--next-style` is
+the style applied to the paragraph after one in this style. Style its defaults
+with `style set`, then `style apply` it. Atomic-undo. Failures: `1` bad
+`--type`, `2` unknown `--based-on`/`--next-style`.
+
+```bash
+$ wordlive style add Brand --based-on Normal
+{"ok": true, "style": "Brand", "type": "paragraph"}
+```
+
+## `style set NAME [...]`
+
+```
+wordlive style set NAME
+    [--bold|--no-bold] [--italic|--no-italic] [--underline|--no-underline]
+    [--font NAME] [--size POINTS|UNIT] [--color NAME|HEX|R,G,B]
+    [--alignment left|center|right|justify]
+    [--space-before POINTS|UNIT] [--space-after POINTS|UNIT]
+    [--based-on NAME] [--next-style NAME] [--doc DOC_NAME]
+```
+
+Set the font / paragraph defaults of an existing style (built-in or one you
+created). At least one property is required. The brand/template workflow:
+`style add` once, `style set` its look, then `style apply` it everywhere.
+Atomic-undo. Failures: `2` style not found, `1` bad value, `3` Word busy.
 
 ## `table list`
 

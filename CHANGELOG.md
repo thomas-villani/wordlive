@@ -5,6 +5,48 @@ All notable changes to **wordlive** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Character formatting — `format_run`.** Direct run-level formatting on any
+  anchor: `anchor.format_run(bold=…, italic=…, underline=…, strikethrough=…,
+  font=…, size=…, color=…, highlight=…, subscript=…, superscript=…, small_caps=…,
+  all_caps=…, spacing=…)`, tri-state like `format_paragraph`. Pairs with a
+  `range:START-END` id to style a phrase. Colours accept a name (`"red"`), hex
+  (`"#FF0000"`), or `(r, g, b)`; `highlight` is a named palette colour;
+  `size`/`spacing` accept points or a unit string (`"12pt"`, `"1.5mm"`). Wired
+  through the `format_run` exec op, `wordlive format-run` CLI, and
+  `word_write command="format_run"`.
+- **Borders, shading & tab stops.** `anchor.set_shading(fill=…)`,
+  `anchor.set_borders(sides=…, style=…, weight=…, color=…)`, and
+  `anchor.add_tab_stop(position, align=…, leader=…)` — range- and cell-level (a
+  `Cell` is an `Anchor`). Border weight snaps to Word's discrete line widths.
+  Exec ops `set_shading`/`set_borders`/`add_tab_stop`, CLI `shading`/`borders`/
+  `tab-stop`, and the matching `word_write` commands (the border line style is
+  the `line_style` param there, to avoid colliding with `style`).
+- **Style creation & modification — styles are now writable.**
+  `doc.styles.add(name, type=…, based_on=…, next_style=…)` defines a new style
+  and returns a writable `Style`; `style.format_run(…)` / `style.format_paragraph(…)`
+  set its font / paragraph defaults (the same kwarg vocabulary as the anchor
+  methods, minus `highlight`), and `style.base_style` / `style.next_paragraph_style`
+  chain styles. Exec ops `add_style`/`set_style`, CLI `style add`/`style set`, and
+  the matching `word_write` commands. The brand/template primitive: define a
+  house style once, then `apply_style` it everywhere.
+- **Internal colour/units helper** (`_format.py`) underpinning the above:
+  colours → Word's byte-swapped BGR long; lengths (`pt`/`in`/`cm`/`mm`) → points.
+
+### Changed
+- **Bad formatting input now raises `OpError` (exit 1, bad-input) instead of a
+  raw `ValueError`.** `format_paragraph` (and the new formatting methods) catch
+  colour/length/enum coercion errors and re-raise as `OpError`, so an exec batch
+  reports the failure cleanly instead of crashing the op loop. Indents/spacing on
+  `format_paragraph` now also accept unit strings.
+
+### Deferred
+- Table-wide (`Table.Borders`) and page (`Section.Borders`) borders, shading
+  patterns/textures, highlight on a style's font, and font kerning/character-scale
+  on `format_run`.
+
 ## [0.11.1] — 2026-06-04
 
 ### Fixed
