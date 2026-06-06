@@ -15,11 +15,15 @@ from . import _com, _images, _lists
 from ._format import to_bgr, to_points
 from .constants import (
     MsoTriState,
+    WdBorderType,
     WdBreakType,
     WdColorIndex,
     WdInformation,
+    WdLineStyle,
     WdNumberType,
     WdParagraphAlignment,
+    WdTabAlignment,
+    WdTabLeader,
     WdUnderline,
     WdWrapType,
 )
@@ -187,6 +191,96 @@ def _apply_font(
         font.AllCaps = bool(all_caps)
     if spacing is not None:
         font.Spacing = to_points(spacing)
+
+
+# Border-side keywords -> the WdBorderType edges they cover. "all"/"box" hit the
+# four outer edges; the named singles map to one edge each.
+_BORDER_SIDES: dict[str, tuple[WdBorderType, ...]] = {
+    "top": (WdBorderType.TOP,),
+    "bottom": (WdBorderType.BOTTOM,),
+    "left": (WdBorderType.LEFT,),
+    "right": (WdBorderType.RIGHT,),
+    "horizontal": (WdBorderType.HORIZONTAL,),
+    "vertical": (WdBorderType.VERTICAL,),
+    "all": (WdBorderType.TOP, WdBorderType.BOTTOM, WdBorderType.LEFT, WdBorderType.RIGHT),
+    "box": (WdBorderType.TOP, WdBorderType.BOTTOM, WdBorderType.LEFT, WdBorderType.RIGHT),
+}
+
+_LINE_STYLES: dict[str, WdLineStyle] = {
+    "none": WdLineStyle.NONE,
+    "single": WdLineStyle.SINGLE,
+    "dot": WdLineStyle.DOT,
+    "dotted": WdLineStyle.DOT,
+    "dash": WdLineStyle.DASH_LARGE_GAP,
+    "dashed": WdLineStyle.DASH_LARGE_GAP,
+    "dash-small": WdLineStyle.DASH_SMALL_GAP,
+    "dash-dot": WdLineStyle.DASH_DOT,
+    "dash-dot-dot": WdLineStyle.DASH_DOT_DOT,
+    "double": WdLineStyle.DOUBLE,
+}
+
+_TAB_ALIGN: dict[str, WdTabAlignment] = {
+    "left": WdTabAlignment.LEFT,
+    "center": WdTabAlignment.CENTER,
+    "centre": WdTabAlignment.CENTER,
+    "right": WdTabAlignment.RIGHT,
+    "decimal": WdTabAlignment.DECIMAL,
+    "bar": WdTabAlignment.BAR,
+}
+
+_TAB_LEADERS: dict[str, WdTabLeader] = {
+    "none": WdTabLeader.SPACES,
+    "spaces": WdTabLeader.SPACES,
+    "dots": WdTabLeader.DOTS,
+    "dashes": WdTabLeader.DASHES,
+    "lines": WdTabLeader.LINES,
+    "heavy": WdTabLeader.HEAVY,
+    "middle-dot": WdTabLeader.MIDDLE_DOT,
+}
+
+# Word's `Border.LineWidth` is a discrete `WdLineWidth` (points x 8). We accept a
+# point value and snap to the nearest supported weight rather than rejecting the
+# in-between ones, so `weight=1` (a hairline-ish 0.75pt..1pt) just works.
+_LINE_WIDTHS: tuple[int, ...] = (2, 4, 6, 8, 12, 18, 24)  # 0.25, 0.5, 0.75, 1, 1.5, 2.25, 3 pt
+
+
+def _resolve_border_sides(sides: Any) -> list[int]:
+    """Map a `sides` argument (str or iterable of str) to WdBorderType ints."""
+    if isinstance(sides, str):
+        names = [sides]
+    elif isinstance(sides, (list, tuple)):
+        names = list(sides)
+    else:
+        raise TypeError(f"sides must be a string or list of strings; got {type(sides).__name__}")
+    out: list[int] = []
+    for n in names:
+        key = str(n).lower()
+        if key not in _BORDER_SIDES:
+            raise ValueError(f"unknown border side {n!r}; expected one of {sorted(_BORDER_SIDES)}")
+        for edge in _BORDER_SIDES[key]:
+            if int(edge) not in out:
+                out.append(int(edge))
+    return out
+
+
+def _coerce_named(value: Any, table: dict[str, Any], label: str) -> int:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(table[value.lower()])
+        except KeyError:
+            raise ValueError(
+                f"unknown {label} {value!r}; expected one of {sorted(table)}"
+            ) from None
+    raise TypeError(f"{label} must be an int or str; got {type(value).__name__}")
+
+
+def _coerce_line_weight(value: Any) -> int:
+    """Points -> the nearest supported `WdLineWidth` (points x 8, snapped)."""
+    pts = to_points(value)
+    eighths = pts * 8
+    return min(_LINE_WIDTHS, key=lambda w: abs(w - eighths))
 
 
 # Floating wrap keywords -> WdWrapType. "inline" and "auto" are handled
@@ -745,6 +839,85 @@ class Anchor(ABC):
                 )
                 if highlight is not None:
                     rng.HighlightColorIndex = _coerce_highlight(highlight)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def set_shading(self, *, fill: Any = None, pattern: Any = None) -> None:
+        """Set the background (fill) shading of this anchor's range.
+
+        `fill` is a named colour, hex (`"#FFFF00"`), or `(r, g, b)` — applied to
+        `Range.Shading.BackgroundPatternColor`. Because a `Cell` is an `Anchor`,
+        this is also how you shade a table cell. `pattern` (a shading pattern/
+        texture) is accepted for forward-compatibility but not yet applied —
+        deferred. Bad colour input raises `OpError`. Wrap in `doc.edit(...)`.
+        """
+        try:
+            with _com.translate_com_errors():
+                if fill is not None:
+                    self._range().Shading.BackgroundPatternColor = to_bgr(fill)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def set_borders(
+        self,
+        *,
+        sides: Any = "all",
+        style: Any = "single",
+        weight: Any = 0.5,
+        color: Any = None,
+    ) -> None:
+        """Draw borders on this anchor's range (or cell — a `Cell` is an `Anchor`).
+
+        `sides` is `"all"`/`"box"` (the default — four outer edges), a single
+        edge (`"top"`/`"bottom"`/`"left"`/`"right"`), an interior gridline
+        (`"horizontal"`/`"vertical"`, for multi-cell ranges), or a list of those.
+        `style` is a line style (`"single"`, `"double"`, `"dot"`, `"dash"`, …, or
+        `"none"` to remove). `weight` is the line width in points, snapped to
+        Word's discrete set (0.25/0.5/0.75/1/1.5/2.25/3 pt). `color` is an
+        optional border colour (name/hex/RGB).
+
+        Page borders (`Section.Borders`) and table-wide borders (`Table.Borders`)
+        are out of scope here — this sets per-range/per-cell borders. Bad input
+        raises `OpError`. Wrap in `doc.edit(...)`.
+        """
+        try:
+            edges = _resolve_border_sides(sides)
+            line_style = _coerce_named(style, _LINE_STYLES, "border style")
+            line_width = _coerce_line_weight(weight)
+            bgr = to_bgr(color) if color is not None else None
+            with _com.translate_com_errors():
+                borders = self._range().Borders
+                for edge in edges:
+                    b = borders(edge)
+                    b.LineStyle = line_style
+                    b.LineWidth = line_width
+                    if bgr is not None:
+                        b.Color = bgr
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def add_tab_stop(self, position: Any, *, align: Any = "left", leader: Any = None) -> None:
+        """Add a tab stop to this anchor's paragraph(s).
+
+        `position` is the distance from the left margin in points (or a unit
+        string like `"3in"`). `align` is `"left"`/`"center"`/`"right"`/
+        `"decimal"`/`"bar"`. `leader` is an optional fill drawn up to the stop —
+        `"dots"` (price lists / tables of contents), `"dashes"`, `"lines"`, … —
+        defaulting to none. Maps to `ParagraphFormat.TabStops.Add`. Bad input
+        raises `OpError`. Wrap in `doc.edit(...)`.
+        """
+        try:
+            pos = to_points(position)
+            al = _coerce_named(align, _TAB_ALIGN, "tab alignment")
+            ld = (
+                _coerce_named(leader, _TAB_LEADERS, "tab leader")
+                if leader is not None
+                else int(WdTabLeader.SPACES)
+            )
+            with _com.translate_com_errors():
+                # Positional args: the `Leader=` keyword is dropped under pywin32
+                # late binding, so pass Position, Alignment, Leader positionally.
+                self._range().ParagraphFormat.TabStops.Add(pos, al, ld)
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
 

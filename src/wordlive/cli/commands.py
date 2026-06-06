@@ -97,6 +97,9 @@ def register(group: click.Group) -> None:
     group.add_command(style)
     group.add_command(format_paragraph_cmd)
     group.add_command(format_run_cmd)
+    group.add_command(shading_cmd)
+    group.add_command(borders_cmd)
+    group.add_command(tab_stop_cmd)
     group.add_command(table)
     group.add_command(comment)
     group.add_command(track)
@@ -1246,6 +1249,129 @@ def format_run_cmd(
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"formatted run {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="shading")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor (or cell) to shade.")
+@click.option("--fill", "fill", required=True, help="Fill colour: name, hex (#FFFF00), or r,g,b.")
+@click.pass_context
+def shading_cmd(ctx: click.Context, anchor_id: str, fill: str) -> None:
+    """Set the background-fill shading of the anchor's range (atomic-undo)."""
+    fill_value = _parse_color(fill)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: shading {anchor_id}"):
+                anchor.set_shading(fill=fill_value)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": {"fill": fill_value},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"shaded {anchor_id}: {fill_value}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="borders")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor (or cell) to border.")
+@click.option(
+    "--sides",
+    "sides",
+    default="all",
+    help="Edges: all/box, top, bottom, left, right, horizontal, vertical "
+    "(comma-separated for several).",
+)
+@click.option(
+    "--style", "style", default="single", help="Line style: single, double, dot, dash, … or none."
+)
+@click.option("--weight", "weight", type=float, default=0.5, help="Line width in points (snapped).")
+@click.option("--color", "color", default=None, help="Border colour: name, hex, or r,g,b.")
+@click.pass_context
+def borders_cmd(
+    ctx: click.Context, anchor_id: str, sides: str, style: str, weight: float, color: str | None
+) -> None:
+    """Draw borders on the anchor's range or cell (atomic-undo)."""
+    side_list = [s.strip() for s in sides.split(",") if s.strip()]
+    color_value = _parse_color(color)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: borders {anchor_id}"):
+                anchor.set_borders(sides=side_list, style=style, weight=weight, color=color_value)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": {
+                        "sides": side_list,
+                        "style": style,
+                        "weight": weight,
+                        "color": color_value,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"bordered {anchor_id}: {side_list} {style}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="tab-stop")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose paragraph(s) to tab.")
+@click.option(
+    "--position",
+    "position",
+    required=True,
+    help="Distance from the left margin in points or a unit string (3in).",
+)
+@click.option(
+    "--align",
+    "align",
+    default="left",
+    type=click.Choice(["left", "center", "centre", "right", "decimal", "bar"]),
+    help="Tab alignment.",
+)
+@click.option(
+    "--leader",
+    "leader",
+    default=None,
+    type=click.Choice(["none", "dots", "dashes", "lines", "heavy", "middle-dot"]),
+    help="Leader fill drawn up to the stop.",
+)
+@click.pass_context
+def tab_stop_cmd(
+    ctx: click.Context, anchor_id: str, position: str, align: str, leader: str | None
+) -> None:
+    """Add a tab stop to the anchor's paragraph(s) (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: tab stop {anchor_id}"):
+                anchor.add_tab_stop(position, align=align, leader=leader)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": {"position": position, "align": align, "leader": leader},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"tab stop on {anchor_id}: {position} {align}",
             )
 
     _run(ctx, go)

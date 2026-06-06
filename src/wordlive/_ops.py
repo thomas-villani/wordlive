@@ -50,6 +50,9 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "apply_style": ("anchor_id", "name"),
     "format_paragraph": ("anchor_id",),
     "format_run": ("anchor_id",),
+    "set_shading": ("anchor_id",),
+    "set_borders": ("anchor_id",),
+    "add_tab_stop": ("anchor_id", "position"),
     "set_cell": ("table", "row", "col", "text"),
     "add_row": ("table",),
     "delete_row": ("table", "row"),
@@ -127,6 +130,9 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         "page_break_before",
     ),
     "format_run": _RUN_FIELDS,
+    "set_shading": ("fill", "pattern"),
+    "set_borders": ("sides", "style", "weight", "color"),
+    "add_tab_stop": ("align", "leader"),
     "set_cell": (),
     "add_row": ("values",),
     "delete_row": (),
@@ -260,6 +266,15 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
     elif kind == "format_run":
         kwargs = {k: op[k] for k in _RUN_FIELDS if k in op}
         doc.anchor_by_id(op["anchor_id"]).format_run(**kwargs)
+    elif kind == "set_shading":
+        kwargs = {k: op[k] for k in ("fill", "pattern") if k in op}
+        doc.anchor_by_id(op["anchor_id"]).set_shading(**kwargs)
+    elif kind == "set_borders":
+        kwargs = {k: op[k] for k in ("sides", "style", "weight", "color") if k in op}
+        doc.anchor_by_id(op["anchor_id"]).set_borders(**kwargs)
+    elif kind == "add_tab_stop":
+        kwargs = {k: op[k] for k in ("align", "leader") if k in op}
+        doc.anchor_by_id(op["anchor_id"]).add_tab_stop(op["position"], **kwargs)
     elif kind == "set_cell":
         doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
     elif kind == "add_row":

@@ -240,6 +240,28 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command == "set_shading":
+        op = {"op": "set_shading", "anchor_id": need("anchor_id")}
+        for k in ("fill", "pattern"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "set_borders":
+        op = {"op": "set_borders", "anchor_id": need("anchor_id")}
+        # `line_style` is the MCP param name (avoids colliding with the `style`
+        # param used by apply_style/create_table); the op field is `style`.
+        if p.get("line_style") is not None:
+            op["style"] = p["line_style"]
+        for k in ("sides", "weight", "color"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "add_tab_stop":
+        op = {"op": "add_tab_stop", "anchor_id": need("anchor_id"), "position": need("position")}
+        for k in ("align", "leader"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
     if command == "insert_break":
         return {
             "op": "insert_break",
@@ -516,6 +538,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "apply_style",
             "format_paragraph",
             "format_run",
+            "set_shading",
+            "set_borders",
+            "add_tab_stop",
             "list",
             "comment",
             "table",
@@ -571,6 +596,14 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         small_caps: bool | None = None,
         all_caps: bool | None = None,
         spacing: str | float | None = None,
+        fill: str | None = None,
+        pattern: str | None = None,
+        sides: str | None = None,
+        line_style: str | None = None,
+        weight: float | None = None,
+        position: str | float | None = None,
+        align: str | None = None,
+        leader: str | None = None,
         kind: str | None = None,
         wrap: str | None = None,
         image_base64: str | None = None,
@@ -592,6 +625,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         format_run {anchor_id,[bold,italic,underline,strikethrough,font,size,color,
             highlight,subscript,superscript,small_caps,all_caps,spacing]} — colour is a
             name/hex; highlight is a named palette colour; size/spacing accept unit strings ·
+        set_shading {anchor_id,fill} — fill colour of a range/cell ·
+        set_borders {anchor_id,[sides=all|box|top|bottom|left|right|horizontal|vertical,
+            line_style=single|double|dot|dash|none,weight,color]} ·
+        add_tab_stop {anchor_id,position,[align=left|center|right|decimal|bar,
+            leader=dots|dashes|lines|none]} ·
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
         comment {action=add|resolve|delete,...} ·
         table {action=set_cell|add_row|delete_row|create|delete,
@@ -652,6 +690,14 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "small_caps": small_caps,
             "all_caps": all_caps,
             "spacing": spacing,
+            "fill": fill,
+            "pattern": pattern,
+            "sides": sides,
+            "line_style": line_style,
+            "weight": weight,
+            "position": position,
+            "align": align,
+            "leader": leader,
             "kind": kind,
             "wrap": wrap,
             "image_base64": image_base64,
