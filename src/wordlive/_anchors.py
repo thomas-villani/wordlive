@@ -12,12 +12,15 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from . import _com, _images, _lists
+from ._format import to_bgr, to_points
 from .constants import (
     MsoTriState,
     WdBreakType,
+    WdColorIndex,
     WdInformation,
     WdNumberType,
     WdParagraphAlignment,
+    WdUnderline,
     WdWrapType,
 )
 from .exceptions import AnchorNotFoundError, OpError
@@ -95,6 +98,95 @@ def _coerce_alignment(value: Any) -> int:
     raise TypeError(
         f"alignment must be WdParagraphAlignment, int, or str; got {type(value).__name__}"
     )
+
+
+# Highlight keywords -> WdColorIndex. Highlight is a palette index, not an RGB,
+# so it bypasses the colour helper. `auto`/`none` clears the highlight.
+_HIGHLIGHT_NAMES: dict[str, WdColorIndex] = {
+    "none": WdColorIndex.AUTO,
+    "auto": WdColorIndex.AUTO,
+    "black": WdColorIndex.BLACK,
+    "blue": WdColorIndex.BLUE,
+    "turquoise": WdColorIndex.TURQUOISE,
+    "bright-green": WdColorIndex.BRIGHT_GREEN,
+    "green": WdColorIndex.GREEN,
+    "pink": WdColorIndex.PINK,
+    "red": WdColorIndex.RED,
+    "yellow": WdColorIndex.YELLOW,
+    "white": WdColorIndex.WHITE,
+    "dark-blue": WdColorIndex.DARK_BLUE,
+    "teal": WdColorIndex.TEAL,
+    "violet": WdColorIndex.VIOLET,
+    "dark-red": WdColorIndex.DARK_RED,
+    "dark-yellow": WdColorIndex.DARK_YELLOW,
+    "gray-50": WdColorIndex.GRAY_50,
+    "gray-25": WdColorIndex.GRAY_25,
+}
+
+
+def _coerce_highlight(value: Any) -> int:
+    if isinstance(value, WdColorIndex):
+        return int(value)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(_HIGHLIGHT_NAMES[value.lower()])
+        except KeyError:
+            raise ValueError(
+                f"unknown highlight {value!r}; expected one of {sorted(_HIGHLIGHT_NAMES)}"
+            ) from None
+    raise TypeError(f"highlight must be WdColorIndex, int, or str; got {type(value).__name__}")
+
+
+def _apply_font(
+    font: Any,
+    *,
+    bold: bool | None = None,
+    italic: bool | None = None,
+    underline: bool | None = None,
+    strikethrough: bool | None = None,
+    font_name: str | None = None,
+    size: Any = None,
+    color: Any = None,
+    subscript: bool | None = None,
+    superscript: bool | None = None,
+    small_caps: bool | None = None,
+    all_caps: bool | None = None,
+    spacing: Any = None,
+) -> None:
+    """Write character-formatting properties onto a COM `Font`.
+
+    Tri-state: only kwargs that aren't `None` are written. Shared by
+    `Anchor.format_run` (on a range's `Font`) and `Style.format_run` (on a
+    style's `Font`) — the two diverge only in `highlight`, which is a `Range`
+    property and is handled by the caller, not here. Raises `ValueError`/
+    `TypeError` from the colour/length coercers on bad input.
+    """
+    if bold is not None:
+        font.Bold = bool(bold)
+    if italic is not None:
+        font.Italic = bool(italic)
+    if underline is not None:
+        font.Underline = int(WdUnderline.SINGLE if underline else WdUnderline.NONE)
+    if strikethrough is not None:
+        font.StrikeThrough = bool(strikethrough)
+    if font_name is not None:
+        font.Name = str(font_name)
+    if size is not None:
+        font.Size = to_points(size)
+    if color is not None:
+        font.Color = to_bgr(color)
+    if subscript is not None:
+        font.Subscript = bool(subscript)
+    if superscript is not None:
+        font.Superscript = bool(superscript)
+    if small_caps is not None:
+        font.SmallCaps = bool(small_caps)
+    if all_caps is not None:
+        font.AllCaps = bool(all_caps)
+    if spacing is not None:
+        font.Spacing = to_points(spacing)
 
 
 # Floating wrap keywords -> WdWrapType. "inline" and "auto" are handled
@@ -596,6 +688,65 @@ class Anchor(ABC):
                 pf.SpaceAfter = float(space_after)
             if page_break_before is not None:
                 pf.PageBreakBefore = bool(page_break_before)
+
+    def format_run(
+        self,
+        *,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        underline: bool | None = None,
+        strikethrough: bool | None = None,
+        font: str | None = None,
+        size: Any = None,
+        color: Any = None,
+        highlight: Any = None,
+        subscript: bool | None = None,
+        superscript: bool | None = None,
+        small_caps: bool | None = None,
+        all_caps: bool | None = None,
+        spacing: Any = None,
+    ) -> None:
+        """Set character-formatting (run-level) properties on this anchor's range.
+
+        Direct formatting — the *bold this phrase* layer, distinct from
+        [`apply_style`][wordlive.Anchor.apply_style] (named styles) and
+        [`format_paragraph`][wordlive.Anchor.format_paragraph] (paragraph-scope).
+        Pairs naturally with `range:START-END` to style a sub-paragraph span.
+
+        All kwargs are optional and tri-state; only the ones explicitly passed
+        are written (`None` leaves the property untouched). `bold`/`italic`/
+        `underline`/`strikethrough`/`subscript`/`superscript`/`small_caps`/
+        `all_caps` are booleans. `font` is a family name; `size` and `spacing`
+        accept a number (points) or a unit string (`"12pt"`, `"1.5mm"`).
+        `color` accepts a named colour, hex (`"#FF0000"`), or `(r, g, b)`.
+        `highlight` is a named text-highlight colour (`"yellow"`, `"green"`, …,
+        or `"none"`/`"auto"` to clear it) — a palette index, *not* an RGB.
+
+        Bad colour/length/highlight input raises `OpError` (bad-input). Wrap in
+        `doc.edit(...)` for atomic undo.
+        """
+        try:
+            with _com.translate_com_errors():
+                rng = self._range()
+                _apply_font(
+                    rng.Font,
+                    bold=bold,
+                    italic=italic,
+                    underline=underline,
+                    strikethrough=strikethrough,
+                    font_name=font,
+                    size=size,
+                    color=color,
+                    subscript=subscript,
+                    superscript=superscript,
+                    small_caps=small_caps,
+                    all_caps=all_caps,
+                    spacing=spacing,
+                )
+                if highlight is not None:
+                    rng.HighlightColorIndex = _coerce_highlight(highlight)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
 
     def apply_list(self, list_type: str = "bulleted", *, continue_previous: bool = False) -> None:
         """Turn this anchor's paragraphs into a list.

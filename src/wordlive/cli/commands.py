@@ -96,6 +96,7 @@ def register(group: click.Group) -> None:
     group.add_command(go_to)
     group.add_command(style)
     group.add_command(format_paragraph_cmd)
+    group.add_command(format_run_cmd)
     group.add_command(table)
     group.add_command(comment)
     group.add_command(track)
@@ -651,6 +652,24 @@ def _parse_pages_range(value: str) -> tuple[int, int]:
     return start, end
 
 
+def _parse_color(value: str | None) -> str | tuple[int, int, int] | None:
+    """Turn a `--color` value into something `to_bgr` understands.
+
+    A comma-separated `r,g,b` becomes an `(r, g, b)` tuple; anything else
+    (a colour name or hex string) passes through unchanged for the helper to
+    resolve. Returns `None` for `None` (option not given).
+    """
+    if value is None:
+        return None
+    if "," in value:
+        try:
+            r, g, b = (int(p.strip()) for p in value.split(","))
+        except ValueError as e:
+            raise click.UsageError(f"--color as r,g,b needs three integers; got {value!r}") from e
+        return (r, g, b)
+    return value
+
+
 def _fmt_snapshot(images: list[dict[str, Any]], dpi: int) -> str:
     if not images:
         return "(no pages rendered)"
@@ -1141,6 +1160,92 @@ def format_paragraph_cmd(
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"formatted {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="format-run")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose text run(s) to format.")
+@click.option("--bold/--no-bold", "bold", default=None, help="Bold.")
+@click.option("--italic/--no-italic", "italic", default=None, help="Italic.")
+@click.option("--underline/--no-underline", "underline", default=None, help="Single underline.")
+@click.option(
+    "--strikethrough/--no-strikethrough", "strikethrough", default=None, help="Strikethrough."
+)
+@click.option("--font", "font", default=None, help="Font family name.")
+@click.option("--size", "size", default=None, help="Font size in points or a unit string (12pt).")
+@click.option("--color", "color", default=None, help="Font colour: name, hex (#FF0000), or r,g,b.")
+@click.option(
+    "--highlight",
+    "highlight",
+    default=None,
+    help="Text-highlight colour name (yellow, green, …) or 'none' to clear.",
+)
+@click.option("--subscript/--no-subscript", "subscript", default=None, help="Subscript.")
+@click.option("--superscript/--no-superscript", "superscript", default=None, help="Superscript.")
+@click.option("--small-caps/--no-small-caps", "small_caps", default=None, help="Small caps.")
+@click.option("--all-caps/--no-all-caps", "all_caps", default=None, help="All caps.")
+@click.option(
+    "--spacing", "spacing", default=None, help="Character spacing in points or a unit string."
+)
+@click.pass_context
+def format_run_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    bold: bool | None,
+    italic: bool | None,
+    underline: bool | None,
+    strikethrough: bool | None,
+    font: str | None,
+    size: str | None,
+    color: str | None,
+    highlight: str | None,
+    subscript: bool | None,
+    superscript: bool | None,
+    small_caps: bool | None,
+    all_caps: bool | None,
+    spacing: str | None,
+) -> None:
+    """Set character-formatting (run-level) properties on the anchor (atomic-undo).
+
+    A colour may be a name, hex (#FF0000), or comma-separated r,g,b. Sizes and
+    spacing accept a number (points) or a unit string like 12pt / 1.5mm.
+    """
+    raw: dict[str, Any] = {
+        "bold": bold,
+        "italic": italic,
+        "underline": underline,
+        "strikethrough": strikethrough,
+        "font": font,
+        "size": size,
+        "color": _parse_color(color),
+        "highlight": highlight,
+        "subscript": subscript,
+        "superscript": superscript,
+        "small_caps": small_caps,
+        "all_caps": all_caps,
+        "spacing": spacing,
+    }
+    kwargs: dict[str, Any] = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one formatting option")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: format run {anchor_id}"):
+                anchor.format_run(**kwargs)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": kwargs,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"formatted run {anchor_id}: {kwargs}",
             )
 
     _run(ctx, go)

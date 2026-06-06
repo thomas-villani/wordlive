@@ -188,6 +188,45 @@ class WdBreakType(IntEnum):
     COLUMN = 8
 
 
+class WdUnderline(IntEnum):
+    """`Font.Underline` values — the subset `format_run(underline=...)` uses.
+
+    `underline=True` maps to `SINGLE`, `False` to `NONE`. Word's full
+    `WdUnderline` has ~17 members (double, dotted, wavy, …); they're omitted
+    until a use case needs them, mirroring how `WdBreakType` was kept narrow.
+    """
+
+    NONE = 0
+    SINGLE = 1
+
+
+class WdColorIndex(IntEnum):
+    """`Range.HighlightColorIndex` values — the named text-highlight colours.
+
+    Highlight is a fixed *palette index*, not an arbitrary RGB, so it has its own
+    enum (the colour helper, which yields a BGR long, is wrong for it).
+    `format_run(highlight=...)` maps its string keys onto these members.
+    """
+
+    AUTO = 0
+    BLACK = 1
+    BLUE = 2
+    TURQUOISE = 3
+    BRIGHT_GREEN = 4
+    PINK = 5
+    RED = 6
+    YELLOW = 7
+    WHITE = 8
+    DARK_BLUE = 9
+    TEAL = 10
+    GREEN = 11
+    VIOLET = 12
+    DARK_RED = 13
+    DARK_YELLOW = 14
+    GRAY_50 = 15
+    GRAY_25 = 16
+
+
 class WdInformation(IntEnum):
     """`Range.Information(...)` selectors.
 

@@ -49,6 +49,7 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "find_replace": ("find", "text"),
     "apply_style": ("anchor_id", "name"),
     "format_paragraph": ("anchor_id",),
+    "format_run": ("anchor_id",),
     "set_cell": ("table", "row", "col", "text"),
     "add_row": ("table",),
     "delete_row": ("table", "row"),
@@ -70,6 +71,23 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
 # `before` / `after` / `where` all steer an insert op's side (see `op_before`),
 # so any op that calls it accepts the trio.
 _WHERE_FIELDS = ("before", "after", "where")
+
+# Character-formatting kwargs shared by `format_run` (and `set_style`).
+_RUN_FIELDS = (
+    "bold",
+    "italic",
+    "underline",
+    "strikethrough",
+    "font",
+    "size",
+    "color",
+    "highlight",
+    "subscript",
+    "superscript",
+    "small_caps",
+    "all_caps",
+    "spacing",
+)
 
 # Optional fields each op *reads*. Combined with the required set (and the
 # implicit `op` key), this is the full vocabulary an op understands — anything
@@ -108,6 +126,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         "space_after",
         "page_break_before",
     ),
+    "format_run": _RUN_FIELDS,
     "set_cell": (),
     "add_row": ("values",),
     "delete_row": (),
@@ -238,6 +257,9 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             if k in op
         }
         doc.anchor_by_id(op["anchor_id"]).format_paragraph(**kwargs)
+    elif kind == "format_run":
+        kwargs = {k: op[k] for k in _RUN_FIELDS if k in op}
+        doc.anchor_by_id(op["anchor_id"]).format_run(**kwargs)
     elif kind == "set_cell":
         doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
     elif kind == "add_row":

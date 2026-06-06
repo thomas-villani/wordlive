@@ -220,6 +220,26 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command == "format_run":
+        op = {"op": "format_run", "anchor_id": need("anchor_id")}
+        for k in (
+            "bold",
+            "italic",
+            "underline",
+            "strikethrough",
+            "font",
+            "size",
+            "color",
+            "highlight",
+            "subscript",
+            "superscript",
+            "small_caps",
+            "all_caps",
+            "spacing",
+        ):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
     if command == "insert_break":
         return {
             "op": "insert_break",
@@ -495,6 +515,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "write_cc",
             "apply_style",
             "format_paragraph",
+            "format_run",
             "list",
             "comment",
             "table",
@@ -537,6 +558,19 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         space_before: float | None = None,
         space_after: float | None = None,
         page_break_before: bool | None = None,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        underline: bool | None = None,
+        strikethrough: bool | None = None,
+        font: str | None = None,
+        size: str | float | None = None,
+        color: str | None = None,
+        highlight: str | None = None,
+        subscript: bool | None = None,
+        superscript: bool | None = None,
+        small_caps: bool | None = None,
+        all_caps: bool | None = None,
+        spacing: str | float | None = None,
         kind: str | None = None,
         wrap: str | None = None,
         image_base64: str | None = None,
@@ -555,6 +589,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         replace {text, find|anchor_id, [all,occurrence,in_anchor]} ·
         write_bookmark/write_cc {name,text} · apply_style {anchor_id,name} ·
         format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before]} ·
+        format_run {anchor_id,[bold,italic,underline,strikethrough,font,size,color,
+            highlight,subscript,superscript,small_caps,all_caps,spacing]} — colour is a
+            name/hex; highlight is a named palette colour; size/spacing accept unit strings ·
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
         comment {action=add|resolve|delete,...} ·
         table {action=set_cell|add_row|delete_row|create|delete,
@@ -602,6 +639,19 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "space_before": space_before,
             "space_after": space_after,
             "page_break_before": page_break_before,
+            "bold": bold,
+            "italic": italic,
+            "underline": underline,
+            "strikethrough": strikethrough,
+            "font": font,
+            "size": size,
+            "color": color,
+            "highlight": highlight,
+            "subscript": subscript,
+            "superscript": superscript,
+            "small_caps": small_caps,
+            "all_caps": all_caps,
+            "spacing": spacing,
             "kind": kind,
             "wrap": wrap,
             "image_base64": image_base64,
