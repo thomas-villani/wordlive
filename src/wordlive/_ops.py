@@ -53,6 +53,8 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "set_shading": ("anchor_id",),
     "set_borders": ("anchor_id",),
     "add_tab_stop": ("anchor_id", "position"),
+    "add_style": ("name",),
+    "set_style": ("name",),
     "set_cell": ("table", "row", "col", "text"),
     "add_row": ("table",),
     "delete_row": ("table", "row"),
@@ -91,6 +93,22 @@ _RUN_FIELDS = (
     "all_caps",
     "spacing",
 )
+
+# Paragraph-formatting kwargs shared by `format_paragraph` (and `set_style`).
+_PARA_FIELDS = (
+    "alignment",
+    "left_indent",
+    "right_indent",
+    "first_line_indent",
+    "space_before",
+    "space_after",
+    "page_break_before",
+)
+
+# `set_style` accepts the run + paragraph vocab (minus highlight, which a style's
+# font can't carry) plus the style-chaining fields.
+_STYLE_RUN_FIELDS = tuple(f for f in _RUN_FIELDS if f != "highlight")
+_SET_STYLE_FIELDS = (*_STYLE_RUN_FIELDS, *_PARA_FIELDS, "based_on", "next_style")
 
 # Optional fields each op *reads*. Combined with the required set (and the
 # implicit `op` key), this is the full vocabulary an op understands — anything
@@ -133,6 +151,8 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "set_shading": ("fill", "pattern"),
     "set_borders": ("sides", "style", "weight", "color"),
     "add_tab_stop": ("align", "leader"),
+    "add_style": ("type", "based_on", "next_style"),
+    "set_style": _SET_STYLE_FIELDS,
     "set_cell": (),
     "add_row": ("values",),
     "delete_row": (),
@@ -275,6 +295,22 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
     elif kind == "add_tab_stop":
         kwargs = {k: op[k] for k in ("align", "leader") if k in op}
         doc.anchor_by_id(op["anchor_id"]).add_tab_stop(op["position"], **kwargs)
+    elif kind == "add_style":
+        kwargs = {k: op[k] for k in ("type", "based_on", "next_style") if k in op}
+        style = doc.styles.add(op["name"], **kwargs)
+        return {"style": style.name}
+    elif kind == "set_style":
+        style = doc.styles[op["name"]]
+        run_kwargs = {k: op[k] for k in _STYLE_RUN_FIELDS if k in op}
+        para_kwargs = {k: op[k] for k in _PARA_FIELDS if k in op}
+        if run_kwargs:
+            style.format_run(**run_kwargs)
+        if para_kwargs:
+            style.format_paragraph(**para_kwargs)
+        if "based_on" in op:
+            style.base_style = op["based_on"]
+        if "next_style" in op:
+            style.next_paragraph_style = op["next_style"]
     elif kind == "set_cell":
         doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
     elif kind == "add_row":

@@ -292,6 +292,20 @@ class _FakeStyles:
                 return s
         raise KeyError(name)
 
+    def Add(self, Name: str | None = None, Type: int = 1) -> Any:
+        """Mimic Styles.Add(Name, Type): append a new style and return its mock.
+
+        `StyleCollection.add` then re-resolves it by name via `Style.com`'s
+        direct-then-iterate lookup, so the new style must be iterable here.
+        """
+        mock = MagicMock(name=f"Style[{Name}]")
+        mock.NameLocal = Name
+        mock.Type = int(Type)
+        mock.BuiltIn = False
+        mock.InUse = False
+        self._items.append(mock)
+        return mock
+
 
 class _FakeTable:
     """Mimics a Word Table COM object: Rows/Columns counts, Cell(r,c), row add/delete.

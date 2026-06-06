@@ -193,6 +193,41 @@ def _apply_font(
         font.Spacing = to_points(spacing)
 
 
+def _apply_paragraph_format(
+    pf: Any,
+    *,
+    alignment: Any = None,
+    left_indent: Any = None,
+    right_indent: Any = None,
+    first_line_indent: Any = None,
+    space_before: Any = None,
+    space_after: Any = None,
+    page_break_before: bool | None = None,
+) -> None:
+    """Write paragraph-formatting properties onto a COM `ParagraphFormat`.
+
+    Tri-state: only kwargs that aren't `None` are written. Shared by
+    `Anchor.format_paragraph` (on a range's `ParagraphFormat`) and
+    `Style.format_paragraph` (on a style's `ParagraphFormat`). Indents/spacing
+    accept a number (points) or a unit string via the length helper. Raises
+    `ValueError`/`TypeError` on bad input.
+    """
+    if alignment is not None:
+        pf.Alignment = _coerce_alignment(alignment)
+    if left_indent is not None:
+        pf.LeftIndent = to_points(left_indent)
+    if right_indent is not None:
+        pf.RightIndent = to_points(right_indent)
+    if first_line_indent is not None:
+        pf.FirstLineIndent = to_points(first_line_indent)
+    if space_before is not None:
+        pf.SpaceBefore = to_points(space_before)
+    if space_after is not None:
+        pf.SpaceAfter = to_points(space_after)
+    if page_break_before is not None:
+        pf.PageBreakBefore = bool(page_break_before)
+
+
 # Border-side keywords -> the WdBorderType edges they cover. "all"/"box" hit the
 # four outer edges; the named singles map to one edge each.
 _BORDER_SIDES: dict[str, tuple[WdBorderType, ...]] = {
@@ -764,24 +799,23 @@ class Anchor(ABC):
         the *clean* way to page-break (e.g. apply it to every `Heading 1`): it's
         a paragraph property that survives reflow and leaves no stray break
         character, unlike [`insert_break`][wordlive.Anchor.insert_break].
-        `False` clears the property.
+        `False` clears the property. Indents/spacing accept a number (points) or
+        a unit string (`"0.5in"`).
         """
-        with _com.translate_com_errors():
-            pf = self._range().ParagraphFormat
-            if alignment is not None:
-                pf.Alignment = _coerce_alignment(alignment)
-            if left_indent is not None:
-                pf.LeftIndent = float(left_indent)
-            if right_indent is not None:
-                pf.RightIndent = float(right_indent)
-            if first_line_indent is not None:
-                pf.FirstLineIndent = float(first_line_indent)
-            if space_before is not None:
-                pf.SpaceBefore = float(space_before)
-            if space_after is not None:
-                pf.SpaceAfter = float(space_after)
-            if page_break_before is not None:
-                pf.PageBreakBefore = bool(page_break_before)
+        try:
+            with _com.translate_com_errors():
+                _apply_paragraph_format(
+                    self._range().ParagraphFormat,
+                    alignment=alignment,
+                    left_indent=left_indent,
+                    right_indent=right_indent,
+                    first_line_indent=first_line_indent,
+                    space_before=space_before,
+                    space_after=space_after,
+                    page_break_before=page_break_before,
+                )
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
 
     def format_run(
         self,

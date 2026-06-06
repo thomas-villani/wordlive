@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from .. import attach
 from .._anchors import Heading
 from .._guide import skill_body
-from .._ops import pick_doc, run_batch
+from .._ops import _PARA_FIELDS, _STYLE_RUN_FIELDS, pick_doc, run_batch
 from ..exceptions import OpError, WordliveError, classify
 from ._worker import ComWorker, Worker
 
@@ -259,6 +259,18 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
     if command == "add_tab_stop":
         op = {"op": "add_tab_stop", "anchor_id": need("anchor_id"), "position": need("position")}
         for k in ("align", "leader"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "add_style":
+        op = {"op": "add_style", "name": need("name")}
+        for k in ("type", "based_on", "next_style"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "set_style":
+        op = {"op": "set_style", "name": need("name")}
+        for k in (*_STYLE_RUN_FIELDS, *_PARA_FIELDS, "based_on", "next_style"):
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
@@ -541,6 +553,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "set_shading",
             "set_borders",
             "add_tab_stop",
+            "add_style",
+            "set_style",
             "list",
             "comment",
             "table",
@@ -604,6 +618,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         position: str | float | None = None,
         align: str | None = None,
         leader: str | None = None,
+        based_on: str | None = None,
+        next_style: str | None = None,
         kind: str | None = None,
         wrap: str | None = None,
         image_base64: str | None = None,
@@ -630,6 +646,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             line_style=single|double|dot|dash|none,weight,color]} ·
         add_tab_stop {anchor_id,position,[align=left|center|right|decimal|bar,
             leader=dots|dashes|lines|none]} ·
+        add_style {name,[type=paragraph|character|table|list,based_on,next_style]} —
+            define a new style ·
+        set_style {name,[bold,italic,underline,font,size,color,alignment,space_*,
+            based_on,next_style]} — set an existing style's font/paragraph defaults ·
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
         comment {action=add|resolve|delete,...} ·
         table {action=set_cell|add_row|delete_row|create|delete,
@@ -698,6 +718,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "position": position,
             "align": align,
             "leader": leader,
+            "based_on": based_on,
+            "next_style": next_style,
             "kind": kind,
             "wrap": wrap,
             "image_base64": image_base64,

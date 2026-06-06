@@ -6,7 +6,7 @@ import pytest
 
 import wordlive
 from wordlive.constants import WdParagraphAlignment
-from wordlive.exceptions import AnchorNotFoundError, StyleNotFoundError
+from wordlive.exceptions import AnchorNotFoundError, OpError, StyleNotFoundError
 
 # ---------------------------------------------------------------------------
 # StyleCollection
@@ -125,9 +125,11 @@ def test_format_paragraph_alignment_enum(fake_word):
 
 
 def test_format_paragraph_alignment_invalid_string_raises(fake_word):
+    # Bad input surfaces as OpError (exit 1, bad-input) so an exec batch reports
+    # it cleanly instead of crashing the op loop with a raw ValueError.
     with wordlive.attach() as word:
         doc = word.documents.active
-        with pytest.raises(ValueError):
+        with pytest.raises(OpError):
             doc.bookmarks["Address"].format_paragraph(alignment="diagonal")
 
 

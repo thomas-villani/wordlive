@@ -1067,6 +1067,125 @@ def style_apply(ctx: click.Context, anchor_id: str, name: str) -> None:
     _run(ctx, go)
 
 
+@style.command(name="add")
+@click.argument("name")
+@click.option(
+    "--type",
+    "style_type",
+    default="paragraph",
+    type=click.Choice(["paragraph", "character", "table", "list"]),
+    help="Kind of style to create.",
+)
+@click.option("--based-on", "based_on", default=None, help="Existing style to inherit from.")
+@click.option(
+    "--next-style", "next_style", default=None, help="Style applied to the following paragraph."
+)
+@click.pass_context
+def style_add(
+    ctx: click.Context, name: str, style_type: str, based_on: str | None, next_style: str | None
+) -> None:
+    """Define a new style NAME (atomic-undo). Style its defaults with `style set`."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: add style {name!r}"):
+                new = doc.styles.add(
+                    name, type=style_type, based_on=based_on, next_style=next_style
+                )
+            emit(
+                {"ok": True, "style": new.name, "type": style_type},
+                as_text=not ctx.obj["as_json"],
+                text=f"added style {name!r} ({style_type})",
+            )
+
+    _run(ctx, go)
+
+
+@style.command(name="set")
+@click.argument("name")
+@click.option("--bold/--no-bold", "bold", default=None, help="Bold.")
+@click.option("--italic/--no-italic", "italic", default=None, help="Italic.")
+@click.option("--underline/--no-underline", "underline", default=None, help="Single underline.")
+@click.option("--font", "font", default=None, help="Font family name.")
+@click.option("--size", "size", default=None, help="Font size in points or a unit string.")
+@click.option("--color", "color", default=None, help="Font colour: name, hex, or r,g,b.")
+@click.option(
+    "--alignment",
+    "alignment",
+    default=None,
+    type=click.Choice(["left", "center", "centre", "right", "justify"], case_sensitive=False),
+    help="Paragraph alignment.",
+)
+@click.option("--space-before", "space_before", default=None, help="Space before in points/units.")
+@click.option("--space-after", "space_after", default=None, help="Space after in points/units.")
+@click.option("--based-on", "based_on", default=None, help="Existing style to inherit from.")
+@click.option(
+    "--next-style", "next_style", default=None, help="Style applied to the following paragraph."
+)
+@click.pass_context
+def style_set(
+    ctx: click.Context,
+    name: str,
+    bold: bool | None,
+    italic: bool | None,
+    underline: bool | None,
+    font: str | None,
+    size: str | None,
+    color: str | None,
+    alignment: str | None,
+    space_before: str | None,
+    space_after: str | None,
+    based_on: str | None,
+    next_style: str | None,
+) -> None:
+    """Set the font / paragraph defaults of an existing style NAME (atomic-undo)."""
+    run_raw: dict[str, Any] = {
+        "bold": bold,
+        "italic": italic,
+        "underline": underline,
+        "font": font,
+        "size": size,
+        "color": _parse_color(color),
+    }
+    para_raw: dict[str, Any] = {
+        "alignment": alignment,
+        "space_before": space_before,
+        "space_after": space_after,
+    }
+    run_kwargs = {k: v for k, v in run_raw.items() if v is not None}
+    para_kwargs = {k: v for k, v in para_raw.items() if v is not None}
+    if not run_kwargs and not para_kwargs and based_on is None and next_style is None:
+        raise click.UsageError("pass at least one style property to set")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: set style {name!r}"):
+                style_obj = doc.styles[name]
+                if run_kwargs:
+                    style_obj.format_run(**run_kwargs)
+                if para_kwargs:
+                    style_obj.format_paragraph(**para_kwargs)
+                if based_on is not None:
+                    style_obj.base_style = based_on
+                if next_style is not None:
+                    style_obj.next_paragraph_style = next_style
+            emit(
+                {
+                    "ok": True,
+                    "style": name,
+                    "applied": {**run_kwargs, **para_kwargs},
+                    "based_on": based_on,
+                    "next_style": next_style,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"set style {name!r}",
+            )
+
+    _run(ctx, go)
+
+
 # ---------------------------------------------------------------------------
 # format-paragraph --anchor-id ID [--alignment ...] [--left-indent N] ...
 # ---------------------------------------------------------------------------
