@@ -335,6 +335,16 @@ These cluster because **creating a named anchor is the prerequisite for the
 rest** — cross-refs and internal hyperlinks both target a bookmark. Build in
 this order. Spike-confirmed 2026-05-31.
 
+> **Status (2026-06-07): shipped.** `doc.bookmarks.add`, `Anchor.link_to`,
+> `Anchor.insert_cross_reference`, and `Anchor.insert_caption` all landed across
+> the four surfaces and are covered by **live-Word smoke tests**. Live testing
+> caught three issues the fake-based unit tests missed: bookmark cross-refs take
+> the bookmark *name* (not an index) as `ReferenceItem`; `kind="text"` is invalid
+> for footnote/endnote cross-refs (falls back to the note number); and
+> `link_to(text=…)` now *inserts* linked text instead of overwriting the anchor's
+> range. See CHANGELOG `[Unreleased]`. **Deferred:** hyperlink read-back/edit,
+> cross-refs to list items/equations, caption numbering format + table of figures.
+
 ### Bookmark creation (first)
 
 - **`doc.bookmarks.add(name, anchor)`** — `Range.Bookmarks.Add(Name, Range)` over
