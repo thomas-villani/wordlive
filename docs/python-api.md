@@ -40,7 +40,8 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
 `format_run(...)`, `set_shading(...)`, `set_borders(...)`, `add_tab_stop(...)`,
 `insert_paragraph_before/after(...)`, `insert_image(...)`, `insert_table(...)`,
-`insert_break(...)`, `insert_field(...)`, and the list verbs (`apply_list`, `remove_list`,
+`insert_break(...)`, `insert_field(...)`, `insert_footnote(...)`,
+`insert_endnote(...)`, `insert_toc(...)`, and the list verbs (`apply_list`, `remove_list`,
 `list_info`, `restart_numbering`, `indent_list`, `outdent_list`) from
 [`Anchor`](#wordlive.Anchor), so the same calls work uniformly on bookmarks,
 content controls, headings, paragraphs, table cells, header/footer ranges, and
@@ -62,7 +63,12 @@ colours accept a name, hex, or `(r, g, b)` and sizes/positions accept points or
 a unit string (`"12pt"`, `"1in"`). `insert_field(kind, ...)` drops a
 self-updating field (`"page"`, `"numpages"`, `"date"`, …, or `"field"` + a raw
 code) — pair it with a footer for page numbers and refresh with
-[`Document.update_fields()`](#wordlive.Document). Every anchor also has `snapshot(...)`, which
+[`Document.update_fields()`](#wordlive.Document). `insert_footnote(text)` /
+`insert_endnote(text)` attach a note to the anchor's range and return a
+[`Footnote`](#wordlive.Footnote) / [`Endnote`](#wordlive.Endnote) (addressed
+`footnote:N` / `endnote:N`); `insert_toc(levels=(1, 3), …)` inserts a table of
+contents and returns a [`Toc`](#wordlive.Toc) — see
+[Footnotes, endnotes & TOC](#footnotes-endnotes-toc). Every anchor also has `snapshot(...)`, which
 renders the page(s) it sits on to PNG (a heading expands to its whole section) —
 see [Snapshots](#snapshots).
 
@@ -85,6 +91,34 @@ see [Snapshots](#snapshots).
 ::: wordlive.StartAnchor
 
 ::: wordlive.EndAnchor
+
+## Footnotes, endnotes & TOC
+
+Notes and the table of contents are reference structures built from anchors.
+`anchor.insert_footnote(text)` / `insert_endnote(text)` drop a reference mark at
+the anchor and put the body in the note story; they return a
+[`Footnote`](#wordlive.Footnote) / [`Endnote`](#wordlive.Endnote) addressed
+`footnote:N` / `endnote:N`, so `note.set_text(...)` edits the body and
+`note.delete()` removes the mark and body together. Discover existing notes with
+`doc.footnotes` / `doc.endnotes` (read-only collections whose `list()` reports
+each note's number, text, and the `para:N` it's anchored at).
+
+`anchor.insert_toc(levels=(1, 3), use_heading_styles=True, hyperlinks=True)`
+inserts a table of contents over the document's headings and returns a
+[`Toc`](#wordlive.Toc); `doc.add_toc(...)` is the sugar for placing one at the
+document start. A TOC's page numbers only populate after repagination — call
+`toc.update()`, [`Document.update_fields()`](#wordlive.Document), or take a
+`snapshot` (which forces print layout) before reading them.
+
+::: wordlive.Footnote
+
+::: wordlive.Endnote
+
+::: wordlive.FootnoteCollection
+
+::: wordlive.EndnoteCollection
+
+::: wordlive.Toc
 
 ## Styles
 

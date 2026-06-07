@@ -32,6 +32,7 @@ short string you pass as `--anchor-id`:
 | `para:N`             | the Nth paragraph, any kind (see `paragraphs`) |
 | `bookmark:NAME`      | a bookmark |
 | `cc:NAME`            | a content control (by title) |
+| `footnote:N` / `endnote:N` | the Nth note's body (1-based; see `footnotes` / `endnotes`) |
 | `table:N:R:C`        | row R, col C of the Nth table (all 1-based) |
 | `range:START-END`    | a raw character span (what `find` emits) |
 | `header:S:WHICH` / `footer:S:WHICH` | header/footer of section S (`primary` / `first` / `even`) |
@@ -47,6 +48,7 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive read bookmark NAME` · `read cc NAME` · `read section "Heading Text"`
 - `wordlive find --text "phrase"` — locate before editing; returns `range:` ids.
 - `wordlive table list` · `wordlive table read N`
+- `wordlive footnotes` · `wordlive endnotes` — each note's `footnote:N`/`endnote:N` id, text, and `para:N`.
 
 ## Writing — each command is one atomic undo
 - `wordlive write bookmark NAME --text "…"` · `write cc NAME --text "…"`
@@ -62,6 +64,8 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive shading --anchor-id ID --fill "#FFF2CC"` · `wordlive borders --anchor-id ID [--sides all|top|…] [--style single|double|dot|dash] [--weight 0.5] [--color black]` · `wordlive tab-stop --anchor-id ID --position 3in [--align right] [--leader dots]` — range/cell fill, borders, and tab stops (a cell is an anchor, so these shade/border table cells too).
 - `wordlive insert-break --anchor-id ID [--kind page|column|section_next|section_continuous] [--before | --after]` — an **explicit** one-off page/column/section break (the discoverable replacement for a literal form-feed paragraph). `--kind` defaults to `page`. Section breaks start a new section that can carry its own headers/footers + page setup. For a break that follows a *style*, prefer `format-paragraph --page-break-before`.
 - `wordlive insert-field --anchor-id ID --kind page|numpages|date|time|filename|author|title|field [--text "RAW CODE"] [--before | --after]` — a **self-updating** field; put page numbers in a footer (`--anchor-id footer:1:primary --kind page`). `--kind field` takes a raw field code via `--text`. Refresh stale fields with `wordlive update-fields`.
+- `wordlive insert-footnote --anchor-id ID --text "…"` · `wordlive insert-endnote --anchor-id ID --text "…"` — attach a footnote/endnote to a range; reports the new `footnote:N`/`endnote:N`. List them with `wordlive footnotes` / `wordlive endnotes`.
+- `wordlive insert-toc [--anchor-id start] [--levels 1-3] [--no-heading-styles] [--no-hyperlinks]` — insert a table of contents from the headings. Page numbers fill in after `wordlive update-fields` (or `snapshot`).
 - `wordlive page-setup [--section N] [--margins 1in] [--top-margin … --bottom-margin … --left-margin … --right-margin …] [--gutter …] [--orientation portrait|landscape] [--paper-size letter|legal|tabloid|a3|a4|a5] [--columns N] [--column-spacing …]` — set a section's page geometry. `--margins` sets all four (per-side flags override); lengths take points or a unit string; `--columns N` makes N equal columns. `--section` defaults to `1`.
 - `wordlive list apply --anchor-id ID --type bulleted|numbered|outline` (+ `list remove|restart|indent|outdent`).
 - `wordlive table create --anchor-id ID --rows R --cols C [--style NAME] [--header] [--before | --after] [--data '[["…"],…]' | --data -]` — **build a new table** at a *position* anchor (`heading:`/`para:`/`start`/`end`); reports its 1-based `index`. Fill cells row-major with `--data` (use `--data -` for stdin to dodge Windows quoting); `--style` defaults to `Table Grid` (visible borders); `--header` bolds row 1. New cells default to the `Normal` paragraph style regardless of the anchor, so a table dropped under a heading doesn't inherit that heading style. Edit existing tables with `table add-row`/`delete-row` and `table delete N`; cells are anchors (`table:N:R:C`) you can `replace`/`style apply`/`format-paragraph`.
