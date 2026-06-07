@@ -61,6 +61,10 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_footnote": ("anchor_id", "text"),
     "insert_endnote": ("anchor_id", "text"),
     "insert_toc": ("anchor_id",),
+    "add_bookmark": ("name", "anchor_id"),
+    "add_hyperlink": ("anchor_id",),
+    "insert_cross_reference": ("anchor_id", "target"),
+    "insert_caption": ("anchor_id",),
     "set_cell": ("table", "row", "col", "text"),
     "add_row": ("table",),
     "delete_row": ("table", "row"),
@@ -180,6 +184,10 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_footnote": _WHERE_FIELDS,
     "insert_endnote": _WHERE_FIELDS,
     "insert_toc": ("levels", "use_heading_styles", "hyperlinks", *_WHERE_FIELDS),
+    "add_bookmark": (),
+    "add_hyperlink": ("url", "bookmark", "text", "screen_tip"),
+    "insert_cross_reference": ("kind", "hyperlink", *_WHERE_FIELDS),
+    "insert_caption": ("label", "text", *_WHERE_FIELDS),
     "set_cell": (),
     "add_row": ("values",),
     "delete_row": (),
@@ -364,6 +372,28 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             where=("before" if op_before(op) else "after"), **kwargs
         )
         return {"toc": True}
+    elif kind == "add_bookmark":
+        doc.bookmarks.add(op["name"], op["anchor_id"])
+        return {"bookmark": op["name"]}
+    elif kind == "add_hyperlink":
+        if ("url" in op) == ("bookmark" in op):
+            raise OpError("op 'add_hyperlink' requires exactly one of 'url' or 'bookmark'")
+        doc.anchor_by_id(op["anchor_id"]).link_to(
+            address=op.get("url"),
+            bookmark=op.get("bookmark"),
+            text=op.get("text"),
+            screen_tip=op.get("screen_tip"),
+        )
+    elif kind == "insert_cross_reference":
+        kwargs = {k: op[k] for k in ("kind", "hyperlink") if k in op}
+        doc.anchor_by_id(op["anchor_id"]).insert_cross_reference(
+            op["target"], where=("before" if op_before(op) else "after"), **kwargs
+        )
+    elif kind == "insert_caption":
+        kwargs = {k: op[k] for k in ("label", "text") if k in op}
+        doc.anchor_by_id(op["anchor_id"]).insert_caption(
+            where=("before" if op_before(op) else "after"), **kwargs
+        )
     elif kind == "set_cell":
         doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
     elif kind == "add_row":
