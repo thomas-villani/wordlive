@@ -86,6 +86,9 @@ def register(group: click.Group) -> None:
     group.add_command(write)
     group.add_command(insert)
     group.add_command(insert_break_cmd)
+    group.add_command(insert_field_cmd)
+    group.add_command(update_fields_cmd)
+    group.add_command(page_setup_cmd)
     group.add_command(prepend_cmd)
     group.add_command(append_cmd)
     group.add_command(insert_image_cmd)
@@ -428,6 +431,83 @@ def insert_break_cmd(ctx: click.Context, anchor_id: str, kind: str, before: bool
                 {"ok": True, "anchor_id": anchor_id, "kind": kind, "where": where},
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted {kind} break {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="insert-field")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Anchor to insert the field at (e.g. footer:1:primary, end).",
+)
+@click.option(
+    "--kind",
+    "kind",
+    type=click.Choice(["page", "numpages", "date", "time", "filename", "author", "title", "field"]),
+    required=True,
+    help="Field kind. Use 'field' with --text for a raw field code.",
+)
+@click.option(
+    "--text",
+    "text",
+    default=None,
+    help="Raw field code, required when --kind field (e.g. 'REF myBookmark').",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert the field before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_field_cmd(
+    ctx: click.Context, anchor_id: str, kind: str, text: str | None, before: bool
+) -> None:
+    """Insert a self-updating field (page number, date, …) at an anchor (atomic-undo).
+
+    Page numbers belong in a footer/header: `insert-field --anchor-id
+    footer:1:primary --kind page`. Refresh stale fields with `update-fields`.
+    """
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert {kind} field {where} {anchor_id}"):
+                anchor.insert_field(kind, text=text, where=where)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": {"kind": kind, "text": text, "where": where},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted {kind} field {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="update-fields")
+@click.pass_context
+def update_fields_cmd(ctx: click.Context) -> None:
+    """Refresh the document's fields — recompute page numbers, refs, dates (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit("CLI: update fields"):
+                doc.update_fields()
+            emit(
+                {"ok": True, "updated": True},
+                as_text=not ctx.obj["as_json"],
+                text="updated fields",
             )
 
     _run(ctx, go)
@@ -2247,6 +2327,89 @@ def footer_write(ctx: click.Context, section_index: int, which: str, text: str) 
                 {"ok": True, "anchor_id": hf.anchor_id, "section": section_index, "which": which},
                 as_text=not ctx.obj["as_json"],
                 text=f"wrote {hf.anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="page-setup")
+@_SECTION_OPTION
+@click.option(
+    "--margins", "margins", default=None, help="All four margins at once (points or '1in')."
+)
+@click.option("--top-margin", "top_margin", default=None, help="Top margin (points or '1in').")
+@click.option(
+    "--bottom-margin", "bottom_margin", default=None, help="Bottom margin (points or '1in')."
+)
+@click.option("--left-margin", "left_margin", default=None, help="Left margin (points or '1in').")
+@click.option(
+    "--right-margin", "right_margin", default=None, help="Right margin (points or '1in')."
+)
+@click.option("--gutter", "gutter", default=None, help="Binding gutter (points or a unit string).")
+@click.option(
+    "--orientation",
+    "orientation",
+    type=click.Choice(["portrait", "landscape"]),
+    default=None,
+    help="Page orientation.",
+)
+@click.option(
+    "--paper-size",
+    "paper_size",
+    type=click.Choice(["letter", "legal", "tabloid", "a3", "a4", "a5"]),
+    default=None,
+    help="Paper size (resizes the page).",
+)
+@click.option(
+    "--columns", "columns", type=int, default=None, help="Number of equal newspaper columns."
+)
+@click.option(
+    "--column-spacing", "column_spacing", default=None, help="Gap between columns (points/unit)."
+)
+@click.pass_context
+def page_setup_cmd(
+    ctx: click.Context,
+    section_index: int,
+    margins: str | None,
+    top_margin: str | None,
+    bottom_margin: str | None,
+    left_margin: str | None,
+    right_margin: str | None,
+    gutter: str | None,
+    orientation: str | None,
+    paper_size: str | None,
+    columns: int | None,
+    column_spacing: str | None,
+) -> None:
+    """Set a section's page geometry: margins, orientation, paper size, columns (atomic-undo)."""
+    applied: dict[str, Any] = {
+        k: v
+        for k, v in {
+            "margins": margins,
+            "top_margin": top_margin,
+            "bottom_margin": bottom_margin,
+            "left_margin": left_margin,
+            "right_margin": right_margin,
+            "gutter": gutter,
+            "orientation": orientation,
+            "paper_size": paper_size,
+            "columns": columns,
+            "column_spacing": column_spacing,
+        }.items()
+        if v is not None
+    }
+    if not applied:
+        raise click.UsageError("give at least one page-setup option to change.")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: page setup section {section_index}"):
+                doc.sections[section_index].set_page_setup(**applied)
+            emit(
+                {"ok": True, "section": section_index, "applied": applied},
+                as_text=not ctx.obj["as_json"],
+                text=f"set page setup on section {section_index}: {applied}",
             )
 
     _run(ctx, go)

@@ -19,9 +19,10 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from . import _com
-from ._anchors import Anchor, range_text
-from .constants import WdHeaderFooterIndex, WdOrientation
-from .exceptions import AnchorNotFoundError
+from ._anchors import Anchor, _coerce_named, range_text
+from ._format import to_points
+from .constants import WdHeaderFooterIndex, WdOrientation, WdPaperSize
+from .exceptions import AnchorNotFoundError, OpError
 
 if TYPE_CHECKING:
     from ._document import Document
@@ -45,6 +46,21 @@ _CANONICAL_WHICH: dict[int, str] = {
     int(WdHeaderFooterIndex.PRIMARY): "primary",
     int(WdHeaderFooterIndex.FIRST_PAGE): "first",
     int(WdHeaderFooterIndex.EVEN_PAGES): "even",
+}
+
+# Name -> Wd* for the `set_page_setup` coercers.
+_ORIENTATIONS: dict[str, int] = {
+    "portrait": int(WdOrientation.PORTRAIT),
+    "landscape": int(WdOrientation.LANDSCAPE),
+}
+_PAPER_SIZES: dict[str, int] = {
+    "letter": int(WdPaperSize.LETTER),
+    "tabloid": int(WdPaperSize.TABLOID),
+    "ledger": int(WdPaperSize.TABLOID),  # alias for tabloid
+    "legal": int(WdPaperSize.LEGAL),
+    "a3": int(WdPaperSize.A3),
+    "a4": int(WdPaperSize.A4),
+    "a5": int(WdPaperSize.A5),
 }
 
 
@@ -128,6 +144,16 @@ class HeaderFooter(Anchor):
         with _com.translate_com_errors():
             return bool(self._hf().LinkToPrevious)
 
+    def insert_page_number(self, *, where: str = "after") -> None:
+        """Insert a `{ PAGE }` page-number field into this header/footer.
+
+        Sugar for [`insert_field("page")`][wordlive.Anchor.insert_field] — the
+        canonical place for a page number. Combine with a literal "Page " /
+        " of " and an `insert_field("numpages")` for a "Page X of Y" footer.
+        Wrap in `doc.edit(...)` for atomic undo.
+        """
+        self.insert_field("page", where=where)
+
 
 class Section:
     """Wraps a Word `Section`, located by its 1-based document position."""
@@ -172,6 +198,89 @@ class Section:
                 "page_width": float(_safe(ps, "PageWidth", 0.0)),
                 "page_height": float(_safe(ps, "PageHeight", 0.0)),
             }
+
+    def set_page_setup(
+        self,
+        *,
+        margins: Any = None,
+        top_margin: Any = None,
+        bottom_margin: Any = None,
+        left_margin: Any = None,
+        right_margin: Any = None,
+        gutter: Any = None,
+        orientation: Any = None,
+        paper_size: Any = None,
+        columns: int | None = None,
+        column_spacing: Any = None,
+    ) -> None:
+        """Set this section's page geometry — the write mirror of `page_setup()`.
+
+        All kwargs are optional and tri-state; only the ones passed are written.
+        `margins` sets all four margins at once; the per-side `*_margin` kwargs
+        override it. Lengths (`margins`, `*_margin`, `gutter`, `column_spacing`)
+        are in points or a unit string (`"1in"`, `"2.5cm"`). `orientation` is
+        `"portrait"` / `"landscape"`; `paper_size` is `"letter"` / `"legal"` /
+        `"tabloid"` / `"a3"` / `"a4"` / `"a5"` (setting it resizes the page).
+        `columns` (an int ≥ 1) lays the section out in that many equal,
+        newspaper-style columns — the section counterpart to
+        [`insert_break("column")`][wordlive.Anchor.insert_break] — with
+        `column_spacing` as the gap between them.
+
+        Per-section: `doc.sections[N].set_page_setup(...)`; for a single-section
+        document `doc.sections[1]` is the whole document. Bad input raises
+        `OpError`. Wrap in `doc.edit(...)` for atomic undo.
+
+        Deferred: unequal column widths, line numbering, vertical alignment,
+        and different-first-page toggles.
+        """
+        try:
+            if columns is not None and (
+                isinstance(columns, bool) or not isinstance(columns, int) or columns < 1
+            ):
+                raise ValueError(f"columns must be a positive integer; got {columns!r}")
+            # Resolve everything that can raise before touching COM, so a bad
+            # value leaves the page setup untouched rather than half-applied.
+            agg = to_points(margins) if margins is not None else None
+            res_top = to_points(top_margin) if top_margin is not None else agg
+            res_bottom = to_points(bottom_margin) if bottom_margin is not None else agg
+            res_left = to_points(left_margin) if left_margin is not None else agg
+            res_right = to_points(right_margin) if right_margin is not None else agg
+            res_gutter = to_points(gutter) if gutter is not None else None
+            res_spacing = to_points(column_spacing) if column_spacing is not None else None
+            wd_orientation = (
+                _coerce_named(orientation, _ORIENTATIONS, "orientation")
+                if orientation is not None
+                else None
+            )
+            wd_paper = (
+                _coerce_named(paper_size, _PAPER_SIZES, "paper size")
+                if paper_size is not None
+                else None
+            )
+            with _com.translate_com_errors():
+                ps = self._com.PageSetup
+                # Orientation / paper size first: each resizes the page, and we
+                # want any explicit margins below to win over the resize.
+                if wd_orientation is not None:
+                    ps.Orientation = wd_orientation
+                if wd_paper is not None:
+                    ps.PaperSize = wd_paper
+                if res_top is not None:
+                    ps.TopMargin = res_top
+                if res_bottom is not None:
+                    ps.BottomMargin = res_bottom
+                if res_left is not None:
+                    ps.LeftMargin = res_left
+                if res_right is not None:
+                    ps.RightMargin = res_right
+                if res_gutter is not None:
+                    ps.Gutter = res_gutter
+                if columns is not None:
+                    ps.TextColumns.SetCount(int(columns))
+                if res_spacing is not None:
+                    ps.TextColumns.Spacing = res_spacing
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
 
     def to_dict(self) -> dict[str, Any]:
         """`{index, page_setup}` — the JSON shape `sections.list()` emits."""
