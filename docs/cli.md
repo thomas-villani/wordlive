@@ -301,6 +301,66 @@ $ wordlive update-fields
 
 Failures: `3` Word busy, `4` Word not running.
 
+## `insert-footnote --anchor-id ID --text "…"` / `insert-endnote …`
+
+```
+wordlive insert-footnote --anchor-id ID --text "NOTE BODY" [--before | --after] [--doc DOC_NAME]
+wordlive insert-endnote  --anchor-id ID --text "NOTE BODY" [--before | --after] [--doc DOC_NAME]
+```
+
+Attach a footnote (bottom of the page) or endnote (end of the document) to the
+anchor's range; Word auto-numbers the reference mark. Reports the new note's id
+so you can edit or remove it later (`footnote:N` / `endnote:N` resolve through
+`--anchor-id` everywhere).
+
+```bash
+$ wordlive insert-footnote --anchor-id range:120-140 --text "See appendix B."
+{"ok": true, "anchor_id": "range:120-140", "footnote": 1, "note_id": "footnote:1"}
+```
+
+Failures: `1` bad input; `2` anchor not found; `3` Word busy.
+
+## `insert-toc [--anchor-id ID] [--levels A-B] [--no-heading-styles] [--no-hyperlinks]`
+
+```
+wordlive insert-toc [--anchor-id ID] [--levels 1-3]
+    [--heading-styles | --no-heading-styles] [--hyperlinks | --no-hyperlinks]
+    [--before | --after] [--doc DOC_NAME]
+```
+
+Insert a table of contents built from the document's headings. `--anchor-id`
+defaults to `start` (the top of the document); `--levels` is the inclusive
+heading-level span (`1-3` = Heading 1–3). Entries link to their headings unless
+`--no-hyperlinks`.
+
+```bash
+$ wordlive insert-toc --levels 1-2
+{"ok": true, "anchor_id": "start",
+ "applied": {"levels": [1, 2], "use_heading_styles": true, "hyperlinks": true, "where": "after"}}
+```
+
+Page numbers populate only after repagination — run `update-fields` (or
+`snapshot`) before reading them. Failures: `1` bad input (e.g. malformed
+`--levels`); `2` anchor not found; `3` Word busy.
+
+## `footnotes` / `endnotes`
+
+```
+wordlive footnotes [--doc DOC_NAME]
+wordlive endnotes  [--doc DOC_NAME]
+```
+
+List the document's footnotes / endnotes — each note's `footnote:N` / `endnote:N`
+id, number, body text, and the `para:N` its reference mark sits in.
+
+```bash
+$ wordlive footnotes
+[{"index": 1, "anchor_id": "footnote:1", "marker": "1",
+  "text": "See appendix B.", "para": "para:6"}]
+```
+
+Failures: `3` Word busy, `4` Word not running.
+
 ## `prepend --text "…"` / `append --text "…"`
 
 ```
@@ -1180,6 +1240,12 @@ Script shape:
 | `create_table`         | `anchor_id`, `rows`, `cols`                | `style`, `data` (row-major 2-D), `header`, `where` or `before: true` (new cells default to the `Normal` paragraph style) |
 | `delete_table`         | `table`                                    | —                                 |
 | `insert_break`         | `anchor_id`                                | `kind` (`page`/`column`/`section_next`/`section_continuous`), `where` or `before: true` |
+| `insert_field`         | `anchor_id`, `kind`                        | `text` (raw code for `kind: field`), `where` or `before: true` |
+| `update_fields`        | —                                          | —                                 |
+| `set_page_setup`       | `section`                                  | `margins`, `top_margin`, `bottom_margin`, `left_margin`, `right_margin`, `gutter`, `orientation`, `paper_size`, `columns`, `column_spacing` |
+| `insert_footnote`      | `anchor_id`, `text`                        | `where` or `before: true`         |
+| `insert_endnote`       | `anchor_id`, `text`                        | `where` or `before: true`         |
+| `insert_toc`           | `anchor_id`                                | `levels` (`[upper, lower]`), `use_heading_styles`, `hyperlinks`, `where` or `before: true` |
 | `add_comment`          | `anchor_id`, `text`                        | `author`                          |
 | `resolve_comment`      | `index`                                    | —                                 |
 | `delete_comment`       | `index`                                    | —                                 |
@@ -1262,6 +1328,11 @@ reflow-safe page break tied to a paragraph (rather than a one-off mark), use a
 (no args) recomputes the document's fields. `set_page_setup` mirrors `page-setup`,
 taking a 1-based `section` plus any of `margins`, the per-side `*_margin` fields,
 `gutter`, `orientation`, `paper_size`, `columns`, and `column_spacing`.
+
+`insert_footnote` / `insert_endnote` attach a note to an `anchor_id` and report
+the new `footnote:N` / `endnote:N` in the batch's `outputs`. `insert_toc` inserts
+a table of contents (`levels` is a `[upper, lower]` pair, default `[1, 3]`);
+follow it with an `update_fields` op so its page numbers populate.
 
 `add_comment`, `resolve_comment`, and `delete_comment` mirror the `comment`
 verbs — `add_comment` attaches a side-channel annotation to an `anchor_id`

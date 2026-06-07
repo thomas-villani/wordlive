@@ -30,11 +30,13 @@ from ._comments import Comment, CommentCollection
 from ._document import Document, DocumentCollection
 from ._edit import EditScope
 from ._lists import ListCollection
+from ._notes import Endnote, EndnoteCollection, Footnote, FootnoteCollection
 from ._sections import HeaderFooter, Section, SectionCollection
 from ._selection import Selection, SelectionSnapshot
 from ._snapshot import Snapshot
 from ._styles import Style, StyleCollection
 from ._tables import Cell, Table, TableCollection
+from ._toc import Toc
 from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
@@ -64,6 +66,10 @@ __all__ = [
     "DocumentNotFoundError",
     "EditScope",
     "EndAnchor",
+    "Endnote",
+    "EndnoteCollection",
+    "Footnote",
+    "FootnoteCollection",
     "Heading",
     "HeadingCollection",
     "HeaderFooter",
@@ -85,6 +91,7 @@ __all__ = [
     "StyleNotFoundError",
     "Table",
     "TableCollection",
+    "Toc",
     "Word",
     "WordBusyError",
     "WordNotRunningError",

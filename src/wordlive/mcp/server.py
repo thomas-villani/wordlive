@@ -160,6 +160,10 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.comments.list()
             if command == "sections":
                 return doc.sections.list()
+            if command == "footnotes":
+                return doc.footnotes.list()
+            if command == "endnotes":
+                return doc.endnotes.list()
             raise OpError(f"unknown read command: {command!r}")
 
     return worker.run_on_word(job)
@@ -293,6 +297,25 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         return op
     if command == "update_fields":
         return {"op": "update_fields"}
+    if command in ("insert_footnote", "insert_endnote"):
+        return {
+            "op": command,
+            "anchor_id": need("anchor_id"),
+            "text": need("text"),
+            "before": bool(p.get("before", False)),
+        }
+    if command == "insert_toc":
+        op = {
+            "op": "insert_toc",
+            "anchor_id": p.get("anchor_id") or "start",
+            "before": bool(p.get("before", False)),
+        }
+        if p.get("levels") is not None:
+            op["levels"] = p["levels"]
+        for k in ("use_heading_styles", "hyperlinks"):
+            if p.get(k) is not None:
+                op[k] = bool(p[k])
+        return op
     if command == "page_setup":
         op = {"op": "set_page_setup", "section": need("section")}
         for k in _PAGE_SETUP_FIELDS:
@@ -516,6 +539,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "styles",
             "comments",
             "sections",
+            "footnotes",
+            "endnotes",
         ],
         doc: str | None = None,
         name: str | None = None,
@@ -536,8 +561,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         outline [all_paragraphs] · paragraphs [start,count] ·
         find {text,[in_anchor]} · read_bookmark {name} · read_cc {name} ·
         read_section {heading | anchor_id} · table_list · table_read {table} ·
-        styles · comments · sections. `doc` targets a document by name (default:
-        active).
+        styles · comments · sections · footnotes · endnotes. `doc` targets a
+        document by name (default: active).
         """
         params = {
             "doc": doc,
@@ -583,6 +608,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "insert_break",
             "insert_field",
             "update_fields",
+            "insert_footnote",
+            "insert_endnote",
+            "insert_toc",
             "page_setup",
         ],
         doc: str | None = None,
@@ -660,6 +688,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         paper_size: str | None = None,
         columns: int | None = None,
         column_spacing: str | float | None = None,
+        levels: list[int] | None = None,
+        use_heading_styles: bool | None = None,
+        hyperlinks: bool | None = None,
     ) -> dict[str, Any]:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
@@ -689,6 +720,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         insert_field {anchor_id,kind=page|numpages|date|time|filename|author|title|field,[text,before]} —
             a self-updating field; put page numbers in a footer; kind=field takes a raw code in text ·
         update_fields {} — recompute the document's fields (page numbers, refs, dates) ·
+        insert_footnote {anchor_id,text,[before]} / insert_endnote {anchor_id,text,[before]} —
+            a note anchored to a range; the new footnote:N/endnote:N is in result ·
+        insert_toc {[anchor_id=start],levels=[upper,lower],use_heading_styles,hyperlinks,[before]} —
+            a table of contents; run update_fields after to populate page numbers ·
         page_setup {[section=1],margins|top_margin|bottom_margin|left_margin|right_margin|gutter,
             orientation=portrait|landscape,paper_size=letter|legal|tabloid|a3|a4|a5,columns,column_spacing} —
             section page geometry; lengths accept unit strings ·
@@ -776,6 +811,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "paper_size": paper_size,
             "columns": columns,
             "column_spacing": column_spacing,
+            "levels": levels,
+            "use_heading_styles": use_heading_styles,
+            "hyperlinks": hyperlinks,
         }
         try:
             return _write_impl(w, command, params)
@@ -818,6 +856,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           insert_image {anchor_id,wrap, path|base64, [before,block,width,height,alt_text,lock_aspect]} ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
+          insert_footnote/insert_endnote {anchor_id,text,[before]} — returns the new footnote:N/endnote:N in outputs ·
+          insert_toc {anchor_id,[levels=[upper,lower],use_heading_styles,hyperlinks,before]} — update_fields after to fill page numbers ·
           create_table {anchor_id,rows,cols,[style,data,header,before]} — cells default to Normal; returns the new index in outputs ·
           set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} · delete_table {table} ·
           add_comment {anchor_id,text,[author]} · resolve_comment {index} · delete_comment {index} ·

@@ -58,6 +58,9 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_field": ("anchor_id", "kind"),
     "set_page_setup": ("section",),
     "update_fields": (),
+    "insert_footnote": ("anchor_id", "text"),
+    "insert_endnote": ("anchor_id", "text"),
+    "insert_toc": ("anchor_id",),
     "set_cell": ("table", "row", "col", "text"),
     "add_row": ("table",),
     "delete_row": ("table", "row"),
@@ -174,6 +177,9 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_field": ("text", *_WHERE_FIELDS),
     "set_page_setup": _PAGE_SETUP_FIELDS,
     "update_fields": (),
+    "insert_footnote": _WHERE_FIELDS,
+    "insert_endnote": _WHERE_FIELDS,
+    "insert_toc": ("levels", "use_heading_styles", "hyperlinks", *_WHERE_FIELDS),
     "set_cell": (),
     "add_row": ("values",),
     "delete_row": (),
@@ -342,6 +348,22 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         doc.sections[op["section"]].set_page_setup(**kwargs)
     elif kind == "update_fields":
         doc.update_fields()
+    elif kind == "insert_footnote":
+        note = doc.anchor_by_id(op["anchor_id"]).insert_footnote(
+            op["text"], where=("before" if op_before(op) else "after")
+        )
+        return {"footnote": note.index, "anchor_id": note.anchor_id}
+    elif kind == "insert_endnote":
+        note = doc.anchor_by_id(op["anchor_id"]).insert_endnote(
+            op["text"], where=("before" if op_before(op) else "after")
+        )
+        return {"endnote": note.index, "anchor_id": note.anchor_id}
+    elif kind == "insert_toc":
+        kwargs = {k: op[k] for k in ("levels", "use_heading_styles", "hyperlinks") if k in op}
+        doc.anchor_by_id(op["anchor_id"]).insert_toc(
+            where=("before" if op_before(op) else "after"), **kwargs
+        )
+        return {"toc": True}
     elif kind == "set_cell":
         doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
     elif kind == "add_row":

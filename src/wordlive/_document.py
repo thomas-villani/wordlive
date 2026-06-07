@@ -25,6 +25,7 @@ from ._anchors import (
 from ._comments import CommentCollection
 from ._edit import EditScope
 from ._lists import ListCollection
+from ._notes import EndnoteCollection, FootnoteCollection
 from ._sections import SectionCollection
 from ._selection import Selection
 from ._snapshot import Snapshot
@@ -146,6 +147,28 @@ class Document:
         return CommentCollection(self)
 
     @property
+    def footnotes(self) -> FootnoteCollection:
+        """Read-only, iterable view over the document's footnotes (`doc.footnotes`).
+
+        Index a footnote by 1-based position (`doc.footnotes[2]`) to get a
+        [`Footnote`][wordlive.Footnote] anchor (`footnote:N`) whose `set_text` /
+        `delete` edit the note. `list()` summarises each note (number, body
+        text, and the `para:N` it's anchored at). Create one with
+        [`Anchor.insert_footnote`][wordlive.Anchor.insert_footnote].
+        """
+        return FootnoteCollection(self)
+
+    @property
+    def endnotes(self) -> EndnoteCollection:
+        """Read-only, iterable view over the document's endnotes (`doc.endnotes`).
+
+        The endnote mirror of [`footnotes`][wordlive.Document.footnotes]; notes
+        are addressed `endnote:N`. Create one with
+        [`Anchor.insert_endnote`][wordlive.Anchor.insert_endnote].
+        """
+        return EndnoteCollection(self)
+
+    @property
     def selection(self) -> Selection:
         return self._word.selection
 
@@ -239,6 +262,26 @@ class Document:
             rows, cols, where="after", style=style, data=data, header=header
         )
 
+    def add_toc(
+        self,
+        *,
+        levels: tuple[int, int] = (1, 3),
+        use_heading_styles: bool = True,
+        hyperlinks: bool = True,
+    ) -> Any:
+        """Insert a table of contents at the very start of the document.
+
+        The "documents want their TOC at the top" helper — sugar for
+        `self.start.insert_toc(...)`. See
+        [`Anchor.insert_toc`][wordlive.Anchor.insert_toc] for the full semantics
+        of `levels` (a ``(upper, lower)`` heading-level pair), `use_heading_styles`,
+        and `hyperlinks`, and for the page-number-repagination caveat. Returns
+        the new [`Toc`][wordlive.Toc]. Wrap in `doc.edit(...)` for atomic undo.
+        """
+        return self.start.insert_toc(
+            levels=levels, use_heading_styles=use_heading_styles, hyperlinks=hyperlinks
+        )
+
     def heading(self, name: str) -> Heading:
         # Lazy lookup — Heading.__init__ doesn't hit COM. _range() validates.
         return Heading(self, name)
@@ -262,6 +305,8 @@ class Document:
           - `para:N`           — Nth paragraph (1-based, any paragraph; same index space as `heading:N`)
           - `bookmark:NAME`    — bookmark by name
           - `cc:NAME`          — content control by Title (or Tag)
+          - `footnote:N`       — Nth footnote (1-based), resolving to its note body
+          - `endnote:N`        — Nth endnote (1-based), resolving to its note body
           - `table:N:R:C`      — cell at 1-based (row, column) of the Nth table
           - `range:START-END`  — arbitrary character span (the form `find()` emits)
           - `header:S:WHICH`   — the WHICH header of section S (WHICH = primary/first/even)
@@ -299,6 +344,16 @@ class Document:
             return self.bookmarks[value]
         if kind == "cc":
             return self.content_controls[value]
+        if kind in ("footnote", "endnote"):
+            try:
+                idx = int(value)
+            except ValueError as e:
+                raise AnchorNotFoundError(kind, anchor_id) from e
+            coll = self.footnotes if kind == "footnote" else self.endnotes
+            try:
+                return coll[idx]
+            except AnchorNotFoundError as e:
+                raise AnchorNotFoundError(kind, anchor_id) from e
         if kind == "table":
             parts = value.split(":")
             if len(parts) != 3:
@@ -346,7 +401,7 @@ class Document:
             anchor_id,
             hint=(
                 f"unknown anchor type {kind!r}; expected one of "
-                "start/end/heading/para/bookmark/cc/table/range/header/footer"
+                "start/end/heading/para/bookmark/cc/footnote/endnote/table/range/header/footer"
             ),
         )
 

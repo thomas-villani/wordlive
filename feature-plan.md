@@ -288,6 +288,15 @@ clipboard, no save-to-temp, no fragile position→media mapping, pure stdlib
 Note/field structures that attach to a range, so they fit the anchor model like
 `insert_table`/`insert_image` did. Spike-confirmed 2026-05-31 (live Word).
 
+> **Status (2026-06-07): shipped.** Footnotes/endnotes (`insert_footnote`/
+> `insert_endnote`, `footnote:N`/`endnote:N` anchors, `doc.footnotes`/
+> `doc.endnotes`) and the table of contents (`insert_toc`/`add_toc`, `Toc.update()`)
+> all landed across the four surfaces. `doc.update_fields()` (the TOC/field
+> refresh companion) shipped earlier with the fields slice. See CHANGELOG
+> `[Unreleased]`. **Deferred:** custom marks, note separators, numbering
+> format/restart, footnote↔endnote conversion; table of figures/authorities,
+> custom TOC field codes, per-style level mapping.
+
 ### Footnotes & endnotes
 
 - **`anchor.insert_footnote(text, *, where="after")` / `insert_endnote(...)`** —

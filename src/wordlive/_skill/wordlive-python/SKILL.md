@@ -61,6 +61,7 @@ from its id with `doc.anchor_by_id(...)`, or use the typed accessors:
 | `para:N` | `doc.paragraphs[N]` | the Nth paragraph (any kind) |
 | `bookmark:NAME` | `doc.bookmarks["NAME"]` | a bookmark |
 | `cc:NAME` | `doc.content_controls["NAME"]` | a content control (by Title, then Tag) |
+| `footnote:N` / `endnote:N` | `doc.footnotes[N]` / `doc.endnotes[N]` | the Nth note's body (1-based) |
 | `table:N:R:C` | `doc.tables[N].cell(R, C)` | a table cell |
 | `range:START-END` | `doc.anchor_by_id("range:412-429")` | a raw character span (what `find()` emits) |
 | `header:S:WHICH` / `footer:S:WHICH` | `doc.sections[S].header(WHICH)` | header/footer (`primary`/`first`/`even`) |
@@ -89,6 +90,8 @@ a.set_borders(sides="all", style="single", weight=0.5, color="black")
 a.add_tab_stop("3in", align="right", leader="dots")
 a.insert_break(kind="page")             # page | column | section_next | section_continuous
 a.insert_field("page")                   # self-updating field: page|numpages|date|… (or "field" + raw code)
+a.insert_footnote("See appendix B.")     # → Footnote (footnote:N); insert_endnote(...) mirrors
+a.insert_toc(levels=(1, 3))              # table of contents → Toc; doc.add_toc() puts one at the top
 a.insert_image("diagram.png", wrap="auto")
 a.insert_table(2, 2, data=[["Item", "Cost"], ["Travel", "$400"]], header=True)
 a.apply_list("numbered")                # + remove_list/list_info/restart_numbering/indent_list/outdent_list
@@ -116,6 +119,18 @@ foot = doc.sections[1].footer()         # a HeaderFooter *is* an anchor
 foot.insert_field("page"); foot.insert_field("numpages")   # "Page X of Y" building blocks
 foot.insert_page_number()               # sugar for insert_field("page")
 doc.update_fields()                     # recompute page numbers / refs / dates
+```
+
+Footnotes / endnotes and a table of contents:
+
+```python
+note = doc.anchor_by_id("range:412-429").insert_footnote("Source: 2025 audit.")
+note.set_text("Source: 2025 internal audit.")   # edit the body (footnote:N)
+for f in doc.footnotes.list():          # [{index, anchor_id, marker, text, para}]
+    print(f["anchor_id"], f["text"])
+
+toc = doc.add_toc(levels=(1, 3))        # TOC at the document start
+doc.update_fields()                     # populate its page numbers (or snapshot)
 ```
 
 ## Writing — wrap mutations in `doc.edit("label")`

@@ -49,6 +49,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recomputes the document's fields. Fields land in the anchor's own story, so
   page numbers in headers/footers work. Exec ops `insert_field`/`update_fields`,
   CLI `insert-field`/`update-fields`, and the matching `word_write` commands.
+- **Footnotes & endnotes.** `anchor.insert_footnote(text)` /
+  `anchor.insert_endnote(text)` attach a note to any anchor's range and return a
+  `Footnote` / `Endnote` (addressed `footnote:N` / `endnote:N`) whose `set_text`
+  edits the body and `delete()` removes the mark and body together. Word
+  auto-numbers the reference mark. Read-only discovery via `doc.footnotes` /
+  `doc.endnotes` (`list()` reports each note's number, text, and anchoring
+  `para:N`). Exec ops `insert_footnote`/`insert_endnote` (the new id comes back
+  in `outputs`), CLI `insert-footnote`/`insert-endnote` + `footnotes`/`endnotes`
+  listings, and the matching `word_read`/`word_write` commands.
+- **Table of contents.** `anchor.insert_toc(levels=(1, 3), use_heading_styles=…,
+  hyperlinks=…)` inserts a TOC built from the document's headings and returns a
+  `Toc` with `update()` / `update_page_numbers()`; `doc.add_toc(...)` is the sugar
+  for one at the document start. Page numbers populate after repagination — call
+  `update()`, `doc.update_fields()`, or take a `snapshot`. Exec op `insert_toc`,
+  CLI `insert-toc`, and `word_write command="insert_toc"`.
 
 ### Changed
 - **Bad formatting input now raises `OpError` (exit 1, bad-input) instead of a
@@ -67,6 +82,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and other-story fields self-render on repagination — take a `snapshot`).
 - The rest of the publishing flourishes (watermark, drop cap, text box / pull
   quote) — only the fields/page-number slice of that grab-bag landed here.
+- Footnote/endnote polish: custom reference marks, note separators, numbering
+  format/restart, and footnote↔endnote conversion. TOC: table of figures/
+  authorities, custom TOC field codes, and explicit per-style level mapping.
+  Cross-references and captions (which target footnotes/bookmarks) are the next
+  cluster, not in this release.
 
 ## [0.11.1] — 2026-06-04
 
