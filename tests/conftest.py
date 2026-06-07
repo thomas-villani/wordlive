@@ -477,6 +477,94 @@ class _FakeComments:
             c.Index = i
 
 
+class _FakeNote:
+    """Mimics a Word Footnote/Endnote: a body Range, a Reference range, Delete."""
+
+    def __init__(self, registry: _FakeNotes, ref_start: int, text: str) -> None:
+        self._registry = registry
+        body = MagicMock(name="NoteBody")
+        body.Text = text
+        ish = MagicMock(name="NoteInlineShapes")
+        ish.Count = 0
+        body.InlineShapes = ish
+        self.Range = body
+        ref = MagicMock(name="NoteReference")
+        ref.Start = int(ref_start)
+        ref.Delete = MagicMock(name="ReferenceDelete")
+        self.Reference = ref
+
+    def Delete(self) -> None:
+        self._registry._remove(self)
+
+
+class _FakeNotes:
+    """Mimics doc.Footnotes / doc.Endnotes: Count, Add(Range, Reference, Text), lookup.
+
+    `Add` is a MagicMock (side-effect appends a `_FakeNote`) so tests can assert
+    the positional call args — notably the empty `Reference` that auto-numbers.
+    """
+
+    def __init__(self) -> None:
+        self._items: list[_FakeNote] = []
+        self.Add = MagicMock(name="NotesAdd", side_effect=self._add)
+
+    def _add(self, Range: Any = None, Reference: str = "", Text: str = "") -> _FakeNote:
+        ref_start = int(getattr(Range, "Start", 0)) if Range is not None else 0
+        note = _FakeNote(self, ref_start, str(Text))
+        self._items.append(note)
+        # Footnotes/Endnotes are ordered by document position, like real Word.
+        self._items.sort(key=lambda n: int(n.Reference.Start))
+        return note
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, index: int) -> _FakeNote:
+        return self._items[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._items))
+
+    def _remove(self, note: _FakeNote) -> None:
+        self._items.remove(note)
+
+
+class _FakeTOC:
+    """Mimics a Word TableOfContents: a Range plus Update / UpdatePageNumbers."""
+
+    def __init__(self) -> None:
+        rng = MagicMock(name="TOCRange")
+        rng.Text = "Table of Contents"
+        ish = MagicMock(name="TOCInlineShapes")
+        ish.Count = 0
+        rng.InlineShapes = ish
+        self.Range = rng
+        self.Update = MagicMock(name="TOCUpdate")
+        self.UpdatePageNumbers = MagicMock(name="TOCUpdatePageNumbers")
+
+
+class _FakeTOCs:
+    """Mimics doc.TablesOfContents: Add(...) records its (positional) args, Count, lookup."""
+
+    def __init__(self) -> None:
+        self._items: list[_FakeTOC] = []
+        # A MagicMock wrapper so tests can assert the positional Add arguments.
+        self.Add = MagicMock(name="TOCAdd", side_effect=self._add)
+
+    def _add(self, *args: Any, **kwargs: Any) -> _FakeTOC:
+        toc = _FakeTOC()
+        self._items.append(toc)
+        return toc
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, index: int) -> _FakeTOC:
+        return self._items[index - 1]
+
+
 class _FakeWordList:
     """Mimics a Word List COM object: a Range plus a ListParagraphs count."""
 
@@ -600,6 +688,8 @@ def _make_document(
     tables: list[dict[str, Any]] | None = None,
     lists: list[dict[str, Any]] | None = None,
     sections: list[dict[str, Any]] | None = None,
+    footnotes: list[dict[str, Any]] | None = None,
+    endnotes: list[dict[str, Any]] | None = None,
 ) -> MagicMock:
     doc = MagicMock(name=f"Document[{name}]")
     doc.Name = name
@@ -669,6 +759,19 @@ def _make_document(
         )
     doc.Sections = _FakeSections(section_objs)
 
+    # Footnotes / endnotes: seed each note's reference at the given offset (so
+    # `list()` can map it back to a paragraph). Empty by default.
+    def _seed_notes(specs: list[dict[str, Any]] | None) -> _FakeNotes:
+        notes = _FakeNotes()
+        for spec in specs or []:
+            ref_start = int(spec.get("ref_start", 0))
+            notes.Add(_range_factory(ref_start, ref_start), "", spec.get("text", ""))
+        return notes
+
+    doc.Footnotes = _seed_notes(footnotes)
+    doc.Endnotes = _seed_notes(endnotes)
+    doc.TablesOfContents = _FakeTOCs()
+
     return doc
 
 
@@ -715,6 +818,9 @@ def fake_word(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
         lists=[{"start": 13, "end": 29, "count": 2, "type": 3}],
         # One section with a primary header and footer seeded for read tests.
         sections=[{"headers": {"primary": "Confidential Draft"}, "footers": {"primary": "Page 1"}}],
+        # One footnote whose reference mark sits in the body paragraph (13–29),
+        # so footnotes.list() maps it back to para:2.
+        footnotes=[{"ref_start": 20, "text": "A seeded footnote."}],
     )
     app = _make_application([doc])
 

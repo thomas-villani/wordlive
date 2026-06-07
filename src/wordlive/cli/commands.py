@@ -88,6 +88,11 @@ def register(group: click.Group) -> None:
     group.add_command(insert_break_cmd)
     group.add_command(insert_field_cmd)
     group.add_command(update_fields_cmd)
+    group.add_command(insert_footnote_cmd)
+    group.add_command(insert_endnote_cmd)
+    group.add_command(insert_toc_cmd)
+    group.add_command(footnotes_cmd)
+    group.add_command(endnotes_cmd)
     group.add_command(page_setup_cmd)
     group.add_command(prepend_cmd)
     group.add_command(append_cmd)
@@ -509,6 +514,211 @@ def update_fields_cmd(ctx: click.Context) -> None:
                 as_text=not ctx.obj["as_json"],
                 text="updated fields",
             )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# insert-footnote / insert-endnote / insert-toc + footnotes/endnotes lists
+# ---------------------------------------------------------------------------
+
+
+def _fmt_notes(rows: list[dict[str, Any]], scheme: str) -> str:
+    if not rows:
+        return f"(no {scheme}s)"
+    lines = []
+    for r in rows:
+        where = f" @ {r['para']}" if r.get("para") else ""
+        lines.append(f"{scheme}:{r['index']}{where}  {r.get('text', '')}")
+    return "\n".join(lines)
+
+
+@click.command(name="insert-footnote")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Anchor the footnote's reference mark attaches to (e.g. range:120-140, para:3).",
+)
+@click.option("--text", "text", required=True, help="The footnote body text.")
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Place the reference mark before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_footnote_cmd(ctx: click.Context, anchor_id: str, text: str, before: bool) -> None:
+    """Insert a footnote at an anchor (atomic-undo). Reports the new footnote:N."""
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert footnote {where} {anchor_id}"):
+                note = anchor.insert_footnote(text, where=where)
+                note_id = note.anchor_id
+                index = note.index
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "footnote": index, "note_id": note_id},
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted {note_id} {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="insert-endnote")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Anchor the endnote's reference mark attaches to (e.g. range:120-140, para:3).",
+)
+@click.option("--text", "text", required=True, help="The endnote body text.")
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Place the reference mark before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_endnote_cmd(ctx: click.Context, anchor_id: str, text: str, before: bool) -> None:
+    """Insert an endnote at an anchor (atomic-undo). Reports the new endnote:N."""
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert endnote {where} {anchor_id}"):
+                note = anchor.insert_endnote(text, where=where)
+                note_id = note.anchor_id
+                index = note.index
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "endnote": index, "note_id": note_id},
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted {note_id} {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="insert-toc")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    default="start",
+    show_default=True,
+    help="Where to insert the TOC (default: the document start).",
+)
+@click.option(
+    "--levels",
+    "levels",
+    default="1-3",
+    show_default=True,
+    help="Heading levels to include, as 'upper-lower' (e.g. 1-3).",
+)
+@click.option(
+    "--heading-styles/--no-heading-styles",
+    "heading_styles",
+    default=True,
+    show_default=True,
+    help="Source entries from the built-in Heading styles.",
+)
+@click.option(
+    "--hyperlinks/--no-hyperlinks",
+    "hyperlinks",
+    default=True,
+    show_default=True,
+    help="Make each entry a clickable link (and a real link in exported PDFs).",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert the TOC before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_toc_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    levels: str,
+    heading_styles: bool,
+    hyperlinks: bool,
+    before: bool,
+) -> None:
+    """Insert a table of contents (atomic-undo).
+
+    Page numbers populate after repagination — run `update-fields` (or take a
+    `snapshot`) before reading them.
+    """
+    upper_str, sep, lower_str = levels.partition("-")
+    if not sep:
+        raise click.UsageError("--levels must be 'upper-lower', e.g. 1-3")
+    try:
+        level_pair = (int(upper_str), int(lower_str))
+    except ValueError as e:
+        raise click.UsageError("--levels must be two integers, e.g. 1-3") from e
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert TOC {where} {anchor_id}"):
+                anchor.insert_toc(
+                    levels=level_pair,
+                    use_heading_styles=heading_styles,
+                    hyperlinks=hyperlinks,
+                    where=where,
+                )
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "applied": {
+                        "levels": list(level_pair),
+                        "use_heading_styles": heading_styles,
+                        "hyperlinks": hyperlinks,
+                        "where": where,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted TOC {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="footnotes")
+@click.pass_context
+def footnotes_cmd(ctx: click.Context) -> None:
+    """List the document's footnotes with their footnote:N id, text, and para:N."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.footnotes.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_notes(rows, "footnote"))
+
+    _run(ctx, go)
+
+
+@click.command(name="endnotes")
+@click.pass_context
+def endnotes_cmd(ctx: click.Context) -> None:
+    """List the document's endnotes with their endnote:N id, text, and para:N."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.endnotes.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_notes(rows, "endnote"))
 
     _run(ctx, go)
 

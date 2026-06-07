@@ -820,6 +820,128 @@ class Anchor(ABC):
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
 
+    def insert_footnote(self, text: str, *, where: str = "after") -> Any:
+        """Insert a footnote at this anchor and return it as a `Footnote` anchor.
+
+        A footnote drops a reference mark in the main text and puts `text` in the
+        note body at the bottom of the page; Word auto-numbers the mark. The
+        returned [`Footnote`][wordlive.Footnote] is addressed `footnote:N`, so
+        `note.set_text(...)` edits the body and `note.delete()` removes the mark
+        and body together. Discover existing footnotes with
+        [`doc.footnotes`][wordlive.Document.footnotes].
+
+        `where` is ``"after"`` (default) or ``"before"`` this anchor's range —
+        the side the reference mark lands on. Wrap in `doc.edit(...)` for atomic
+        undo. Bad input raises `OpError`.
+        """
+        return self._insert_note("Footnotes", "footnote", text, where=where)
+
+    def insert_endnote(self, text: str, *, where: str = "after") -> Any:
+        """Insert an endnote at this anchor and return it as an `Endnote` anchor.
+
+        The endnote mirror of [`insert_footnote`][wordlive.Anchor.insert_footnote]:
+        the reference mark lands in the main text and `text` collects at the end
+        of the document (or section). The returned
+        [`Endnote`][wordlive.Endnote] is addressed `endnote:N`; discover existing
+        endnotes with [`doc.endnotes`][wordlive.Document.endnotes].
+
+        `where` is ``"after"`` (default) or ``"before"`` this anchor's range.
+        Wrap in `doc.edit(...)` for atomic undo. Bad input raises `OpError`.
+        """
+        return self._insert_note("Endnotes", "endnote", text, where=where)
+
+    def _insert_note(self, attr: str, scheme: str, text: str, *, where: str) -> Any:
+        """Shared footnote/endnote insertion (`attr` is the COM collection name)."""
+        from ._notes import Endnote, Footnote, index_of_note
+
+        cls = Footnote if scheme == "footnote" else Endnote
+        try:
+            if where not in ("before", "after"):
+                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            with _com.translate_com_errors():
+                rng = self._range()
+                # A note's reference mark always lands in the main text story, so
+                # a plain document Range at the anchor's edge is correct (unlike
+                # insert_field, which can target a footer's own story).
+                pos = int(rng.Start) if where == "before" else int(rng.End)
+                insert_rng = self._doc.com.Range(pos, pos)
+                coll = getattr(self._doc.com, attr)
+                # Positional args: an empty Reference auto-numbers, and the
+                # Reference=/Text= keywords are dropped under pywin32 late binding
+                # (same gotcha as Fields.Add / TabStops.Add).
+                coll.Add(insert_rng, "", text)
+                index = index_of_note(coll, pos)
+            return cls(self._doc, index)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def insert_toc(
+        self,
+        *,
+        levels: tuple[int, int] = (1, 3),
+        use_heading_styles: bool = True,
+        hyperlinks: bool = True,
+        where: str = "after",
+    ) -> Any:
+        """Insert a table of contents at this anchor and return it as a `Toc`.
+
+        Builds a TOC from the document's heading paragraphs over the given
+        `levels` (a ``(upper, lower)`` pair — `(1, 3)` covers Heading 1–3).
+        `use_heading_styles=True` sources entries from the built-in Heading
+        styles; `hyperlinks=True` makes each entry a clickable jump (and a real
+        hyperlink in exported PDFs). Returns a [`Toc`][wordlive.Toc].
+
+        A TOC's page numbers populate only after repagination — call
+        `toc.update()` (or [`Document.update_fields`][wordlive.Document.update_fields],
+        or take a `snapshot`, which forces print layout) before reading them.
+        Most documents want the TOC at the top: `doc.add_toc(...)` is the sugar
+        for `doc.start.insert_toc(...)`.
+
+        `where` is ``"after"`` (default) or ``"before"`` this anchor's range.
+        Wrap in `doc.edit(...)` for atomic undo. Bad input raises `OpError`.
+        """
+        from ._toc import Toc
+
+        try:
+            if where not in ("before", "after"):
+                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            try:
+                upper, lower = int(levels[0]), int(levels[1])
+            except (TypeError, IndexError, ValueError, KeyError) as e:
+                raise ValueError(
+                    f"levels must be a (upper, lower) pair of ints; got {levels!r}"
+                ) from e
+            if not (1 <= upper <= lower <= 9):
+                raise ValueError(
+                    f"levels must satisfy 1 <= upper <= lower <= 9; got {(upper, lower)}"
+                )
+            with _com.translate_com_errors():
+                rng = self._range()
+                pos = int(rng.Start) if where == "before" else int(rng.End)
+                insert_rng = self._doc.com.Range(pos, pos)
+                # Positional args (keyword names are dropped under pywin32 late
+                # binding). Order: Range, UseHeadingStyles, UpperHeadingLevel,
+                # LowerHeadingLevel, UseFields, TableID, RightAlignPageNumbers,
+                # IncludePageNumbers, AddedStyles, UseHyperlinks,
+                # HidePageNumbersInWeb, UseOutlineLevels.
+                toc_com = self._doc.com.TablesOfContents.Add(
+                    insert_rng,
+                    bool(use_heading_styles),
+                    upper,
+                    lower,
+                    False,
+                    "",
+                    True,
+                    True,
+                    "",
+                    bool(hyperlinks),
+                    True,
+                    True,
+                )
+            return Toc(self._doc, toc_com)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
     def snapshot(self, out: str | Path | None = None, *, dpi: int = 150) -> list[Snapshot]:
         """Render the page(s) this anchor sits on to PNG — let a model *see* it.
 
