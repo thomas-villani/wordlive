@@ -629,6 +629,24 @@ class Document:
                 styled = doc_com.Range(text_start, text_start + _utf16_len(text))
                 styled.Style = style_obj.com
 
+    def update_fields(self) -> None:
+        """Refresh the document's fields — recompute every `{ PAGE }`, `{ REF }`, etc.
+
+        Fields (page numbers, cross-references, dates, a TOC) cache their last
+        rendered value; after edits that change them, this recomputes the
+        document's main-story fields via `Fields.Update()`. The clean "make the
+        numbers right again" verb — pair it with
+        [`insert_field`][wordlive.Anchor.insert_field]. A
+        [`snapshot`][wordlive.Document.snapshot] also forces repagination, so
+        `{ PAGE }`/`{ NUMPAGES }` in headers and footers settle without this.
+        Wrap in `doc.edit(...)` for atomic undo.
+
+        Scope is the main text story; refreshing fields that live only in
+        headers/footers or other stories is deferred.
+        """
+        with _com.translate_com_errors():
+            self._doc.Fields.Update()
+
     def outline(self) -> list[dict[str, Any]]:
         """Return all heading paragraphs as `[{level, text, anchor_id}, ...]`."""
         out: list[dict[str, Any]] = []

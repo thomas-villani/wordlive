@@ -297,3 +297,40 @@ class WdInformation(IntEnum):
 
     ACTIVE_END_PAGE_NUMBER = 3
     WITH_IN_TABLE = 12
+
+
+class WdPaperSize(IntEnum):
+    """`PageSetup.PaperSize` values — the subset `set_page_setup(paper_size=...)` exposes.
+
+    A deliberate slice of Word's full `WdPaperSize` (the common US and ISO sizes);
+    the dozens of envelope/legacy sizes are omitted until needed, mirroring how
+    `WdBreakType` was kept narrow. Setting `PaperSize` adjusts the page's width
+    and height to match.
+    """
+
+    LETTER = 2
+    TABLOID = 3
+    LEGAL = 4
+    A3 = 6
+    A4 = 7
+    A5 = 8
+
+
+class WdFieldType(IntEnum):
+    """`Fields.Add(Type=...)` values — the field kinds `insert_field(kind=...)` exposes.
+
+    A narrow, agent-useful slice of Word's ~100 field types. `EMPTY` is the
+    raw-code escape hatch: `insert_field("field", text="REF foo \\\\h")` inserts an
+    arbitrary field whose code is carried in the text, so REF/TOC/etc. are
+    reachable without a member each. The named members cover the publishing
+    staples — page numbers, counts, date/time, and document metadata.
+    """
+
+    EMPTY = -1
+    AUTHOR = 17
+    NUM_PAGES = 26
+    FILE_NAME = 29
+    DATE = 31
+    TIME = 32
+    PAGE = 33
+    TITLE = 49

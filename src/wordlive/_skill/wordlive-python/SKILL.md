@@ -88,6 +88,7 @@ a.set_shading(fill="navy")              # range/cell background fill
 a.set_borders(sides="all", style="single", weight=0.5, color="black")
 a.add_tab_stop("3in", align="right", leader="dots")
 a.insert_break(kind="page")             # page | column | section_next | section_continuous
+a.insert_field("page")                   # self-updating field: page|numpages|date|… (or "field" + raw code)
 a.insert_image("diagram.png", wrap="auto")
 a.insert_table(2, 2, data=[["Item", "Cost"], ["Travel", "$400"]], header=True)
 a.apply_list("numbered")                # + remove_list/list_info/restart_numbering/indent_list/outdent_list
@@ -104,6 +105,17 @@ brand = doc.styles.add("Brand Heading", based_on="Heading 1", next_style="Body T
 brand.format_run(bold=True, color="#1F3864", size="16pt")   # style's font defaults
 brand.format_paragraph(space_before=12, space_after=4)      # style's paragraph defaults
 doc.anchor_by_id("heading:3").apply_style("Brand Heading")
+```
+
+Page layout and page numbers (per section; `doc.sections[1]` is the whole
+document for a single-section file):
+
+```python
+doc.sections[1].set_page_setup(orientation="landscape", margins="0.75in", columns=2)
+foot = doc.sections[1].footer()         # a HeaderFooter *is* an anchor
+foot.insert_field("page"); foot.insert_field("numpages")   # "Page X of Y" building blocks
+foot.insert_page_number()               # sugar for insert_field("page")
+doc.update_fields()                     # recompute page numbers / refs / dates
 ```
 
 ## Writing — wrap mutations in `doc.edit("label")`

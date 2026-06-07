@@ -55,6 +55,9 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "add_tab_stop": ("anchor_id", "position"),
     "add_style": ("name",),
     "set_style": ("name",),
+    "insert_field": ("anchor_id", "kind"),
+    "set_page_setup": ("section",),
+    "update_fields": (),
     "set_cell": ("table", "row", "col", "text"),
     "add_row": ("table",),
     "delete_row": ("table", "row"),
@@ -110,6 +113,21 @@ _PARA_FIELDS = (
 _STYLE_RUN_FIELDS = tuple(f for f in _RUN_FIELDS if f != "highlight")
 _SET_STYLE_FIELDS = (*_STYLE_RUN_FIELDS, *_PARA_FIELDS, "based_on", "next_style")
 
+# Page-geometry kwargs shared by `set_page_setup` (the `Section.set_page_setup`
+# vocab). Reused by apply_op, the optional-field map, and the MCP param list.
+_PAGE_SETUP_FIELDS = (
+    "margins",
+    "top_margin",
+    "bottom_margin",
+    "left_margin",
+    "right_margin",
+    "gutter",
+    "orientation",
+    "paper_size",
+    "columns",
+    "column_spacing",
+)
+
 # Optional fields each op *reads*. Combined with the required set (and the
 # implicit `op` key), this is the full vocabulary an op understands — anything
 # else in the payload is silently ignored by `apply_op`, which is exactly the
@@ -153,6 +171,9 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "add_tab_stop": ("align", "leader"),
     "add_style": ("type", "based_on", "next_style"),
     "set_style": _SET_STYLE_FIELDS,
+    "insert_field": ("text", *_WHERE_FIELDS),
+    "set_page_setup": _PAGE_SETUP_FIELDS,
+    "update_fields": (),
     "set_cell": (),
     "add_row": ("values",),
     "delete_row": (),
@@ -311,6 +332,16 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             style.base_style = op["based_on"]
         if "next_style" in op:
             style.next_paragraph_style = op["next_style"]
+    elif kind == "insert_field":
+        kwargs = {"text": op["text"]} if "text" in op else {}
+        doc.anchor_by_id(op["anchor_id"]).insert_field(
+            op["kind"], where=("before" if op_before(op) else "after"), **kwargs
+        )
+    elif kind == "set_page_setup":
+        kwargs = {k: op[k] for k in _PAGE_SETUP_FIELDS if k in op}
+        doc.sections[op["section"]].set_page_setup(**kwargs)
+    elif kind == "update_fields":
+        doc.update_fields()
     elif kind == "set_cell":
         doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
     elif kind == "add_row":

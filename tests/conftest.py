@@ -528,6 +528,15 @@ class _FakeHeadersFooters:
         return self._m[int(index)]
 
 
+class _FakeTextColumns:
+    """Mimics PageSetup.TextColumns: SetCount records its arg; Count/Spacing settable."""
+
+    def __init__(self) -> None:
+        self.Count = 1
+        self.Spacing = 36.0
+        self.SetCount = MagicMock(name="SetCount")
+
+
 class _FakePageSetup:
     def __init__(self, **kw: Any) -> None:
         self.Orientation = kw.get("orientation", 0)
@@ -537,6 +546,10 @@ class _FakePageSetup:
         self.RightMargin = kw.get("right", 72.0)
         self.PageWidth = kw.get("width", 612.0)
         self.PageHeight = kw.get("height", 792.0)
+        # Item-4 write surface (set_page_setup): paper size, gutter, columns.
+        self.PaperSize = kw.get("paper_size", 2)  # wdPaperLetter
+        self.Gutter = kw.get("gutter", 0.0)
+        self.TextColumns = _FakeTextColumns()
 
 
 class _FakeSection:

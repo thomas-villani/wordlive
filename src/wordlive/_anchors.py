@@ -17,7 +17,9 @@ from .constants import (
     MsoTriState,
     WdBorderType,
     WdBreakType,
+    WdCollapseDirection,
     WdColorIndex,
+    WdFieldType,
     WdInformation,
     WdLineStyle,
     WdNumberType,
@@ -337,6 +339,20 @@ _BREAK_TYPES: dict[str, WdBreakType] = {
     "column": WdBreakType.COLUMN,
     "section_next": WdBreakType.SECTION_NEXT_PAGE,
     "section_continuous": WdBreakType.SECTION_CONTINUOUS,
+}
+
+
+# Field keywords -> WdFieldType. `insert_field(kind=...)` accepts these names;
+# "field" is the raw-code escape hatch (an empty field whose code is the `text`).
+_FIELD_TYPES: dict[str, WdFieldType] = {
+    "page": WdFieldType.PAGE,
+    "numpages": WdFieldType.NUM_PAGES,
+    "date": WdFieldType.DATE,
+    "time": WdFieldType.TIME,
+    "filename": WdFieldType.FILE_NAME,
+    "author": WdFieldType.AUTHOR,
+    "title": WdFieldType.TITLE,
+    "field": WdFieldType.EMPTY,
 }
 
 
@@ -748,6 +764,61 @@ class Anchor(ABC):
                 # paragraph containing `pos` is the break paragraph.
                 break_para = self._doc.com.Range(pos, pos).Paragraphs(1)
                 break_para.Range.Style = normal_obj.com
+
+    def insert_field(self, kind: str, *, text: str | None = None, where: str = "after") -> None:
+        """Insert a Word field at this anchor — a self-updating value, not literal text.
+
+        A field shows a computed value Word keeps current: a page number, the
+        page count, today's date, the file name, a document property. The named
+        kinds are:
+
+        - ``"page"`` — the current page number (`{ PAGE }`).
+        - ``"numpages"`` — the total page count (`{ NUMPAGES }`); pair with
+          ``"page"`` for "Page X of Y".
+        - ``"date"`` / ``"time"`` — the current date / time.
+        - ``"filename"`` — the document's file name.
+        - ``"author"`` / ``"title"`` — document-property fields.
+
+        For anything else, ``kind="field"`` is the escape hatch: pass the raw
+        field code as `text` (e.g.
+        ``insert_field("field", text="REF myBookmark \\\\h")``) and Word inserts an
+        empty field carrying that code.
+
+        Page numbers belong in a header or footer — because a `HeaderFooter`
+        *is* an anchor, ``doc.sections[1].footer().insert_field("page")`` works,
+        and [`HeaderFooter.insert_page_number()`][wordlive.HeaderFooter] is the
+        sugar for it. Newly inserted fields render once; call
+        [`Document.update_fields()`][wordlive.Document] (or take a `snapshot`,
+        which repaginates) to refresh them after later edits.
+
+        `where` is ``"after"`` (default) or ``"before"`` this anchor's range.
+        Bad input raises `OpError`. Wrap in `doc.edit(...)` for atomic undo.
+        """
+        try:
+            if where not in ("before", "after"):
+                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            wd_type = _coerce_named(kind, _FIELD_TYPES, "field kind")
+            if wd_type == int(WdFieldType.EMPTY) and not text:
+                raise ValueError(
+                    'field kind "field" requires the raw field code via text= (e.g. text="PAGE")'
+                )
+            with _com.translate_com_errors():
+                # Collapse a *duplicate* of the anchor's own range, so the field
+                # lands in the same story — critical for header/footer anchors,
+                # whose offsets are not main-document positions (a `doc.Range`
+                # there would target the body instead).
+                insert_rng = self._range().Duplicate
+                insert_rng.Collapse(
+                    int(WdCollapseDirection.START if where == "before" else WdCollapseDirection.END)
+                )
+                # Positional args: the Type=/Text= keywords are dropped under
+                # pywin32 late binding (same gotcha as TabStops.Add / Footnotes).
+                if text is not None:
+                    insert_rng.Fields.Add(insert_rng, wd_type, text)
+                else:
+                    insert_rng.Fields.Add(insert_rng, wd_type)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
 
     def snapshot(self, out: str | Path | None = None, *, dpi: int = 150) -> list[Snapshot]:
         """Render the page(s) this anchor sits on to PNG — let a model *see* it.

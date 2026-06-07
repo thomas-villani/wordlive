@@ -40,7 +40,7 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
 `format_run(...)`, `set_shading(...)`, `set_borders(...)`, `add_tab_stop(...)`,
 `insert_paragraph_before/after(...)`, `insert_image(...)`, `insert_table(...)`,
-`insert_break(...)`, and the list verbs (`apply_list`, `remove_list`,
+`insert_break(...)`, `insert_field(...)`, and the list verbs (`apply_list`, `remove_list`,
 `list_info`, `restart_numbering`, `indent_list`, `outdent_list`) from
 [`Anchor`](#wordlive.Anchor), so the same calls work uniformly on bookmarks,
 content controls, headings, paragraphs, table cells, header/footer ranges, and
@@ -59,7 +59,10 @@ an explicit break; for a reflow-safe page break tied to a paragraph (e.g. every
 layer, ideal with a `range:START-END` anchor to style a phrase. `set_shading`,
 `set_borders`, and `add_tab_stop` add range/cell fill, borders, and tab stops;
 colours accept a name, hex, or `(r, g, b)` and sizes/positions accept points or
-a unit string (`"12pt"`, `"1in"`). Every anchor also has `snapshot(...)`, which
+a unit string (`"12pt"`, `"1in"`). `insert_field(kind, ...)` drops a
+self-updating field (`"page"`, `"numpages"`, `"date"`, …, or `"field"` + a raw
+code) — pair it with a footer for page numbers and refresh with
+[`Document.update_fields()`](#wordlive.Document). Every anchor also has `snapshot(...)`, which
 renders the page(s) it sits on to PNG (a heading expands to its whole section) —
 see [Snapshots](#snapshots).
 
@@ -159,7 +162,10 @@ the document; index it (`doc.lists[2]`) to get a
 [`HeaderFooter`](#wordlive.HeaderFooter) anchors — `doc.sections[1].header()` /
 `.footer("first")` — addressed `header:S:WHICH` / `footer:S:WHICH` (WHICH is
 `primary` / `first` / `even`). A `HeaderFooter` *is* an `Anchor`, so
-`set_text`, `apply_style`, and `format_paragraph` work on it like any other.
+`set_text`, `apply_style`, and `format_paragraph` work on it like any other, plus
+`insert_page_number()` sugar for a `{ PAGE }` field. `Section.set_page_setup(...)`
+is the write mirror of `page_setup()` — margins, orientation, paper size, gutter,
+and multi-column layout (`columns=N`), per section.
 
 ::: wordlive.SectionCollection
 

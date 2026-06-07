@@ -256,6 +256,51 @@ break character that drifts on reflow, prefer `format-paragraph --anchor-id ID
 Failures: `1` unknown `--kind` (usage error), `2` anchor not found, `3` Word
 busy.
 
+## `insert-field --anchor-id ID --kind KIND [--text CODE] [--before | --after]`
+
+```
+wordlive insert-field --anchor-id ID
+    --kind page|numpages|date|time|filename|author|title|field
+    [--text "FIELD CODE"] [--before | --after] [--doc DOC_NAME]
+```
+
+Insert a self-updating Word field — a value Word keeps current rather than literal
+text. `page` / `numpages` are the page number and total page count (combine for
+"Page X of Y"); `date` / `time` stamp the current date/time; `filename` /
+`author` / `title` pull document metadata. `--kind field` is the escape hatch:
+pass the raw field code via `--text` (e.g. `--text "REF myBookmark \h"`).
+
+Page numbers belong in a footer or header — the anchor id `footer:1:primary`
+works here like any other:
+
+```bash
+$ wordlive insert-field --anchor-id footer:1:primary --kind page
+{"ok": true, "anchor_id": "footer:1:primary",
+ "anchor": {"kind": "footer", "name": "footer:1:primary"},
+ "applied": {"kind": "page", "text": null, "where": "after"}}
+```
+
+Newly inserted fields render once; run `update-fields` (or `snapshot`, which
+repaginates) to refresh them after later edits. Failures: `1` `--kind field`
+without `--text`, or bad input; `2` anchor not found; `3` Word busy.
+
+## `update-fields`
+
+```
+wordlive update-fields [--doc DOC_NAME]
+```
+
+Recompute the document's fields (page numbers, cross-references, dates, a TOC) —
+the "make the numbers right again" verb after edits. Atomic-undo; scope is the
+main text story.
+
+```bash
+$ wordlive update-fields
+{"ok": true, "updated": true}
+```
+
+Failures: `3` Word busy, `4` Word not running.
+
 ## `prepend --text "…"` / `append --text "…"`
 
 ```
@@ -1024,6 +1069,32 @@ $ wordlive section list
 Margins and page dimensions are in **points**. Headers and footers live in the
 `header` / `footer` commands. Failures: `3` Word busy, `4` Word not running.
 
+## `page-setup [--section N] [...]`
+
+```
+wordlive page-setup [--section N]
+    [--margins V] [--top-margin V] [--bottom-margin V] [--left-margin V] [--right-margin V]
+    [--gutter V] [--orientation portrait|landscape] [--paper-size letter|legal|tabloid|a3|a4|a5]
+    [--columns N] [--column-spacing V] [--doc DOC_NAME]
+```
+
+The write mirror of `section list` — set a section's page geometry. `--margins`
+sets all four margins at once; the per-side `--*-margin` flags override it. Length
+values (margins, gutter, column spacing) accept points or a unit string
+(`1in`, `2.5cm`). `--orientation` and `--paper-size` reshape the page;
+`--columns N` lays the section out in N equal, newspaper-style columns (the
+section counterpart to `insert-break --kind column`). `--section` defaults to `1`,
+which is the whole document for a single-section file. Atomic-undo. At least one
+option is required.
+
+```bash
+$ wordlive page-setup --orientation landscape --margins 0.5in --columns 2
+{"ok": true, "section": 1,
+ "applied": {"margins": "0.5in", "orientation": "landscape", "columns": 2}}
+```
+
+Failures: `1` no option / bad input, `2` section out of range, `3` Word busy.
+
 ## `header read | write` · `footer read | write`
 
 ```
@@ -1184,6 +1255,13 @@ or section break at any `anchor_id`. `kind` defaults to `page`; placement
 accepts the same `where` / `before` forms as the other insert ops. For a
 reflow-safe page break tied to a paragraph (rather than a one-off mark), use a
 `format_paragraph` op with `page_break_before` instead.
+
+`insert_field` inserts a self-updating field (`kind` = `page` / `numpages` /
+`date` / `time` / `filename` / `author` / `title`, or `field` with a raw code in
+`text`) at an `anchor_id` — put page numbers in a `footer:S:WHICH`. `update_fields`
+(no args) recomputes the document's fields. `set_page_setup` mirrors `page-setup`,
+taking a 1-based `section` plus any of `margins`, the per-side `*_margin` fields,
+`gutter`, `orientation`, `paper_size`, `columns`, and `column_spacing`.
 
 `add_comment`, `resolve_comment`, and `delete_comment` mirror the `comment`
 verbs — `add_comment` attaches a side-channel annotation to an `anchor_id`

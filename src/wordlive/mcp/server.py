@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from .. import attach
 from .._anchors import Heading
 from .._guide import skill_body
-from .._ops import _PARA_FIELDS, _STYLE_RUN_FIELDS, pick_doc, run_batch
+from .._ops import _PAGE_SETUP_FIELDS, _PARA_FIELDS, _STYLE_RUN_FIELDS, pick_doc, run_batch
 from ..exceptions import OpError, WordliveError, classify
 from ._worker import ComWorker, Worker
 
@@ -281,6 +281,24 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             "kind": p.get("kind") or "page",
             "before": bool(p.get("before", False)),
         }
+    if command == "insert_field":
+        op = {
+            "op": "insert_field",
+            "anchor_id": need("anchor_id"),
+            "kind": need("kind"),
+            "before": bool(p.get("before", False)),
+        }
+        if p.get("text") is not None:
+            op["text"] = p["text"]
+        return op
+    if command == "update_fields":
+        return {"op": "update_fields"}
+    if command == "page_setup":
+        op = {"op": "set_page_setup", "section": need("section")}
+        for k in _PAGE_SETUP_FIELDS:
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
     if command == "list":
         mapping = {
             "apply": "apply_list",
@@ -563,6 +581,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "track",
             "insert_image",
             "insert_break",
+            "insert_field",
+            "update_fields",
+            "page_setup",
         ],
         doc: str | None = None,
         anchor_id: str | None = None,
@@ -629,6 +650,16 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         height: float | None = None,
         alt_text: str | None = None,
         lock_aspect: bool | None = None,
+        margins: str | float | None = None,
+        top_margin: str | float | None = None,
+        bottom_margin: str | float | None = None,
+        left_margin: str | float | None = None,
+        right_margin: str | float | None = None,
+        gutter: str | float | None = None,
+        orientation: str | None = None,
+        paper_size: str | None = None,
+        columns: int | None = None,
+        column_spacing: str | float | None = None,
     ) -> dict[str, Any]:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
@@ -655,6 +686,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         table {action=set_cell|add_row|delete_row|create|delete,
                create needs anchor_id,rows,cols,[style,header,data,before]} ·
         insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
+        insert_field {anchor_id,kind=page|numpages|date|time|filename|author|title|field,[text,before]} —
+            a self-updating field; put page numbers in a footer; kind=field takes a raw code in text ·
+        update_fields {} — recompute the document's fields (page numbers, refs, dates) ·
+        page_setup {[section=1],margins|top_margin|bottom_margin|left_margin|right_margin|gutter,
+            orientation=portrait|landscape,paper_size=letter|legal|tabloid|a3|a4|a5,columns,column_spacing} —
+            section page geometry; lengths accept unit strings ·
         header/footer {section,text,[which]} · track {on} ·
         insert_image {anchor_id,wrap, image_base64|path,
             [before,block,width,height,alt_text,lock_aspect]} — block puts the image on its
@@ -729,6 +766,16 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "height": height,
             "alt_text": alt_text,
             "lock_aspect": lock_aspect,
+            "margins": margins,
+            "top_margin": top_margin,
+            "bottom_margin": bottom_margin,
+            "left_margin": left_margin,
+            "right_margin": right_margin,
+            "gutter": gutter,
+            "orientation": orientation,
+            "paper_size": paper_size,
+            "columns": columns,
+            "column_spacing": column_spacing,
         }
         try:
             return _write_impl(w, command, params)
@@ -770,6 +817,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           apply_style {anchor_id,name} · format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before]} ·
           insert_image {anchor_id,wrap, path|base64, [before,block,width,height,alt_text,lock_aspect]} ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
+          insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
           create_table {anchor_id,rows,cols,[style,data,header,before]} — cells default to Normal; returns the new index in outputs ·
           set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} · delete_table {table} ·
           add_comment {anchor_id,text,[author]} · resolve_comment {index} · delete_comment {index} ·

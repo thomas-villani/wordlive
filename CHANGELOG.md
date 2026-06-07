@@ -34,6 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   house style once, then `apply_style` it everywhere.
 - **Internal colour/units helper** (`_format.py`) underpinning the above:
   colours → Word's byte-swapped BGR long; lengths (`pt`/`in`/`cm`/`mm`) → points.
+- **Page setup writes & multi-column layout.** `section.set_page_setup(margins=…,
+  top_margin=…, …, gutter=…, orientation=…, paper_size=…, columns=…,
+  column_spacing=…)` — the write mirror of `page_setup()`. `margins` sets all four
+  at once (per-side kwargs override); lengths take points or a unit string;
+  `columns=N` lays the section out in N equal newspaper columns (the section half
+  of `insert_break("column")`). Exec op `set_page_setup`, CLI `page-setup`, and
+  `word_write command="page_setup"`. Per-section; `doc.sections[1]` is the whole
+  document for a single-section file.
+- **Fields & page numbers.** `anchor.insert_field(kind, text=…)` inserts a
+  self-updating field — `page`/`numpages`/`date`/`time`/`filename`/`author`/
+  `title`, or `field` with a raw field code in `text`. `HeaderFooter.insert_page_number()`
+  is the footer sugar for `insert_field("page")`, and `doc.update_fields()`
+  recomputes the document's fields. Fields land in the anchor's own story, so
+  page numbers in headers/footers work. Exec ops `insert_field`/`update_fields`,
+  CLI `insert-field`/`update-fields`, and the matching `word_write` commands.
 
 ### Changed
 - **Bad formatting input now raises `OpError` (exit 1, bad-input) instead of a
@@ -46,6 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Table-wide (`Table.Borders`) and page (`Section.Borders`) borders, shading
   patterns/textures, highlight on a style's font, and font kerning/character-scale
   on `format_run`.
+- Page-setup: unequal column widths, line numbering, vertical alignment,
+  different-first-page toggles, and an all-sections convenience (iterate
+  `doc.sections`). `update_fields` refreshes the main story only (header/footer
+  and other-story fields self-render on repagination — take a `snapshot`).
+- The rest of the publishing flourishes (watermark, drop cap, text box / pull
+  quote) — only the fields/page-number slice of that grab-bag landed here.
 
 ## [0.11.1] — 2026-06-04
 
