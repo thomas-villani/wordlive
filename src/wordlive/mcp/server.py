@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from .. import attach
 from .._anchors import Heading
 from .._guide import skill_body
-from .._ops import pick_doc, run_batch
+from .._ops import _PARA_FIELDS, _STYLE_RUN_FIELDS, pick_doc, run_batch
 from ..exceptions import OpError, WordliveError, classify
 from ._worker import ComWorker, Worker
 
@@ -217,6 +217,60 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             "space_after",
             "page_break_before",
         ):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "format_run":
+        op = {"op": "format_run", "anchor_id": need("anchor_id")}
+        for k in (
+            "bold",
+            "italic",
+            "underline",
+            "strikethrough",
+            "font",
+            "size",
+            "color",
+            "highlight",
+            "subscript",
+            "superscript",
+            "small_caps",
+            "all_caps",
+            "spacing",
+        ):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "set_shading":
+        op = {"op": "set_shading", "anchor_id": need("anchor_id")}
+        for k in ("fill", "pattern"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "set_borders":
+        op = {"op": "set_borders", "anchor_id": need("anchor_id")}
+        # `line_style` is the MCP param name (avoids colliding with the `style`
+        # param used by apply_style/create_table); the op field is `style`.
+        if p.get("line_style") is not None:
+            op["style"] = p["line_style"]
+        for k in ("sides", "weight", "color"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "add_tab_stop":
+        op = {"op": "add_tab_stop", "anchor_id": need("anchor_id"), "position": need("position")}
+        for k in ("align", "leader"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "add_style":
+        op = {"op": "add_style", "name": need("name")}
+        for k in ("type", "based_on", "next_style"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "set_style":
+        op = {"op": "set_style", "name": need("name")}
+        for k in (*_STYLE_RUN_FIELDS, *_PARA_FIELDS, "based_on", "next_style"):
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
@@ -495,6 +549,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "write_cc",
             "apply_style",
             "format_paragraph",
+            "format_run",
+            "set_shading",
+            "set_borders",
+            "add_tab_stop",
+            "add_style",
+            "set_style",
             "list",
             "comment",
             "table",
@@ -537,6 +597,29 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         space_before: float | None = None,
         space_after: float | None = None,
         page_break_before: bool | None = None,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        underline: bool | None = None,
+        strikethrough: bool | None = None,
+        font: str | None = None,
+        size: str | float | None = None,
+        color: str | None = None,
+        highlight: str | None = None,
+        subscript: bool | None = None,
+        superscript: bool | None = None,
+        small_caps: bool | None = None,
+        all_caps: bool | None = None,
+        spacing: str | float | None = None,
+        fill: str | None = None,
+        pattern: str | None = None,
+        sides: str | None = None,
+        line_style: str | None = None,
+        weight: float | None = None,
+        position: str | float | None = None,
+        align: str | None = None,
+        leader: str | None = None,
+        based_on: str | None = None,
+        next_style: str | None = None,
         kind: str | None = None,
         wrap: str | None = None,
         image_base64: str | None = None,
@@ -555,6 +638,18 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         replace {text, find|anchor_id, [all,occurrence,in_anchor]} ·
         write_bookmark/write_cc {name,text} · apply_style {anchor_id,name} ·
         format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before]} ·
+        format_run {anchor_id,[bold,italic,underline,strikethrough,font,size,color,
+            highlight,subscript,superscript,small_caps,all_caps,spacing]} — colour is a
+            name/hex; highlight is a named palette colour; size/spacing accept unit strings ·
+        set_shading {anchor_id,fill} — fill colour of a range/cell ·
+        set_borders {anchor_id,[sides=all|box|top|bottom|left|right|horizontal|vertical,
+            line_style=single|double|dot|dash|none,weight,color]} ·
+        add_tab_stop {anchor_id,position,[align=left|center|right|decimal|bar,
+            leader=dots|dashes|lines|none]} ·
+        add_style {name,[type=paragraph|character|table|list,based_on,next_style]} —
+            define a new style ·
+        set_style {name,[bold,italic,underline,font,size,color,alignment,space_*,
+            based_on,next_style]} — set an existing style's font/paragraph defaults ·
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
         comment {action=add|resolve|delete,...} ·
         table {action=set_cell|add_row|delete_row|create|delete,
@@ -602,6 +697,29 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "space_before": space_before,
             "space_after": space_after,
             "page_break_before": page_break_before,
+            "bold": bold,
+            "italic": italic,
+            "underline": underline,
+            "strikethrough": strikethrough,
+            "font": font,
+            "size": size,
+            "color": color,
+            "highlight": highlight,
+            "subscript": subscript,
+            "superscript": superscript,
+            "small_caps": small_caps,
+            "all_caps": all_caps,
+            "spacing": spacing,
+            "fill": fill,
+            "pattern": pattern,
+            "sides": sides,
+            "line_style": line_style,
+            "weight": weight,
+            "position": position,
+            "align": align,
+            "leader": leader,
+            "based_on": based_on,
+            "next_style": next_style,
             "kind": kind,
             "wrap": wrap,
             "image_base64": image_base64,

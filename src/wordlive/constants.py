@@ -188,6 +188,103 @@ class WdBreakType(IntEnum):
     COLUMN = 8
 
 
+class WdUnderline(IntEnum):
+    """`Font.Underline` values — the subset `format_run(underline=...)` uses.
+
+    `underline=True` maps to `SINGLE`, `False` to `NONE`. Word's full
+    `WdUnderline` has ~17 members (double, dotted, wavy, …); they're omitted
+    until a use case needs them, mirroring how `WdBreakType` was kept narrow.
+    """
+
+    NONE = 0
+    SINGLE = 1
+
+
+class WdColorIndex(IntEnum):
+    """`Range.HighlightColorIndex` values — the named text-highlight colours.
+
+    Highlight is a fixed *palette index*, not an arbitrary RGB, so it has its own
+    enum (the colour helper, which yields a BGR long, is wrong for it).
+    `format_run(highlight=...)` maps its string keys onto these members.
+    """
+
+    AUTO = 0
+    BLACK = 1
+    BLUE = 2
+    TURQUOISE = 3
+    BRIGHT_GREEN = 4
+    PINK = 5
+    RED = 6
+    YELLOW = 7
+    WHITE = 8
+    DARK_BLUE = 9
+    TEAL = 10
+    GREEN = 11
+    VIOLET = 12
+    DARK_RED = 13
+    DARK_YELLOW = 14
+    GRAY_50 = 15
+    GRAY_25 = 16
+
+
+class WdLineStyle(IntEnum):
+    """`Border.LineStyle` values — the subset `set_borders(style=...)` exposes.
+
+    A deliberate slice of Word's full `WdLineStyle`; the decorative/art styles
+    (waves, 3-D, multi-colour) are omitted until needed. `NONE` removes a border.
+    """
+
+    NONE = 0
+    SINGLE = 1
+    DOT = 2
+    DASH_SMALL_GAP = 3
+    DASH_LARGE_GAP = 4
+    DASH_DOT = 5
+    DASH_DOT_DOT = 6
+    DOUBLE = 7
+
+
+class WdTabAlignment(IntEnum):
+    """`TabStop.Alignment` — `add_tab_stop(align=...)` maps its keys onto these."""
+
+    LEFT = 0
+    CENTER = 1
+    RIGHT = 2
+    DECIMAL = 3
+    BAR = 4
+
+
+class WdTabLeader(IntEnum):
+    """`TabStop.Leader` — the dot/dash leader for `add_tab_stop(leader=...)`.
+
+    `SPACES` (the default) means no visible leader.
+    """
+
+    SPACES = 0
+    DOTS = 1
+    DASHES = 2
+    LINES = 3
+    HEAVY = 4
+    MIDDLE_DOT = 5
+
+
+class WdBorderType(IntEnum):
+    """`Borders(index)` selectors — which edge of a range/cell a border is on.
+
+    `set_borders(sides=...)` maps `"top"`/`"bottom"`/`"left"`/`"right"` onto the
+    four outer edges; `"all"`/`"box"` applies to all four. The interior
+    horizontal/vertical gridlines (only meaningful for a multi-cell/table range)
+    are included for completeness.
+    """
+
+    TOP = -1
+    LEFT = -2
+    BOTTOM = -3
+    RIGHT = -4
+    HORIZONTAL = -5
+    VERTICAL = -6
+
+
 class WdInformation(IntEnum):
     """`Range.Information(...)` selectors.
 

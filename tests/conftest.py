@@ -212,6 +212,22 @@ class _FakeInlineShapes:
         return 0
 
 
+class _FakeBorders:
+    """Mimics `Range.Borders` — a callable vending one stable child per edge index.
+
+    A bare MagicMock would return the *same* `return_value` for `Borders(-1)` and
+    `Borders(-3)`, so a per-side assert (top vs. bottom) couldn't tell them apart.
+    Memoising one child per index keeps each edge's `LineStyle`/`LineWidth`/`Color`
+    distinct, which is what `set_borders` writes.
+    """
+
+    def __init__(self) -> None:
+        self._edges: dict[int, MagicMock] = {}
+
+    def __call__(self, index: int) -> MagicMock:
+        return self._edges.setdefault(int(index), MagicMock(name=f"Border[{index}]"))
+
+
 def _make_range(start: int, end: int) -> MagicMock:
     rng = MagicMock(name=f"Range[{start},{end}]")
     rng.Start = start
@@ -235,6 +251,8 @@ def _make_range(start: int, end: int) -> MagicMock:
     # so report page 1 for any query; tests that need a specific page set
     # `rng.Information.return_value` on the cached range themselves.
     rng.Information = MagicMock(name="Information", return_value=1)
+    # Border support: one stable child per edge so per-side asserts work.
+    rng.Borders = _FakeBorders()
     return rng
 
 
@@ -273,6 +291,20 @@ class _FakeStyles:
             if s.NameLocal == name:
                 return s
         raise KeyError(name)
+
+    def Add(self, Name: str | None = None, Type: int = 1) -> Any:
+        """Mimic Styles.Add(Name, Type): append a new style and return its mock.
+
+        `StyleCollection.add` then re-resolves it by name via `Style.com`'s
+        direct-then-iterate lookup, so the new style must be iterable here.
+        """
+        mock = MagicMock(name=f"Style[{Name}]")
+        mock.NameLocal = Name
+        mock.Type = int(Type)
+        mock.BuiltIn = False
+        mock.InUse = False
+        self._items.append(mock)
+        return mock
 
 
 class _FakeTable:

@@ -96,6 +96,10 @@ def register(group: click.Group) -> None:
     group.add_command(go_to)
     group.add_command(style)
     group.add_command(format_paragraph_cmd)
+    group.add_command(format_run_cmd)
+    group.add_command(shading_cmd)
+    group.add_command(borders_cmd)
+    group.add_command(tab_stop_cmd)
     group.add_command(table)
     group.add_command(comment)
     group.add_command(track)
@@ -651,6 +655,24 @@ def _parse_pages_range(value: str) -> tuple[int, int]:
     return start, end
 
 
+def _parse_color(value: str | None) -> str | tuple[int, int, int] | None:
+    """Turn a `--color` value into something `to_bgr` understands.
+
+    A comma-separated `r,g,b` becomes an `(r, g, b)` tuple; anything else
+    (a colour name or hex string) passes through unchanged for the helper to
+    resolve. Returns `None` for `None` (option not given).
+    """
+    if value is None:
+        return None
+    if "," in value:
+        try:
+            r, g, b = (int(p.strip()) for p in value.split(","))
+        except ValueError as e:
+            raise click.UsageError(f"--color as r,g,b needs three integers; got {value!r}") from e
+        return (r, g, b)
+    return value
+
+
 def _fmt_snapshot(images: list[dict[str, Any]], dpi: int) -> str:
     if not images:
         return "(no pages rendered)"
@@ -1045,6 +1067,125 @@ def style_apply(ctx: click.Context, anchor_id: str, name: str) -> None:
     _run(ctx, go)
 
 
+@style.command(name="add")
+@click.argument("name")
+@click.option(
+    "--type",
+    "style_type",
+    default="paragraph",
+    type=click.Choice(["paragraph", "character", "table", "list"]),
+    help="Kind of style to create.",
+)
+@click.option("--based-on", "based_on", default=None, help="Existing style to inherit from.")
+@click.option(
+    "--next-style", "next_style", default=None, help="Style applied to the following paragraph."
+)
+@click.pass_context
+def style_add(
+    ctx: click.Context, name: str, style_type: str, based_on: str | None, next_style: str | None
+) -> None:
+    """Define a new style NAME (atomic-undo). Style its defaults with `style set`."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: add style {name!r}"):
+                new = doc.styles.add(
+                    name, type=style_type, based_on=based_on, next_style=next_style
+                )
+            emit(
+                {"ok": True, "style": new.name, "type": style_type},
+                as_text=not ctx.obj["as_json"],
+                text=f"added style {name!r} ({style_type})",
+            )
+
+    _run(ctx, go)
+
+
+@style.command(name="set")
+@click.argument("name")
+@click.option("--bold/--no-bold", "bold", default=None, help="Bold.")
+@click.option("--italic/--no-italic", "italic", default=None, help="Italic.")
+@click.option("--underline/--no-underline", "underline", default=None, help="Single underline.")
+@click.option("--font", "font", default=None, help="Font family name.")
+@click.option("--size", "size", default=None, help="Font size in points or a unit string.")
+@click.option("--color", "color", default=None, help="Font colour: name, hex, or r,g,b.")
+@click.option(
+    "--alignment",
+    "alignment",
+    default=None,
+    type=click.Choice(["left", "center", "centre", "right", "justify"], case_sensitive=False),
+    help="Paragraph alignment.",
+)
+@click.option("--space-before", "space_before", default=None, help="Space before in points/units.")
+@click.option("--space-after", "space_after", default=None, help="Space after in points/units.")
+@click.option("--based-on", "based_on", default=None, help="Existing style to inherit from.")
+@click.option(
+    "--next-style", "next_style", default=None, help="Style applied to the following paragraph."
+)
+@click.pass_context
+def style_set(
+    ctx: click.Context,
+    name: str,
+    bold: bool | None,
+    italic: bool | None,
+    underline: bool | None,
+    font: str | None,
+    size: str | None,
+    color: str | None,
+    alignment: str | None,
+    space_before: str | None,
+    space_after: str | None,
+    based_on: str | None,
+    next_style: str | None,
+) -> None:
+    """Set the font / paragraph defaults of an existing style NAME (atomic-undo)."""
+    run_raw: dict[str, Any] = {
+        "bold": bold,
+        "italic": italic,
+        "underline": underline,
+        "font": font,
+        "size": size,
+        "color": _parse_color(color),
+    }
+    para_raw: dict[str, Any] = {
+        "alignment": alignment,
+        "space_before": space_before,
+        "space_after": space_after,
+    }
+    run_kwargs = {k: v for k, v in run_raw.items() if v is not None}
+    para_kwargs = {k: v for k, v in para_raw.items() if v is not None}
+    if not run_kwargs and not para_kwargs and based_on is None and next_style is None:
+        raise click.UsageError("pass at least one style property to set")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: set style {name!r}"):
+                style_obj = doc.styles[name]
+                if run_kwargs:
+                    style_obj.format_run(**run_kwargs)
+                if para_kwargs:
+                    style_obj.format_paragraph(**para_kwargs)
+                if based_on is not None:
+                    style_obj.base_style = based_on
+                if next_style is not None:
+                    style_obj.next_paragraph_style = next_style
+            emit(
+                {
+                    "ok": True,
+                    "style": name,
+                    "applied": {**run_kwargs, **para_kwargs},
+                    "based_on": based_on,
+                    "next_style": next_style,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"set style {name!r}",
+            )
+
+    _run(ctx, go)
+
+
 # ---------------------------------------------------------------------------
 # format-paragraph --anchor-id ID [--alignment ...] [--left-indent N] ...
 # ---------------------------------------------------------------------------
@@ -1141,6 +1282,215 @@ def format_paragraph_cmd(
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"formatted {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="format-run")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose text run(s) to format.")
+@click.option("--bold/--no-bold", "bold", default=None, help="Bold.")
+@click.option("--italic/--no-italic", "italic", default=None, help="Italic.")
+@click.option("--underline/--no-underline", "underline", default=None, help="Single underline.")
+@click.option(
+    "--strikethrough/--no-strikethrough", "strikethrough", default=None, help="Strikethrough."
+)
+@click.option("--font", "font", default=None, help="Font family name.")
+@click.option("--size", "size", default=None, help="Font size in points or a unit string (12pt).")
+@click.option("--color", "color", default=None, help="Font colour: name, hex (#FF0000), or r,g,b.")
+@click.option(
+    "--highlight",
+    "highlight",
+    default=None,
+    help="Text-highlight colour name (yellow, green, …) or 'none' to clear.",
+)
+@click.option("--subscript/--no-subscript", "subscript", default=None, help="Subscript.")
+@click.option("--superscript/--no-superscript", "superscript", default=None, help="Superscript.")
+@click.option("--small-caps/--no-small-caps", "small_caps", default=None, help="Small caps.")
+@click.option("--all-caps/--no-all-caps", "all_caps", default=None, help="All caps.")
+@click.option(
+    "--spacing", "spacing", default=None, help="Character spacing in points or a unit string."
+)
+@click.pass_context
+def format_run_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    bold: bool | None,
+    italic: bool | None,
+    underline: bool | None,
+    strikethrough: bool | None,
+    font: str | None,
+    size: str | None,
+    color: str | None,
+    highlight: str | None,
+    subscript: bool | None,
+    superscript: bool | None,
+    small_caps: bool | None,
+    all_caps: bool | None,
+    spacing: str | None,
+) -> None:
+    """Set character-formatting (run-level) properties on the anchor (atomic-undo).
+
+    A colour may be a name, hex (#FF0000), or comma-separated r,g,b. Sizes and
+    spacing accept a number (points) or a unit string like 12pt / 1.5mm.
+    """
+    raw: dict[str, Any] = {
+        "bold": bold,
+        "italic": italic,
+        "underline": underline,
+        "strikethrough": strikethrough,
+        "font": font,
+        "size": size,
+        "color": _parse_color(color),
+        "highlight": highlight,
+        "subscript": subscript,
+        "superscript": superscript,
+        "small_caps": small_caps,
+        "all_caps": all_caps,
+        "spacing": spacing,
+    }
+    kwargs: dict[str, Any] = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one formatting option")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: format run {anchor_id}"):
+                anchor.format_run(**kwargs)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": kwargs,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"formatted run {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="shading")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor (or cell) to shade.")
+@click.option("--fill", "fill", required=True, help="Fill colour: name, hex (#FFFF00), or r,g,b.")
+@click.pass_context
+def shading_cmd(ctx: click.Context, anchor_id: str, fill: str) -> None:
+    """Set the background-fill shading of the anchor's range (atomic-undo)."""
+    fill_value = _parse_color(fill)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: shading {anchor_id}"):
+                anchor.set_shading(fill=fill_value)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": {"fill": fill_value},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"shaded {anchor_id}: {fill_value}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="borders")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor (or cell) to border.")
+@click.option(
+    "--sides",
+    "sides",
+    default="all",
+    help="Edges: all/box, top, bottom, left, right, horizontal, vertical "
+    "(comma-separated for several).",
+)
+@click.option(
+    "--style", "style", default="single", help="Line style: single, double, dot, dash, … or none."
+)
+@click.option("--weight", "weight", type=float, default=0.5, help="Line width in points (snapped).")
+@click.option("--color", "color", default=None, help="Border colour: name, hex, or r,g,b.")
+@click.pass_context
+def borders_cmd(
+    ctx: click.Context, anchor_id: str, sides: str, style: str, weight: float, color: str | None
+) -> None:
+    """Draw borders on the anchor's range or cell (atomic-undo)."""
+    side_list = [s.strip() for s in sides.split(",") if s.strip()]
+    color_value = _parse_color(color)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: borders {anchor_id}"):
+                anchor.set_borders(sides=side_list, style=style, weight=weight, color=color_value)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": {
+                        "sides": side_list,
+                        "style": style,
+                        "weight": weight,
+                        "color": color_value,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"bordered {anchor_id}: {side_list} {style}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="tab-stop")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose paragraph(s) to tab.")
+@click.option(
+    "--position",
+    "position",
+    required=True,
+    help="Distance from the left margin in points or a unit string (3in).",
+)
+@click.option(
+    "--align",
+    "align",
+    default="left",
+    type=click.Choice(["left", "center", "centre", "right", "decimal", "bar"]),
+    help="Tab alignment.",
+)
+@click.option(
+    "--leader",
+    "leader",
+    default=None,
+    type=click.Choice(["none", "dots", "dashes", "lines", "heavy", "middle-dot"]),
+    help="Leader fill drawn up to the stop.",
+)
+@click.pass_context
+def tab_stop_cmd(
+    ctx: click.Context, anchor_id: str, position: str, align: str, leader: str | None
+) -> None:
+    """Add a tab stop to the anchor's paragraph(s) (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: tab stop {anchor_id}"):
+                anchor.add_tab_stop(position, align=align, leader=leader)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": {"position": position, "align": align, "leader": leader},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"tab stop on {anchor_id}: {position} {align}",
             )
 
     _run(ctx, go)

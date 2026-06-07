@@ -12,12 +12,19 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from . import _com, _images, _lists
+from ._format import to_bgr, to_points
 from .constants import (
     MsoTriState,
+    WdBorderType,
     WdBreakType,
+    WdColorIndex,
     WdInformation,
+    WdLineStyle,
     WdNumberType,
     WdParagraphAlignment,
+    WdTabAlignment,
+    WdTabLeader,
+    WdUnderline,
     WdWrapType,
 )
 from .exceptions import AnchorNotFoundError, OpError
@@ -95,6 +102,220 @@ def _coerce_alignment(value: Any) -> int:
     raise TypeError(
         f"alignment must be WdParagraphAlignment, int, or str; got {type(value).__name__}"
     )
+
+
+# Highlight keywords -> WdColorIndex. Highlight is a palette index, not an RGB,
+# so it bypasses the colour helper. `auto`/`none` clears the highlight.
+_HIGHLIGHT_NAMES: dict[str, WdColorIndex] = {
+    "none": WdColorIndex.AUTO,
+    "auto": WdColorIndex.AUTO,
+    "black": WdColorIndex.BLACK,
+    "blue": WdColorIndex.BLUE,
+    "turquoise": WdColorIndex.TURQUOISE,
+    "bright-green": WdColorIndex.BRIGHT_GREEN,
+    "green": WdColorIndex.GREEN,
+    "pink": WdColorIndex.PINK,
+    "red": WdColorIndex.RED,
+    "yellow": WdColorIndex.YELLOW,
+    "white": WdColorIndex.WHITE,
+    "dark-blue": WdColorIndex.DARK_BLUE,
+    "teal": WdColorIndex.TEAL,
+    "violet": WdColorIndex.VIOLET,
+    "dark-red": WdColorIndex.DARK_RED,
+    "dark-yellow": WdColorIndex.DARK_YELLOW,
+    "gray-50": WdColorIndex.GRAY_50,
+    "gray-25": WdColorIndex.GRAY_25,
+}
+
+
+def _coerce_highlight(value: Any) -> int:
+    if isinstance(value, WdColorIndex):
+        return int(value)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(_HIGHLIGHT_NAMES[value.lower()])
+        except KeyError:
+            raise ValueError(
+                f"unknown highlight {value!r}; expected one of {sorted(_HIGHLIGHT_NAMES)}"
+            ) from None
+    raise TypeError(f"highlight must be WdColorIndex, int, or str; got {type(value).__name__}")
+
+
+def _apply_font(
+    font: Any,
+    *,
+    bold: bool | None = None,
+    italic: bool | None = None,
+    underline: bool | None = None,
+    strikethrough: bool | None = None,
+    font_name: str | None = None,
+    size: Any = None,
+    color: Any = None,
+    subscript: bool | None = None,
+    superscript: bool | None = None,
+    small_caps: bool | None = None,
+    all_caps: bool | None = None,
+    spacing: Any = None,
+) -> None:
+    """Write character-formatting properties onto a COM `Font`.
+
+    Tri-state: only kwargs that aren't `None` are written. Shared by
+    `Anchor.format_run` (on a range's `Font`) and `Style.format_run` (on a
+    style's `Font`) — the two diverge only in `highlight`, which is a `Range`
+    property and is handled by the caller, not here. Raises `ValueError`/
+    `TypeError` from the colour/length coercers on bad input.
+    """
+    if bold is not None:
+        font.Bold = bool(bold)
+    if italic is not None:
+        font.Italic = bool(italic)
+    if underline is not None:
+        font.Underline = int(WdUnderline.SINGLE if underline else WdUnderline.NONE)
+    if strikethrough is not None:
+        font.StrikeThrough = bool(strikethrough)
+    if font_name is not None:
+        font.Name = str(font_name)
+    if size is not None:
+        font.Size = to_points(size)
+    if color is not None:
+        font.Color = to_bgr(color)
+    if subscript is not None:
+        font.Subscript = bool(subscript)
+    if superscript is not None:
+        font.Superscript = bool(superscript)
+    if small_caps is not None:
+        font.SmallCaps = bool(small_caps)
+    if all_caps is not None:
+        font.AllCaps = bool(all_caps)
+    if spacing is not None:
+        font.Spacing = to_points(spacing)
+
+
+def _apply_paragraph_format(
+    pf: Any,
+    *,
+    alignment: Any = None,
+    left_indent: Any = None,
+    right_indent: Any = None,
+    first_line_indent: Any = None,
+    space_before: Any = None,
+    space_after: Any = None,
+    page_break_before: bool | None = None,
+) -> None:
+    """Write paragraph-formatting properties onto a COM `ParagraphFormat`.
+
+    Tri-state: only kwargs that aren't `None` are written. Shared by
+    `Anchor.format_paragraph` (on a range's `ParagraphFormat`) and
+    `Style.format_paragraph` (on a style's `ParagraphFormat`). Indents/spacing
+    accept a number (points) or a unit string via the length helper. Raises
+    `ValueError`/`TypeError` on bad input.
+    """
+    if alignment is not None:
+        pf.Alignment = _coerce_alignment(alignment)
+    if left_indent is not None:
+        pf.LeftIndent = to_points(left_indent)
+    if right_indent is not None:
+        pf.RightIndent = to_points(right_indent)
+    if first_line_indent is not None:
+        pf.FirstLineIndent = to_points(first_line_indent)
+    if space_before is not None:
+        pf.SpaceBefore = to_points(space_before)
+    if space_after is not None:
+        pf.SpaceAfter = to_points(space_after)
+    if page_break_before is not None:
+        pf.PageBreakBefore = bool(page_break_before)
+
+
+# Border-side keywords -> the WdBorderType edges they cover. "all"/"box" hit the
+# four outer edges; the named singles map to one edge each.
+_BORDER_SIDES: dict[str, tuple[WdBorderType, ...]] = {
+    "top": (WdBorderType.TOP,),
+    "bottom": (WdBorderType.BOTTOM,),
+    "left": (WdBorderType.LEFT,),
+    "right": (WdBorderType.RIGHT,),
+    "horizontal": (WdBorderType.HORIZONTAL,),
+    "vertical": (WdBorderType.VERTICAL,),
+    "all": (WdBorderType.TOP, WdBorderType.BOTTOM, WdBorderType.LEFT, WdBorderType.RIGHT),
+    "box": (WdBorderType.TOP, WdBorderType.BOTTOM, WdBorderType.LEFT, WdBorderType.RIGHT),
+}
+
+_LINE_STYLES: dict[str, WdLineStyle] = {
+    "none": WdLineStyle.NONE,
+    "single": WdLineStyle.SINGLE,
+    "dot": WdLineStyle.DOT,
+    "dotted": WdLineStyle.DOT,
+    "dash": WdLineStyle.DASH_LARGE_GAP,
+    "dashed": WdLineStyle.DASH_LARGE_GAP,
+    "dash-small": WdLineStyle.DASH_SMALL_GAP,
+    "dash-dot": WdLineStyle.DASH_DOT,
+    "dash-dot-dot": WdLineStyle.DASH_DOT_DOT,
+    "double": WdLineStyle.DOUBLE,
+}
+
+_TAB_ALIGN: dict[str, WdTabAlignment] = {
+    "left": WdTabAlignment.LEFT,
+    "center": WdTabAlignment.CENTER,
+    "centre": WdTabAlignment.CENTER,
+    "right": WdTabAlignment.RIGHT,
+    "decimal": WdTabAlignment.DECIMAL,
+    "bar": WdTabAlignment.BAR,
+}
+
+_TAB_LEADERS: dict[str, WdTabLeader] = {
+    "none": WdTabLeader.SPACES,
+    "spaces": WdTabLeader.SPACES,
+    "dots": WdTabLeader.DOTS,
+    "dashes": WdTabLeader.DASHES,
+    "lines": WdTabLeader.LINES,
+    "heavy": WdTabLeader.HEAVY,
+    "middle-dot": WdTabLeader.MIDDLE_DOT,
+}
+
+# Word's `Border.LineWidth` is a discrete `WdLineWidth` (points x 8). We accept a
+# point value and snap to the nearest supported weight rather than rejecting the
+# in-between ones, so `weight=1` (a hairline-ish 0.75pt..1pt) just works.
+_LINE_WIDTHS: tuple[int, ...] = (2, 4, 6, 8, 12, 18, 24)  # 0.25, 0.5, 0.75, 1, 1.5, 2.25, 3 pt
+
+
+def _resolve_border_sides(sides: Any) -> list[int]:
+    """Map a `sides` argument (str or iterable of str) to WdBorderType ints."""
+    if isinstance(sides, str):
+        names = [sides]
+    elif isinstance(sides, (list, tuple)):
+        names = list(sides)
+    else:
+        raise TypeError(f"sides must be a string or list of strings; got {type(sides).__name__}")
+    out: list[int] = []
+    for n in names:
+        key = str(n).lower()
+        if key not in _BORDER_SIDES:
+            raise ValueError(f"unknown border side {n!r}; expected one of {sorted(_BORDER_SIDES)}")
+        for edge in _BORDER_SIDES[key]:
+            if int(edge) not in out:
+                out.append(int(edge))
+    return out
+
+
+def _coerce_named(value: Any, table: dict[str, Any], label: str) -> int:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(table[value.lower()])
+        except KeyError:
+            raise ValueError(
+                f"unknown {label} {value!r}; expected one of {sorted(table)}"
+            ) from None
+    raise TypeError(f"{label} must be an int or str; got {type(value).__name__}")
+
+
+def _coerce_line_weight(value: Any) -> int:
+    """Points -> the nearest supported `WdLineWidth` (points x 8, snapped)."""
+    pts = to_points(value)
+    eighths = pts * 8
+    return min(_LINE_WIDTHS, key=lambda w: abs(w - eighths))
 
 
 # Floating wrap keywords -> WdWrapType. "inline" and "auto" are handled
@@ -578,24 +799,161 @@ class Anchor(ABC):
         the *clean* way to page-break (e.g. apply it to every `Heading 1`): it's
         a paragraph property that survives reflow and leaves no stray break
         character, unlike [`insert_break`][wordlive.Anchor.insert_break].
-        `False` clears the property.
+        `False` clears the property. Indents/spacing accept a number (points) or
+        a unit string (`"0.5in"`).
         """
-        with _com.translate_com_errors():
-            pf = self._range().ParagraphFormat
-            if alignment is not None:
-                pf.Alignment = _coerce_alignment(alignment)
-            if left_indent is not None:
-                pf.LeftIndent = float(left_indent)
-            if right_indent is not None:
-                pf.RightIndent = float(right_indent)
-            if first_line_indent is not None:
-                pf.FirstLineIndent = float(first_line_indent)
-            if space_before is not None:
-                pf.SpaceBefore = float(space_before)
-            if space_after is not None:
-                pf.SpaceAfter = float(space_after)
-            if page_break_before is not None:
-                pf.PageBreakBefore = bool(page_break_before)
+        try:
+            with _com.translate_com_errors():
+                _apply_paragraph_format(
+                    self._range().ParagraphFormat,
+                    alignment=alignment,
+                    left_indent=left_indent,
+                    right_indent=right_indent,
+                    first_line_indent=first_line_indent,
+                    space_before=space_before,
+                    space_after=space_after,
+                    page_break_before=page_break_before,
+                )
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def format_run(
+        self,
+        *,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        underline: bool | None = None,
+        strikethrough: bool | None = None,
+        font: str | None = None,
+        size: Any = None,
+        color: Any = None,
+        highlight: Any = None,
+        subscript: bool | None = None,
+        superscript: bool | None = None,
+        small_caps: bool | None = None,
+        all_caps: bool | None = None,
+        spacing: Any = None,
+    ) -> None:
+        """Set character-formatting (run-level) properties on this anchor's range.
+
+        Direct formatting — the *bold this phrase* layer, distinct from
+        [`apply_style`][wordlive.Anchor.apply_style] (named styles) and
+        [`format_paragraph`][wordlive.Anchor.format_paragraph] (paragraph-scope).
+        Pairs naturally with `range:START-END` to style a sub-paragraph span.
+
+        All kwargs are optional and tri-state; only the ones explicitly passed
+        are written (`None` leaves the property untouched). `bold`/`italic`/
+        `underline`/`strikethrough`/`subscript`/`superscript`/`small_caps`/
+        `all_caps` are booleans. `font` is a family name; `size` and `spacing`
+        accept a number (points) or a unit string (`"12pt"`, `"1.5mm"`).
+        `color` accepts a named colour, hex (`"#FF0000"`), or `(r, g, b)`.
+        `highlight` is a named text-highlight colour (`"yellow"`, `"green"`, …,
+        or `"none"`/`"auto"` to clear it) — a palette index, *not* an RGB.
+
+        Bad colour/length/highlight input raises `OpError` (bad-input). Wrap in
+        `doc.edit(...)` for atomic undo.
+        """
+        try:
+            with _com.translate_com_errors():
+                rng = self._range()
+                _apply_font(
+                    rng.Font,
+                    bold=bold,
+                    italic=italic,
+                    underline=underline,
+                    strikethrough=strikethrough,
+                    font_name=font,
+                    size=size,
+                    color=color,
+                    subscript=subscript,
+                    superscript=superscript,
+                    small_caps=small_caps,
+                    all_caps=all_caps,
+                    spacing=spacing,
+                )
+                if highlight is not None:
+                    rng.HighlightColorIndex = _coerce_highlight(highlight)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def set_shading(self, *, fill: Any = None, pattern: Any = None) -> None:
+        """Set the background (fill) shading of this anchor's range.
+
+        `fill` is a named colour, hex (`"#FFFF00"`), or `(r, g, b)` — applied to
+        `Range.Shading.BackgroundPatternColor`. Because a `Cell` is an `Anchor`,
+        this is also how you shade a table cell. `pattern` (a shading pattern/
+        texture) is accepted for forward-compatibility but not yet applied —
+        deferred. Bad colour input raises `OpError`. Wrap in `doc.edit(...)`.
+        """
+        try:
+            with _com.translate_com_errors():
+                if fill is not None:
+                    self._range().Shading.BackgroundPatternColor = to_bgr(fill)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def set_borders(
+        self,
+        *,
+        sides: Any = "all",
+        style: Any = "single",
+        weight: Any = 0.5,
+        color: Any = None,
+    ) -> None:
+        """Draw borders on this anchor's range (or cell — a `Cell` is an `Anchor`).
+
+        `sides` is `"all"`/`"box"` (the default — four outer edges), a single
+        edge (`"top"`/`"bottom"`/`"left"`/`"right"`), an interior gridline
+        (`"horizontal"`/`"vertical"`, for multi-cell ranges), or a list of those.
+        `style` is a line style (`"single"`, `"double"`, `"dot"`, `"dash"`, …, or
+        `"none"` to remove). `weight` is the line width in points, snapped to
+        Word's discrete set (0.25/0.5/0.75/1/1.5/2.25/3 pt). `color` is an
+        optional border colour (name/hex/RGB).
+
+        Page borders (`Section.Borders`) and table-wide borders (`Table.Borders`)
+        are out of scope here — this sets per-range/per-cell borders. Bad input
+        raises `OpError`. Wrap in `doc.edit(...)`.
+        """
+        try:
+            edges = _resolve_border_sides(sides)
+            line_style = _coerce_named(style, _LINE_STYLES, "border style")
+            line_width = _coerce_line_weight(weight)
+            bgr = to_bgr(color) if color is not None else None
+            with _com.translate_com_errors():
+                borders = self._range().Borders
+                for edge in edges:
+                    b = borders(edge)
+                    b.LineStyle = line_style
+                    b.LineWidth = line_width
+                    if bgr is not None:
+                        b.Color = bgr
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def add_tab_stop(self, position: Any, *, align: Any = "left", leader: Any = None) -> None:
+        """Add a tab stop to this anchor's paragraph(s).
+
+        `position` is the distance from the left margin in points (or a unit
+        string like `"3in"`). `align` is `"left"`/`"center"`/`"right"`/
+        `"decimal"`/`"bar"`. `leader` is an optional fill drawn up to the stop —
+        `"dots"` (price lists / tables of contents), `"dashes"`, `"lines"`, … —
+        defaulting to none. Maps to `ParagraphFormat.TabStops.Add`. Bad input
+        raises `OpError`. Wrap in `doc.edit(...)`.
+        """
+        try:
+            pos = to_points(position)
+            al = _coerce_named(align, _TAB_ALIGN, "tab alignment")
+            ld = (
+                _coerce_named(leader, _TAB_LEADERS, "tab leader")
+                if leader is not None
+                else int(WdTabLeader.SPACES)
+            )
+            with _com.translate_com_errors():
+                # Positional args: the `Leader=` keyword is dropped under pywin32
+                # late binding, so pass Position, Alignment, Leader positionally.
+                self._range().ParagraphFormat.TabStops.Add(pos, al, ld)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
 
     def apply_list(self, list_type: str = "bulleted", *, continue_previous: bool = False) -> None:
         """Turn this anchor's paragraphs into a list.

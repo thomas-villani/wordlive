@@ -1,10 +1,13 @@
-"""Document-scoped style enumeration and lookup.
+"""Document-scoped style enumeration, lookup, creation, and modification.
 
-Styles are read-only wrappers — wordlive consumes existing styles, it does not
-define or modify them. Membership is checked by iterating `doc.Styles` rather
-than calling `doc.Styles(name)` and trapping the COM error, because Word does
-not reserve a HRESULT for "style not found" and the generic `pywintypes.com_error`
-would be indistinguishable from a real failure.
+`doc.styles.add(...)` defines a new style; the resulting `Style` is writable —
+`style.format_run(...)` / `style.format_paragraph(...)` set its character and
+paragraph defaults (reusing the same kwarg vocabulary as the anchor methods),
+and `base_style` / `next_paragraph_style` chain styles together. Lookup is still
+read-only and membership is checked by iterating `doc.Styles` rather than calling
+`doc.Styles(name)` and trapping the COM error, because Word does not reserve a
+HRESULT for "style not found" and the generic `pywintypes.com_error` would be
+indistinguishable from a real failure.
 """
 
 from __future__ import annotations
@@ -14,10 +17,18 @@ from typing import TYPE_CHECKING, Any
 
 from . import _com
 from .constants import WdStyleType
-from .exceptions import StyleNotFoundError
+from .exceptions import OpError, StyleNotFoundError
 
 if TYPE_CHECKING:
     from ._document import Document
+
+
+_STYLE_TYPE_FROM_NAME: dict[str, WdStyleType] = {
+    "paragraph": WdStyleType.PARAGRAPH,
+    "character": WdStyleType.CHARACTER,
+    "table": WdStyleType.TABLE,
+    "list": WdStyleType.LIST,
+}
 
 
 _STYLE_TYPE_NAMES = {
@@ -94,6 +105,71 @@ class Style:
                 "in_use": bool(com.InUse),
             }
 
+    def format_run(self, **kwargs: Any) -> None:
+        """Set this style's character (font) defaults.
+
+        Same kwargs as [`Anchor.format_run`][wordlive.Anchor.format_run] —
+        `bold`/`italic`/`underline`/`font`/`size`/`color`/… — minus `highlight`
+        (a style's `Font` has no highlight property). Tri-state: only the kwargs
+        you pass are written. Bad input raises `OpError`.
+        """
+        from ._anchors import _apply_font
+
+        font_name = kwargs.pop("font", None)
+        if "highlight" in kwargs:
+            raise OpError("a style's font has no highlight; set highlight on a range instead")
+        try:
+            with _com.translate_com_errors():
+                _apply_font(self.com.Font, font_name=font_name, **kwargs)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def format_paragraph(self, **kwargs: Any) -> None:
+        """Set this style's paragraph defaults.
+
+        Same kwargs as
+        [`Anchor.format_paragraph`][wordlive.Anchor.format_paragraph]
+        (`alignment`, indents, spacing, `page_break_before`). Tri-state. Bad
+        input raises `OpError`.
+        """
+        from ._anchors import _apply_paragraph_format
+
+        try:
+            with _com.translate_com_errors():
+                _apply_paragraph_format(self.com.ParagraphFormat, **kwargs)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    @property
+    def base_style(self) -> str | None:
+        """The name of the style this one inherits from (`None` if unset)."""
+        with _com.translate_com_errors():
+            try:
+                return str(self.com.BaseStyle.NameLocal)
+            except Exception:
+                return None
+
+    @base_style.setter
+    def base_style(self, name: str) -> None:
+        base = self._doc.styles[name]  # StyleNotFoundError if missing
+        with _com.translate_com_errors():
+            self.com.BaseStyle = base.com
+
+    @property
+    def next_paragraph_style(self) -> str | None:
+        """The name of the style applied to the *next* paragraph (`None` if unset)."""
+        with _com.translate_com_errors():
+            try:
+                return str(self.com.NextParagraphStyle.NameLocal)
+            except Exception:
+                return None
+
+    @next_paragraph_style.setter
+    def next_paragraph_style(self, name: str) -> None:
+        nxt = self._doc.styles[name]  # StyleNotFoundError if missing
+        with _com.translate_com_errors():
+            self.com.NextParagraphStyle = nxt.com
+
     def __repr__(self) -> str:
         return f"<Style {self._name!r}>"
 
@@ -136,3 +212,39 @@ class StyleCollection:
                 }
                 for s in self._doc.com.Styles
             ]
+
+    def add(
+        self,
+        name: str,
+        *,
+        type: str = "paragraph",
+        based_on: str | None = None,
+        next_style: str | None = None,
+    ) -> Style:
+        """Define a new style and return it as a writable `Style`.
+
+        `type` is `"paragraph"` (default), `"character"`, `"table"`, or `"list"`.
+        `based_on` and `next_style` are names of existing styles (the inheritance
+        parent and the style applied to the following paragraph). The brand /
+        template primitive: define a house style once, then `apply_style` it
+        everywhere. Style its defaults via the returned object's
+        `format_run(...)` / `format_paragraph(...)`. Bad `type` raises `OpError`;
+        an unknown `based_on` / `next_style` raises `StyleNotFoundError`.
+        """
+        style_type = _STYLE_TYPE_FROM_NAME.get(type)
+        if style_type is None:
+            raise OpError(
+                f"unknown style type {type!r}; expected one of {sorted(_STYLE_TYPE_FROM_NAME)}"
+            )
+        # Resolve referenced styles up front so a miss fails before mutating.
+        base_com = self[based_on].com if based_on is not None else None
+        next_com = self[next_style].com if next_style is not None else None
+        with _com.translate_com_errors():
+            # Positional Name, Type — keywords drop under pywin32 late binding.
+            self._doc.com.Styles.Add(name, int(style_type))
+            new = Style(self._doc, name)
+            if base_com is not None:
+                new.com.BaseStyle = base_com
+            if next_com is not None:
+                new.com.NextParagraphStyle = next_com
+        return new

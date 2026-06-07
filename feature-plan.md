@@ -173,6 +173,11 @@ is **no run-level character formatting at all**, styles are read-only, and page
 layout is read-only. This cluster closes the "make it look designed" gap. Build
 the prerequisite first, then in order.
 
+> **Status (2026-06-05):** items **0–3 implemented** on `feat/publishing-styling`
+> (colour/units helper, `format_run`, shading/borders/tab-stops, style
+> creation/modification) — see CHANGELOG `[Unreleased]`. Items 4 (PageSetup
+> writes + multi-column) and 5 (publishing flourishes) remain.
+
 ### 0. Color / units helper (prerequisite, tiny)
 
 - One internal module that coerces colors (named → RGB → Word's **BGR long**;
