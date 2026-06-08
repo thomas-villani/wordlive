@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-06-08
+
 ### Added
 - **Character formatting — `format_run`.** Direct run-level formatting on any
   anchor: `anchor.format_run(bold=…, italic=…, underline=…, strikethrough=…,
@@ -345,6 +347,8 @@ v0–v0.8 development line bundled here:
   `wordlive install-skill`, an mkdocs Material docs site, and PyPI
   trusted-publishing on tag push.
 
+[0.12.0]: https://github.com/thomas-villani/wordlive/compare/v0.11.1...v0.12.0
+[0.11.1]: https://github.com/thomas-villani/wordlive/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/thomas-villani/wordlive/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/thomas-villani/wordlive/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/thomas-villani/wordlive/compare/v0.10.0...v0.10.1
