@@ -641,8 +641,7 @@ wordlive already has `doc.lists` / `doc.tables` / (planned) `doc.images` /
 ## LLM-ergonomics feedback (2026-06-08, from a live MCP probe session)
 
 A Claude-in-Claude-Desktop session driving v0.11.1 end to end surfaced eight
-items (`wordlive-llm-ergonomics-feedback.md`). Triaged into 0.12.0 vs. the next
-cycle:
+ergonomics items, triaged into 0.12.0 vs. the next cycle:
 
 - ✅ **Shipped in 0.12.0.**
   - *In-cell `find` overran the cell boundary* (§2): the segmenter now strips the
