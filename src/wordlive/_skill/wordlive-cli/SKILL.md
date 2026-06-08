@@ -49,10 +49,12 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive find --text "phrase"` — locate before editing; returns `range:` ids.
 - `wordlive table list` · `wordlive table read N`
 - `wordlive footnotes` · `wordlive endnotes` — each note's `footnote:N`/`endnote:N` id, text, and `para:N`.
+- `wordlive revisions` — tracked changes as structured data (`type`/`author`/`text`/`range`); the readable counterpart to `snapshot --markup all`. `wordlive track status` reports whether Track Changes is on.
 
 ## Writing — each command is one atomic undo
 - `wordlive write bookmark NAME --text "…"` · `write cc NAME --text "…"`
 - `wordlive insert --anchor-id ID --text "…" [--before | --after] [--style "Body Text"]` — new paragraph relative to any anchor (`--after` is the default; appending after the document's last paragraph works too, so you can build a doc top-down).
+- `wordlive delete-paragraph --anchor-id ID` — remove the paragraph(s) at an anchor, **mark included**, so the text closes up (no blank line left, unlike `replace --text ""`). Good for a stray leading empty `para:1`.
 - `wordlive append --text "…" [--inline] [--style "Body Text"]` — add a new final paragraph at the very end of the document (`--inline` continues the last paragraph). The high-level "end of doc" helper; same as `insert --anchor-id end`.
 - `wordlive prepend --text "…" [--inline] [--style "Body Text"]` — the mirror: add to the very start of the document (same as `insert --anchor-id start`).
 - `wordlive replace --anchor-id ID --text "…"` — overwrite a range.
@@ -71,10 +73,10 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive cross-ref --anchor-id ID --target TARGET [--kind text|page|number|above_below] [--no-hyperlink]` — reference another anchor; `--target` is `bookmark:NAME` / `heading:N` / `footnote:N` / `endnote:N`. Refresh with `update-fields`.
 - `wordlive caption --anchor-id ID [--label Figure] [--text "…"]` — insert an auto-numbered caption (Figure/Table/…). Pairs with `cross-ref`.
 - `wordlive page-setup [--section N] [--margins 1in] [--top-margin … --bottom-margin … --left-margin … --right-margin …] [--gutter …] [--orientation portrait|landscape] [--paper-size letter|legal|tabloid|a3|a4|a5] [--columns N] [--column-spacing …]` — set a section's page geometry. `--margins` sets all four (per-side flags override); lengths take points or a unit string; `--columns N` makes N equal columns. `--section` defaults to `1`.
-- `wordlive list apply --anchor-id ID --type bulleted|numbered|outline` (+ `list remove|restart|indent|outdent`).
+- `wordlive list apply --anchor-id ID --type bulleted|numbered|outline` (+ `list remove|restart|indent|outdent`). **To number N paragraphs 1..N, scope one apply to a `range:` that spans them all** (offsets from `paragraphs`/`find`) — applying `numbered` per-paragraph makes N separate "1." lists.
 - `wordlive table create --anchor-id ID --rows R --cols C [--style NAME] [--header] [--before | --after] [--data '[["…"],…]' | --data -]` — **build a new table** at a *position* anchor (`heading:`/`para:`/`start`/`end`); reports its 1-based `index`. Fill cells row-major with `--data` (use `--data -` for stdin to dodge Windows quoting); `--style` defaults to `Table Grid` (visible borders); `--header` bolds row 1. New cells default to the `Normal` paragraph style regardless of the anchor, so a table dropped under a heading doesn't inherit that heading style. Edit existing tables with `table add-row`/`delete-row` and `table delete N`; cells are anchors (`table:N:R:C`) you can `replace`/`style apply`/`format-paragraph`.
 - `wordlive comment add --anchor-id ID --text "…"` (+ `comment list` · `comment resolve --index N` · `comment delete --index N`).
-- `wordlive track on|off|status` — tracked changes.
+- `wordlive track on|off|status` — toggle / inspect Track Changes. Read the recorded edits structurally with `wordlive revisions`, or see them with `snapshot --markup all`.
 - `wordlive header write --section S --text "…"` · `footer write --section S --text "…"` (`--which primary|first|even`).
 
 ## Images
@@ -93,7 +95,7 @@ wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP 
 
 ## Snapshot — render page(s) to PNG so you can *see* the layout
 ```
-wordlive snapshot [--anchor-id ID | --page N | --pages A-B] [--out FILE] [--dpi 150]
+wordlive snapshot [--anchor-id ID | --page N | --pages A-B] [--out FILE] [--dpi 150] [--markup none|all]
 ```
 Word exports a pixel-faithful PDF of the live document and wordlive rasterises
 the requested pages — a true WYSIWYG image (real fonts, spacing, page geometry),
@@ -101,6 +103,8 @@ ideal for judging or iterating on style and formatting.
 - Pick **at most one** target: `--anchor-id` (the page(s) the anchor occupies —
   a `heading:` expands to its **whole section**), `--page N`, or `--pages A-B`.
   With none, the whole document renders.
+- `--markup all` renders tracked changes and comments as visible revision marks
+  (default `none` shows the final document); the structured list is `revisions`.
 - With `--out FILE` the image is written to disk (multiple pages become
   `<stem>-pN<suffix>`); **without `--out`, base64 PNG data is returned inline**
   in the JSON (`images[].base64`) — feed it straight back to yourself as an image.
@@ -138,12 +142,20 @@ you got wrong.
 `insert_paragraph` and `insert_image` default to inserting **after** the anchor;
 pass `"before": true` to insert above it (mirrors the CLI's `--before`/`--after`).
 
-Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `append`,
-`append_inline`, `prepend`, `prepend_inline`, `insert_image`, `replace`,
-`find_replace`, `apply_style`, `format_paragraph`, `set_cell`, `add_row`,
-`delete_row`, `create_table`, `delete_table`, `insert_break`, `add_comment`, `resolve_comment`,
-`delete_comment`, `apply_list`, `remove_list`, `restart_numbering`,
-`indent_list`, `outdent_list`, `write_header`, `write_footer`.
+Each op resolves its `anchor_id` **fresh against the live document at the moment
+it runs** — there's no pre-batch snapshot. So a positional id (`heading:N` /
+`para:N`) sees the shifts earlier ops in the same batch made. When inserting
+several paragraphs after one fixed anchor, either insert in reverse order or
+anchor each to the previous insert; name-based ids (`bookmark:` / `cc:`) are
+stable across the batch.
+
+Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `delete_paragraph`,
+`append`, `append_inline`, `prepend`, `prepend_inline`, `insert_image`,
+`replace`, `find_replace`, `apply_style`, `format_paragraph`, `set_cell`,
+`add_row`, `delete_row`, `create_table`, `delete_table`, `insert_break`,
+`add_comment`, `resolve_comment`, `delete_comment`, `apply_list`, `remove_list`,
+`restart_numbering`, `indent_list`, `outdent_list`, `write_header`,
+`write_footer`.
 (`append` / `prepend` add a new final / first **paragraph** and take `text` +
 optional `style`, no anchor — `append_paragraph` / `prepend_paragraph` are
 explicit synonyms. `append_inline` / `prepend_inline` instead **continue** the

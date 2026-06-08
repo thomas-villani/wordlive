@@ -137,6 +137,14 @@ class TestReadImpl:
         assert isinstance(_read_impl(W, "sections", {}), list)
         assert isinstance(_read_impl(W, "table_list", {}), list)
 
+    def test_revisions(self, fake_word: Any) -> None:
+        rows = _read_impl(W, "revisions", {})
+        assert isinstance(rows, list)
+        assert rows[0]["type"] == "insert" and rows[0]["author"] == "Reviewer"
+
+    def test_track_status(self, fake_word: Any) -> None:
+        assert _read_impl(W, "track", {}) == {"track_changes": False}
+
     def test_missing_bookmark_raises(self, fake_word: Any) -> None:
         with pytest.raises(AnchorNotFoundError):
             _read_impl(W, "read_bookmark", {"name": "DoesNotExist"})
@@ -163,6 +171,11 @@ class TestWriteImpl:
     def test_insert(self, fake_word: Any) -> None:
         r = _write_impl(W, "insert", {"anchor_id": "heading:1", "text": "new para"})
         assert r["ok"] is True
+
+    def test_delete_paragraph(self, fake_word: Any) -> None:
+        r = _write_impl(W, "delete_paragraph", {"anchor_id": "para:1"})
+        assert r["ok"] is True and r["command"] == "delete_paragraph"
+        fake_word.ActiveDocument.Range(0, 13).Delete.assert_called_once()
 
     def test_replace_find(self, fake_word: Any) -> None:
         r = _write_impl(W, "replace", {"find": "Body", "text": "Corpus"})
@@ -288,10 +301,23 @@ class TestSnapshotImpl:
         monkeypatch.setattr(
             Document,
             "snapshot",
-            lambda self, pages=None, dpi=150: [_FakeSnap(3, b"\x89PNGdata")],
+            lambda self, pages=None, dpi=150, markup="none": [_FakeSnap(3, b"\x89PNGdata")],
         )
-        pairs = _snapshot_impl(W, doc=None, pages="3", anchor=None, dpi=150)
+        pairs = _snapshot_impl(W, doc=None, pages="3", anchor=None, dpi=150, markup="none")
         assert pairs == [(3, b"\x89PNGdata")]
+
+    def test_markup_threads_through(self, fake_word: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wordlive._document import Document
+
+        seen: dict[str, Any] = {}
+
+        def fake_snapshot(self, pages=None, dpi=150, markup="none"):
+            seen["markup"] = markup
+            return [_FakeSnap(1, b"\x89PNGx")]
+
+        monkeypatch.setattr(Document, "snapshot", fake_snapshot)
+        _snapshot_impl(W, doc=None, pages="1", anchor=None, dpi=150, markup="all")
+        assert seen["markup"] == "all"
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +375,7 @@ class TestSession:
         monkeypatch.setattr(
             Document,
             "snapshot",
-            lambda self, pages=None, dpi=150: [_FakeSnap(1, b"\x89PNGdata")],
+            lambda self, pages=None, dpi=150, markup="none": [_FakeSnap(1, b"\x89PNGdata")],
         )
 
         async def go() -> Any:

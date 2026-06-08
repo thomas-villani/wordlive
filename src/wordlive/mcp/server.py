@@ -158,6 +158,10 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.styles.list()
             if command == "comments":
                 return doc.comments.list()
+            if command == "revisions":
+                return doc.revisions.list()
+            if command == "track":
+                return {"track_changes": doc.track_changes}
             if command == "sections":
                 return doc.sections.list()
             if command == "footnotes":
@@ -185,6 +189,8 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         if p.get("style") is not None:
             op["style"] = p["style"]
         return op
+    if command == "delete_paragraph":
+        return {"op": "delete_paragraph", "anchor_id": need("anchor_id")}
     if command in ("append", "prepend"):
         text = need("text")
         if p.get("paragraph", True):
@@ -519,6 +525,7 @@ def _snapshot_impl(
     pages: str | None,
     anchor: str | None,
     dpi: int,
+    markup: str,
 ) -> list[tuple[int, bytes]]:
     dpi = max(72, min(300, int(dpi)))
     pages_arg = _parse_pages(pages)
@@ -527,9 +534,9 @@ def _snapshot_impl(
         with attach() as word:
             d = pick_doc(word, doc)
             if anchor:
-                snaps = d.snapshot_anchor(d.anchor_by_id(anchor), dpi=dpi)
+                snaps = d.snapshot_anchor(d.anchor_by_id(anchor), dpi=dpi, markup=markup)
             else:
-                snaps = d.snapshot(pages=pages_arg, dpi=dpi)
+                snaps = d.snapshot(pages=pages_arg, dpi=dpi, markup=markup)
             return [(s.page, s.png) for s in snaps]
 
     return worker.run_on_word(job)
@@ -570,6 +577,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "table_read",
             "styles",
             "comments",
+            "revisions",
+            "track",
             "sections",
             "footnotes",
             "endnotes",
@@ -593,8 +602,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         outline [all_paragraphs] · paragraphs [start,count] ·
         find {text,[in_anchor]} · read_bookmark {name} · read_cc {name} ·
         read_section {heading | anchor_id} · table_list · table_read {table} ·
-        styles · comments · sections · footnotes · endnotes. `doc` targets a
-        document by name (default: active).
+        styles · comments · revisions (tracked changes: type/author/text/range per
+        change) · track (is Track Changes on?) · sections · footnotes · endnotes.
+        `doc` targets a document by name (default: active).
         """
         params = {
             "doc": doc,
@@ -617,6 +627,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
     def word_write(
         command: Literal[
             "insert",
+            "delete_paragraph",
             "append",
             "prepend",
             "replace",
@@ -737,6 +748,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
         insert {anchor_id,text,[before,style]} ·
+        delete_paragraph {anchor_id} — remove the paragraph(s) at an anchor, mark included ·
         append/prepend {text,[style]} — new final/first paragraph; pass paragraph=false
             to continue the adjacent paragraph inline (an inline append takes no style) ·
         replace {text, find|anchor_id, [all,occurrence,in_anchor]} ·
@@ -902,6 +914,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         Ops (required fields → behaviour):
           write_bookmark {name,text} · write_cc {name,text} ·
           insert_paragraph {anchor_id,text,[style,before]} — new paragraph by an anchor ·
+          delete_paragraph {anchor_id} — remove the paragraph(s) at an anchor, mark included ·
           append {text,[style]} / prepend {text,[style]} — new final/first paragraph ·
           append_inline {text} / prepend_inline {text} — continue the last/first paragraph (NO style) ·
           append_paragraph / prepend_paragraph — explicit synonyms of append/prepend ·
@@ -943,18 +956,24 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         pages: str | None = None,
         anchor: str | None = None,
         dpi: int = 150,
+        markup: str = "none",
     ) -> list[Any]:
         """Render page(s) of the open document to PNG so you can SEE the layout.
 
         Pick at most one target: `anchor` (the page(s) an anchor occupies — a
         heading expands to its whole section), or `pages` ("4" or "2-5"). With
-        neither, the whole document renders. Returns image content (and a "page N"
-        label per page) inline, so a vision model sees the render directly — no
-        filesystem path that a remote/sandboxed host couldn't open. Needs the
-        snapshot extra (PyMuPDF).
+        neither, the whole document renders. `markup` is "none" (the final
+        document) or "all" (show tracked changes and comments as visible revision
+        marks / balloons — pair with word_read(command="revisions") for the
+        structured list). Returns image content (and a "page N" label per page)
+        inline, so a vision model sees the render directly — no filesystem path
+        that a remote/sandboxed host couldn't open. Needs the snapshot extra
+        (PyMuPDF).
         """
         try:
-            rendered = _snapshot_impl(w, doc=doc, pages=pages, anchor=anchor, dpi=dpi)
+            rendered = _snapshot_impl(
+                w, doc=doc, pages=pages, anchor=anchor, dpi=dpi, markup=markup
+            )
         except WordliveError as exc:
             raise _tool_error(exc) from exc
         content: list[Any] = []

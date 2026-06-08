@@ -477,6 +477,38 @@ class _FakeComments:
             c.Index = i
 
 
+class _FakeRevision:
+    """Mimics a Word Revision: Type (int), Author, Range (with Text), Date."""
+
+    def __init__(self, spec: dict[str, Any]) -> None:
+        self.Type = int(spec.get("type", 1))  # 1=insert, 2=delete
+        self.Author = spec.get("author", "")
+        rng = MagicMock(name="RevisionRange")
+        rng.Start = int(spec.get("start", 0))
+        rng.End = int(spec.get("end", 0))
+        rng.Text = spec.get("text", "")
+        self.Range = rng
+        # A plain ISO string (real Word returns a datetime; the reader accepts both).
+        self.Date = spec.get("date", "2026-06-08T12:00:00")
+
+
+class _FakeRevisions:
+    """Mimics doc.Revisions: Count, 1-based call lookup, iteration."""
+
+    def __init__(self, revisions: list[dict[str, Any]]) -> None:
+        self._items = [_FakeRevision(r) for r in revisions]
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, index: int) -> _FakeRevision:
+        return self._items[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._items))
+
+
 class _FakeNote:
     """Mimics a Word Footnote/Endnote: a body Range, a Reference range, Delete."""
 
@@ -690,6 +722,7 @@ def _make_document(
     sections: list[dict[str, Any]] | None = None,
     footnotes: list[dict[str, Any]] | None = None,
     endnotes: list[dict[str, Any]] | None = None,
+    revisions: list[dict[str, Any]] | None = None,
 ) -> MagicMock:
     doc = MagicMock(name=f"Document[{name}]")
     doc.Name = name
@@ -721,6 +754,7 @@ def _make_document(
         [_FakeTable(t["grid"], t.get("title", "")) for t in (tables or [])]
     )
     doc.Comments = _FakeComments()
+    doc.Revisions = _FakeRevisions(revisions or [])
 
     # Track Changes flag: a plain settable bool so doc.track_changes /
     # tracked_changes() round-trip through the same handle.
@@ -835,6 +869,8 @@ def fake_word(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
         # One footnote whose reference mark sits in the body paragraph (13–29),
         # so footnotes.list() maps it back to para:2.
         footnotes=[{"ref_start": 20, "text": "A seeded footnote."}],
+        # One tracked insertion so revisions.list() / the reader have a target.
+        revisions=[{"type": 1, "author": "Reviewer", "start": 13, "end": 18, "text": "Body"}],
     )
     app = _make_application([doc])
 

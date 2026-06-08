@@ -64,21 +64,23 @@ class AmbiguousMatchError(WordliveError):
 class ReplaceVerificationError(WordliveError):
     """A resolved replacement target didn't match the located text — refused to write.
 
-    Word's table position model diverges from rendered `Range.Text` offsets, so a
-    find/replace whose match resolves to the wrong span (historically inside a
-    table) could silently overwrite a neighbouring cell while returning success.
-    wordlive verifies each target against the located match before writing and
-    raises this instead of corrupting the document. If you hit it, re-scope the
-    replace to the cell anchor (`scope=doc.anchor_by_id("table:N:R:C")`). Maps to
-    the generic exit code (1). Not retryable as-is — the same call drifts again.
+    wordlive verifies each find/replace target against the located match before
+    writing, and raises this instead of overwriting the wrong span. It means the
+    document shifted out from under the match between locating and writing —
+    typically because an earlier edit in the same batch moved later text, or
+    Track Changes left both the inserted and deleted runs in place (so offsets no
+    longer line up). Re-read the text (`find` / `paragraphs`) and retry, or target
+    the span directly by anchor id. Maps to the generic exit code (1). Not
+    retryable as-is — the same call drifts again.
     """
 
     def __init__(
         self, find: str, expected: str, resolved: str, *, anchor_id: str | None = None
     ) -> None:
         super().__init__(
-            f"replacement target for {find!r} resolved to {resolved!r}, expected "
-            f"{expected!r}; refusing to overwrite (re-scope to the cell anchor)"
+            f"replacement target for {find!r} resolved to {resolved!r}, not the expected "
+            f"{expected!r}; refusing to overwrite a span that shifted under the match "
+            f"(re-read the text and retry, or target it by anchor id)"
         )
         self.find = find
         self.expected = expected

@@ -200,6 +200,18 @@ Changes on for the scope and restores the prior setting on exit — pair it with
 reject. `Document.track_changes` is the underlying read/write property for the
 persistent flag. Both are documented on [`Document`](#wordlive.Document).
 
+`Document.revisions` is a read-only [`RevisionCollection`](#wordlive.RevisionCollection)
+that reads those tracked changes back as structured data — the way to *see* what
+a tracked batch recorded (plain text reads concatenate the inserted and deleted
+runs). `revisions.list()` reports each change as
+`{index, type, author, text, anchor_id, start, end, date}`, where `type` is
+`"insert"` / `"delete"` / `"format"` / … . The visual counterpart is
+`snapshot(markup="all")` (see [Snapshots](#snapshots)).
+
+::: wordlive.RevisionCollection
+
+::: wordlive.Revision
+
 ## Lists & numbering
 
 List operations apply to a *range's paragraphs*, so the verbs live on
@@ -254,8 +266,11 @@ PDF and wordlive rasterises the requested pages. `Document.snapshot` selects
 pages (all, one, or a span); `Anchor.snapshot` (and
 [`Document.snapshot_anchor`](#wordlive.Document)) renders the page(s) an anchor
 occupies, expanding a heading to its whole section. Both return a list of
-`Snapshot` (one per page) and optionally write the image(s) to `out`. This needs
-the optional `snapshot` extra (PyMuPDF); a missing backend raises
+`Snapshot` (one per page) and optionally write the image(s) to `out`. Pass
+`markup="all"` to render tracked changes and comments as visible revision marks
+and balloons instead of the final document (the structured counterpart is
+[`Document.revisions`](#wordlive.RevisionCollection)). This needs the optional
+`snapshot` extra (PyMuPDF); a missing backend raises
 [`SnapshotError`](#wordlive.SnapshotError).
 
 ```python
@@ -265,6 +280,7 @@ with wl.attach() as word:
     doc = word.documents.active
     png = doc.heading("Introduction").snapshot()[0].png   # bytes for a model
     doc.snapshot("report.png", pages=(1, 3))              # write pages 1-3
+    doc.snapshot("review.png", markup="all")              # show tracked changes
 ```
 
 ::: wordlive.Snapshot

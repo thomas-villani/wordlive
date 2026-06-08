@@ -85,6 +85,7 @@ def register(group: click.Group) -> None:
     group.add_command(read)
     group.add_command(write)
     group.add_command(insert)
+    group.add_command(delete_paragraph_cmd)
     group.add_command(insert_break_cmd)
     group.add_command(insert_field_cmd)
     group.add_command(update_fields_cmd)
@@ -93,6 +94,7 @@ def register(group: click.Group) -> None:
     group.add_command(insert_toc_cmd)
     group.add_command(footnotes_cmd)
     group.add_command(endnotes_cmd)
+    group.add_command(revisions_cmd)
     group.add_command(bookmark)
     group.add_command(link_cmd)
     group.add_command(cross_ref_cmd)
@@ -387,6 +389,42 @@ def insert(ctx: click.Context, anchor_id: str, text: str, before: bool, style: s
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# delete-paragraph --anchor-id ID
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="delete-paragraph")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Paragraph anchor to delete (e.g. para:1, heading:2).",
+)
+@click.pass_context
+def delete_paragraph_cmd(ctx: click.Context, anchor_id: str) -> None:
+    """Delete the paragraph(s) at an anchor — text and the trailing mark (atomic-undo).
+
+    Removes the whole paragraph so the surrounding text closes up (no empty line
+    left, unlike `replace --text ""`). Useful for a stray leading empty paragraph.
+    Deleting the document's last paragraph clears it but keeps Word's mandatory
+    final mark.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: delete paragraph {anchor_id}"):
+                doc.delete_paragraph(anchor_id)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "deleted": True},
+                as_text=not ctx.obj["as_json"],
+                text=f"deleted paragraph {anchor_id}",
             )
 
     _run(ctx, go)
@@ -723,6 +761,38 @@ def endnotes_cmd(ctx: click.Context) -> None:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             rows = doc.endnotes.list()
             emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_notes(rows, "endnote"))
+
+    _run(ctx, go)
+
+
+def _fmt_revisions(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "no tracked changes"
+    lines = []
+    for r in rows:
+        who = r.get("author") or "?"
+        text = (r.get("text") or "").replace("\r", " ").replace("\n", " ")
+        if len(text) > 60:
+            text = text[:57] + "…"
+        lines.append(f"{r['index']}. [{r.get('type')}] {who}: {text!r} ({r.get('anchor_id')})")
+    return "\n".join(lines)
+
+
+@click.command(name="revisions")
+@click.pass_context
+def revisions_cmd(ctx: click.Context) -> None:
+    """List the document's tracked changes (type, author, text, and range).
+
+    The structured counterpart to `snapshot --markup all`: each revision is an
+    insert / delete / format change with its author, the affected text, and a
+    `range:START-END` id. Reading is non-mutating.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.revisions.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_revisions(rows))
 
     _run(ctx, go)
 
@@ -1193,6 +1263,14 @@ def _fmt_snapshot(images: list[dict[str, Any]], dpi: int) -> str:
 @click.option(
     "--dpi", "dpi", type=int, default=150, show_default=True, help="Render resolution (dots/inch)."
 )
+@click.option(
+    "--markup",
+    "markup",
+    type=click.Choice(["none", "all"]),
+    default="none",
+    show_default=True,
+    help="'all' renders tracked changes and comments as visible revision marks.",
+)
 @click.pass_context
 def snapshot_cmd(
     ctx: click.Context,
@@ -1201,6 +1279,7 @@ def snapshot_cmd(
     pages_range: str | None,
     out: Path | None,
     dpi: int,
+    markup: str,
 ) -> None:
     """Render document page(s) to PNG so a vision model can see the layout.
 
@@ -1212,6 +1291,9 @@ def snapshot_cmd(
     `heading:` expands to its whole section), `--page N`, or `--pages A-B`. With
     none, the whole document is rendered. With `--out` the image is written to
     disk (one file per page); otherwise base64 PNG data is returned inline.
+
+    `--markup all` shows tracked changes and comments as visible revision marks
+    and balloons (the structured list is the `revisions` command).
 
     Requires the `snapshot` extra: `pip install "wordlive[snapshot]"`.
     """
@@ -1233,10 +1315,10 @@ def snapshot_cmd(
             doc = _pick_doc(word, ctx.obj["doc_name"])
             if anchor_id is not None:
                 anchor = doc.anchor_by_id(anchor_id)
-                shots = doc.snapshot_anchor(anchor, out, dpi=dpi)
+                shots = doc.snapshot_anchor(anchor, out, dpi=dpi, markup=markup)
                 selector: Any = anchor_id
             else:
-                shots = doc.snapshot(out, pages=pages_arg, dpi=dpi)
+                shots = doc.snapshot(out, pages=pages_arg, dpi=dpi, markup=markup)
                 selector = pages_range or page or "all"
             images: list[dict[str, Any]] = []
             for s in shots:

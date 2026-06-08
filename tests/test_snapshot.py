@@ -19,8 +19,8 @@ from click.testing import CliRunner
 import wordlive
 from wordlive import _snapshot
 from wordlive.cli.main import EXIT_ANCHOR_NOT_FOUND, EXIT_OK, EXIT_OTHER, main
-from wordlive.constants import WdExportFormat, WdExportRange
-from wordlive.exceptions import SnapshotError
+from wordlive.constants import WdExportFormat, WdExportItem, WdExportRange
+from wordlive.exceptions import OpError, SnapshotError
 
 
 @pytest.fixture
@@ -68,6 +68,42 @@ def test_snapshot_all_pages_exports_whole_document(fake_word, fake_pages):
     assert [s.page for s in shots] == [1, 2]
     assert [s.png for s in shots] == state["pngs"]
     assert all(s.path is None for s in shots)
+
+
+def test_snapshot_default_markup_is_content_only(fake_word, fake_pages):
+    fake_pages(1)
+    with wordlive.attach() as word:
+        word.documents.active.snapshot()
+    assert _export_kwargs(fake_word)["Item"] == int(WdExportItem.DOCUMENT_CONTENT)
+
+
+def test_snapshot_markup_all_exports_with_markup(fake_word, fake_pages):
+    fake_pages(1)
+    with wordlive.attach() as word:
+        word.documents.active.snapshot(markup="all")
+    assert _export_kwargs(fake_word)["Item"] == int(WdExportItem.WITH_MARKUP)
+
+
+def test_anchor_snapshot_markup_all(fake_word, fake_pages):
+    fake_pages(1)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.snapshot_anchor(doc.heading("Introduction"), markup="all")
+    assert _export_kwargs(fake_word)["Item"] == int(WdExportItem.WITH_MARKUP)
+
+
+def test_snapshot_bad_markup_raises(fake_word, fake_pages):
+    fake_pages(1)
+    with wordlive.attach() as word:
+        with pytest.raises(OpError):
+            word.documents.active.snapshot(markup="loud")
+
+
+def test_cli_snapshot_markup_all(fake_word, fake_pages):
+    fake_pages(1)
+    code, _stdout, _err = _invoke(["snapshot", "--page", "1", "--markup", "all"])
+    assert code == EXIT_OK
+    assert _export_kwargs(fake_word)["Item"] == int(WdExportItem.WITH_MARKUP)
 
 
 def test_snapshot_single_page(fake_word, fake_pages):

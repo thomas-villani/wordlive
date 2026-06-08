@@ -99,6 +99,8 @@ wordlive comment add --anchor-id heading:3 --text "Please expand this." --author
 wordlive comment list
 wordlive comment resolve --index 1
 wordlive track on            # record edits as revisions; `track off` to stop
+wordlive revisions           # read the tracked changes back (type/author/text/range)
+# …and `wordlive snapshot --markup all` renders those changes as visible marks.
 
 # Lists & numbering (any anchor's paragraphs):
 wordlive list apply --anchor-id heading:6 --type numbered

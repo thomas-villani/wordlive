@@ -637,3 +637,41 @@ wordlive already has `doc.lists` / `doc.tables` / (planned) `doc.images` /
   shell-escaping.
 - ~~**Relative image paths fail.**~~ ✅ Fixed in v0.10.2 (`Path(p).resolve()`
   before COM).
+
+## LLM-ergonomics feedback (2026-06-08, from a live MCP probe session)
+
+A Claude-in-Claude-Desktop session driving v0.11.1 end to end surfaced eight
+items (`wordlive-llm-ergonomics-feedback.md`). Triaged into 0.12.0 vs. the next
+cycle:
+
+- ✅ **Shipped in 0.12.0.**
+  - *In-cell `find` overran the cell boundary* (§2): the segmenter now strips the
+    trailing `\r\x07` cell markers, so a cell-scoped (`in: table:N:R:C`) or
+    whole-doc find resolves inside the cell instead of tripping the verification
+    guard (`'Opus\r\x072'`). The `ReplaceVerificationError` message is reworded
+    (it means the doc shifted under the match — an edit or tracked change — not
+    specifically a cell).
+  - *Tracked changes made the agent blind* (§1, partial): `doc.revisions`
+    structured reader (+ CLI `revisions`, `word_read revisions`), `track` status
+    over MCP, and `snapshot(markup="all")` to render the marks. The hard part —
+    revision-aware *text* reads (§1c) — stays deferred (a tracked `find_replace`
+    on the same paragraph still drifts; re-read between tracked edits).
+  - *Numbered-list footgun* (§4): applying `numbered` over one `range:` spanning
+    the paragraphs numbers them 1..N (already worked; now the documented, tested
+    path). `continue_previous` can't repair an already-split list — that's a Word
+    dead-end; remove + reapply over the span.
+  - *`delete_paragraph`* (§6): removes a paragraph incl. its mark across all four
+    surfaces. *Error messages leaked control chars* (§6) — boundary message
+    normalised. *Batch anchor-resolution model* (§6) — documented as per-op live
+    resolution in both SKILLs.
+- ⏳ **Deferred to a later cluster.**
+  - **Multi-paragraph block insert + inline runs** (§3): `insert_block` /
+    `insert_paragraphs {items:[{text, style}]}` placing a contiguous run
+    atomically, and inline run support in insert ops (`runs:[{text, bold?,…}]` or
+    lightweight `**markup**`). The frequent "bold lead-in bullet" pattern.
+  - **Intra-batch output refs + durable insert handles** (§5): let an op
+    reference a prior op's output (`anchor_id: "$ops[0].table"`), and an optional
+    `bind: "name"` that mints a bookmark on inserted content (a durable handle vs.
+    fragile positional `para:N`).
+  - **Revision accept/reject** and **revision-aware text reads** (§1c) — the read
+    side shipped; mutating individual revisions stays on `.com` for now.
