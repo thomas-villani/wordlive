@@ -316,6 +316,52 @@ class WdPaperSize(IntEnum):
     A5 = 8
 
 
+class WdReferenceType(IntEnum):
+    """`InsertCrossReference(ReferenceType=...)` / `GetCrossReferenceItems(...)` values.
+
+    The reference *category* a cross-reference points at. `insert_cross_reference`
+    maps an anchor-id target onto these: `bookmark:NAME` → `BOOKMARK`,
+    `heading:N` → `HEADING`, `footnote:N` → `FOOTNOTE`, `endnote:N` → `ENDNOTE`.
+    `NUMBERED_ITEM` (cross-refs to a numbered-list item) is included for
+    completeness but not yet exposed.
+    """
+
+    NUMBERED_ITEM = 0
+    HEADING = 1
+    BOOKMARK = 2
+    FOOTNOTE = 3
+    ENDNOTE = 4
+
+
+class WdReferenceKind(IntEnum):
+    """`InsertCrossReference(ReferenceKind=...)` values — *what* a cross-ref inserts.
+
+    A deliberately narrow slice of Word's full `WdReferenceKind`.
+    `insert_cross_reference(kind=...)` maps its string keys onto these:
+    `"text"` → `CONTENT_TEXT` (the heading/bookmark text), `"page"` →
+    `PAGE_NUMBER`, `"above_below"` → `POSITION` ("above"/"below"), and
+    `"number"` → `NUMBER_NO_CONTEXT` for headings/bookmarks or
+    `FOOTNOTE_NUMBER`/`ENDNOTE_NUMBER` for notes.
+    """
+
+    CONTENT_TEXT = -1
+    NUMBER_NO_CONTEXT = -3
+    FOOTNOTE_NUMBER = 5
+    ENDNOTE_NUMBER = 6
+    PAGE_NUMBER = 7
+    POSITION = 15
+
+
+class WdCaptionPosition(IntEnum):
+    """`InsertCaption(Position=...)` — whether a caption goes above or below.
+
+    `insert_caption` defaults to `BELOW` (the figure convention).
+    """
+
+    ABOVE = 0
+    BELOW = 1
+
+
 class WdFieldType(IntEnum):
     """`Fields.Add(Type=...)` values — the field kinds `insert_field(kind=...)` exposes.
 

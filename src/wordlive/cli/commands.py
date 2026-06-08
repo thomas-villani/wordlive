@@ -93,6 +93,10 @@ def register(group: click.Group) -> None:
     group.add_command(insert_toc_cmd)
     group.add_command(footnotes_cmd)
     group.add_command(endnotes_cmd)
+    group.add_command(bookmark)
+    group.add_command(link_cmd)
+    group.add_command(cross_ref_cmd)
+    group.add_command(caption_cmd)
     group.add_command(page_setup_cmd)
     group.add_command(prepend_cmd)
     group.add_command(append_cmd)
@@ -719,6 +723,195 @@ def endnotes_cmd(ctx: click.Context) -> None:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             rows = doc.endnotes.list()
             emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_notes(rows, "endnote"))
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# bookmark add / link / cross-ref / caption  (anchoring & linking)
+# ---------------------------------------------------------------------------
+
+
+@click.group(name="bookmark")
+def bookmark() -> None:
+    """Create bookmarks (read existing ones with `read bookmark NAME`)."""
+
+
+@bookmark.command(name="add")
+@click.argument("name")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Anchor whose range the bookmark covers (e.g. heading:2, range:120-140).",
+)
+@click.pass_context
+def bookmark_add(ctx: click.Context, name: str, anchor_id: str) -> None:
+    """Create a bookmark NAME over an anchor's range (atomic-undo).
+
+    The prerequisite for internal links (`link --bookmark NAME`) and
+    cross-references (`cross-ref --target bookmark:NAME`). NAME must start with a
+    letter and contain only letters, digits, and underscores.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: add bookmark {name}"):
+                doc.bookmarks.add(name, anchor_id)
+            emit(
+                {"ok": True, "bookmark": name, "anchor_id": anchor_id},
+                as_text=not ctx.obj["as_json"],
+                text=f"added bookmark:{name} over {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="link")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor to turn into a hyperlink.")
+@click.option("--url", "url", default=None, help="External link target (URL, mailto:, file path).")
+@click.option(
+    "--bookmark", "bookmark_target", default=None, help="Internal target: a bookmark name."
+)
+@click.option(
+    "--text", "text", default=None, help="Visible link text (replaces the range content)."
+)
+@click.option("--screen-tip", "screen_tip", default=None, help="Hover tooltip.")
+@click.pass_context
+def link_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    url: str | None,
+    bookmark_target: str | None,
+    text: str | None,
+    screen_tip: str | None,
+) -> None:
+    """Turn an anchor into a hyperlink — external `--url` or internal `--bookmark` (atomic-undo)."""
+    if (url is None) == (bookmark_target is None):
+        raise click.UsageError("pass exactly one of --url or --bookmark")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: link {anchor_id}"):
+                anchor.link_to(
+                    address=url, bookmark=bookmark_target, text=text, screen_tip=screen_tip
+                )
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "applied": {"url": url, "bookmark": bookmark_target, "text": text},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"linked {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="cross-ref")
+@click.option("--anchor-id", "anchor_id", required=True, help="Where to insert the reference.")
+@click.option(
+    "--target",
+    "target",
+    required=True,
+    help="Anchor id to reference: bookmark:NAME | heading:N | footnote:N | endnote:N.",
+)
+@click.option(
+    "--kind",
+    "kind",
+    type=click.Choice(["text", "page", "number", "above_below"]),
+    default="text",
+    show_default=True,
+    help="What the reference shows.",
+)
+@click.option(
+    "--hyperlink/--no-hyperlink",
+    "hyperlink",
+    default=True,
+    show_default=True,
+    help="Make the inserted reference a clickable jump.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
+@click.pass_context
+def cross_ref_cmd(
+    ctx: click.Context, anchor_id: str, target: str, kind: str, hyperlink: bool, before: bool
+) -> None:
+    """Insert a cross-reference to another anchor (atomic-undo).
+
+    `--target` resolves a bookmark by name, a heading/footnote/endnote by its id.
+    Refresh stale references (page numbers move) with `update-fields`.
+    """
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: cross-ref {target} {where} {anchor_id}"):
+                anchor.insert_cross_reference(target, kind=kind, hyperlink=hyperlink, where=where)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "applied": {
+                        "target": target,
+                        "kind": kind,
+                        "hyperlink": hyperlink,
+                        "where": where,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted cross-reference to {target} {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="caption")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor to caption (e.g. a figure).")
+@click.option(
+    "--label", "label", default="Figure", show_default=True, help="Caption label (Figure/Table/…)."
+)
+@click.option("--text", "text", default=None, help="Caption title after the label and number.")
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
+@click.pass_context
+def caption_cmd(
+    ctx: click.Context, anchor_id: str, label: str, text: str | None, before: bool
+) -> None:
+    """Insert a numbered caption (Figure 1, Table 2, …) at an anchor (atomic-undo)."""
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: caption {label} {where} {anchor_id}"):
+                anchor.insert_caption(label, text=text, where=where)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "applied": {"label": label, "text": text, "where": where},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted {label} caption {where} {anchor_id}",
+            )
 
     _run(ctx, go)
 

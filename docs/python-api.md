@@ -41,7 +41,8 @@ Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
 `format_run(...)`, `set_shading(...)`, `set_borders(...)`, `add_tab_stop(...)`,
 `insert_paragraph_before/after(...)`, `insert_image(...)`, `insert_table(...)`,
 `insert_break(...)`, `insert_field(...)`, `insert_footnote(...)`,
-`insert_endnote(...)`, `insert_toc(...)`, and the list verbs (`apply_list`, `remove_list`,
+`insert_endnote(...)`, `insert_toc(...)`, `link_to(...)`,
+`insert_cross_reference(...)`, `insert_caption(...)`, and the list verbs (`apply_list`, `remove_list`,
 `list_info`, `restart_numbering`, `indent_list`, `outdent_list`) from
 [`Anchor`](#wordlive.Anchor), so the same calls work uniformly on bookmarks,
 content controls, headings, paragraphs, table cells, header/footer ranges, and
@@ -68,7 +69,10 @@ code) — pair it with a footer for page numbers and refresh with
 [`Footnote`](#wordlive.Footnote) / [`Endnote`](#wordlive.Endnote) (addressed
 `footnote:N` / `endnote:N`); `insert_toc(levels=(1, 3), …)` inserts a table of
 contents and returns a [`Toc`](#wordlive.Toc) — see
-[Footnotes, endnotes & TOC](#footnotes-endnotes-toc). Every anchor also has `snapshot(...)`, which
+[Footnotes, endnotes & TOC](#footnotes-endnotes-toc). `link_to(address=… |
+bookmark=…)` makes the anchor a hyperlink, `insert_cross_reference(target, …)`
+references another anchor, and `insert_caption(label, …)` adds a numbered
+caption — see [Anchoring & linking](#anchoring-linking). Every anchor also has `snapshot(...)`, which
 renders the page(s) it sits on to PNG (a heading expands to its whole section) —
 see [Snapshots](#snapshots).
 
@@ -119,6 +123,25 @@ document start. A TOC's page numbers only populate after repagination — call
 ::: wordlive.EndnoteCollection
 
 ::: wordlive.Toc
+
+## Anchoring & linking
+
+Create a named anchor, then point at it. `doc.bookmarks.add(name, anchor)`
+creates a bookmark over an anchor's range (the `name` is validated against
+Word's rules first) — the prerequisite for internal navigation. `anchor.link_to(
+address=…)` makes the anchor an external hyperlink (URL / `mailto:` / file
+path); `anchor.link_to(bookmark=…)` makes it an internal jump to a bookmark.
+With `text=None` the anchor's existing range becomes the link; `text=…` instead
+inserts new linked text at the end of the range (so a heading keeps its content). `anchor.insert_cross_reference(
+target, kind=…)` inserts a reference to another anchor — `target` is a
+`bookmark:NAME`, `heading:N`, `footnote:N`, or `endnote:N` id, and `kind` is
+`"text"` / `"page"` / `"number"` / `"above_below"`. `anchor.insert_caption(
+label="Figure", text=…)` adds an auto-numbered caption; pair it with a
+cross-reference for "see Figure 2". Cross-references and TOC/page-number fields
+go stale when the document shifts — refresh them with
+[`Document.update_fields()`](#wordlive.Document).
+
+::: wordlive.BookmarkCollection
 
 ## Styles
 

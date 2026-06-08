@@ -316,6 +316,38 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = bool(p[k])
         return op
+    if command == "add_bookmark":
+        return {"op": "add_bookmark", "name": need("name"), "anchor_id": need("anchor_id")}
+    if command == "add_hyperlink":
+        if (p.get("url") is None) == (p.get("bookmark") is None):
+            raise OpError("add_hyperlink requires exactly one of 'url' or 'bookmark'")
+        op = {"op": "add_hyperlink", "anchor_id": need("anchor_id")}
+        for k in ("url", "bookmark", "text", "screen_tip"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "insert_cross_reference":
+        op = {
+            "op": "insert_cross_reference",
+            "anchor_id": need("anchor_id"),
+            "target": need("target"),
+            "before": bool(p.get("before", False)),
+        }
+        if p.get("kind") is not None:
+            op["kind"] = p["kind"]
+        if p.get("hyperlink") is not None:
+            op["hyperlink"] = bool(p["hyperlink"])
+        return op
+    if command == "insert_caption":
+        op = {
+            "op": "insert_caption",
+            "anchor_id": need("anchor_id"),
+            "before": bool(p.get("before", False)),
+        }
+        for k in ("label", "text"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
     if command == "page_setup":
         op = {"op": "set_page_setup", "section": need("section")}
         for k in _PAGE_SETUP_FIELDS:
@@ -611,6 +643,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "insert_footnote",
             "insert_endnote",
             "insert_toc",
+            "add_bookmark",
+            "add_hyperlink",
+            "insert_cross_reference",
+            "insert_caption",
             "page_setup",
         ],
         doc: str | None = None,
@@ -691,6 +727,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         levels: list[int] | None = None,
         use_heading_styles: bool | None = None,
         hyperlinks: bool | None = None,
+        url: str | None = None,
+        bookmark: str | None = None,
+        screen_tip: str | None = None,
+        target: str | None = None,
+        hyperlink: bool | None = None,
+        label: str | None = None,
     ) -> dict[str, Any]:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
@@ -724,6 +766,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             a note anchored to a range; the new footnote:N/endnote:N is in result ·
         insert_toc {[anchor_id=start],levels=[upper,lower],use_heading_styles,hyperlinks,[before]} —
             a table of contents; run update_fields after to populate page numbers ·
+        add_bookmark {name,anchor_id} — create a named bookmark over an anchor's range ·
+        add_hyperlink {anchor_id, url | bookmark, [text,screen_tip]} — external URL or internal
+            bookmark jump; text sets the visible link text ·
+        insert_cross_reference {anchor_id,target,[kind=text|page|number|above_below,hyperlink,before]} —
+            target is a bookmark:/heading:/footnote:/endnote: id ·
+        insert_caption {anchor_id,[label=Figure,text,before]} — a numbered caption ·
         page_setup {[section=1],margins|top_margin|bottom_margin|left_margin|right_margin|gutter,
             orientation=portrait|landscape,paper_size=letter|legal|tabloid|a3|a4|a5,columns,column_spacing} —
             section page geometry; lengths accept unit strings ·
@@ -814,6 +862,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "levels": levels,
             "use_heading_styles": use_heading_styles,
             "hyperlinks": hyperlinks,
+            "url": url,
+            "bookmark": bookmark,
+            "screen_tip": screen_tip,
+            "target": target,
+            "hyperlink": hyperlink,
+            "label": label,
         }
         try:
             return _write_impl(w, command, params)
@@ -858,6 +912,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
           insert_footnote/insert_endnote {anchor_id,text,[before]} — returns the new footnote:N/endnote:N in outputs ·
           insert_toc {anchor_id,[levels=[upper,lower],use_heading_styles,hyperlinks,before]} — update_fields after to fill page numbers ·
+          add_bookmark {name,anchor_id} · add_hyperlink {anchor_id, url|bookmark, [text,screen_tip]} ·
+          insert_cross_reference {anchor_id,target,[kind,hyperlink,before]} — target is a bookmark:/heading:/footnote:/endnote: id ·
+          insert_caption {anchor_id,[label,text,before]} ·
           create_table {anchor_id,rows,cols,[style,data,header,before]} — cells default to Normal; returns the new index in outputs ·
           set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} · delete_table {table} ·
           add_comment {anchor_id,text,[author]} · resolve_comment {index} · delete_comment {index} ·

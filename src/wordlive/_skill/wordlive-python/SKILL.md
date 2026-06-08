@@ -92,6 +92,9 @@ a.insert_break(kind="page")             # page | column | section_next | section
 a.insert_field("page")                   # self-updating field: page|numpages|date|… (or "field" + raw code)
 a.insert_footnote("See appendix B.")     # → Footnote (footnote:N); insert_endnote(...) mirrors
 a.insert_toc(levels=(1, 3))              # table of contents → Toc; doc.add_toc() puts one at the top
+a.link_to(address="https://x")          # hyperlink; or link_to(bookmark="Intro"); text= inserts new linked text
+a.insert_cross_reference("bookmark:Intro", kind="page")  # ref a bookmark/heading/footnote/endnote
+a.insert_caption("Figure", text="System overview")       # auto-numbered caption
 a.insert_image("diagram.png", wrap="auto")
 a.insert_table(2, 2, data=[["Item", "Cost"], ["Travel", "$400"]], header=True)
 a.apply_list("numbered")                # + remove_list/list_info/restart_numbering/indent_list/outdent_list
@@ -131,6 +134,16 @@ for f in doc.footnotes.list():          # [{index, anchor_id, marker, text, para
 
 toc = doc.add_toc(levels=(1, 3))        # TOC at the document start
 doc.update_fields()                     # populate its page numbers (or snapshot)
+```
+
+Anchoring & linking — name a target, then point at it:
+
+```python
+doc.bookmarks.add("Intro", "heading:2")          # create a bookmark (name validated)
+doc.headings["Methods"].link_to(bookmark="Intro", text="see Intro")   # internal jump
+doc.end.insert_cross_reference("bookmark:Intro", kind="page")         # "see page N"
+doc.headings["Conclusion"].insert_caption("Figure", text="Overview")  # Figure 1: Overview
+doc.update_fields()                              # refresh cross-ref / page numbers after edits
 ```
 
 ## Writing — wrap mutations in `doc.edit("label")`
