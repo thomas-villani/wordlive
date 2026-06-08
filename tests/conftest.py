@@ -700,6 +700,20 @@ def _make_document(
         bm_registry.add(bm_name, s, e)
     doc.Bookmarks = bm_registry
 
+    # Cross-reference items: Word returns ordered strings per reference type —
+    # bookmark *names* (type 2) and heading *texts* (type 1) — which
+    # `insert_cross_reference` indexes into. Footnote/endnote types use the
+    # 1-based index directly, so they're not needed here.
+    def _xref_items(ref_type: Any) -> tuple[str, ...]:
+        rt = int(ref_type)
+        if rt == 2:  # wdRefTypeBookmark
+            return tuple((bookmarks or {}).keys())
+        if rt == 1:  # wdRefTypeHeading
+            return tuple(p["text"] for p in (paragraphs or []) if p.get("level", 10) < 10)
+        return ()
+
+    doc.GetCrossReferenceItems = MagicMock(side_effect=_xref_items)
+
     doc.ContentControls = _FakeContentControls(content_controls or [])
     doc.Paragraphs = _FakeParagraphs(paragraphs or [])
     doc.Styles = _FakeStyles(styles if styles is not None else _DEFAULT_STYLES)

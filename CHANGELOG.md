@@ -64,6 +64,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for one at the document start. Page numbers populate after repagination — call
   `update()`, `doc.update_fields()`, or take a `snapshot`. Exec op `insert_toc`,
   CLI `insert-toc`, and `word_write command="insert_toc"`.
+- **Anchoring & linking — bookmarks, hyperlinks, cross-references, captions.**
+  `doc.bookmarks.add(name, anchor)` creates a bookmark over a range (name
+  validated against Word's rules first) — the prerequisite for the rest.
+  `anchor.link_to(address=… | bookmark=…, text=…, screen_tip=…)` makes an anchor
+  a hyperlink (external URL or internal bookmark jump); with `text` it inserts
+  new linked text rather than overwriting the range.
+  `anchor.insert_cross_reference(target, kind=…)` references another anchor —
+  `target` is a `bookmark:NAME`, `heading:N`, `footnote:N`, or `endnote:N` id,
+  `kind` is `text`/`page`/`number`/`above_below`. `anchor.insert_caption(label=…,
+  text=…)` adds an auto-numbered caption. Exec ops `add_bookmark`/`add_hyperlink`/
+  `insert_cross_reference`/`insert_caption`, the matching CLI verbs
+  (`bookmark add`, `link`, `cross-ref`, `caption`), and `word_write` commands.
+  All four features are exercised by live-Word smoke tests.
 
 ### Changed
 - **Bad formatting input now raises `OpError` (exit 1, bad-input) instead of a
@@ -87,6 +100,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authorities, custom TOC field codes, and explicit per-style level mapping.
   Cross-references and captions (which target footnotes/bookmarks) are the next
   cluster, not in this release.
+- Anchoring & linking: hyperlink read-back (`doc.hyperlinks`) and edit/removal;
+  cross-references to numbered-list items / equations and
+  `IncludePositionInformation` combos; caption numbering format / chapter-style
+  and a table of figures. `kind="text"` on a footnote/endnote cross-reference
+  falls back to the note number (Word has no text content for a note mark).
 
 ## [0.11.1] — 2026-06-04
 

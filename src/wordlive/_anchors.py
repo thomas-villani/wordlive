@@ -7,6 +7,7 @@ they compose with `Document.edit()` for atomic-undo behaviour.
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,7 @@ from .constants import (
     MsoTriState,
     WdBorderType,
     WdBreakType,
+    WdCaptionPosition,
     WdCollapseDirection,
     WdColorIndex,
     WdFieldType,
@@ -24,6 +26,8 @@ from .constants import (
     WdLineStyle,
     WdNumberType,
     WdParagraphAlignment,
+    WdReferenceKind,
+    WdReferenceType,
     WdTabAlignment,
     WdTabLeader,
     WdUnderline,
@@ -408,6 +412,111 @@ def _within_table(doc_com: Any, start: int, end: int) -> bool:
         return bool(doc_com.Range(start, end).Information(int(WdInformation.WITH_IN_TABLE)))
     except Exception:
         return False
+
+
+# Bookmark names: must start with a letter, then letters/digits/underscores, and
+# Word caps them at 40 characters. (Leading-underscore names are Word's hidden
+# internal bookmarks, so user-created ones must lead with a letter.)
+_BOOKMARK_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+
+def _validate_bookmark_name(name: Any) -> str:
+    """Validate a new bookmark name against Word's rules. Raises `OpError`."""
+    if not isinstance(name, str) or not name:
+        raise OpError("bookmark name must be a non-empty string")
+    if len(name) > 40:
+        raise OpError(f"bookmark name must be at most 40 characters; got {len(name)}")
+    if not _BOOKMARK_NAME_RE.match(name):
+        raise OpError(
+            f"invalid bookmark name {name!r}: must start with a letter and contain only "
+            "letters, digits, and underscores (no spaces)"
+        )
+    return name
+
+
+def _resolve_cross_ref_target(doc: Document, target: str) -> tuple[int, int | str]:
+    """Map a cross-reference `target` anchor id to `(ReferenceType, ReferenceItem)`.
+
+    `ReferenceItem` is what Word's `InsertCrossReference` expects, which differs
+    by type: for `bookmark:NAME` it is the **bookmark name string** (Word looks
+    it up by name, not position); for `heading:N` it is the 1-based ordinal among
+    heading paragraphs; for `footnote:N` / `endnote:N` it is the 1-based index.
+    Raises `AnchorNotFoundError` (exit 2) for an unknown/unresolvable target.
+    """
+    kind, _, value = str(target).partition(":")
+    if kind == "bookmark":
+        try:
+            items = [
+                str(it).strip()
+                for it in doc.com.GetCrossReferenceItems(int(WdReferenceType.BOOKMARK))
+            ]
+        except Exception as e:
+            raise AnchorNotFoundError("bookmark", target) from e
+        if value not in items:
+            raise AnchorNotFoundError("bookmark", target)
+        # For bookmarks the ReferenceItem is the *name*, not a position index.
+        return int(WdReferenceType.BOOKMARK), value
+    if kind == "heading":
+        try:
+            n = int(value)
+        except ValueError as e:
+            raise AnchorNotFoundError("heading", target) from e
+        ordinal = 0
+        for idx, para in enumerate(doc.com.Paragraphs, start=1):
+            try:
+                level = int(para.OutlineLevel)
+            except Exception:
+                level = 10
+            if level < 10:
+                ordinal += 1
+            if idx == n:
+                if level >= 10:
+                    raise AnchorNotFoundError("heading", target)
+                return int(WdReferenceType.HEADING), ordinal
+        raise AnchorNotFoundError("heading", target)
+    if kind in ("footnote", "endnote"):
+        try:
+            n = int(value)
+        except ValueError as e:
+            raise AnchorNotFoundError(kind, target) from e
+        ref_type = WdReferenceType.FOOTNOTE if kind == "footnote" else WdReferenceType.ENDNOTE
+        coll = doc.footnotes if kind == "footnote" else doc.endnotes
+        if not (1 <= n <= len(coll)):
+            raise AnchorNotFoundError(kind, target)
+        return int(ref_type), n
+    raise AnchorNotFoundError(
+        "cross-reference target",
+        target,
+        hint="target must be a bookmark:, heading:, footnote:, or endnote: anchor id",
+    )
+
+
+def _cross_ref_kind(kind: str, ref_type: int) -> int:
+    """Map an `insert_cross_reference(kind=...)` string to a `WdReferenceKind`.
+
+    Type-dependent in two places: a note has no "text" content to reference, so
+    `"text"`/`"number"` both resolve to its number; for headings/bookmarks
+    `"number"` is the paragraph number. Raises `ValueError` on an unknown kind.
+    """
+    is_note = ref_type in (int(WdReferenceType.FOOTNOTE), int(WdReferenceType.ENDNOTE))
+    note_number = (
+        int(WdReferenceKind.FOOTNOTE_NUMBER)
+        if ref_type == int(WdReferenceType.FOOTNOTE)
+        else int(WdReferenceKind.ENDNOTE_NUMBER)
+    )
+    if kind == "text":
+        # wdContentText is invalid for footnotes/endnotes (a mark has no text);
+        # fall back to the note number, which is the meaningful reference.
+        return note_number if is_note else int(WdReferenceKind.CONTENT_TEXT)
+    if kind == "page":
+        return int(WdReferenceKind.PAGE_NUMBER)
+    if kind == "above_below":
+        return int(WdReferenceKind.POSITION)
+    if kind == "number":
+        return note_number if is_note else int(WdReferenceKind.NUMBER_NO_CONTEXT)
+    raise ValueError(
+        f"unknown cross-reference kind {kind!r}; expected text/page/number/above_below"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -939,6 +1048,123 @@ class Anchor(ABC):
                     True,
                 )
             return Toc(self._doc, toc_com)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def link_to(
+        self,
+        address: str | None = None,
+        *,
+        bookmark: str | None = None,
+        text: str | None = None,
+        screen_tip: str | None = None,
+    ) -> None:
+        """Turn this anchor into a hyperlink (or insert new linked text).
+
+        Pass exactly one destination: `address` for an external link (a URL,
+        `mailto:`, or file path) or `bookmark` for an internal jump to a named
+        bookmark in this document. With `text=None` the anchor's existing range
+        becomes the clickable link; pass `text=...` to **insert** new linked text
+        at the end of the anchor's range (so linking a heading or a `range:`
+        phrase with `text=...` adds the link rather than overwriting the content).
+        `screen_tip` is the hover tooltip.
+
+        Pair it with [`doc.bookmarks.add(...)`][wordlive.BookmarkCollection.add]
+        to build internal navigation, or a `range:START-END` id (from `find`) to
+        link an existing phrase. Wrap in `doc.edit(...)` for atomic undo. Bad
+        input (not exactly one destination) raises `OpError`.
+        """
+        try:
+            if (address is None) == (bookmark is None):
+                raise ValueError("link_to requires exactly one of 'address' or 'bookmark'")
+            with _com.translate_com_errors():
+                rng = self._range()
+                if text is not None:
+                    # Insert *new* linked text rather than overwriting the
+                    # anchor's range: collapse to its end so a heading / phrase
+                    # keeps its content and the link is added after it.
+                    rng = rng.Duplicate
+                    rng.Collapse(int(WdCollapseDirection.END))
+                addr_arg = address or ""
+                sub_arg = bookmark or ""
+                tip_arg = screen_tip or ""
+                # Positional args (Anchor, Address, SubAddress, ScreenTip,
+                # TextToDisplay) — keep keywords out for late-binding safety.
+                if text is not None:
+                    self._doc.com.Hyperlinks.Add(rng, addr_arg, sub_arg, tip_arg, text)
+                else:
+                    self._doc.com.Hyperlinks.Add(rng, addr_arg, sub_arg, tip_arg)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def insert_cross_reference(
+        self,
+        target: str,
+        *,
+        kind: str = "text",
+        hyperlink: bool = True,
+        where: str = "after",
+    ) -> None:
+        """Insert a cross-reference to another anchor at this anchor.
+
+        `target` is the anchor id to point at: `bookmark:NAME`, `heading:N`,
+        `footnote:N`, or `endnote:N`. `kind` selects what the reference shows:
+        ``"text"`` (the heading/bookmark text — the default), ``"page"`` ("see
+        page 5"), ``"number"`` (the paragraph or note number), or
+        ``"above_below"`` ("above"/"below"). `hyperlink=True` makes the inserted
+        reference a clickable jump.
+
+        An unresolvable `target` raises `AnchorNotFoundError` (exit 2) before
+        anything is inserted. `where` is ``"after"`` (default) or ``"before"``
+        this anchor's range. Wrap in `doc.edit(...)` for atomic undo; other bad
+        input raises `OpError`.
+        """
+        try:
+            if where not in ("before", "after"):
+                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            # Resolve outside translate_com_errors so an AnchorNotFoundError for a
+            # bad target propagates as exit 2 rather than being masked.
+            ref_type, ref_item = _resolve_cross_ref_target(self._doc, target)
+            ref_kind = _cross_ref_kind(kind, ref_type)
+            with _com.translate_com_errors():
+                insert_rng = self._range().Duplicate
+                insert_rng.Collapse(
+                    int(WdCollapseDirection.START if where == "before" else WdCollapseDirection.END)
+                )
+                # Positional args: IncludePositionInformation as a keyword raises
+                # under pywin32 late binding, so pass only the first four.
+                insert_rng.InsertCrossReference(ref_type, ref_kind, ref_item, bool(hyperlink))
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def insert_caption(
+        self, label: str = "Figure", *, text: str | None = None, where: str = "after"
+    ) -> None:
+        """Insert a numbered caption at this anchor.
+
+        `label` is a caption label — built-in ``"Figure"`` / ``"Table"`` /
+        ``"Equation"`` or any custom string; Word auto-numbers per label
+        (Figure 1, Figure 2, …). `text` is the caption title shown after the
+        label and number. Pairs with
+        [`insert_cross_reference`][wordlive.Anchor.insert_cross_reference] for
+        "see Figure 2". The caption is placed below the anchor's range.
+
+        `where` is ``"after"`` (default) or ``"before"`` this anchor's range.
+        Wrap in `doc.edit(...)` for atomic undo. Bad input raises `OpError`.
+        """
+        try:
+            if where not in ("before", "after"):
+                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            title = text if text is not None else ""
+            with _com.translate_com_errors():
+                insert_rng = self._range().Duplicate
+                insert_rng.Collapse(
+                    int(WdCollapseDirection.START if where == "before" else WdCollapseDirection.END)
+                )
+                # Positional args (Label, Title, Position, ExcludeLabel) for
+                # late-binding safety; a string Label matches a built-in or
+                # defines a custom one.
+                insert_rng.InsertCaption(str(label), title, int(WdCaptionPosition.BELOW), False)
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
 
@@ -1582,6 +1808,27 @@ class BookmarkCollection:
             return False
         with _com.translate_com_errors():
             return bool(self._doc.com.Bookmarks.Exists(name))
+
+    def add(self, name: str, anchor: Anchor | str) -> Bookmark:
+        """Create a bookmark named `name` over `anchor`'s range and return it.
+
+        `anchor` is an [`Anchor`][wordlive.Anchor] or an anchor id string
+        (resolved via `doc.anchor_by_id`). `name` is validated against Word's
+        rules — it must start with a letter and contain only letters, digits, and
+        underscores (no spaces), max 40 characters — and an invalid name raises
+        `OpError` *before* anything is created. Adding a bookmark with an existing
+        name moves it to the new range (Word's own behaviour). This is the
+        prerequisite for internal hyperlinks
+        ([`Anchor.link_to`][wordlive.Anchor.link_to]) and cross-references
+        ([`Anchor.insert_cross_reference`][wordlive.Anchor.insert_cross_reference]).
+        Wrap in `doc.edit(...)` for atomic undo.
+        """
+        _validate_bookmark_name(name)
+        resolved = self._doc.anchor_by_id(anchor) if isinstance(anchor, str) else anchor
+        with _com.translate_com_errors():
+            rng = resolved.com
+            self._doc.com.Bookmarks.Add(Name=name, Range=rng)
+        return Bookmark(self._doc, name)
 
     def list(self, *, include_hidden: bool = False) -> list[str]:
         """Names of every user-visible bookmark in document order.

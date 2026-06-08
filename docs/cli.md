@@ -361,6 +361,88 @@ $ wordlive footnotes
 
 Failures: `3` Word busy, `4` Word not running.
 
+## `bookmark add NAME --anchor-id ID`
+
+```
+wordlive bookmark add NAME --anchor-id ID [--doc DOC_NAME]
+```
+
+Create a bookmark `NAME` over an anchor's range — the prerequisite for internal
+links and cross-references. `NAME` must start with a letter and contain only
+letters, digits, and underscores (no spaces), ≤ 40 chars. (Read existing
+bookmarks with `read bookmark NAME`.)
+
+```bash
+$ wordlive bookmark add Intro --anchor-id heading:1
+{"ok": true, "bookmark": "Intro", "anchor_id": "heading:1"}
+```
+
+Failures: `1` invalid name; `2` anchor not found; `3` Word busy.
+
+## `link --anchor-id ID (--url U | --bookmark B) [--text T] [--screen-tip S]`
+
+```
+wordlive link --anchor-id ID (--url URL | --bookmark NAME) [--text "…"]
+    [--screen-tip "…"] [--doc DOC_NAME]
+```
+
+Turn an anchor into a hyperlink. Pass exactly one destination: `--url` for an
+external link (URL / `mailto:` / file path) or `--bookmark` for an internal jump
+to a bookmark in this document. With no `--text` the anchor's existing range
+becomes the link; `--text` instead **inserts** new linked text at the end of the
+range (so linking a heading or phrase keeps its content).
+
+```bash
+$ wordlive link --anchor-id range:120-140 --url "https://example.com"
+{"ok": true, "anchor_id": "range:120-140",
+ "applied": {"url": "https://example.com", "bookmark": null, "text": null}}
+```
+
+Failures: `1` bad input (not exactly one of `--url`/`--bookmark`); `2` anchor not
+found; `3` Word busy.
+
+## `cross-ref --anchor-id ID --target TARGET [--kind …] [--no-hyperlink]`
+
+```
+wordlive cross-ref --anchor-id ID --target TARGET
+    [--kind text|page|number|above_below] [--hyperlink | --no-hyperlink]
+    [--before | --after] [--doc DOC_NAME]
+```
+
+Insert a cross-reference to another anchor. `--target` is a `bookmark:NAME`,
+`heading:N`, `footnote:N`, or `endnote:N` id. `--kind` selects what shows: the
+referenced `text` (default), its `page` number, its `number`, or its
+`above_below` position.
+
+```bash
+$ wordlive cross-ref --anchor-id end --target bookmark:Intro --kind page
+{"ok": true, "anchor_id": "end",
+ "applied": {"target": "bookmark:Intro", "kind": "page", "hyperlink": true, "where": "after"}}
+```
+
+References go stale when the document shifts — run `update-fields` (or
+`snapshot`) to refresh them. Failures: `1` bad input; `2` anchor / target not
+found; `3` Word busy.
+
+## `caption --anchor-id ID [--label Figure] [--text "…"]`
+
+```
+wordlive caption --anchor-id ID [--label Figure] [--text "…"]
+    [--before | --after] [--doc DOC_NAME]
+```
+
+Insert an auto-numbered caption (Figure 1, Table 2, …) at an anchor. `--label`
+is a built-in (`Figure`/`Table`/`Equation`) or a custom string; `--text` is the
+title after the label and number. Pairs with `cross-ref` for "see Figure 2".
+
+```bash
+$ wordlive caption --anchor-id range:120-140 --label Figure --text "System overview"
+{"ok": true, "anchor_id": "range:120-140",
+ "applied": {"label": "Figure", "text": "System overview", "where": "after"}}
+```
+
+Failures: `1` bad input; `2` anchor not found; `3` Word busy.
+
 ## `prepend --text "…"` / `append --text "…"`
 
 ```
@@ -1246,6 +1328,10 @@ Script shape:
 | `insert_footnote`      | `anchor_id`, `text`                        | `where` or `before: true`         |
 | `insert_endnote`       | `anchor_id`, `text`                        | `where` or `before: true`         |
 | `insert_toc`           | `anchor_id`                                | `levels` (`[upper, lower]`), `use_heading_styles`, `hyperlinks`, `where` or `before: true` |
+| `add_bookmark`         | `name`, `anchor_id`                        | —                                 |
+| `add_hyperlink`        | `anchor_id`, and one of `url` / `bookmark` | `text`, `screen_tip`              |
+| `insert_cross_reference` | `anchor_id`, `target`                    | `kind` (`text`/`page`/`number`/`above_below`), `hyperlink`, `where` or `before: true` |
+| `insert_caption`       | `anchor_id`                                | `label`, `text`, `where` or `before: true` |
 | `add_comment`          | `anchor_id`, `text`                        | `author`                          |
 | `resolve_comment`      | `index`                                    | —                                 |
 | `delete_comment`       | `index`                                    | —                                 |
@@ -1333,6 +1419,14 @@ taking a 1-based `section` plus any of `margins`, the per-side `*_margin` fields
 the new `footnote:N` / `endnote:N` in the batch's `outputs`. `insert_toc` inserts
 a table of contents (`levels` is a `[upper, lower]` pair, default `[1, 3]`);
 follow it with an `update_fields` op so its page numbers populate.
+
+`add_bookmark` names a range (the prerequisite for the rest). `add_hyperlink`
+links an `anchor_id` to exactly one of `url` (external) or `bookmark` (internal),
+with optional `text`. `insert_cross_reference` references a `target` anchor id
+(`bookmark:` / `heading:` / `footnote:` / `endnote:`) — an unresolvable target is
+an `anchor_not_found` failure. `insert_caption` adds an auto-numbered caption
+(`label` defaults to `Figure`). Refresh cross-reference page numbers with an
+`update_fields` op after the document settles.
 
 `add_comment`, `resolve_comment`, and `delete_comment` mirror the `comment`
 verbs — `add_comment` attaches a side-channel annotation to an `anchor_id`
