@@ -282,3 +282,84 @@ def test_caption_insert(scratch_doc):
         doc.anchor_by_id(methods_id).insert_caption("Figure", text="System overview")
     # The caption adds a paragraph; the doc still has its headings.
     assert "Methods" in [h["text"] for h in doc.outline()]
+
+
+# ---------------------------------------------------------------------------
+# v0.12 LLM-ergonomics fixes (cell-scoped find, delete_paragraph, revisions,
+# snapshot markup, numbered-list span)
+# ---------------------------------------------------------------------------
+
+
+def test_cell_scoped_find_replace_stays_in_cell(scratch_doc):
+    """§2: a cell-scoped find/replace must not overrun into the next cell."""
+    doc = scratch_doc
+    with doc.edit("seed table"):
+        doc.add_table(2, 2, data=[["Model", "Ctx"], ["Opus", "200K"]])
+    table = doc.tables[len(doc.tables)]
+    cell = table.cell(2, 1)
+    with doc.edit("cell find"):
+        applied = doc.find_replace("Opus", "Claude Opus", scope=doc.anchor_by_id(cell.anchor_id))
+    assert len(applied) == 1
+    grid = table.grid()
+    assert grid[1][0] == "Claude Opus"
+    assert grid[1][1] == "200K"  # the neighbour cell is untouched
+
+
+def test_delete_paragraph_removes_whole_paragraph(scratch_doc):
+    """§6: delete_paragraph removes the paragraph and its mark — no empty line left."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Keep one")
+        doc.append_paragraph("Delete me")
+        doc.append_paragraph("Keep two")
+    target = next(p for p in doc.paragraphs.list() if p.get("text") == "Delete me")
+    with doc.edit("delete"):
+        doc.delete_paragraph(f"para:{target['index']}")
+    texts = [p.get("text") for p in doc.paragraphs.list()]
+    assert "Delete me" not in texts
+    assert "Keep one" in texts and "Keep two" in texts
+
+
+def test_revisions_reader_reports_tracked_edits(scratch_doc):
+    """§1: doc.revisions exposes tracked changes as structured insert/delete entries."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("The quick brown fox")
+    with doc.tracked_changes(), doc.edit("tracked"):
+        doc.find_replace("quick", "swift")
+    rows = doc.revisions.list()
+    types = {r["type"] for r in rows}
+    assert "insert" in types and "delete" in types
+    assert any(r["text"] == "swift" for r in rows if r["type"] == "insert")
+    assert all({"index", "type", "author", "text", "anchor_id"} <= set(r) for r in rows)
+
+
+def test_snapshot_markup_differs_from_final(scratch_doc):
+    """§1: snapshot(markup="all") renders revision marks the final render omits."""
+    pytest.importorskip("pymupdf")
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("The quick brown fox jumps over the lazy dog.")
+    with doc.tracked_changes(), doc.edit("tracked"):
+        doc.find_replace("quick", "swift")
+    final = doc.snapshot(pages=1, dpi=72, markup="none")[0].png
+    marked = doc.snapshot(pages=1, dpi=72, markup="all")[0].png
+    assert final.startswith(b"\x89PNG\r\n\x1a\n") and marked.startswith(b"\x89PNG\r\n\x1a\n")
+    # The markup render carries the change bar / "Deleted: quick" balloon, so the
+    # rasterised pages are not identical.
+    assert final != marked
+
+
+def test_numbered_list_over_range_numbers_sequentially(scratch_doc):
+    """§4: applying a numbered list over a multi-paragraph range numbers 1..N."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        for text in ("Item one", "Item two", "Item three"):
+            doc.append_paragraph(text)
+    items = [p for p in doc.paragraphs.list() if p.get("text", "").startswith("Item")]
+    start, end = items[0]["start"], items[-1]["end"]
+    with doc.edit("number"):
+        doc.range(start, end).apply_list("numbered")
+    markers = [p.list_info().get("string") for p in doc.paragraphs if p.text.startswith("Item")]
+    # One contiguous list numbered 1., 2., 3. — not three independent "1." lists.
+    assert markers == ["1.", "2.", "3."]

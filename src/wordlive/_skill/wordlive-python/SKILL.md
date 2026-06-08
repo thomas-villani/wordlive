@@ -103,6 +103,16 @@ a.delete()
 a.com                                   # raw COM Range
 ```
 
+To **number several paragraphs 1, 2, 3**, apply the list over a *single* range
+that spans them — `doc.range(first_start, last_end).apply_list("numbered")` (or a
+heading's section). Applying `numbered` to each paragraph one at a time makes N
+independent "1." lists; `continue_previous=True` chains a clean in-order apply
+but can't *repair* an already-split list (remove the list over the span and
+re-apply to fix that).
+
+Delete a whole paragraph (text **and** its mark, so no blank line is left —
+unlike `set_text("")`) with `doc.delete_paragraph("para:3")`.
+
 Define and configure styles (the brand/template primitive — `add` once, then
 `apply_style` everywhere):
 
@@ -251,6 +261,14 @@ with doc.tracked_changes(), doc.edit("Suggest plainer wording"):
 setting on exit; every edit lands as an accept/reject-able revision.
 `doc.track_changes` is the underlying persistent bool.
 
+**See what you recorded.** Plain text reads concatenate the inserted and deleted
+runs, so don't reason off them while tracking. Instead read the revisions
+structurally — `doc.revisions.list()` → `[{index, type, author, text, anchor_id,
+…}]` (`type` is `insert`/`delete`/`format`/…) — or *visually* with
+`doc.snapshot(markup="all")`, which renders the marks and balloons. (One caveat:
+a tracked `find_replace` on the **same** paragraph as a previous one can drift,
+because both runs are still present — re-read between tracked edits.)
+
 ### The explicit cursor surface
 
 Everything above preserves the cursor. To act *at* it (the deliberately
@@ -270,6 +288,7 @@ para = doc.paragraphs.at(sel["start"])           # the containing Paragraph (par
 ```python
 shots = doc.snapshot(pages=(1, 3), dpi=150)      # all | int | (start, end); read .png bytes
 doc.snapshot("report.png", pages=2)              # also write to disk
+doc.snapshot("review.png", markup="all")         # show tracked changes / comments as marks
 png = doc.heading("Introduction").snapshot()[0].png   # an anchor's page(s); heading → section
 ```
 

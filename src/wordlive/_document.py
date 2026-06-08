@@ -26,6 +26,7 @@ from ._comments import CommentCollection
 from ._edit import EditScope
 from ._lists import ListCollection
 from ._notes import EndnoteCollection, FootnoteCollection
+from ._revisions import RevisionCollection
 from ._sections import SectionCollection
 from ._selection import Selection
 from ._snapshot import Snapshot
@@ -36,6 +37,7 @@ from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
     DocumentNotFoundError,
+    OpError,
     ReplaceVerificationError,
 )
 
@@ -44,6 +46,16 @@ if TYPE_CHECKING:
 
     from ._anchors import Anchor
     from ._app import Word
+
+
+def _markup_flag(markup: str) -> bool:
+    """Coerce a snapshot `markup` argument (`"none"` / `"all"`) to a bool."""
+    value = str(markup).lower()
+    if value in ("none", "off", "false"):
+        return False
+    if value in ("all", "on", "true"):
+        return True
+    raise OpError(f"markup must be 'none' or 'all', got {markup!r}")
 
 
 class Document:
@@ -145,6 +157,21 @@ class Document:
         (`doc.comments[2]`) to `resolve()` or `delete()` them.
         """
         return CommentCollection(self)
+
+    @property
+    def revisions(self) -> RevisionCollection:
+        """Read-only, iterable view over the document's tracked changes (`doc.revisions`).
+
+        When Track Changes is on, every edit is a `Revision` the user can accept
+        or reject. `doc.revisions.list()` reports each as
+        `{index, type, author, text, anchor_id, start, end, date}` — the
+        *structured* way to see what tracked edits a batch recorded (the visual
+        way is [`snapshot(markup="all")`][wordlive.Document.snapshot]). Index by
+        1-based position (`doc.revisions[2]`); `type` is `"insert"` / `"delete"`
+        / `"format"` / … . Writing tracked changes is
+        [`tracked_changes()`][wordlive.Document.tracked_changes].
+        """
+        return RevisionCollection(self)
 
     @property
     def footnotes(self) -> FootnoteCollection:
@@ -458,6 +485,15 @@ class Document:
                 nonlocal seg_key, seg_start, seg_end
                 if seg_start is not None and seg_end is not None and seg_end > seg_start:
                     text = str(doc_com.Range(seg_start, seg_end).Text or "")
+                    if seg_key != "body":
+                        # A cell's text ends with CR + the cell mark (`\r\x07`),
+                        # which together occupy a single document position — so
+                        # `len(text)` runs one past `End - Start`, and a match at
+                        # the cell's tail would map its end *past* the cell into
+                        # the next one (the cause of the old `'Opus\r\x072'`
+                        # boundary error). Drop those trailing markers; the
+                        # remaining content stays 1:1 with document positions.
+                        text = text.rstrip("\r\n\x07")
                     segments.append((seg_start, text))
                 seg_key = seg_start = seg_end = None
 
@@ -684,6 +720,30 @@ class Document:
                 styled = doc_com.Range(text_start, text_start + _utf16_len(text))
                 styled.Style = style_obj.com
 
+    def delete_paragraph(self, anchor: str | Anchor) -> None:
+        """Delete the paragraph(s) at `anchor` — text *and* the trailing mark.
+
+        `anchor` is an anchor id (`para:N`, `heading:N`) or an `Anchor`; the
+        whole paragraph is removed, mark included, so the surrounding text closes
+        up with no empty line left behind (the gap `set_text("")` would leave).
+        A range anchor that spans several paragraphs removes all of them.
+
+        Word keeps a mandatory empty paragraph at the very end of the document:
+        deleting the *last* paragraph clears its content but leaves that final
+        mark (its range otherwise straddles the undeletable terminal mark and
+        raises COM `0x80020009`). Wrap in `doc.edit(...)` for atomic undo.
+        """
+        obj = self.anchor_by_id(anchor) if isinstance(anchor, str) else anchor
+        with _com.translate_com_errors():
+            rng = obj.com
+            start, end = int(rng.Start), int(rng.End)
+            doc_end = int(self._doc.Content.End)
+            # Never let the range reach Word's undeletable final paragraph mark.
+            end = min(end, doc_end - 1)
+            if end <= start:
+                return
+            self._doc.Range(start, end).Delete()
+
     def update_fields(self) -> None:
         """Refresh the document's fields — recompute every `{ PAGE }`, `{ REF }`, etc.
 
@@ -770,6 +830,7 @@ class Document:
         *,
         pages: int | tuple[int, int] | None = None,
         dpi: int = 150,
+        markup: str = "none",
     ) -> list[Snapshot]:
         """Render document page(s) to PNG so a vision model can *see* the layout.
 
@@ -785,28 +846,38 @@ class Document:
         If `out` is given the image is also written there: a single page to `out`
         itself, multiple pages alongside it as `<stem>-p<N><suffix>`.
 
+        `markup` is `"none"` (default — render the final document) or `"all"`
+        (render tracked changes and comments as visible revision marks and
+        balloons). The marks come from the export, not a view change, so the
+        user's on-screen markup setting is left untouched. The structured
+        counterpart is [`revisions`][wordlive.Document.revisions].
+
         `dpi` controls resolution; ~150 reads well for a vision model without
         bloating the image. Read-only — the document and the user's cursor are
         untouched. Requires the `snapshot` extra (PyMuPDF), else
         [`SnapshotError`][wordlive.SnapshotError].
         """
         from_page, to_page = self._resolve_page_arg(pages)
-        rendered = _snapshot.render(self._doc, from_page=from_page, to_page=to_page, dpi=dpi)
+        rendered = _snapshot.render(
+            self._doc, from_page=from_page, to_page=to_page, dpi=dpi, markup=_markup_flag(markup)
+        )
         return _snapshot.build_snapshots(rendered, out)
 
     def snapshot_anchor(
-        self, anchor: Anchor, out: str | Path | None = None, *, dpi: int = 150
+        self, anchor: Anchor, out: str | Path | None = None, *, dpi: int = 150, markup: str = "none"
     ) -> list[Snapshot]:
         """Render the page(s) an anchor sits on. Backs [`Anchor.snapshot`][wordlive.Anchor.snapshot].
 
         A `heading:` anchor expands to its whole section (the heading plus the
         body beneath it, up to the next same-or-higher heading); any other
         anchor renders the page(s) its range spans. See
-        [`snapshot`][wordlive.Document.snapshot] for `out`/`dpi` semantics and
-        the return shape.
+        [`snapshot`][wordlive.Document.snapshot] for `out`/`dpi`/`markup`
+        semantics and the return shape.
         """
         from_page, to_page = self._anchor_page_span(anchor)
-        rendered = _snapshot.render(self._doc, from_page=from_page, to_page=to_page, dpi=dpi)
+        rendered = _snapshot.render(
+            self._doc, from_page=from_page, to_page=to_page, dpi=dpi, markup=_markup_flag(markup)
+        )
         return _snapshot.build_snapshots(rendered, out)
 
     @contextmanager

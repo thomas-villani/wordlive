@@ -38,6 +38,7 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "write_bookmark": ("name", "text"),
     "write_cc": ("name", "text"),
     "insert_paragraph": ("anchor_id", "text"),
+    "delete_paragraph": ("anchor_id",),
     "append_paragraph": ("text",),
     "append": ("text",),
     "append_inline": ("text",),
@@ -144,6 +145,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "write_bookmark": (),
     "write_cc": (),
     "insert_paragraph": ("style", *_WHERE_FIELDS),
+    "delete_paragraph": (),
     "append_paragraph": ("style",),
     "append": ("style",),
     "append_inline": (),
@@ -269,6 +271,8 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             anchor.insert_paragraph_before(op["text"], style=op.get("style"))
         else:
             anchor.insert_paragraph_after(op["text"], style=op.get("style"))
+    elif kind == "delete_paragraph":
+        doc.delete_paragraph(op["anchor_id"])
     elif kind in ("append", "append_paragraph"):
         # `append` is the natural name for the common case — a new final
         # paragraph (matching its description and `append_paragraph`). The

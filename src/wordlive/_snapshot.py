@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import _com
-from .constants import WdExportFormat, WdExportRange
+from .constants import WdExportFormat, WdExportItem, WdExportRange
 from .exceptions import SnapshotError
 
 if TYPE_CHECKING:
@@ -83,16 +83,27 @@ def _rasterize_pdf(pdf_path: str, dpi: int) -> list[bytes]:
     return pages
 
 
-def _export_pdf(doc_com: Any, out_path: str, *, from_page: int | None, to_page: int | None) -> None:
+def _export_pdf(
+    doc_com: Any,
+    out_path: str,
+    *,
+    from_page: int | None,
+    to_page: int | None,
+    markup: bool = False,
+) -> None:
     """Export the document (or a page span) to a PDF at `out_path` via COM.
 
     `from_page`/`to_page` are 1-based, inclusive; pass both as `None` to export
-    the whole document.
+    the whole document. `markup=True` exports with tracked-change marks and
+    comment balloons visible (`Item=wdExportDocumentWithMarkup`) — the export
+    parameter, not a view change, so the user's on-screen markup mode is left
+    untouched.
     """
     kwargs: dict[str, Any] = {
         "OutputFileName": out_path,
         "ExportFormat": int(WdExportFormat.PDF),
         "OpenAfterExport": False,
+        "Item": int(WdExportItem.WITH_MARKUP if markup else WdExportItem.DOCUMENT_CONTENT),
     }
     if from_page is None:
         kwargs["Range"] = int(WdExportRange.ALL_DOCUMENT)
@@ -110,19 +121,21 @@ def render(
     from_page: int | None = None,
     to_page: int | None = None,
     dpi: int = 150,
+    markup: bool = False,
 ) -> list[tuple[int, bytes]]:
     """Render `[from_page, to_page]` (or the whole doc) to `(page_number, png)` pairs.
 
     Exports to a temporary PDF, rasterises it, and removes the temp file. Page
     numbers are the document's own 1-based numbers: when a span is exported the
     PDF holds only those pages, so the first rasterised page is `from_page`.
+    `markup=True` renders tracked changes and comments as visible marks.
     """
     # mkstemp creates the file and returns an open fd; close it immediately so
     # Word can write the PDF to the path without a sharing conflict on Windows.
     fd, pdf_path = tempfile.mkstemp(suffix=".pdf", prefix="wordlive_snap_")
     os.close(fd)
     try:
-        _export_pdf(doc_com, pdf_path, from_page=from_page, to_page=to_page)
+        _export_pdf(doc_com, pdf_path, from_page=from_page, to_page=to_page, markup=markup)
         pngs = _rasterize_pdf(pdf_path, dpi)
     finally:
         try:

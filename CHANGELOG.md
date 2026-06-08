@@ -77,6 +77,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `insert_cross_reference`/`insert_caption`, the matching CLI verbs
   (`bookmark add`, `link`, `cross-ref`, `caption`), and `word_write` commands.
   All four features are exercised by live-Word smoke tests.
+- **Tracked-changes visibility — `doc.revisions` and `snapshot(markup=…)`.** An
+  agent making tracked edits can now *see* them, structurally and visually.
+  `doc.revisions.list()` reports each tracked change as
+  `{index, type, author, text, anchor_id, start, end, date}` (`type` is
+  `"insert"` / `"delete"` / `"format"` / …) — read via `wordlive revisions`,
+  `word_read command="revisions"`, and indexable as `doc.revisions[N]`.
+  `doc.snapshot(markup="all")` (and the `--markup all` / `markup="all"` CLI/MCP
+  options) renders revision marks and comment balloons into the image instead of
+  the final text — via the export's `Item` parameter, so the user's on-screen
+  markup mode is left untouched. Track-changes status is now also readable over
+  MCP (`word_read command="track"`).
+- **`delete_paragraph` — remove a paragraph, mark and all.**
+  `doc.delete_paragraph(anchor)` deletes the paragraph(s) at an anchor including
+  the trailing paragraph mark, so the surrounding text closes up (no empty line,
+  unlike `replace`-ing with `""`) — for that stray leading empty paragraph.
+  Deleting the document's last paragraph clears it but keeps Word's mandatory
+  final mark. Exec op `delete_paragraph`, CLI `delete-paragraph`, and
+  `word_write command="delete_paragraph"`.
 
 ### Changed
 - **Bad formatting input now raises `OpError` (exit 1, bad-input) instead of a
@@ -84,6 +102,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   colour/length/enum coercion errors and re-raise as `OpError`, so an exec batch
   reports the failure cleanly instead of crashing the op loop. Indents/spacing on
   `format_paragraph` now also accept unit strings.
+- **In-cell `find` / `find_replace` no longer overruns the cell boundary.** A
+  cell's text ends with CR + the cell mark (`\r\x07`), which occupy a single
+  document position — so a match at a cell's tail mapped its end *past* the cell
+  into the next one, tripping the write-verification guard on essentially every
+  in-cell find (the old `'Opus\r\x072'` error). The find/replace segmenter now
+  drops those trailing markers from each cell segment, so a cell-scoped
+  (`scope=table:N:R:C`) or whole-document find resolves inside the cell. The
+  `ReplaceVerificationError` message is reworded too — it means the document
+  shifted under the match (an earlier edit, or Track Changes leaving both runs),
+  not specifically a table cell.
+- **Numbered lists: apply over a span to number 1..N.** Applying a numbered list
+  to paragraphs *one at a time* makes N independent "1." lists (and
+  `continue_previous` only chains a clean in-order apply — it can't repair an
+  already-split list). Applying `apply_list("numbered")` over a single
+  `range:START-END` (or a heading's section) that spans all the items numbers
+  them 1, 2, 3 as one list — now the documented, tested path. To repair a split
+  list, `remove_list` the span then re-apply over it.
 
 ### Deferred
 - Table-wide (`Table.Borders`) and page (`Section.Borders`) borders, shading
@@ -105,6 +140,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `IncludePositionInformation` combos; caption numbering format / chapter-style
   and a table of figures. `kind="text"` on a footnote/endnote cross-reference
   falls back to the note number (Word has no text content for a note mark).
+- From the LLM-ergonomics feedback, still open: a multi-paragraph block insert
+  and inline runs in insert ops (`insert_block` / `runs:[…]`); intra-batch output
+  references (`$ops[N]`) and minting durable bookmark handles on insert
+  (`bind:`); accepting/rejecting individual revisions (reads ship here, the write
+  side stays on `.com`); and revision-aware text reads (a tracked `find_replace`
+  on the *same* paragraph still drifts because both runs are present — re-read
+  between tracked edits, or take a `markup="all"` snapshot).
 
 ## [0.11.1] — 2026-06-04
 

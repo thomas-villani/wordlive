@@ -226,6 +226,25 @@ To insert text *inside* a paragraph at a precise offset rather than as a new
 paragraph, target a collapsed range instead — `replace --anchor-id
 range:120-120 --text "…"` — using offsets from `paragraphs` or `find`.
 
+## `delete-paragraph --anchor-id ID`
+
+```
+wordlive delete-paragraph --anchor-id ID [--doc DOC_NAME]
+```
+
+Delete the paragraph(s) at an anchor — **text and the trailing mark** — so the
+surrounding text closes up with no empty line left behind (unlike
+`replace --text ""`, which empties the paragraph but keeps it). Handy for a
+stray leading empty `para:1`. Deleting the document's last paragraph clears it
+but keeps Word's mandatory final mark.
+
+```bash
+$ wordlive delete-paragraph --anchor-id para:1
+{"ok": true, "anchor_id": "para:1", "deleted": true}
+```
+
+Failures: `2` anchor not found, `3` Word busy.
+
 ## `insert-break --anchor-id ID [--kind …] [--before | --after]`
 
 ```
@@ -357,6 +376,26 @@ id, number, body text, and the `para:N` its reference mark sits in.
 $ wordlive footnotes
 [{"index": 1, "anchor_id": "footnote:1", "marker": "1",
   "text": "See appendix B.", "para": "para:6"}]
+```
+
+Failures: `3` Word busy, `4` Word not running.
+
+## `revisions`
+
+```
+wordlive revisions [--doc DOC_NAME]
+```
+
+List the document's tracked changes — the structured counterpart to
+`snapshot --markup all`. Each revision reports its `type` (`insert` / `delete` /
+`format` / …), `author`, the affected `text`, and a `range:START-END` id.
+Reading is non-mutating. (Toggle Track Changes with `track on` / `off`; check it
+with `track status`.)
+
+```bash
+$ wordlive revisions
+[{"index": 1, "type": "insert", "author": "A. Reviewer", "text": "swift",
+  "anchor_id": "range:5-10", "start": 5, "end": 10, "date": "2026-06-08T16:57:00"}]
 ```
 
 Failures: `3` Word busy, `4` Word not running.
@@ -524,7 +563,7 @@ or an invalid `--wrap` value; `3` Word busy.
 
 ```
 wordlive snapshot [--anchor-id ID | --page N | --pages A-B] \
-    [--out FILE] [--dpi 150] [--doc DOC_NAME]
+    [--out FILE] [--dpi 150] [--markup none|all] [--doc DOC_NAME]
 ```
 
 Render document page(s) to PNG so a **vision model can see the layout** — real
@@ -544,6 +583,10 @@ Output: with `--out FILE` the image is written to disk — a single page to `FIL
 multiple pages alongside it as `<stem>-p<N><suffix>`. **Without `--out`, base64
 PNG data is returned inline** in the JSON (`images[].base64`), which suits an LLM
 that wants to look at the page directly. `--dpi` (default `150`) sets resolution.
+
+`--markup all` renders tracked changes and comments as visible revision marks
+and balloons (default `none` renders the final document); the structured list is
+the `revisions` command.
 
 This needs the optional **`snapshot` extra** (PyMuPDF):
 `pip install "wordlive[snapshot]"` (or `uv add "wordlive[snapshot]"`).

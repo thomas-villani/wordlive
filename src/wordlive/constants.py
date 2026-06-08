@@ -172,6 +172,49 @@ class WdExportRange(IntEnum):
     FROM_TO = 3
 
 
+class WdExportItem(IntEnum):
+    """What `ExportAsFixedFormat(Item=...)` includes in the exported PDF.
+
+    `DOCUMENT_CONTENT` (the default) renders the final text only; `WITH_MARKUP`
+    renders tracked changes and comments as visible revision marks / balloons —
+    the `markup="all"` snapshot mode. No view mutation is needed: the export
+    parameter decides, so the user's on-screen markup setting is left untouched.
+    """
+
+    DOCUMENT_CONTENT = 0
+    WITH_MARKUP = 7
+
+
+class WdRevisionType(IntEnum):
+    """`Revision.Type` values — the tracked-change kinds `doc.revisions` reports.
+
+    A subset of Word's full `WdRevisionType`: the common insert / delete /
+    property (formatting) revisions plus paragraph-number / property changes.
+    `RevisionCollection` maps each int onto a human string (`"insert"`,
+    `"delete"`, `"format"`, …); an unrecognised value reports as `"other"`.
+    """
+
+    NO_REVISION = 0
+    INSERT = 1
+    DELETE = 2
+    PROPERTY = 3
+    PARAGRAPH_NUMBER = 4
+    DISPLAY_FIELD = 5
+    RECONCILE = 6
+    CONFLICT = 7
+    STYLE = 8
+    REPLACE = 9
+    PARAGRAPH_PROPERTY = 10
+    TABLE_PROPERTY = 11
+    SECTION_PROPERTY = 12
+    STYLE_DEFINITION = 13
+    MOVE_SOURCE = 14
+    MOVE_TARGET = 15
+    CELL_INSERTION = 16
+    CELL_DELETION = 17
+    CELL_MERGE = 18
+
+
 class WdBreakType(IntEnum):
     """`Range.InsertBreak(Type=...)` values — the break kinds `insert_break` exposes.
 
