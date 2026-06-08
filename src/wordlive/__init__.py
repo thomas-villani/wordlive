@@ -16,6 +16,7 @@ from . import constants
 from ._anchors import (
     Anchor,
     Bookmark,
+    BookmarkCollection,
     ContentControl,
     EndAnchor,
     Heading,
@@ -56,6 +57,7 @@ __all__ = [
     "Anchor",
     "AnchorNotFoundError",
     "Bookmark",
+    "BookmarkCollection",
     "Cell",
     "ComError",
     "Comment",
