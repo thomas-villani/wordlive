@@ -260,3 +260,10 @@ python examples/python/append_note.py "Reviewed." # append one paragraph (atomic
   you're never blocked by missing coverage.
 
 See [`spec.md`](spec.md) for the full design.
+
+## Contributing & security
+
+Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the dev
+setup (`uv`), the design invariants, and the test / lint / docs gates. To report
+a security issue, please use private disclosure as described in
+[`SECURITY.md`](SECURITY.md) rather than a public issue.
