@@ -143,6 +143,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New "Agents & LLM tools" guide** with copy-paste setup per client (Claude
   Code, Claude Desktop, Cursor, generic MCP) — consolidating the skill / MCP /
   `llm-help` paths.
+- **`CONTRIBUTING.md` and `SECURITY.md`.** A contributor guide (uv dev setup, the
+  four invariants, the four-surfaces-must-agree rule, testing / lint / docs
+  gates, commit & PR conventions) and a security policy (private vulnerability
+  reporting plus the gated-surface threat model — trusted Python API vs.
+  prompt-injection-aware CLI/MCP path policy).
 
 ## [0.12.0] — 2026-06-08
 
