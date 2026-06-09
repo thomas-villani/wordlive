@@ -32,8 +32,8 @@ def fake_pages(monkeypatch):
     """
     state: dict = {"pngs": [b"PNG0"], "calls": []}
 
-    def fake_rasterize(pdf_path, dpi):
-        state["calls"].append({"pdf_path": pdf_path, "dpi": dpi})
+    def fake_rasterize(pdf_path, dpi, max_dim=None):
+        state["calls"].append({"pdf_path": pdf_path, "dpi": dpi, "max_dim": max_dim})
         return list(state["pngs"])
 
     monkeypatch.setattr(_snapshot, "_rasterize_pdf", fake_rasterize)
@@ -138,6 +138,36 @@ def test_snapshot_default_dpi_is_150(fake_word, fake_pages):
     with wordlive.attach() as word:
         word.documents.active.snapshot(pages=1)
     assert state["calls"][0]["dpi"] == 150
+
+
+def test_snapshot_default_max_dim_is_none(fake_word, fake_pages):
+    state = fake_pages(1)
+    with wordlive.attach() as word:
+        word.documents.active.snapshot(pages=1)
+    assert state["calls"][0]["max_dim"] is None
+
+
+def test_snapshot_forwards_max_dim(fake_word, fake_pages):
+    state = fake_pages(1)
+    with wordlive.attach() as word:
+        word.documents.active.snapshot(pages=1, max_dim=1000)
+    assert state["calls"][0]["max_dim"] == 1000
+
+
+def test_anchor_snapshot_forwards_max_dim(fake_word, fake_pages):
+    state = fake_pages(1)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.heading("Introduction").snapshot(max_dim=800)
+    assert state["calls"][0]["max_dim"] == 800
+
+
+@pytest.mark.parametrize("bad", [0, -5])
+def test_snapshot_rejects_bad_max_dim(fake_word, fake_pages, bad):
+    fake_pages(1)
+    with wordlive.attach() as word:
+        with pytest.raises(OpError):
+            word.documents.active.snapshot(pages=1, max_dim=bad)
 
 
 @pytest.mark.parametrize("bad", [0, -1, (0, 2), (3, 2), (1, 2, 3)])
@@ -261,6 +291,21 @@ def test_cli_snapshot_out_writes_file(fake_word, fake_pages, tmp_path):
     assert "base64" not in img
 
 
+def test_cli_snapshot_max_dim_forwarded_and_reported(fake_word, fake_pages):
+    state = fake_pages(1)
+    code, out, _ = _invoke(["snapshot", "--page", "1", "--max-dim", "900"])
+    assert code == EXIT_OK
+    assert state["calls"][0]["max_dim"] == 900
+    assert json.loads(out)["max_dim"] == 900
+
+
+def test_cli_snapshot_bad_max_dim_is_usage_error(fake_word, fake_pages):
+    fake_pages(1)
+    code, _, err = _invoke(["snapshot", "--page", "1", "--max-dim", "0"])
+    assert code != EXIT_OK
+    assert "--max-dim" in err
+
+
 def test_cli_snapshot_pages_range(fake_word, fake_pages):
     fake_pages(3)
     code, out, _ = _invoke(["snapshot", "--pages", "2-4"])
@@ -317,3 +362,38 @@ def test_rasterize_pdf_real(tmp_path):
     pngs = _snapshot._rasterize_pdf(str(pdf_path), dpi=72)
     assert len(pngs) == 2
     assert all(p.startswith(b"\x89PNG\r\n\x1a\n") for p in pngs)
+
+
+def _png_dims(png: bytes) -> tuple[int, int]:
+    """(width, height) from a PNG's IHDR chunk (big-endian, at byte offset 16)."""
+    return int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big")
+
+
+def test_rasterize_pdf_max_dim_caps_long_edge(tmp_path):
+    fitz = pytest.importorskip("pymupdf")
+    pdf_path = tmp_path / "letter.pdf"
+    doc = fitz.open()
+    doc.new_page(width=612, height=792)  # US Letter (long edge 792 pt)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    # dpi=300 alone would render the long edge at 792/72*300 = 3300 px; the cap
+    # pulls it down to ~300 px (zoom = 300/792), and only ever lowers resolution.
+    pngs = _snapshot._rasterize_pdf(str(pdf_path), dpi=300, max_dim=300)
+    w, h = _png_dims(pngs[0])
+    assert max(w, h) <= 300
+    assert max(w, h) >= 298  # rounding only
+
+
+def test_rasterize_pdf_max_dim_does_not_upscale(tmp_path):
+    fitz = pytest.importorskip("pymupdf")
+    pdf_path = tmp_path / "letter.pdf"
+    doc = fitz.open()
+    doc.new_page(width=612, height=792)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    # A generous cap above the dpi-driven size leaves the dpi resolution intact.
+    capped = _snapshot._rasterize_pdf(str(pdf_path), dpi=72, max_dim=5000)
+    plain = _snapshot._rasterize_pdf(str(pdf_path), dpi=72)
+    assert _png_dims(capped[0]) == _png_dims(plain[0])

@@ -466,3 +466,32 @@ def test_numbered_list_over_range_numbers_sequentially(scratch_doc):
     markers = [p.list_info().get("string") for p in doc.paragraphs if p.text.startswith("Item")]
     # One contiguous list numbered 1., 2., 3. — not three independent "1." lists.
     assert markers == ["1.", "2.", "3."]
+
+
+def test_image_extraction_round_trips(scratch_doc, png_path):
+    """Insert a PNG, then read its bytes + MIME back out via doc.images / read_image."""
+    doc = scratch_doc
+    with doc.edit("seed image"):
+        doc.end.insert_image(png_path, wrap="inline")
+    rows = doc.images.list()
+    assert len(rows) >= 1
+    first = rows[0]
+    assert first["anchor_id"] == "image:1"
+    # Word re-encodes the embedded picture as PNG.
+    assert first["mime"] == "image/png"
+    # The image:N anchor and the discovery list agree, and the bytes come back.
+    data, mime = doc.images[1].read_image()
+    assert mime == "image/png"
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"  # a real PNG signature
+    # The same bytes via anchor_by_id("image:N").
+    via_id, _ = doc.anchor_by_id("image:1").read_image()
+    assert via_id == data
+
+
+def test_read_image_on_imageless_range_raises(scratch_doc):
+    """A range with no picture is a clean ImageSourceError, not a crash."""
+    doc = scratch_doc
+    with doc.edit("seed text"):
+        doc.append_paragraph("No picture here.")
+    with pytest.raises(wordlive.ImageSourceError):
+        doc.paragraphs[1].read_image()

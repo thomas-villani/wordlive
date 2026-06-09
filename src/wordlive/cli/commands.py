@@ -95,6 +95,8 @@ def register(group: click.Group) -> None:
     group.add_command(footnotes_cmd)
     group.add_command(endnotes_cmd)
     group.add_command(revisions_cmd)
+    group.add_command(images_cmd)
+    group.add_command(read_image_cmd)
     group.add_command(bookmark)
     group.add_command(link_cmd)
     group.add_command(cross_ref_cmd)
@@ -798,6 +800,94 @@ def revisions_cmd(ctx: click.Context) -> None:
 
 
 # ---------------------------------------------------------------------------
+# images / read-image  (image extraction — read embedded pictures out)
+# ---------------------------------------------------------------------------
+
+
+def _fmt_images(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "(no images)"
+    lines: list[str] = []
+    for r in rows:
+        w, h = r.get("width"), r.get("height")
+        size = f"  {w:.0f}×{h:.0f}pt" if w and h else ""
+        mime = r.get("mime") or "?"
+        para = r.get("para") or ""
+        alt = r.get("alt_text") or ""
+        suffix = f"  {alt!r}" if alt else ""
+        lines.append(f"[{r['anchor_id']}] {mime}{size}  {para}{suffix}")
+    return "\n".join(lines)
+
+
+@click.command(name="images")
+@click.pass_context
+def images_cmd(ctx: click.Context) -> None:
+    """List the document's embedded images (image:N id, MIME, size, alt text, para:N).
+
+    The discovery half of image extraction: see what pictures are in the document
+    before pulling any bytes with `read-image`. Reading is non-mutating.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.images.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_images(rows))
+
+    _run(ctx, go)
+
+
+@click.command(name="read-image")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="The image to read: an image:N id (or any anchor whose range holds one picture).",
+)
+@click.option(
+    "--out",
+    "out",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write the raw image bytes here. Without --out, base64 data is returned in the JSON.",
+)
+@click.pass_context
+def read_image_cmd(ctx: click.Context, anchor_id: str, out: Path | None) -> None:
+    """Extract an embedded image's bytes + MIME type (the read side for vision models).
+
+    Resolve the picture by `--anchor-id image:N` (discover them with `images`) or
+    any anchor whose range contains exactly one image. With `--out` the raw bytes
+    are written to that file and the JSON reports `{path, mime, bytes}`; without
+    it, base64 data is returned inline (`{mime, bytes, base64}`). A range with no
+    image — or more than one — is a bad-input error (exit 1). Read-only.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            data, mime = doc.anchor_by_id(anchor_id).read_image()
+            result: dict[str, Any] = {
+                "ok": True,
+                "anchor_id": anchor_id,
+                "mime": mime,
+                "bytes": len(data),
+            }
+            if out is not None:
+                out.write_bytes(data)
+                result["path"] = str(out)
+            else:
+                result["base64"] = base64.b64encode(data).decode("ascii")
+            where = result.get("path") or "base64"
+            emit(
+                result,
+                as_text=not ctx.obj["as_json"],
+                text=f"{anchor_id}: {mime}, {len(data)} bytes → {where}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
 # bookmark add / link / cross-ref / caption  (anchoring & linking)
 # ---------------------------------------------------------------------------
 
@@ -1269,6 +1359,15 @@ def _fmt_snapshot(images: list[dict[str, Any]], dpi: int) -> str:
     "--dpi", "dpi", type=int, default=150, show_default=True, help="Render resolution (dots/inch)."
 )
 @click.option(
+    "--max-dim",
+    "max_dim",
+    type=int,
+    default=None,
+    help="Cap each page's long edge to this many pixels (only ever lowers resolution). "
+    "The lever for a cheap whole-document layout check — ~1000 stays legible at a "
+    "fraction of the tokens; predictable per-page cost regardless of paper size.",
+)
+@click.option(
     "--markup",
     "markup",
     type=click.Choice(["none", "all"]),
@@ -1284,6 +1383,7 @@ def snapshot_cmd(
     pages_range: str | None,
     out: Path | None,
     dpi: int,
+    max_dim: int | None,
     markup: str,
 ) -> None:
     """Render document page(s) to PNG so a vision model can see the layout.
@@ -1297,6 +1397,11 @@ def snapshot_cmd(
     none, the whole document is rendered. With `--out` the image is written to
     disk (one file per page); otherwise base64 PNG data is returned inline.
 
+    `--max-dim N` caps each page's long edge to N pixels — pair it with no page
+    target to eyeball the whole document's layout cheaply (a vision model is
+    billed on pixel area, so the cap gives a predictable per-page token budget;
+    ~1000 stays legible). `--dpi 72` is a coarser alternative.
+
     `--markup all` shows tracked changes and comments as visible revision marks
     and balloons (the structured list is the `revisions` command).
 
@@ -1307,6 +1412,8 @@ def snapshot_cmd(
         raise click.UsageError("provide at most one of --anchor-id, --page, or --pages")
     if dpi < 1:
         raise click.UsageError("--dpi must be >= 1")
+    if max_dim is not None and max_dim < 1:
+        raise click.UsageError("--max-dim must be >= 1")
     if page is not None and page < 1:
         raise click.UsageError("--page must be >= 1")
     pages_arg: int | tuple[int, int] | None = None
@@ -1320,10 +1427,10 @@ def snapshot_cmd(
             doc = _pick_doc(word, ctx.obj["doc_name"])
             if anchor_id is not None:
                 anchor = doc.anchor_by_id(anchor_id)
-                shots = doc.snapshot_anchor(anchor, out, dpi=dpi, markup=markup)
+                shots = doc.snapshot_anchor(anchor, out, dpi=dpi, max_dim=max_dim, markup=markup)
                 selector: Any = anchor_id
             else:
-                shots = doc.snapshot(out, pages=pages_arg, dpi=dpi, markup=markup)
+                shots = doc.snapshot(out, pages=pages_arg, dpi=dpi, max_dim=max_dim, markup=markup)
                 selector = pages_range or page or "all"
             images: list[dict[str, Any]] = []
             for s in shots:
@@ -1333,14 +1440,17 @@ def snapshot_cmd(
                 else:
                     entry["base64"] = base64.b64encode(s.png).decode("ascii")
                 images.append(entry)
+            payload: dict[str, Any] = {
+                "ok": True,
+                "selector": selector,
+                "dpi": dpi,
+                "count": len(images),
+                "images": images,
+            }
+            if max_dim is not None:
+                payload["max_dim"] = max_dim
             emit(
-                {
-                    "ok": True,
-                    "selector": selector,
-                    "dpi": dpi,
-                    "count": len(images),
-                    "images": images,
-                },
+                payload,
                 as_text=not ctx.obj["as_json"],
                 text=_fmt_snapshot(images, dpi),
             )

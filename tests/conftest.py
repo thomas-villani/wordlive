@@ -212,6 +212,63 @@ class _FakeInlineShapes:
         return 0
 
 
+class _FakeDocImage:
+    """A document-level inline picture, as `Document.InlineShapes.Item(n)` returns.
+
+    Its `Range.WordOpenXML` carries exactly one image part, so `read_image()`
+    against the shape's own range round-trips the seeded bytes + MIME.
+    """
+
+    def __init__(
+        self,
+        *,
+        mime: str,
+        data: bytes,
+        width: float,
+        height: float,
+        alt_text: str,
+        start: int,
+    ) -> None:
+        rng = _make_range(start, start + 1)
+        rng.WordOpenXML = _flat_opc([(mime, data)])
+        self.Range = rng
+        self.Width = width
+        self.Height = height
+        self.AlternativeText = alt_text
+        self.Type = 3  # wdInlineShapePicture
+
+
+class _FakeDocInlineShapes:
+    """Mimics `Document.InlineShapes`: Count, 1-based Item()/call lookup, iteration."""
+
+    def __init__(self, images: list[dict[str, Any]] | None) -> None:
+        self._items: list[_FakeDocImage] = []
+        for spec in images or []:
+            self._items.append(
+                _FakeDocImage(
+                    mime=spec.get("mime", "image/png"),
+                    data=spec.get("data", b"\x89PNG\r\n\x1a\nFAKE"),
+                    width=spec.get("width", 100.0),
+                    height=spec.get("height", 80.0),
+                    alt_text=spec.get("alt_text", ""),
+                    start=spec.get("start", 0),
+                )
+            )
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def Item(self, index: int) -> _FakeDocImage:
+        return self._items[index - 1]
+
+    def __call__(self, index: int) -> _FakeDocImage:
+        return self._items[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(self._items)
+
+
 class _FakeBorders:
     """Mimics `Range.Borders` — a callable vending one stable child per edge index.
 
@@ -228,11 +285,42 @@ class _FakeBorders:
         return self._edges.setdefault(int(index), MagicMock(name=f"Border[{index}]"))
 
 
+def _flat_opc(parts: list[tuple[str, bytes]]) -> str:
+    """Build a minimal Flat OPC package string, as `Range.WordOpenXML` returns.
+
+    `parts` is a list of `(content_type, raw_bytes)` image parts; each is emitted
+    as a `<pkg:part>` with a base64 `<pkg:binaryData>` body. A namespace-clean
+    document.xml skeleton part is always included so the parser sees the same
+    "full package skeleton" shape real Word emits.
+    """
+    import base64 as _b64
+
+    pieces = [
+        '<?xml version="1.0" standalone="yes"?>',
+        '<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">',
+        '<pkg:part pkg:name="/word/document.xml" '
+        'pkg:contentType="application/vnd.openxmlformats-officedocument.'
+        'wordprocessingml.document.main+xml"><pkg:xmlData></pkg:xmlData></pkg:part>',
+    ]
+    for i, (ctype, data) in enumerate(parts, start=1):
+        b64 = _b64.b64encode(data).decode("ascii")
+        pieces.append(
+            f'<pkg:part pkg:name="/word/media/image{i}.bin" pkg:contentType="{ctype}">'
+            f"<pkg:binaryData>{b64}</pkg:binaryData></pkg:part>"
+        )
+    pieces.append("</pkg:package>")
+    return "".join(pieces)
+
+
 def _make_range(start: int, end: int) -> MagicMock:
     rng = MagicMock(name=f"Range[{start},{end}]")
     rng.Start = start
     rng.End = end
     rng.Text = ""
+    # Image-extraction support: WordOpenXML serialises the range as Flat OPC.
+    # A plain range carries no media part, so read_image() on it reports "no
+    # image"; image shape ranges (and tests) override this with a real part.
+    rng.WordOpenXML = _flat_opc([])
     # List support: a stateful ListFormat plus an Application that vends
     # list-gallery templates, so apply_list / list_info / restart work.
     rng.ListFormat = _FakeListFormat()
@@ -735,10 +823,12 @@ def _make_document(
     footnotes: list[dict[str, Any]] | None = None,
     endnotes: list[dict[str, Any]] | None = None,
     revisions: list[dict[str, Any]] | None = None,
+    images: list[dict[str, Any]] | None = None,
 ) -> MagicMock:
     doc = MagicMock(name=f"Document[{name}]")
     doc.Name = name
     doc.FullName = full_name
+    doc.InlineShapes = _FakeDocInlineShapes(images)
 
     bm_registry = _FakeBookmarkRegistry()
     for bm_name, (s, e) in (bookmarks or {}).items():
@@ -883,6 +973,16 @@ def fake_word(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
         footnotes=[{"ref_start": 20, "text": "A seeded footnote."}],
         # One tracked insertion so revisions.list() / the reader have a target.
         revisions=[{"type": 1, "author": "Reviewer", "start": 13, "end": 18, "text": "Body"}],
+        # One embedded PNG anchored in the body paragraph (13–29), so
+        # images.list() maps it back to para:2 and read_image() round-trips.
+        images=[
+            {
+                "mime": "image/png",
+                "data": b"\x89PNG\r\n\x1a\nSEEDED",
+                "alt_text": "logo",
+                "start": 20,
+            }
+        ],
     )
     app = _make_application([doc])
 

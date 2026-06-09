@@ -13,6 +13,7 @@ from ._anchors import (
     EndAnchor,
     Heading,
     HeadingCollection,
+    ImageCollection,
     Paragraph,
     ParagraphCollection,
     RangeAnchor,
@@ -136,6 +137,19 @@ class Document:
         formatting itself is applied through any anchor's `apply_list(...)`.
         """
         return ListCollection(self)
+
+    @property
+    def images(self) -> ImageCollection:
+        """Read-only, iterable view over the document's embedded images (`doc.images`).
+
+        Index an image by 1-based position (`doc.images[2]`) to get an
+        [`ImageAnchor`][wordlive.ImageAnchor] (`image:N`), then `read_image()`
+        for its raw bytes + MIME type — the path for handing an embedded picture
+        to a vision model. `list()` summarises each image (MIME, size, alt text,
+        and the `para:N` it's anchored in). The write mirror is any anchor's
+        [`insert_image`][wordlive.Anchor.insert_image].
+        """
+        return ImageCollection(self)
 
     @property
     def sections(self) -> SectionCollection:
@@ -334,6 +348,7 @@ class Document:
           - `cc:NAME`          — content control by Title (or Tag)
           - `footnote:N`       — Nth footnote (1-based), resolving to its note body
           - `endnote:N`        — Nth endnote (1-based), resolving to its note body
+          - `image:N`          — Nth embedded image (1-based, Word's InlineShapes order)
           - `table:N:R:C`      — cell at 1-based (row, column) of the Nth table
           - `range:START-END`  — arbitrary character span (the form `find()` emits)
           - `header:S:WHICH`   — the WHICH header of section S (WHICH = primary/first/even)
@@ -381,6 +396,15 @@ class Document:
                 return coll[idx]
             except AnchorNotFoundError as e:
                 raise AnchorNotFoundError(kind, anchor_id) from e
+        if kind == "image":
+            try:
+                idx = int(value)
+            except ValueError as e:
+                raise AnchorNotFoundError("image", anchor_id) from e
+            try:
+                return self.images[idx]
+            except AnchorNotFoundError as e:
+                raise AnchorNotFoundError("image", anchor_id) from e
         if kind == "table":
             parts = value.split(":")
             if len(parts) != 3:
@@ -428,7 +452,7 @@ class Document:
             anchor_id,
             hint=(
                 f"unknown anchor type {kind!r}; expected one of "
-                "start/end/heading/para/bookmark/cc/footnote/endnote/table/range/header/footer"
+                "start/end/heading/para/bookmark/cc/footnote/endnote/image/table/range/header/footer"
             ),
         )
 
@@ -830,6 +854,7 @@ class Document:
         *,
         pages: int | tuple[int, int] | None = None,
         dpi: int = 150,
+        max_dim: int | None = None,
         markup: str = "none",
     ) -> list[Snapshot]:
         """Render document page(s) to PNG so a vision model can *see* the layout.
@@ -853,30 +878,55 @@ class Document:
         counterpart is [`revisions`][wordlive.Document.revisions].
 
         `dpi` controls resolution; ~150 reads well for a vision model without
-        bloating the image. Read-only — the document and the user's cursor are
-        untouched. Requires the `snapshot` extra (PyMuPDF), else
-        [`SnapshotError`][wordlive.SnapshotError].
+        bloating the image. `max_dim` caps each page's **long edge** in pixels,
+        only ever lowering the resolution — the lever for a cheap *whole-document*
+        layout check (a vision model is billed on pixel area, so a long-edge cap
+        gives a predictable per-page token budget regardless of paper size; ~1000
+        keeps a page legible for "did my styling land" at a fraction of the
+        tokens). `dpi=72` is a coarser alternative. Read-only — the document and
+        the user's cursor are untouched. Requires the `snapshot` extra (PyMuPDF),
+        else [`SnapshotError`][wordlive.SnapshotError].
         """
+        if max_dim is not None and (isinstance(max_dim, bool) or int(max_dim) < 1):
+            raise OpError(f"max_dim must be a positive integer (pixels); got {max_dim!r}")
         from_page, to_page = self._resolve_page_arg(pages)
         rendered = _snapshot.render(
-            self._doc, from_page=from_page, to_page=to_page, dpi=dpi, markup=_markup_flag(markup)
+            self._doc,
+            from_page=from_page,
+            to_page=to_page,
+            dpi=dpi,
+            max_dim=max_dim,
+            markup=_markup_flag(markup),
         )
         return _snapshot.build_snapshots(rendered, out)
 
     def snapshot_anchor(
-        self, anchor: Anchor, out: str | Path | None = None, *, dpi: int = 150, markup: str = "none"
+        self,
+        anchor: Anchor,
+        out: str | Path | None = None,
+        *,
+        dpi: int = 150,
+        max_dim: int | None = None,
+        markup: str = "none",
     ) -> list[Snapshot]:
         """Render the page(s) an anchor sits on. Backs [`Anchor.snapshot`][wordlive.Anchor.snapshot].
 
         A `heading:` anchor expands to its whole section (the heading plus the
         body beneath it, up to the next same-or-higher heading); any other
         anchor renders the page(s) its range spans. See
-        [`snapshot`][wordlive.Document.snapshot] for `out`/`dpi`/`markup`
+        [`snapshot`][wordlive.Document.snapshot] for `out`/`dpi`/`max_dim`/`markup`
         semantics and the return shape.
         """
+        if max_dim is not None and (isinstance(max_dim, bool) or int(max_dim) < 1):
+            raise OpError(f"max_dim must be a positive integer (pixels); got {max_dim!r}")
         from_page, to_page = self._anchor_page_span(anchor)
         rendered = _snapshot.render(
-            self._doc, from_page=from_page, to_page=to_page, dpi=dpi, markup=_markup_flag(markup)
+            self._doc,
+            from_page=from_page,
+            to_page=to_page,
+            dpi=dpi,
+            max_dim=max_dim,
+            markup=_markup_flag(markup),
         )
         return _snapshot.build_snapshots(rendered, out)
 

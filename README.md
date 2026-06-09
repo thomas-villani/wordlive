@@ -115,11 +115,16 @@ wordlive footer read --section 1
 wordlive insert-image --anchor-id heading:3 --path diagram.png --wrap auto
 base64 logo.png | wordlive insert-image --anchor-id bookmark:Logo --base64 - --wrap inline --width 96
 
+# …and read embedded pictures back out (image:N ids; for a vision model):
+wordlive images                                            # list every embedded picture
+wordlive read-image --anchor-id image:1 --out logo.png     # extract bytes + mime
+
 # Snapshot — render page(s) to PNG so a vision model can SEE the layout
 # (needs the `snapshot` extra: pip install "wordlive[snapshot]"):
 wordlive snapshot --anchor-id heading:3 --out section.png   # the section's page(s)
 wordlive snapshot --page 2 --out p2.png                     # one page
 wordlive snapshot --pages 1-3                               # base64 PNGs inline (JSON)
+wordlive snapshot --max-dim 1000                            # whole doc, low-res layout check
 
 # Batch multiple ops in a single Ctrl-Z:
 wordlive exec --script ops.json

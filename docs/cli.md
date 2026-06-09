@@ -400,6 +400,39 @@ $ wordlive revisions
 
 Failures: `3` Word busy, `4` Word not running.
 
+## `images` / `read-image --anchor-id ID [--out FILE]`
+
+```
+wordlive images [--doc DOC_NAME]
+wordlive read-image --anchor-id ID [--out FILE] [--doc DOC_NAME]
+```
+
+The read side of images — pull an embedded picture's bytes back out (the write
+side is `insert-image`). `images` lists every embedded picture: its `image:N` id,
+MIME type, size (points), alt text, and the `para:N` it sits in.
+
+```bash
+$ wordlive images
+[{"index": 1, "anchor_id": "image:1", "mime": "image/png",
+  "width": 240.0, "height": 160.0, "alt_text": "Chart", "para": "para:6"}]
+```
+
+`read-image` extracts one picture, resolved by `--anchor-id image:N` (or any
+anchor whose range contains exactly one image). With `--out` the raw bytes are
+written to that file and the JSON reports `{path, mime, bytes}`; without it,
+base64 data is returned inline (`{mime, bytes, base64}`).
+
+```bash
+$ wordlive read-image --anchor-id image:1 --out logo.png
+{"ok": true, "anchor_id": "image:1", "mime": "image/png", "bytes": 8462, "path": "logo.png"}
+
+$ wordlive read-image --anchor-id image:1
+{"ok": true, "anchor_id": "image:1", "mime": "image/png", "bytes": 8462, "base64": "iVBORw0KG…"}
+```
+
+Reading is non-mutating. Failures: `1` bad input (a range with no image, or more
+than one); `2` anchor not found; `3` Word busy, `4` Word not running.
+
 ## `bookmark add NAME --anchor-id ID`
 
 ```
@@ -567,7 +600,7 @@ or an invalid `--wrap` value; `3` Word busy.
 
 ```
 wordlive snapshot [--anchor-id ID | --page N | --pages A-B] \
-    [--out FILE] [--dpi 150] [--markup none|all] [--doc DOC_NAME]
+    [--out FILE] [--dpi 150] [--max-dim N] [--markup none|all] [--doc DOC_NAME]
 ```
 
 Render document page(s) to PNG so a **vision model can see the layout** — real
@@ -587,6 +620,18 @@ Output: with `--out FILE` the image is written to disk — a single page to `FIL
 multiple pages alongside it as `<stem>-p<N><suffix>`. **Without `--out`, base64
 PNG data is returned inline** in the JSON (`images[].base64`), which suits an LLM
 that wants to look at the page directly. `--dpi` (default `150`) sets resolution.
+
+`--max-dim N` caps each page's **long edge** to `N` pixels (only ever lowering
+resolution). A vision model is billed on an image's pixel area, so a long-edge
+cap is a predictable per-page token budget regardless of paper size — the lever
+for a cheap **whole-document** layout check (pair it with no page target; ~1000
+stays legible for "did my styling land"). It composes with `--dpi` (the cap wins
+when it implies a lower resolution); `--dpi 72` is a coarser alternative.
+
+```bash
+$ wordlive snapshot --max-dim 1000          # whole doc, every page capped to 1000px long edge
+{"ok": true, "selector": "all", "dpi": 150, "max_dim": 1000, "count": 12, "images": [...]}
+```
 
 `--markup all` renders tracked changes and comments as visible revision marks
 and balloons (default `none` renders the final document); the structured list is

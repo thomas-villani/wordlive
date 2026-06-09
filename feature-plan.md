@@ -152,6 +152,13 @@ history and `spec.md`.
 - `Document.snapshot(...)` / `Anchor.snapshot(...)` + `wordlive snapshot` render
   page(s)/section to PNG (Word → PDF, PyMuPDF rasterises). Optional `snapshot`
   extra. This is the "let a vision model see the layout" path.
+  - **`max_dim` low-res cap (2026-06-09).** `snapshot(max_dim=N)` (CLI `--max-dim`,
+    MCP `word_snapshot` `max_dim`) caps each page's long edge to `N` pixels, only
+    ever lowering resolution. The lever for a cheap *whole-document* layout check:
+    a vision model is billed on pixel area, so a long-edge cap gives a predictable
+    per-page token budget regardless of paper size (a live probe measured ~17×
+    fewer tokens/page at `max_dim=400` vs. default 150 dpi on a Letter page).
+    Composes with `dpi`; the cap wins when it implies a lower resolution.
 - MCP server: four dispatch tools + `wordlive://guide` resource (also fetchable
   as `word_read(command="guide")` since v0.11.0, because resources aren't
   surfaced by every client). Optional `mcp` extra.
@@ -265,6 +272,25 @@ the prerequisite first, then in order.
 - These are individually small; bundle whichever land cheap, defer the rest.
 
 ## Image extraction — read images out for vLLMs
+
+> **Status (2026-06-09): shipped.** `anchor.read_image() -> (bytes, mime)`, the
+> `image:N` anchor (1-based over `InlineShapes`), and `doc.images`
+> (`list()` → `{index, anchor_id, mime, width, height, alt_text, para}`) landed
+> across the Python API, CLI (`images` / `read-image --anchor-id ID [--out FILE]`),
+> and MCP (`word_read command="images"` / `command="read_image"`). Extraction goes
+> through `Range.WordOpenXML` (Flat OPC) per the spike; no exec op (it's a read).
+> A range with 0 or >1 images raises `ImageSourceError`. Decided at build time:
+> addressing is `image:N` over `InlineShapes` (stable, matches Word); the CLI
+> default is base64-in-JSON with `--out` for file-out, and MCP `read_image` returns
+> base64 + mime. Covered by unit tests **and a live-Word smoke test** (insert →
+> `doc.images` → `read_image` round-trip; PNG signature verified). See CHANGELOG
+> `[Unreleased]`. **Deferred:** floating-shape/chart-image export, OLE-object
+> extraction, whole-page-to-image (use `snapshot`); EMF/WMF and cropped images
+> return their raw bytes+mime untouched but weren't separately exercised. **MCP
+> vision-content return** (an `ImageContent` block so the model *sees* the
+> extracted original directly, like `word_snapshot`) is a possible follow-up — the
+> current `read_image` returns base64-in-JSON to fit the structured `word_read`
+> dispatch and the four-tool invariant.
 
 Spiked clean (2026-05-31): `Range.WordOpenXML` returns the range as Flat OPC,
 inlining each referenced media part as base64 on a tight per-shape range — no

@@ -62,6 +62,7 @@ from its id with `doc.anchor_by_id(...)`, or use the typed accessors:
 | `bookmark:NAME` | `doc.bookmarks["NAME"]` | a bookmark |
 | `cc:NAME` | `doc.content_controls["NAME"]` | a content control (by Title, then Tag) |
 | `footnote:N` / `endnote:N` | `doc.footnotes[N]` / `doc.endnotes[N]` | the Nth note's body (1-based) |
+| `image:N` | `doc.images[N]` | the Nth embedded picture (1-based, Word's `InlineShapes` order) |
 | `table:N:R:C` | `doc.tables[N].cell(R, C)` | a table cell |
 | `range:START-END` | `doc.anchor_by_id("range:412-429")` | a raw character span (what `find()` emits) |
 | `header:S:WHICH` / `footer:S:WHICH` | `doc.sections[S].header(WHICH)` | header/footer (`primary`/`first`/`even`) |
@@ -97,6 +98,7 @@ a.link_to(address="https://x")          # hyperlink; or link_to(bookmark="Intro"
 a.insert_cross_reference("bookmark:Intro", kind="page")  # ref a bookmark/heading/footnote/endnote
 a.insert_caption("Figure", text="System overview")       # own-paragraph caption (Table→above, else below; position= to override)
 a.insert_image("diagram.png", wrap="auto")
+a.read_image()                          # → (bytes, mime) — extract the one image in the range
 a.insert_table(2, 2, data=[["Item", "Cost"], ["Travel", "$400"]], header=True)
 a.apply_list("numbered")                # + remove_list/list_info/restart_numbering/indent_list/outdent_list
 a.snapshot("section.png")               # render the page(s) it sits on (heading → whole section)
@@ -223,6 +225,20 @@ at a heading, so it lands above the heading instead of joining the heading text)
 A bad/unreadable/non-raster source raises `ImageSourceError` before anything is
 inserted.
 
+**Reading images back out** (for a vision model): `doc.images` lists every
+embedded picture, and `read_image()` returns the raw bytes + MIME type.
+
+```python
+for img in doc.images.list():   # [{index, anchor_id, mime, width, height, alt_text, para}]
+    print(img["anchor_id"], img["mime"], img["alt_text"])
+data, mime = doc.images[1].read_image()          # → (b"\x89PNG…", "image/png")
+data, mime = doc.anchor_by_id("para:7").read_image()  # the single image in a paragraph
+```
+
+`read_image()` needs the range to hold exactly one picture (an `image:N` anchor
+always does); zero or several raise `ImageSourceError`. Reading is non-mutating —
+no `doc.edit()` needed.
+
 ### Tables
 
 ```python
@@ -291,12 +307,19 @@ para = doc.paragraphs.at(sel["start"])           # the containing Paragraph (par
 shots = doc.snapshot(pages=(1, 3), dpi=150)      # all | int | (start, end); read .png bytes
 doc.snapshot("report.png", pages=2)              # also write to disk
 doc.snapshot("review.png", markup="all")         # show tracked changes / comments as marks
+doc.snapshot(max_dim=1000)                        # whole doc, cheap layout check (see below)
 png = doc.heading("Introduction").snapshot()[0].png   # an anchor's page(s); heading → section
 ```
 
 Returns a list of `Snapshot` (`.page`, `.png` bytes, `.path`). Word exports a
 pixel-faithful PDF and wordlive rasterises it — real fonts, spacing, geometry.
 Read-only. Needs the optional `snapshot` extra (PyMuPDF), else `SnapshotError`.
+
+To **check styling across a whole multi-page doc cheaply**, render every page
+(no `pages=`) with `max_dim=N` — it caps each page's long edge to `N` pixels.
+A vision model is billed on pixel area, so the cap is a predictable per-page
+token budget (~1000 stays legible); without it, full-resolution pages are
+several times the tokens.
 
 ## Errors — a small typed hierarchy
 
