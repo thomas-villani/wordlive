@@ -83,7 +83,8 @@ a.insert_after(" (verified)")           # inline insert, right
 a.insert_paragraph_before("…", style="Body Text")
 a.insert_paragraph_after("New paragraph.", style="Body Text")
 a.apply_style("Heading 2")
-a.format_paragraph(alignment="center", space_before=6, page_break_before=True)
+a.format_paragraph(alignment="center", space_before=6, page_break_before=True,
+                   keep_with_next=True, keep_together=True, widow_control=True)  # pagination
 a.format_run(bold=True, color="#FF0000", highlight="yellow", size="12pt")  # character formatting
 a.set_shading(fill="navy")              # range/cell background fill
 a.set_borders(sides="all", style="single", weight=0.5, color="black")
@@ -94,7 +95,7 @@ a.insert_footnote("See appendix B.")     # → Footnote (footnote:N); insert_end
 a.insert_toc(levels=(1, 3))              # table of contents → Toc; doc.add_toc() puts one at the top
 a.link_to(address="https://x")          # hyperlink; or link_to(bookmark="Intro"); text= inserts new linked text
 a.insert_cross_reference("bookmark:Intro", kind="page")  # ref a bookmark/heading/footnote/endnote
-a.insert_caption("Figure", text="System overview")       # auto-numbered caption
+a.insert_caption("Figure", text="System overview")       # own-paragraph caption (Table→above, else below; position= to override)
 a.insert_image("diagram.png", wrap="auto")
 a.insert_table(2, 2, data=[["Item", "Cost"], ["Travel", "$400"]], header=True)
 a.apply_list("numbered")                # + remove_list/list_info/restart_numbering/indent_list/outdent_list
@@ -234,6 +235,7 @@ with doc.edit("Build + edit tables"):
     t.add_row(["Owl", "$199", "99.99%"])
     doc.heading("Budget").insert_table(2, 2)                   # at any position anchor
     doc.tables[1].delete_row(3)
+    doc.tables[1].set_heading_row(1)                          # row 1 repeats on every page
     doc.tables[2].delete()
 ```
 

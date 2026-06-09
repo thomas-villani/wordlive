@@ -467,17 +467,21 @@ found; `3` Word busy.
 
 ```
 wordlive caption --anchor-id ID [--label Figure] [--text "…"]
-    [--before | --after] [--doc DOC_NAME]
+    [--position above|below] [--doc DOC_NAME]
 ```
 
-Insert an auto-numbered caption (Figure 1, Table 2, …) at an anchor. `--label`
-is a built-in (`Figure`/`Table`/`Equation`) or a custom string; `--text` is the
-title after the label and number. Pairs with `cross-ref` for "see Figure 2".
+Insert an auto-numbered caption (Figure 1, Table 2, …) as its **own paragraph**
+at an anchor. `--label` is a built-in (`Figure`/`Table`/`Equation`) or a custom
+string; `--text` is the title after the label and number. Pairs with `cross-ref`
+for "see Figure 2". The caption always becomes its own `Caption`-styled
+paragraph (it never fuses into the target paragraph); on a table cell anchor it
+captions the **whole table**. `--position` controls above/below — default is
+**above for a `Table`, below otherwise** (the figure/table convention).
 
 ```bash
 $ wordlive caption --anchor-id range:120-140 --label Figure --text "System overview"
 {"ok": true, "anchor_id": "range:120-140",
- "applied": {"label": "Figure", "text": "System overview", "where": "after"}}
+ "applied": {"label": "Figure", "text": "System overview", "position": null}}
 ```
 
 Failures: `1` bad input; `2` anchor not found; `3` Word busy.
@@ -798,6 +802,9 @@ wordlive format-paragraph --anchor-id ID
     [--left-indent POINTS] [--right-indent POINTS] [--first-line-indent POINTS]
     [--space-before POINTS] [--space-after POINTS]
     [--page-break-before | --no-page-break-before]
+    [--keep-together | --no-keep-together]
+    [--keep-with-next | --no-keep-with-next]
+    [--widow-control | --no-widow-control]
     [--doc DOC_NAME]
 ```
 
@@ -809,7 +816,11 @@ the unit Word's COM API uses natively for these fields.
 `--page-break-before` forces the paragraph to begin on a new page (and
 `--no-page-break-before` clears it) — the *clean*, reflow-safe way to
 page-break, leaving no stray break character (contrast `insert-break`, which
-inserts an explicit one-off break). Atomic-undo.
+inserts an explicit one-off break). The remaining flags are Word's
+**pagination** controls for clean multi-page layout: `--keep-together` keeps all
+lines of a paragraph on one page, `--keep-with-next` keeps it with the following
+paragraph (e.g. a heading with its first body line), and `--widow-control`
+prevents a lone first/last line stranded at a page boundary. Atomic-undo.
 
 ```bash
 $ wordlive format-paragraph --anchor-id heading:3 \
@@ -1043,6 +1054,26 @@ Delete the 1-based row `R` from the table. Atomic-undo.
 ```bash
 $ wordlive table delete-row --table 1 --row 3
 {"ok": true, "table": 1, "rows": 2}
+```
+
+Failures: `2` table index or row out of range, `3` Word busy.
+
+## `table set-heading-row`
+
+```
+wordlive table set-heading-row --table INDEX [--row R]
+    [--heading | --no-heading] [--allow-break | --no-allow-break] [--doc DOC_NAME]
+```
+
+Mark a 1-based row (default `1`) as a **repeating heading row** — it repeats at
+the top of every page a multi-page table spans (`Row.HeadingFormat`). `--row`
+selects which row; `--no-heading` clears the flag. `--allow-break` controls
+whether the row may split across a page (`Row.AllowBreakAcrossPages`), defaulting
+to off for a heading row so the header stays intact. Atomic-undo.
+
+```bash
+$ wordlive table set-heading-row --table 1
+{"ok": true, "table": 1, "row": 1, "heading": true}
 ```
 
 Failures: `2` table index or row out of range, `3` Word busy.
@@ -1358,10 +1389,11 @@ Script shape:
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
-| `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after`, `page_break_before` |
+| `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after`, `page_break_before`, `keep_together`, `keep_with_next`, `widow_control` |
 | `set_cell`             | `table`, `row`, `col`, `text`              | —                                 |
 | `add_row`              | `table`                                    | `values`                          |
 | `delete_row`           | `table`, `row`                             | —                                 |
+| `set_heading_row`      | `table`                                    | `row` (default 1), `heading` (default true), `allow_break` |
 | `create_table`         | `anchor_id`, `rows`, `cols`                | `style`, `data` (row-major 2-D), `header`, `where` or `before: true` (new cells default to the `Normal` paragraph style) |
 | `delete_table`         | `table`                                    | —                                 |
 | `insert_break`         | `anchor_id`                                | `kind` (`page`/`column`/`section_next`/`section_continuous`), `where` or `before: true` |
@@ -1374,7 +1406,7 @@ Script shape:
 | `add_bookmark`         | `name`, `anchor_id`                        | —                                 |
 | `add_hyperlink`        | `anchor_id`, and one of `url` / `bookmark` | `text`, `screen_tip`              |
 | `insert_cross_reference` | `anchor_id`, `target`                    | `kind` (`text`/`page`/`number`/`above_below`), `hyperlink`, `where` or `before: true` |
-| `insert_caption`       | `anchor_id`                                | `label`, `text`, `where` or `before: true` |
+| `insert_caption`       | `anchor_id`                                | `label`, `text`, `position` (`above`/`below`; default above for `Table`, else below) |
 | `add_comment`          | `anchor_id`, `text`                        | `author`                          |
 | `resolve_comment`      | `index`                                    | —                                 |
 | `delete_comment`       | `index`                                    | —                                 |
@@ -1427,12 +1459,16 @@ verbs — the style must already exist in the document, indent and spacing
 values are in points, alignment is one of `left`/`center`/`right`/`justify`.
 `format_paragraph`'s `page_break_before` (a bool) forces or clears a
 reflow-safe page break before the paragraph — the clean way to page-break a
-style without a stray break character.
+style without a stray break character. The `keep_together`, `keep_with_next`,
+and `widow_control` bools are the matching pagination controls (keep a
+paragraph's lines together, keep it with the next paragraph, suppress widows/
+orphans).
 
-`set_cell`, `add_row`, and `delete_row` operate on tables by 1-based `table`
-index. `set_cell` is shorthand for a `replace` on a `table:N:R:C` anchor;
-`add_row`'s optional `values` is a JSON array matched to columns. All three
-table ops join the same atomic-undo scope as the rest of the batch.
+`set_cell`, `add_row`, `delete_row`, and `set_heading_row` operate on tables by
+1-based `table` index. `set_cell` is shorthand for a `replace` on a `table:N:R:C`
+anchor; `add_row`'s optional `values` is a JSON array matched to columns;
+`set_heading_row` marks a row (default 1) as a repeating header across pages.
+All the table ops join the same atomic-undo scope as the rest of the batch.
 
 `create_table` builds a new table at a **position** `anchor_id` (`heading:`,
 `para:`, `start`, `end`, `range:` — not a bare `table:N`); `delete_table`
@@ -1467,9 +1503,12 @@ follow it with an `update_fields` op so its page numbers populate.
 links an `anchor_id` to exactly one of `url` (external) or `bookmark` (internal),
 with optional `text`. `insert_cross_reference` references a `target` anchor id
 (`bookmark:` / `heading:` / `footnote:` / `endnote:`) — an unresolvable target is
-an `anchor_not_found` failure. `insert_caption` adds an auto-numbered caption
-(`label` defaults to `Figure`). Refresh cross-reference page numbers with an
-`update_fields` op after the document settles.
+an `anchor_not_found` failure. `insert_caption` adds an auto-numbered caption in
+its own `Caption`-styled paragraph (`label` defaults to `Figure`); `position`
+overrides the default placement (above for a `Table`, below otherwise), and on a
+`table:N:R:C` anchor the caption attaches to the whole table. Refresh
+cross-reference page numbers with an `update_fields` op after the document
+settles.
 
 `add_comment`, `resolve_comment`, and `delete_comment` mirror the `comment`
 verbs — `add_comment` attaches a side-channel annotation to an `anchor_id`

@@ -56,6 +56,9 @@ creates a new table at the anchor and returns its [`Table`](#wordlive.Table)
 `insert_break(kind="page"|"column"|"section_next"|"section_continuous")` drops
 an explicit break; for a reflow-safe page break tied to a paragraph (e.g. every
 `Heading 1`), pass `page_break_before=True` to `format_paragraph` instead.
+`format_paragraph` also takes the pagination controls `keep_together`,
+`keep_with_next`, and `widow_control` (tri-state booleans) for clean multi-page
+layout.
 `format_run(...)` sets character formatting (bold/italic/underline, `font`,
 `size`, `color`, `highlight`, sub/superscript, caps, `spacing`) — the run-level
 layer, ideal with a `range:START-END` anchor to style a phrase. `set_shading`,
@@ -136,7 +139,10 @@ inserts new linked text at the end of the range (so a heading keeps its content)
 target, kind=…)` inserts a reference to another anchor — `target` is a
 `bookmark:NAME`, `heading:N`, `footnote:N`, or `endnote:N` id, and `kind` is
 `"text"` / `"page"` / `"number"` / `"above_below"`. `anchor.insert_caption(
-label="Figure", text=…)` adds an auto-numbered caption; pair it with a
+label="Figure", text=…, position=None)` adds an auto-numbered caption in its own
+`Caption`-styled paragraph (never fused into the target); `position` is
+`"above"`/`"below"`, defaulting to above for a `Table` and below otherwise, and
+on a table cell the caption attaches to the whole table. Pair it with a
 cross-reference for "see Figure 2". Cross-references and TOC/page-number fields
 go stale when the document shifts — refresh them with
 [`Document.update_fields()`](#wordlive.Document).
@@ -173,6 +179,8 @@ position anchor); both return the new [`Table`](#wordlive.Table), populate cells
 from a row-major `data` grid, default to the `Table Grid` style, and keep
 appended tables from merging into an adjacent one. `Table.delete()` removes a
 whole table — the structural mirror of `add_row` / `delete_row`.
+`Table.set_heading_row(row=1, heading=True, allow_break=None)` marks a row as a
+repeating header that reprints on every page the table spans.
 
 ::: wordlive.TableCollection
 

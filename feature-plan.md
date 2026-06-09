@@ -179,6 +179,14 @@ the prerequisite first, then in order.
 > writes + multi-column (item 4); and `insert_field` / `insert_page_number` /
 > `update_fields` (item 5, fields slice). See CHANGELOG `[Unreleased]`. **Remaining
 > in item 5:** watermark, drop cap, text box / pull quote.
+>
+> **Update (2026-06-08, pagination-correctness batch):** added the **paragraph
+> pagination controls** (`format_paragraph(keep_together=…, keep_with_next=…,
+> widow_control=…)` — joining `page_break_before`) and **repeating table heading
+> rows** (`Table.set_heading_row(row, heading, allow_break)` →
+> `Row.HeadingFormat` / `AllowBreakAcrossPages`), both across all four surfaces.
+> Together with the `insert_caption` fix below, this closes the "make a multi-page
+> doc paginate correctly" gap. See CHANGELOG `[Unreleased]`.
 
 ### 0. Color / units helper (prerequisite, tiny)
 
@@ -389,6 +397,24 @@ this order. Spike-confirmed 2026-05-31.
   else fold into a follow-up. **Deferred:** numbering format/chapter-style;
   table-of-figures.
 
+> **✅ Fixed (2026-06-08, the "pagination-correctness" batch).** `insert_caption`
+> now guarantees the caption is its **own `Caption`-styled paragraph** and never
+> fuses into the host. Text / paragraph / range anchors carve out a dedicated
+> empty paragraph (collapse to the placement side → `InsertParagraphBefore` →
+> `InsertCaption` into the empty paragraph); a table **cell** anchor resolves to
+> its **parent `Table`** via a new `Cell._caption_object_range()` hook (base
+> `Anchor` returns `None`) and captions `Table.Range`, so Word's native
+> above/below placement fires — eliminating the "end of a table row" `ComError`.
+> The `where=before|after` arg was replaced by `position="above"|"below"`, with a
+> **convention default** (a `Table` caption goes above, figures below; live-probe
+> note: table captions conventionally sit above the table). The exec op still
+> honours a legacy `before` bool. **Test gap closed:** `tests/test_smoke.py` now
+> asserts the resulting **paragraph structure** (separate `Caption` paragraph,
+> target text unchanged, table caption `wdWithInTable == False`), and
+> `tests/conftest.py` persists table `Range`/`Rows` mocks so the fake exercises
+> the new paths. The old workaround (insert a literal `Caption` paragraph) is no
+> longer needed.
+
 ## Persistence — save / save-as / PDF export (directory-whitelisted)
 
 wordlive's one coherent **filesystem boundary**: the **Python API is
@@ -431,6 +457,34 @@ priority than the publishing cluster.
 - `XlChartType` subset in `constants.py` (internal). **Keep narrow:** common
   kinds + flat `data` only. **Deferred:** multi-series, secondary axes,
   axis/series formatting, `BreakLink` policy, reading existing charts back out.
+
+## CLI consistency — consolidate bookmark ops (next release)
+
+The flat-first rule (see Cross-cutting) leaves one outstanding violation:
+bookmark operations are split three ways — `read bookmark`, `write bookmark`,
+and `bookmark add` (a 1-verb group). Consolidate so all bookmark verbs live in
+one place. This is a thin CLI-only re-wiring (the Python API and exec ops are
+unaffected; `add_bookmark` op stays as-is).
+
+- **Decide during build — which direction:**
+  - **Noun-first** (`bookmark add|read|write` [+ natural `list`/`delete`]):
+    cleanest for bookmarks, but diverges from `cc`, which stays `read cc` /
+    `write cc` under the verb-first dispatch groups — trades one inconsistency
+    for another unless `cc` moves too.
+  - **Verb-first** (fold `bookmark add` into the existing `read`/`write`
+    groups, e.g. `write bookmark --create` or a `write` subcommand): keeps the
+    `read`/`write` dispatch groups whole and consistent with `cc`, at the cost
+    of no single `bookmark` namespace.
+- **Lean:** verb-first, since `read`/`write` are already the established
+  dispatch groups and bookmark *creation* is semantically a write — but settle
+  it against the `cc` surface at build time so the two named-anchor types end up
+  parallel.
+- Keep deprecated spellings as hidden aliases for one release if either path
+  renames an existing command. Update `docs/cli.md` + `SKILL.md` in the same
+  change.
+- **Also fold in:** `section` is a 1-verb group (`section list`) while the
+  section-scoped `page-setup` sits top-level. Reconcile per the same rule while
+  the surface is open.
 
 ---
 
@@ -623,6 +677,19 @@ wordlive already has `doc.lists` / `doc.tables` / (planned) `doc.images` /
   examples is probably more useful than API reference at this stage. The 2026-05
   agent-test build (blank doc → styled multi-page catalogue) is a ready-made
   cookbook entry.
+- **CLI surface shape — flat-first (decided 2026-06-08).** The CLI is
+  intentionally flat: top-level verbs are the default, mirroring the flat `exec`
+  op vocabulary and keeping `SKILL.md` a single-lookup list for agents.
+  Noun-groups are the *exception*, justified only by a stable object/collection
+  with ≥3 verbs that don't read naturally as standalone verbs (grandfathered:
+  `table`, `list`, `comment`, `style`, `track`, plus the `read`/`write`
+  dispatch groups). New single-verb capabilities stay top-level. Do **not**
+  deepen the tree for tidiness — the LLM's primary surface is MCP's four
+  dispatch tools, not `--help`, and flat verbs track the op names most directly
+  (`insert-break` ↔ `insert_break`). **Explicitly rejected:** folding the
+  `insert-*` family into an `insert` group (would break that op parallel for six
+  commands). The one outstanding violation of the rule — bookmark ops split
+  across three places — is queued for cleanup in Part II.
 
 ## Open papercuts (from the 2026-05 agent test)
 

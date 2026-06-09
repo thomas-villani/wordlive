@@ -69,6 +69,7 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "set_cell": ("table", "row", "col", "text"),
     "add_row": ("table",),
     "delete_row": ("table", "row"),
+    "set_heading_row": ("table",),
     "create_table": ("anchor_id", "rows", "cols"),
     "delete_table": ("table",),
     "insert_break": ("anchor_id",),
@@ -114,6 +115,9 @@ _PARA_FIELDS = (
     "space_before",
     "space_after",
     "page_break_before",
+    "keep_together",
+    "keep_with_next",
+    "widow_control",
 )
 
 # `set_style` accepts the run + paragraph vocab (minus highlight, which a style's
@@ -165,15 +169,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "replace": (),
     "find_replace": ("in", "all", "occurrence"),
     "apply_style": (),
-    "format_paragraph": (
-        "alignment",
-        "left_indent",
-        "right_indent",
-        "first_line_indent",
-        "space_before",
-        "space_after",
-        "page_break_before",
-    ),
+    "format_paragraph": _PARA_FIELDS,
     "format_run": _RUN_FIELDS,
     "set_shading": ("fill", "pattern"),
     "set_borders": ("sides", "style", "weight", "color"),
@@ -189,10 +185,11 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "add_bookmark": (),
     "add_hyperlink": ("url", "bookmark", "text", "screen_tip"),
     "insert_cross_reference": ("kind", "hyperlink", *_WHERE_FIELDS),
-    "insert_caption": ("label", "text", *_WHERE_FIELDS),
+    "insert_caption": ("label", "text", "position", *_WHERE_FIELDS),
     "set_cell": (),
     "add_row": ("values",),
     "delete_row": (),
+    "set_heading_row": ("row", "heading", "allow_break"),
     "create_table": ("style", "data", "header", *_WHERE_FIELDS),
     "delete_table": (),
     "insert_break": ("kind", *_WHERE_FIELDS),
@@ -308,19 +305,7 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
     elif kind == "apply_style":
         doc.anchor_by_id(op["anchor_id"]).apply_style(op["name"])
     elif kind == "format_paragraph":
-        kwargs = {
-            k: op[k]
-            for k in (
-                "alignment",
-                "left_indent",
-                "right_indent",
-                "first_line_indent",
-                "space_before",
-                "space_after",
-                "page_break_before",
-            )
-            if k in op
-        }
+        kwargs = {k: op[k] for k in _PARA_FIELDS if k in op}
         doc.anchor_by_id(op["anchor_id"]).format_paragraph(**kwargs)
     elif kind == "format_run":
         kwargs = {k: op[k] for k in _RUN_FIELDS if k in op}
@@ -395,15 +380,22 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         )
     elif kind == "insert_caption":
         kwargs = {k: op[k] for k in ("label", "text") if k in op}
-        doc.anchor_by_id(op["anchor_id"]).insert_caption(
-            where=("before" if op_before(op) else "after"), **kwargs
-        )
+        if "position" in op:
+            position = op["position"]
+        elif "before" in op:  # back-compat: before=True meant "above"
+            position = "above" if op["before"] else "below"
+        else:
+            position = None
+        doc.anchor_by_id(op["anchor_id"]).insert_caption(position=position, **kwargs)
     elif kind == "set_cell":
         doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
     elif kind == "add_row":
         doc.tables[op["table"]].add_row(op.get("values"))
     elif kind == "delete_row":
         doc.tables[op["table"]].delete_row(op["row"])
+    elif kind == "set_heading_row":
+        kwargs = {k: op[k] for k in ("heading", "allow_break") if k in op}
+        doc.tables[op["table"]].set_heading_row(int(op.get("row", 1)), **kwargs)
     elif kind == "create_table":
         anchor = doc.anchor_by_id(op["anchor_id"])
         kwargs = {k: op[k] for k in ("style", "data", "header") if k in op}

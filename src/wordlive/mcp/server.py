@@ -226,6 +226,9 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             "space_before",
             "space_after",
             "page_break_before",
+            "keep_together",
+            "keep_with_next",
+            "widow_control",
         ):
             if p.get(k) is not None:
                 op[k] = p[k]
@@ -345,12 +348,8 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             op["hyperlink"] = bool(p["hyperlink"])
         return op
     if command == "insert_caption":
-        op = {
-            "op": "insert_caption",
-            "anchor_id": need("anchor_id"),
-            "before": bool(p.get("before", False)),
-        }
-        for k in ("label", "text"):
+        op = {"op": "insert_caption", "anchor_id": need("anchor_id")}
+        for k in ("label", "text", "position"):
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
@@ -404,6 +403,15 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             return op
         if action == "delete_row":
             return {"op": "delete_row", "table": need("table"), "row": need("row")}
+        if action == "set_heading_row":
+            op = {"op": "set_heading_row", "table": need("table")}
+            if p.get("row") is not None:
+                op["row"] = p["row"]
+            if p.get("heading") is not None:
+                op["heading"] = bool(p["heading"])
+            if p.get("allow_break") is not None:
+                op["allow_break"] = bool(p["allow_break"])
+            return op
         if action == "create":
             op = {
                 "op": "create_table",
@@ -682,6 +690,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         cols: int | None = None,
         data: list[Any] | None = None,
         header: bool | None = None,
+        heading: bool | None = None,
+        allow_break: bool | None = None,
         values: list[Any] | None = None,
         section: int | None = None,
         which: str = "primary",
@@ -693,6 +703,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         space_before: float | None = None,
         space_after: float | None = None,
         page_break_before: bool | None = None,
+        keep_together: bool | None = None,
+        keep_with_next: bool | None = None,
+        widow_control: bool | None = None,
         bold: bool | None = None,
         italic: bool | None = None,
         underline: bool | None = None,
@@ -753,7 +766,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             to continue the adjacent paragraph inline (an inline append takes no style) ·
         replace {text, find|anchor_id, [all,occurrence,in_anchor]} ·
         write_bookmark/write_cc {name,text} · apply_style {anchor_id,name} ·
-        format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before]} ·
+        format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before,keep_together,keep_with_next,widow_control]} ·
         format_run {anchor_id,[bold,italic,underline,strikethrough,font,size,color,
             highlight,subscript,superscript,small_caps,all_caps,spacing]} — colour is a
             name/hex; highlight is a named palette colour; size/spacing accept unit strings ·
@@ -768,8 +781,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             based_on,next_style]} — set an existing style's font/paragraph defaults ·
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
         comment {action=add|resolve|delete,...} ·
-        table {action=set_cell|add_row|delete_row|create|delete,
-               create needs anchor_id,rows,cols,[style,header,data,before]} ·
+        table {action=set_cell|add_row|delete_row|set_heading_row|create|delete,
+               create needs anchor_id,rows,cols,[style,header,data,before];
+               set_heading_row {table,[row=1,heading=true,allow_break]} — repeating header row} ·
         insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
         insert_field {anchor_id,kind=page|numpages|date|time|filename|author|title|field,[text,before]} —
             a self-updating field; put page numbers in a footer; kind=field takes a raw code in text ·
@@ -783,7 +797,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             bookmark jump; text sets the visible link text ·
         insert_cross_reference {anchor_id,target,[kind=text|page|number|above_below,hyperlink,before]} —
             target is a bookmark:/heading:/footnote:/endnote: id ·
-        insert_caption {anchor_id,[label=Figure,text,before]} — a numbered caption ·
+        insert_caption {anchor_id,[label=Figure,text,position=above|below]} — a numbered
+            caption in its own paragraph (Table defaults above, else below) ·
         page_setup {[section=1],margins|top_margin|bottom_margin|left_margin|right_margin|gutter,
             orientation=portrait|landscape,paper_size=letter|legal|tabloid|a3|a4|a5,columns,column_spacing} —
             section page geometry; lengths accept unit strings ·
@@ -818,6 +833,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "cols": cols,
             "data": data,
             "header": header,
+            "heading": heading,
+            "allow_break": allow_break,
             "values": values,
             "section": section,
             "which": which,
@@ -829,6 +846,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "space_before": space_before,
             "space_after": space_after,
             "page_break_before": page_break_before,
+            "keep_together": keep_together,
+            "keep_with_next": keep_with_next,
+            "widow_control": widow_control,
             "bold": bold,
             "italic": italic,
             "underline": underline,
@@ -919,7 +939,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           append_inline {text} / prepend_inline {text} — continue the last/first paragraph (NO style) ·
           append_paragraph / prepend_paragraph — explicit synonyms of append/prepend ·
           replace {anchor_id,text} · find_replace {find,text,[all,occurrence,in]} ·
-          apply_style {anchor_id,name} · format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before]} ·
+          apply_style {anchor_id,name} · format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before,keep_together,keep_with_next,widow_control]} ·
           insert_image {anchor_id,wrap, path|base64, [before,block,width,height,alt_text,lock_aspect]} ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
@@ -927,9 +947,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           insert_toc {anchor_id,[levels=[upper,lower],use_heading_styles,hyperlinks,before]} — update_fields after to fill page numbers ·
           add_bookmark {name,anchor_id} · add_hyperlink {anchor_id, url|bookmark, [text,screen_tip]} ·
           insert_cross_reference {anchor_id,target,[kind,hyperlink,before]} — target is a bookmark:/heading:/footnote:/endnote: id ·
-          insert_caption {anchor_id,[label,text,before]} ·
+          insert_caption {anchor_id,[label,text,position=above|below]} — own-paragraph caption ·
           create_table {anchor_id,rows,cols,[style,data,header,before]} — cells default to Normal; returns the new index in outputs ·
-          set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} · delete_table {table} ·
+          set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} ·
+          set_heading_row {table,[row=1,heading,allow_break]} — repeating header row on a multi-page table · delete_table {table} ·
           add_comment {anchor_id,text,[author]} · resolve_comment {index} · delete_comment {index} ·
           apply_list {anchor_id,[type=bulleted|numbered|outline,continue_previous]} · remove_list/restart_numbering/indent_list/outdent_list {anchor_id} ·
           write_header/write_footer {section,text,[which=primary|first|even]}.

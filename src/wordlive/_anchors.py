@@ -209,6 +209,9 @@ def _apply_paragraph_format(
     space_before: Any = None,
     space_after: Any = None,
     page_break_before: bool | None = None,
+    keep_together: bool | None = None,
+    keep_with_next: bool | None = None,
+    widow_control: bool | None = None,
 ) -> None:
     """Write paragraph-formatting properties onto a COM `ParagraphFormat`.
 
@@ -232,6 +235,12 @@ def _apply_paragraph_format(
         pf.SpaceAfter = to_points(space_after)
     if page_break_before is not None:
         pf.PageBreakBefore = bool(page_break_before)
+    if keep_together is not None:
+        pf.KeepTogether = bool(keep_together)
+    if keep_with_next is not None:
+        pf.KeepWithNext = bool(keep_with_next)
+    if widow_control is not None:
+        pf.WidowControl = bool(widow_control)
 
 
 # Border-side keywords -> the WdBorderType edges they cover. "all"/"box" hit the
@@ -519,6 +528,25 @@ def _cross_ref_kind(kind: str, ref_type: int) -> int:
     )
 
 
+def _caption_above(label: str, position: str | None) -> bool:
+    """Resolve a caption's placement to a boolean (`True` = above the anchor).
+
+    `position` is the user override (``"above"``/``"below"``, with
+    ``"before"``/``"after"`` accepted as aliases). When it's `None` the
+    *convention* applies: a ``"Table"`` caption goes **above**, every other
+    label (Figure, Equation, …) goes **below**. Raises `ValueError` on a bad
+    string.
+    """
+    if position is None:
+        return str(label).strip().casefold() == "table"
+    p = str(position).strip().casefold()
+    if p in ("above", "before", "top"):
+        return True
+    if p in ("below", "after", "bottom"):
+        return False
+    raise ValueError(f"position must be 'above' or 'below'; got {position!r}")
+
+
 # ---------------------------------------------------------------------------
 # Base
 # ---------------------------------------------------------------------------
@@ -547,6 +575,18 @@ class Anchor(ABC):
     @abstractmethod
     def _range(self) -> Any:
         """Return the COM Range that this anchor refers to. Must be overridden."""
+
+    def _caption_object_range(self) -> Any | None:
+        """Return a Range selecting a caption-able *object* for `insert_caption`.
+
+        Word's `InsertCaption` only honours its above/below `Position` when the
+        range selects a real object — a whole `Table`, an `InlineShape`, or a
+        floating `Shape`. A plain text anchor isn't one, so the base returns
+        `None` (the caption gets its own paragraph instead); `Cell` overrides
+        this to return its parent table's range so a table caption lands above /
+        below the table rather than inside a cell.
+        """
+        return None
 
     @property
     def text(self) -> str:
@@ -1138,33 +1178,50 @@ class Anchor(ABC):
             raise OpError(str(e)) from e
 
     def insert_caption(
-        self, label: str = "Figure", *, text: str | None = None, where: str = "after"
+        self, label: str = "Figure", *, text: str | None = None, position: str | None = None
     ) -> None:
-        """Insert a numbered caption at this anchor.
+        """Insert a numbered caption as its **own paragraph** at this anchor.
 
         `label` is a caption label — built-in ``"Figure"`` / ``"Table"`` /
         ``"Equation"`` or any custom string; Word auto-numbers per label
         (Figure 1, Figure 2, …). `text` is the caption title shown after the
         label and number. Pairs with
         [`insert_cross_reference`][wordlive.Anchor.insert_cross_reference] for
-        "see Figure 2". The caption is placed below the anchor's range.
+        "see Figure 2".
 
-        `where` is ``"after"`` (default) or ``"before"`` this anchor's range.
+        `position` is ``"above"`` or ``"below"`` the anchor. Left as `None` it
+        follows convention: a ``"Table"`` caption goes **above**, every other
+        label goes **below**. The caption always becomes its own
+        `Caption`-styled paragraph — it never fuses into the target paragraph.
+        On a table cell (`table:N:R:C`) the caption is placed above / below the
+        **whole table**, not inside the cell.
+
         Wrap in `doc.edit(...)` for atomic undo. Bad input raises `OpError`.
         """
         try:
-            if where not in ("before", "after"):
-                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            above = _caption_above(label, position)
             title = text if text is not None else ""
+            pos = int(WdCaptionPosition.ABOVE if above else WdCaptionPosition.BELOW)
             with _com.translate_com_errors():
-                insert_rng = self._range().Duplicate
-                insert_rng.Collapse(
-                    int(WdCollapseDirection.START if where == "before" else WdCollapseDirection.END)
-                )
-                # Positional args (Label, Title, Position, ExcludeLabel) for
-                # late-binding safety; a string Label matches a built-in or
-                # defines a custom one.
-                insert_rng.InsertCaption(str(label), title, int(WdCaptionPosition.BELOW), False)
+                obj_rng = self._caption_object_range()
+                if obj_rng is not None:
+                    # A caption-able object (e.g. a table): let Word place the
+                    # caption on its own line above/below the object natively.
+                    obj_rng.InsertCaption(str(label), title, pos, False)
+                else:
+                    # Text/paragraph anchor: carve out a dedicated empty
+                    # paragraph (before or after the anchor) and drop the
+                    # caption into it, so it never fuses into the host paragraph.
+                    insert_rng = self._range().Duplicate
+                    insert_rng.Collapse(
+                        int(WdCollapseDirection.START if above else WdCollapseDirection.END)
+                    )
+                    insert_rng.InsertParagraphBefore()
+                    insert_rng.Collapse(int(WdCollapseDirection.START))
+                    # Positional args (Label, Title, Position, ExcludeLabel) for
+                    # late-binding safety; a string Label matches a built-in or
+                    # defines a custom one.
+                    insert_rng.InsertCaption(str(label), title, pos, False)
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
 
@@ -1205,6 +1262,9 @@ class Anchor(ABC):
         space_before: float | None = None,
         space_after: float | None = None,
         page_break_before: bool | None = None,
+        keep_together: bool | None = None,
+        keep_with_next: bool | None = None,
+        widow_control: bool | None = None,
     ) -> None:
         """Set paragraph-formatting properties on this anchor's range.
 
@@ -1220,6 +1280,14 @@ class Anchor(ABC):
         character, unlike [`insert_break`][wordlive.Anchor.insert_break].
         `False` clears the property. Indents/spacing accept a number (points) or
         a unit string (`"0.5in"`).
+
+        The remaining flags are Word's *pagination* controls (all tri-state —
+        `True`/`False` set, `None` leaves untouched), for clean multi-page
+        layout: `keep_together` keeps every line of the paragraph on one page;
+        `keep_with_next` keeps it on the same page as the following paragraph
+        (e.g. a heading with its first body line); `widow_control` prevents a
+        lone first/last line stranded at the bottom/top of a page (on by default
+        in Word).
         """
         try:
             with _com.translate_com_errors():
@@ -1232,6 +1300,9 @@ class Anchor(ABC):
                     space_before=space_before,
                     space_after=space_after,
                     page_break_before=page_break_before,
+                    keep_together=keep_together,
+                    keep_with_next=keep_with_next,
+                    widow_control=widow_control,
                 )
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
