@@ -89,6 +89,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Row.AllowBreakAcrossPages` and defaults to keeping a heading row intact. Wired
   through the `set_heading_row` exec op, `wordlive table set-heading-row` CLI, and
   `word_write command="table" action="set_heading_row"`.
+- **`OpError` is now part of the public API** (`wordlive.OpError`). The
+  malformed-op / bad-input exception the `exec` batch and dispatched writes
+  already raised (exit code 1) was previously importable only from
+  `wordlive.exceptions`; it now lives in `__all__` alongside the rest of the
+  taxonomy and is documented in [Errors & exit codes](docs/errors.md).
 
 ### Security
 - **Image-source path hardening (read-side gate, pairs with persistence).** On
@@ -124,6 +129,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   figure **below** — overridable with the new `position` argument
   (`"above"`/`"below"`); the CLI gains `--position` and MCP a `position` param
   (the old `before` flag is still honoured on the exec op for back-compat).
+- **Docs build no longer breaks on the `OpError` cross-reference.** `Document.save`'s
+  docstring linked to `OpError`, which wasn't rendered anywhere, failing the
+  strict (`mkdocs build --strict`) docs CI. `OpError` and the already-public
+  `PathNotAllowedError` are now both documented in the Python API reference and
+  the [Errors & exit codes](docs/errors.md) hierarchy / exit-code table.
+
+### Docs
+- **PyPI project links + keywords.** `pyproject.toml` now declares
+  `[project.urls]` (Homepage, Documentation, Repository, Changelog, Issues) and
+  `keywords`, so the PyPI sidebar links out and the package is discoverable.
+- **README badges** (PyPI version, Python versions, license, CI, docs).
+- **New "Agents & LLM tools" guide** with copy-paste setup per client (Claude
+  Code, Claude Desktop, Cursor, generic MCP) — consolidating the skill / MCP /
+  `llm-help` paths.
 
 ## [0.12.0] — 2026-06-08
 

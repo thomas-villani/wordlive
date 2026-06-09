@@ -93,7 +93,7 @@ class Document:
     def save(self) -> str:
         """Save the document to its existing file, returning the absolute path.
 
-        Raises [`OpError`][wordlive.exceptions.OpError] if the document has never
+        Raises [`OpError`][wordlive.OpError] if the document has never
         been saved (it has no path yet) — call [`save_as`][wordlive.Document.save_as]
         first. This is the **ungated** Python-API surface: it writes wherever the
         document already lives. The CLI / MCP `save` verb additionally checks that

@@ -1,5 +1,11 @@
 # wordlive
 
+[![PyPI](https://img.shields.io/pypi/v/wordlive.svg)](https://pypi.org/project/wordlive/)
+[![Python versions](https://img.shields.io/pypi/pyversions/wordlive.svg)](https://pypi.org/project/wordlive/)
+[![License: MIT](https://img.shields.io/pypi/l/wordlive.svg)](https://github.com/thomas-villani/wordlive/blob/main/LICENSE)
+[![CI](https://github.com/thomas-villani/wordlive/actions/workflows/ci.yml/badge.svg)](https://github.com/thomas-villani/wordlive/actions/workflows/ci.yml)
+[![Docs](https://github.com/thomas-villani/wordlive/actions/workflows/docs.yml/badge.svg)](https://thomas-villani.github.io/wordlive/)
+
 Drive a running Microsoft Word instance from Python — `xlwings`, but for Word.
 Built for both human scripting and LLM agents. Windows-only.
 
@@ -165,6 +171,10 @@ Where `ops.json` looks like:
 Exit codes: `0` ok, `1` other, `2` anchor-not-found, `3` Word-busy, `4` Word-not-running, `5` ambiguous-match (`replace --find` hit several).
 
 ## Agent skills
+
+> Setting up a specific tool (Claude Code, Claude Desktop, Cursor, …)? The
+> [Agents & LLM tools](https://thomas-villani.github.io/wordlive/agents/) guide
+> has copy-paste setup per client.
 
 wordlive ships **two** LLM-facing skills (`SKILL.md`): `wordlive-cli` (the
 command-line workflow) and `wordlive-python` (the `import wordlive as wl` API).
