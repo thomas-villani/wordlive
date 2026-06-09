@@ -39,7 +39,7 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 
 Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
 `format_run(...)`, `set_shading(...)`, `set_borders(...)`, `add_tab_stop(...)`,
-`insert_paragraph_before/after(...)`, `insert_image(...)`, `insert_table(...)`,
+`insert_paragraph_before/after(...)`, `insert_block(...)`, `insert_image(...)`, `insert_table(...)`,
 `insert_break(...)`, `insert_field(...)`, `insert_footnote(...)`,
 `insert_endnote(...)`, `insert_toc(...)`, `link_to(...)`,
 `insert_cross_reference(...)`, `insert_caption(...)`, and the list verbs (`apply_list`, `remove_list`,
@@ -52,9 +52,16 @@ or a float wrap like `"square"`/`"top-bottom"`), and `block=True` places the
 image on its own new line rather than in the anchor's text run. The read mirror
 is `read_image()`, which returns `(bytes, mime_type)` for the single picture in
 the anchor's range — see [Images](#images).
-`insert_table(rows, cols, …)`
+`insert_block(items, where="after")` inserts a contiguous run of styled
+paragraphs in one op (each item a plain string or `{text | runs, style?}`, where
+`text` carries `**bold**`/`*italic*` markdown and `runs` is the structured
+`[{text, bold?, italic?, underline?, style?}]` form) and returns a
+[`RangeAnchor`](#wordlive.RangeAnchor) spanning the block — feed it straight into
+`apply_list` to bullet the section. `insert_table(rows, cols, …)`
 creates a new table at the anchor and returns its [`Table`](#wordlive.Table)
-(append at the end with [`Document.add_table`](#wordlive.Document)).
+(append at the end with [`Document.add_table`](#wordlive.Document)); pass `data`
+as a 2-D array or as records (a list of dicts whose keys become a header row),
+and `rows`/`cols` are inferred from `data` when omitted.
 `insert_break(kind="page"|"column"|"section_next"|"section_continuous")` drops
 an explicit break; for a reflow-safe page break tied to a paragraph (e.g. every
 `Heading 1`), pass `page_break_before=True` to `format_paragraph` instead.

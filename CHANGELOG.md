@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Block insert — drop a contiguous run of styled paragraphs in one op.**
+  `anchor.insert_block(items, where="after")` places a whole styled section (a
+  feature list, a heading plus its body) at a single point in natural reading
+  order — no more reverse-ordering single inserts to dodge positional-anchor
+  renumbering. Each item is a plain string or `{text|runs, style?}`; it returns
+  a `RangeAnchor` (`range:START-END`) spanning the block, so a follow-up op can
+  target the whole run (e.g. bullet it with `apply_list`). New CLI command
+  `insert-block --anchor-id ID --items JSON` (or `--items -` for stdin), the
+  `insert_block` exec op, and the `word_write` / `word_exec` MCP command.
+- **Inline runs — formatted spans within an inserted paragraph.** Inserted text
+  can now carry character formatting in one shot, so the standard "**Bold
+  lead** — rest" bullet no longer needs a second find→style pass. Two forms,
+  both normalising to the same runs: a tiny inline **markdown** (`**bold**`,
+  `*italic*`, `***both***`, with `\*` / `\\` escapes) wherever an item's `text`
+  is given, and a **structured** `runs: [{text, bold?, italic?, underline?,
+  style?}]` for unambiguous/precise control. Exposed on `insert_block` items,
+  the `insert_paragraph` op's `runs` field, and the CLI `insert --runs JSON`.
+  Plain `insert --text` stays literal (markdown lives in block/`runs`).
+- **Tables from tabular data — build a table straight from your data.**
+  `insert_table` / `table create` / the `create_table` op now accept **records**
+  (a list of objects, `[{"Item":"Travel","Cost":"$400"}, …]`) whose keys become
+  a bolded header row, in addition to the existing row-major 2-D array. When
+  `data` is given, `rows`/`cols` are **optional** — inferred from its shape — so
+  the common case is just `table create --anchor-id end --data …` (or
+  `doc.end.insert_table(data=…)`). Pass explicit `rows`/`cols` to pad the grid
+  larger than the data; without `data`, both stay required.
 - **Persistence — save the document, or export a PDF deliverable.** New ungated
   Python-API methods: `doc.save()` (to the existing file), `doc.save_as(path,
   fmt="docx", overwrite=False)`, `doc.export_pdf(path, from_page=None,

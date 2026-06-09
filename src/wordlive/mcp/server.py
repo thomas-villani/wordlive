@@ -193,15 +193,28 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         return _need(p, key, command)
 
     if command == "insert":
+        # Either `text` (literal) or `runs` (inline-formatted spans) — exactly one.
+        if (p.get("text") is None) == (p.get("runs") is None):
+            raise OpError("insert requires exactly one of 'text' or 'runs'")
         op = {
             "op": "insert_paragraph",
             "anchor_id": need("anchor_id"),
-            "text": need("text"),
             "before": bool(p.get("before", False)),
         }
+        if p.get("runs") is not None:
+            op["runs"] = p["runs"]
+        else:
+            op["text"] = p["text"]
         if p.get("style") is not None:
             op["style"] = p["style"]
         return op
+    if command == "insert_block":
+        return {
+            "op": "insert_block",
+            "anchor_id": need("anchor_id"),
+            "items": need("items"),
+            "before": bool(p.get("before", False)),
+        }
     if command == "delete_paragraph":
         return {"op": "delete_paragraph", "anchor_id": need("anchor_id")}
     if command in ("append", "prepend"):
@@ -426,13 +439,19 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
                 op["allow_break"] = bool(p["allow_break"])
             return op
         if action == "create":
+            # rows/cols are optional when `data` is given (inferred from it);
+            # required otherwise.
+            if p.get("data") is None and (p.get("rows") is None or p.get("cols") is None):
+                raise OpError("table create requires 'rows' and 'cols' unless 'data' is given")
             op = {
                 "op": "create_table",
                 "anchor_id": need("anchor_id"),
-                "rows": need("rows"),
-                "cols": need("cols"),
                 "before": bool(p.get("before", False)),
             }
+            if p.get("rows") is not None:
+                op["rows"] = p["rows"]
+            if p.get("cols") is not None:
+                op["cols"] = p["cols"]
             if p.get("style") is not None:
                 op["style"] = p["style"]
             if p.get("header") is not None:
@@ -690,6 +709,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
     def word_write(
         command: Literal[
             "insert",
+            "insert_block",
             "delete_paragraph",
             "append",
             "prepend",
@@ -729,6 +749,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         doc: str | None = None,
         anchor_id: str | None = None,
         text: str | None = None,
+        runs: list[Any] | None = None,
+        items: list[Any] | None = None,
         name: str | None = None,
         style: str | None = None,
         before: bool = False,
@@ -821,7 +843,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
     ) -> dict[str, Any]:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
-        insert {anchor_id,text,[before,style]} ·
+        insert {anchor_id, text|runs, [before,style]} — text is literal; runs is
+            [{text,bold?,italic?,underline?,style?}] for inline-formatted spans ·
+        insert_block {anchor_id, items, [before]} — a contiguous run of styled
+            paragraphs in one op; each item is "plain text" or {text|runs, style?}
+            (text carries **bold**/*italic* markdown); returns the block's
+            range:START-END so you can apply_list/comment over the whole run ·
         delete_paragraph {anchor_id} — remove the paragraph(s) at an anchor, mark included ·
         append/prepend {text,[style]} — new final/first paragraph; pass paragraph=false
             to continue the adjacent paragraph inline (an inline append takes no style) ·
@@ -843,7 +870,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
         comment {action=add|resolve|delete,...} ·
         table {action=set_cell|add_row|delete_row|set_heading_row|create|delete,
-               create needs anchor_id,rows,cols,[style,header,data,before];
+               create needs anchor_id and [rows,cols] (optional when data is given —
+               inferred from it),[style,header,data,before]; data is a 2-D array OR
+               records (a list of objects whose keys become a header row);
                set_heading_row {table,[row=1,heading=true,allow_break]} — repeating header row} ·
         insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
         insert_field {anchor_id,kind=page|numpages|date|time|filename|author|title|field,[text,before]} —
@@ -880,6 +909,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "doc": doc,
             "anchor_id": anchor_id,
             "text": text,
+            "runs": runs,
+            "items": items,
             "name": name,
             "style": style,
             "before": before,
@@ -1002,7 +1033,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
 
         Ops (required fields → behaviour):
           write_bookmark {name,text} · write_cc {name,text} ·
-          insert_paragraph {anchor_id,text,[style,before]} — new paragraph by an anchor ·
+          insert_paragraph {anchor_id, text|runs, [style,before]} — new paragraph by an anchor;
+            text is literal, runs is [{text,bold?,italic?,underline?,style?}] for inline spans ·
+          insert_block {anchor_id, items, [before]} — a contiguous run of styled paragraphs in one
+            op; items are "plain text" or {text|runs, style?} (text takes **bold**/*italic*);
+            returns the block's range:START-END in outputs ·
           delete_paragraph {anchor_id} — remove the paragraph(s) at an anchor, mark included ·
           append {text,[style]} / prepend {text,[style]} — new final/first paragraph ·
           append_inline {text} / prepend_inline {text} — continue the last/first paragraph (NO style) ·
@@ -1017,7 +1052,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           add_bookmark {name,anchor_id} · add_hyperlink {anchor_id, url|bookmark, [text,screen_tip]} ·
           insert_cross_reference {anchor_id,target,[kind,hyperlink,before]} — target is a bookmark:/heading:/footnote:/endnote: id ·
           insert_caption {anchor_id,[label,text,position=above|below]} — own-paragraph caption ·
-          create_table {anchor_id,rows,cols,[style,data,header,before]} — cells default to Normal; returns the new index in outputs ·
+          create_table {anchor_id, [rows,cols] (optional when data given — inferred),[style,data,header,before]} —
+            data is a 2-D array OR records (objects whose keys become a header row); cells default to Normal; returns the new index in outputs ·
           set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} ·
           set_heading_row {table,[row=1,heading,allow_break]} — repeating header row on a multi-page table · delete_table {table} ·
           add_comment {anchor_id,text,[author]} · resolve_comment {index} · delete_comment {index} ·

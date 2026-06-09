@@ -85,6 +85,7 @@ def register(group: click.Group) -> None:
     group.add_command(read)
     group.add_command(write)
     group.add_command(insert)
+    group.add_command(insert_block_cmd)
     group.add_command(delete_paragraph_cmd)
     group.add_command(insert_break_cmd)
     group.add_command(insert_field_cmd)
@@ -433,7 +434,21 @@ def write_cc(ctx: click.Context, name: str, text: str) -> None:
     required=True,
     help="Anchor to insert a new paragraph relative to (e.g. heading:1, para:3).",
 )
-@click.option("--text", "text", required=True, help="Paragraph text to insert.")
+@click.option(
+    "--text",
+    "text",
+    default=None,
+    help="Paragraph text to insert (literal — no markup). For inline formatting "
+    "use --runs, or `insert-block` for a styled multi-paragraph run.",
+)
+@click.option(
+    "--runs",
+    "runs",
+    default=None,
+    help='JSON array of inline runs (e.g. \'[{"text":"Fast","bold":true},'
+    '{"text":" — quick"}]\'), or \'-\' to read it from stdin. Each run is '
+    "{text, bold?, italic?, underline?, style?}. Mutually exclusive with --text.",
+)
 @click.option(
     "--before/--after",
     "before",
@@ -445,15 +460,33 @@ def write_cc(ctx: click.Context, name: str, text: str) -> None:
     "--style", "style", default=None, help="Optional Word style name for the new paragraph."
 )
 @click.pass_context
-def insert(ctx: click.Context, anchor_id: str, text: str, before: bool, style: str | None) -> None:
+def insert(
+    ctx: click.Context,
+    anchor_id: str,
+    text: str | None,
+    runs: str | None,
+    before: bool,
+    style: str | None,
+) -> None:
     """Insert a new paragraph before/after any anchor (atomic-undo).
 
     Addresses anchors the same way every other command does — `--anchor-id`
-    (headings, paragraphs, bookmarks, cells, ranges). To insert text *inside* a
-    paragraph at an offset, target a collapsed range instead:
+    (headings, paragraphs, bookmarks, cells, ranges). Pass either `--text`
+    (literal) or `--runs` (inline-formatted spans); for a contiguous run of
+    several styled paragraphs in one shot, use `insert-block` instead. To insert
+    text *inside* a paragraph at an offset, target a collapsed range:
     `replace --anchor-id range:120-120 --text "…"` (offsets come from
     `paragraphs` / `find`).
     """
+    if (text is None) == (runs is None):
+        raise click.UsageError("provide exactly one of --text or --runs")
+    parsed_runs: list[Any] | None = None
+    if runs is not None:
+        raw = click.get_text_stream("stdin").read() if runs == "-" else runs
+        try:
+            parsed_runs = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise click.UsageError(f"--runs must be a JSON array: {e}") from e
     where = "before" if before else "after"
 
     def go() -> None:
@@ -461,10 +494,14 @@ def insert(ctx: click.Context, anchor_id: str, text: str, before: bool, style: s
             doc = _pick_doc(word, ctx.obj["doc_name"])
             anchor = doc.anchor_by_id(anchor_id)
             with doc.edit(f"CLI: insert {where} {anchor_id}"):
-                if before:
-                    anchor.insert_paragraph_before(text, style=style)
+                if parsed_runs is not None:
+                    anchor.insert_block([{"runs": parsed_runs, "style": style}], where=where)
                 else:
-                    anchor.insert_paragraph_after(text, style=style)
+                    assert text is not None  # xor-validated above; narrows for mypy
+                    if before:
+                        anchor.insert_paragraph_before(text, style=style)
+                    else:
+                        anchor.insert_paragraph_after(text, style=style)
             emit(
                 {
                     "ok": True,
@@ -474,6 +511,77 @@ def insert(ctx: click.Context, anchor_id: str, text: str, before: bool, style: s
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# insert-block --anchor-id ID --items JSON
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="insert-block")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Anchor to insert the block of paragraphs relative to (heading:/para:/end/…).",
+)
+@click.option(
+    "--items",
+    "items",
+    required=True,
+    help="JSON array of paragraphs, or '-' to read it from stdin. Each item is a "
+    'string ("plain text") or an object {text|runs, style?}. `text` carries '
+    "tiny inline markdown (**bold**, *italic*, ***both***; escape with \\*); "
+    "`runs` is [{text, bold?, italic?, underline?, style?}].",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert the block before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_block_cmd(ctx: click.Context, anchor_id: str, items: str, before: bool) -> None:
+    """Insert a contiguous run of styled paragraphs at an anchor (atomic-undo).
+
+    The multi-paragraph insert — drop a whole styled section (a feature list,
+    a heading plus its body) in ONE op, in natural reading order, instead of a
+    reverse-order storm of `insert` calls. Each item is one paragraph; `text`
+    supports inline markdown and `runs` the structured form, so the "**Bold
+    lead** — rest" bullet is a single op with no second formatting pass.
+
+    Reports the spanning `range:START-END` of the inserted block, so a follow-up
+    op can target the whole run — e.g. `list apply --anchor-id range:… --type
+    bulleted` to bullet the section you just inserted.
+    """
+    raw = click.get_text_stream("stdin").read() if items == "-" else items
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise click.UsageError(f"--items must be a JSON array: {e}") from e
+    if not isinstance(parsed, list):
+        raise click.UsageError("--items must be a JSON array of paragraphs")
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert block {where} {anchor_id}"):
+                rng = anchor.insert_block(parsed, where=where)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": rng.anchor_id,
+                    "paragraphs": len(parsed),
+                    "where": where,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted {len(parsed)} paragraph(s) {where} {anchor_id} → {rng.anchor_id}",
             )
 
     _run(ctx, go)
@@ -2574,8 +2682,20 @@ def table_set_heading_row(
     required=True,
     help="Position anchor for the new table (heading:/para:/start/end/range:…).",
 )
-@click.option("--rows", "rows", type=int, required=True, help="Number of rows (>= 1).")
-@click.option("--cols", "cols", type=int, required=True, help="Number of columns (>= 1).")
+@click.option(
+    "--rows",
+    "rows",
+    type=int,
+    default=None,
+    help="Number of rows (>= 1). Optional when --data is given (inferred from it).",
+)
+@click.option(
+    "--cols",
+    "cols",
+    type=int,
+    default=None,
+    help="Number of columns (>= 1). Optional when --data is given (inferred from it).",
+)
 @click.option(
     "--style",
     "style",
@@ -2600,28 +2720,31 @@ def table_set_heading_row(
     "--data",
     "data",
     default=None,
-    help="Row-major JSON 2-D array to populate cells "
-    '(e.g. \'[["Name","Qty"],["Widget","3"]]\'), or \'-\' to read it from '
-    "stdin. Reading from stdin avoids quoting/backslash fights on Windows.",
+    help="JSON to populate cells, or '-' to read it from stdin: a row-major 2-D "
+    'array (\'[["Name","Qty"],["Widget","3"]]\') OR records — a list of objects '
+    '(\'[{"Name":"Widget","Qty":"3"}]\'), whose keys become a header row. '
+    "Reading from stdin avoids quoting/backslash fights on Windows.",
 )
 @click.pass_context
 def table_create(
     ctx: click.Context,
     anchor_id: str,
-    rows: int,
-    cols: int,
+    rows: int | None,
+    cols: int | None,
     style: str | None,
     header: bool,
     before: bool,
     data: str | None,
 ) -> None:
-    """Create a ROWS x COLS table at an anchor (atomic-undo).
+    """Create a table at an anchor (atomic-undo).
 
     Builds new table structure where wordlive's other verbs only edit existing
-    structure. Fill cells at creation with --data (a row-major JSON array, or
-    '--data -' to read it from stdin); a short array leaves trailing cells
-    empty. --style defaults to 'Table Grid' (visible borders); a style name not
-    defined in the document raises (exit 2). Reports the new table's 1-based
+    structure. Fill cells at creation with --data — a row-major JSON array, or
+    records (a list of objects whose keys become a header row), or '--data -' to
+    read it from stdin; a short array leaves trailing cells empty. --rows/--cols
+    are optional when --data is given (inferred from its shape), required
+    otherwise. --style defaults to 'Table Grid' (visible borders); a style name
+    not defined in the document raises (exit 2). Reports the new table's 1-based
     index for a follow-up `table set-cell` / `add-row`.
     """
     parsed: list[Any] | None = None
@@ -2630,15 +2753,17 @@ def table_create(
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as e:
-            raise click.UsageError(f"--data must be a JSON 2-D array: {e}") from e
+            raise click.UsageError(f"--data must be JSON (a 2-D array or records): {e}") from e
         if not isinstance(parsed, list):
-            raise click.UsageError("--data must be a JSON array of rows")
+            raise click.UsageError("--data must be a JSON array of rows or records")
+    if data is None and (rows is None or cols is None):
+        raise click.UsageError("--rows and --cols are required when --data is not given")
 
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             anchor = doc.anchor_by_id(anchor_id)
-            with doc.edit(f"CLI: create {rows}x{cols} table at {anchor_id}"):
+            with doc.edit(f"CLI: create table at {anchor_id}"):
                 t = anchor.insert_table(
                     rows,
                     cols,

@@ -538,3 +538,62 @@ def test_save_gating_blocks_outside_whitelist(scratch_doc, tmp_path):
     assert pol.resolve_save_target(allowed / "ok.docx") == (allowed / "ok.docx").resolve()
     with pytest.raises(wordlive.PathNotAllowedError):
         pol.resolve_save_target(allowed / ".." / "escape.docx")
+
+
+def test_insert_block_styled_run_with_inline_formatting(scratch_doc):
+    """A whole styled bulleted section in one op: markdown + structured runs both
+    format inline, paragraphs land in order, and the returned range bullets them."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Features", style="Heading 1")
+
+    with doc.edit("block"):
+        rng = doc.headings["Features"].insert_block(
+            [
+                {"text": "**Politeness** — preserves your cursor.", "style": "List Bullet"},
+                {
+                    "runs": [
+                        {"text": "Atomic undo", "bold": True},
+                        {"text": " — one Ctrl-Z."},
+                    ],
+                    "style": "List Bullet",
+                },
+                "Plain third bullet.",
+            ]
+        )
+        doc.anchor_by_id(rng.anchor_id).apply_list("bulleted")
+
+    rows = doc.paragraphs.list()
+    texts = [r["text"] for r in rows]
+    assert "Politeness — preserves your cursor." in texts
+    assert "Atomic undo — one Ctrl-Z." in texts
+    assert "Plain third bullet." in texts
+
+    dc = doc.com
+    lead = next(r for r in rows if r["text"].startswith("Politeness"))
+    s = lead["start"]
+    # The markdown bolded only the lead-in word.
+    assert bool(dc.Range(s, s + len("Politeness")).Bold) is True
+    assert bool(dc.Range(s + 12, s + 20).Bold) is False
+    # The per-item paragraph style and the range-fed list both took effect.
+    assert dc.Range(s, s + 1).Paragraphs(1).Range.Style.NameLocal == "List Bullet"
+    assert int(dc.Range(s, s + 1).ListFormat.ListType) != 0
+
+    runs_para = next(r for r in rows if r["text"].startswith("Atomic undo"))
+    s2 = runs_para["start"]
+    assert bool(dc.Range(s2, s2 + len("Atomic undo")).Bold) is True
+    assert bool(dc.Range(s2 + 13, s2 + 20).Bold) is False
+
+
+def test_table_from_records_builds_bolded_header(scratch_doc):
+    """Records (list of dicts) → a table whose keys are a bolded header row, with
+    rows/cols inferred from the data."""
+    doc = scratch_doc
+    with doc.edit("records table"):
+        t = doc.end.insert_table(
+            data=[{"Item": "Travel", "Cost": "$400"}, {"Item": "Lodging", "Cost": "$600"}]
+        )
+    assert (t.row_count, t.column_count) == (3, 2)
+    assert t.grid() == [["Item", "Cost"], ["Travel", "$400"], ["Lodging", "$600"]]
+    # Records imply a header row — it's bolded.
+    assert bool(t.com.Rows(1).Range.Bold) is True

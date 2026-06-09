@@ -66,6 +66,12 @@ wordlive write bookmark Address --text "123 Main St"
 # Insert a new paragraph relative to ANY anchor (heading, paragraph, bookmark, …):
 wordlive insert --anchor-id heading:1 --text "..."          # after (default)
 wordlive insert --anchor-id para:3 --text "..." --before
+wordlive insert --anchor-id end --runs '[{"text":"Bold lead","bold":true},{"text":" — rest"}]'
+
+# Drop a whole styled section in ONE op (item text takes **bold**/*italic* markdown):
+wordlive insert-block --anchor-id heading:1 --items \
+    '[{"text":"**Politeness** first.","style":"List Bullet"},"Atomic undo."]'
+#   → reports range:START-END; then: wordlive list apply --anchor-id range:… --type bulleted
 
 # Append / prepend at the very end / start of the document (no anchor needed):
 wordlive append  --text "Closing note."                     # new final paragraph
@@ -89,8 +95,10 @@ wordlive table list
 wordlive table read 1
 wordlive replace --anchor-id table:1:2:2 --text "$450"
 wordlive table add-row --table 1 --values '["Lodging", "$600"]'
-wordlive table create --anchor-id end --rows 2 --cols 2 --header \
-    --data '[["Item","Cost"],["Travel","$400"]]'           # build a new table
+wordlive table create --anchor-id end --data '[["Item","Cost"],["Travel","$400"]]' --header
+wordlive table create --anchor-id end \
+    --data '[{"Item":"Travel","Cost":"$400"}]'             # records → keys are a header row
+#   --rows/--cols are inferred from --data (give them only to pad larger)
 wordlive table delete 2
 
 # Page / column / section breaks (explicit one-off mark; for a style use --page-break-before):

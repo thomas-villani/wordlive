@@ -55,7 +55,8 @@ are name-based and survive edits — reach for them when you need a durable hand
 
 ## Writing — each command is one atomic undo
 - `wordlive write bookmark NAME --text "…"` (set existing) · `write bookmark NAME --create --anchor-id ID` (create a new bookmark over a range — the prerequisite for internal links and cross-refs; NAME starts with a letter, letters/digits/underscores only) · `write cc NAME --text "…"`
-- `wordlive insert --anchor-id ID --text "…" [--before | --after] [--style "Body Text"]` — new paragraph relative to any anchor (`--after` is the default; appending after the document's last paragraph works too, so you can build a doc top-down).
+- `wordlive insert --anchor-id ID (--text "…" | --runs JSON) [--before | --after] [--style "Body Text"]` — new paragraph relative to any anchor (`--after` is the default; appending after the document's last paragraph works too, so you can build a doc top-down). `--text` is literal; `--runs '[{"text":"Bold","bold":true},{"text":" rest"}]'` gives inline-formatted spans in one op.
+- `wordlive insert-block --anchor-id ID --items JSON [--before | --after]` — insert a **contiguous run of styled paragraphs** in one op (a whole bulleted section, a heading + body) in reading order, instead of reverse-ordered `insert` calls. Each item is `"plain text"` or `{text|runs, style?}`; item `text` takes `**bold**`/`*italic*` markdown. Reports the block's `range:START-END` — feed it to `list apply --anchor-id range:… --type bulleted` to bullet the section you just inserted.
 - `wordlive delete-paragraph --anchor-id ID` — remove the paragraph(s) at an anchor, **mark included**, so the text closes up (no blank line left, unlike `replace --text ""`). Good for a stray leading empty `para:1`.
 - `wordlive append --text "…" [--inline] [--style "Body Text"]` — add a new final paragraph at the very end of the document (`--inline` continues the last paragraph). The high-level "end of doc" helper; same as `insert --anchor-id end`.
 - `wordlive prepend --text "…" [--inline] [--style "Body Text"]` — the mirror: add to the very start of the document (same as `insert --anchor-id start`).
@@ -163,7 +164,7 @@ several paragraphs after one fixed anchor, either insert in reverse order or
 anchor each to the previous insert; name-based ids (`bookmark:` / `cc:`) are
 stable across the batch.
 
-Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `delete_paragraph`,
+Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `insert_block`, `delete_paragraph`,
 `append`, `append_inline`, `prepend`, `prepend_inline`, `insert_image`,
 `replace`, `find_replace`, `apply_style`, `format_paragraph`, `set_cell`,
 `add_row`, `delete_row`, `set_heading_row`, `create_table`, `delete_table`, `insert_break`,
@@ -173,11 +174,17 @@ Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `delete_paragraph`,
 (`append` / `prepend` add a new final / first **paragraph** and take `text` +
 optional `style`, no anchor — `append_paragraph` / `prepend_paragraph` are
 explicit synonyms. `append_inline` / `prepend_inline` instead **continue** the
-last / first paragraph and take `text` only — no `style`. `create_table` takes
-`anchor_id` + `rows` + `cols`, optional `style` / `data` (row-major 2-D) /
-`header`; new cells default to the `Normal` paragraph style regardless of the
-anchor, so they don't inherit a heading style from the paragraph above. A
-successful batch returns an `outputs` array reporting each new table's `index`.
+last / first paragraph and take `text` only — no `style`. `insert_paragraph`
+takes `text` **or** `runs` (`[{text,bold?,italic?,underline?,style?}]`) for
+inline formatting; `insert_block` takes `anchor_id` + `items` (each a string or
+`{text|runs, style?}`, item `text` carrying `**bold**`/`*italic*` markdown) and
+returns the block's `range:START-END` in `outputs`. `create_table` takes
+`anchor_id` + optional `rows`/`cols` (inferred from `data` when omitted),
+optional `style` / `data` / `header`; `data` is a row-major 2-D array **or**
+records (objects whose keys become a header row). New cells default to the
+`Normal` paragraph style regardless of the anchor, so they don't inherit a
+heading style from the paragraph above. A successful batch returns an `outputs`
+array reporting each new table's `index` and each block's `range`.
 `insert_break` takes `anchor_id`, optional `kind` (default `page`) and `before`;
 `format_paragraph`'s `page_break_before` bool is the reflow-safe alternative for
 breaking before a styled paragraph, alongside the `keep_together` /

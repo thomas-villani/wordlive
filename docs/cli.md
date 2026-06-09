@@ -216,10 +216,10 @@ $ wordlive write cc Signatory --text "Jane Doe"
 
 Failures: `2` anchor not found, `3` Word busy.
 
-## `insert --anchor-id ID --text "…"`
+## `insert --anchor-id ID (--text "…" | --runs JSON)`
 
 ```
-wordlive insert --anchor-id ID --text "..." [--before | --after] [--style "Body Text"] [--doc DOC_NAME]
+wordlive insert --anchor-id ID (--text "..." | --runs JSON) [--before | --after] [--style "Body Text"] [--doc DOC_NAME]
 ```
 
 Insert a new paragraph relative to **any** anchor — addressed the same way
@@ -230,12 +230,19 @@ works even when the anchor is the document's last paragraph — the new paragrap
 is appended before the final mark — so you can build a document top-down from a
 single empty paragraph.
 
+Give exactly one of `--text` (a literal string — no markup) or `--runs` (a JSON
+array of inline-formatted spans, or `-` to read it from stdin). Each run is
+`{text, bold?, italic?, underline?, style?}`, so a bold lead-in is one op:
+
 ```bash
 $ wordlive insert --anchor-id heading:8 --text "New risk identified."
 {"ok": true, "anchor_id": "heading:8", "where": "after", "style": null}
 
 $ wordlive insert --anchor-id para:3 --text "Section preamble." --before
 {"ok": true, "anchor_id": "para:3", "where": "before", "style": null}
+
+$ wordlive insert --anchor-id end --runs '[{"text":"Bold lead","bold":true},{"text":" — rest"}]'
+{"ok": true, "anchor_id": "end", "where": "after", "style": null}
 ```
 
 `--style` is optional; if given it must be a Word style name that exists in
@@ -246,7 +253,44 @@ Word busy.
 
 To insert text *inside* a paragraph at a precise offset rather than as a new
 paragraph, target a collapsed range instead — `replace --anchor-id
-range:120-120 --text "…"` — using offsets from `paragraphs` or `find`.
+range:120-120 --text "…"` — using offsets from `paragraphs` or `find`. To insert
+several styled paragraphs at once, use `insert-block`.
+
+## `insert-block --anchor-id ID --items JSON`
+
+```
+wordlive insert-block --anchor-id ID --items JSON [--before | --after] [--doc DOC_NAME]
+```
+
+Insert a **contiguous run of styled paragraphs** at an anchor in one op, in
+natural reading order — the multi-paragraph counterpart to `insert`. Use it to
+drop a whole styled section (a feature list, a heading plus its body) without a
+reverse-ordered storm of `insert` calls dodging positional-anchor renumbering.
+
+`--items` is a JSON array (or `-` for stdin). Each item is one paragraph, given
+as either a plain string or an object `{text | runs, style?}`:
+
+- `text` carries a tiny inline **markdown**: `**bold**`, `*italic*`,
+  `***both***` (escape a literal asterisk as `\*`).
+- `runs` is the structured form — `[{text, bold?, italic?, underline?,
+  style?}]` — for unambiguous control or a per-run character style.
+- `style` names the paragraph style for that item.
+
+It reports the spanning `range:START-END` of the inserted block, so you can act
+on the whole run next — e.g. bullet the section you just inserted:
+
+```bash
+$ wordlive insert-block --anchor-id heading:1 --items \
+    '[{"text":"**Politeness** first.","style":"List Bullet"},
+      {"runs":[{"text":"Atomic undo","bold":true},{"text":" — one Ctrl-Z."}],"style":"List Bullet"},
+      "Plain third bullet."]'
+{"ok": true, "anchor_id": "range:412-470", "paragraphs": 3, "where": "after"}
+
+$ wordlive list apply --anchor-id range:412-470 --type bulleted
+```
+
+Styles are validated before anything is inserted, so a bad name fails the whole
+block cleanly. Failures: `2` anchor not found or style not found, `3` Word busy.
 
 ## `delete-paragraph --anchor-id ID`
 
@@ -1089,22 +1133,31 @@ Failures: `2` table index out of range, `3` Word busy.
 ## `table create`
 
 ```
-wordlive table create --anchor-id ID --rows R --cols C
+wordlive table create --anchor-id ID [--rows R] [--cols C]
                       [--style NAME] [--header] [--before|--after]
-                      [--data '[["…"],…]' | --data -] [--doc DOC_NAME]
+                      [--data JSON | --data -] [--doc DOC_NAME]
 ```
 
-Create a new `R`×`C` table at a **position anchor** (`heading:`, `para:`,
-`start`, `end`, `range:` — *not* a bare `table:N`, which addresses an existing
-table). Every other verb edits existing structure; this is how you build a table
-from nothing. Atomic-undo. Reports the new table's 1-based `index` for an
-immediate follow-up `set-cell` / `add-row`.
+Create a new table at a **position anchor** (`heading:`, `para:`, `start`,
+`end`, `range:` — *not* a bare `table:N`, which addresses an existing table).
+Every other verb edits existing structure; this is how you build a table from
+nothing. Atomic-undo. Reports the new table's 1-based `index` for an immediate
+follow-up `set-cell` / `add-row`.
 
-`--data` populates the cells at creation from a **row-major** JSON 2-D array
-(`[[r1c1, r1c2], …]`), validated against `R`×`C` up front — a short/partial
-array leaves trailing cells empty; an array that *overflows* the grid is a clean
-error (exit 1). Pass `--data -` to read the JSON from stdin, which sidesteps
-Windows quoting/backslash fights (mirrors `exec --ops -`).
+`--data` populates the cells at creation and accepts two shapes:
+
+- a **row-major 2-D array** (`[[r1c1, r1c2], …]`); or
+- **records** — a list of objects (`[{"Tier":"Wobble","Monthly":"$9"}, …]`),
+  whose keys become a header row (each object is one body row); this implies
+  `--header`.
+
+When `--data` is given, **`--rows`/`--cols` are optional** — they're inferred
+from the data's shape, so the common case is just `--data …`. Pass them
+explicitly to pad the grid *larger* than the data (a short/partial array leaves
+trailing cells empty; an array that *overflows* the grid is a clean error, exit
+1). Without `--data`, both `--rows` and `--cols` are required. Pass `--data -`
+to read the JSON from stdin, which sidesteps Windows quoting/backslash fights
+(mirrors `exec --ops -`).
 
 `--style` names a table style defined in the document; it defaults to the
 built-in **`Table Grid`** so a new table has visible borders rather than only
@@ -1112,9 +1165,13 @@ faint gridlines. A style name not in the document fails (exit 2). `--header`
 bolds the first row.
 
 ```bash
-$ wordlive table create --anchor-id end --rows 3 --cols 3 --header \
+$ wordlive table create --anchor-id end --header \
     --data '[["Tier","Monthly","SLA"],["Wobble","$9","best effort"],["Finch","$99","99.9%"]]'
 {"ok": true, "table": 2, "rows": 3, "columns": 3}
+
+$ wordlive table create --anchor-id end \
+    --data '[{"Tier":"Wobble","Monthly":"$9"},{"Tier":"Finch","Monthly":"$99"}]'
+{"ok": true, "table": 3, "rows": 3, "columns": 2}
 ```
 
 A table appended where another already sits flush against it (e.g. two tables in
