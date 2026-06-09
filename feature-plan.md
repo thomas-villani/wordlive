@@ -152,6 +152,13 @@ history and `spec.md`.
 - `Document.snapshot(...)` / `Anchor.snapshot(...)` + `wordlive snapshot` render
   page(s)/section to PNG (Word → PDF, PyMuPDF rasterises). Optional `snapshot`
   extra. This is the "let a vision model see the layout" path.
+  - **`max_dim` low-res cap (2026-06-09).** `snapshot(max_dim=N)` (CLI `--max-dim`,
+    MCP `word_snapshot` `max_dim`) caps each page's long edge to `N` pixels, only
+    ever lowering resolution. The lever for a cheap *whole-document* layout check:
+    a vision model is billed on pixel area, so a long-edge cap gives a predictable
+    per-page token budget regardless of paper size (a live probe measured ~17×
+    fewer tokens/page at `max_dim=400` vs. default 150 dpi on a Letter page).
+    Composes with `dpi`; the cap wins when it implies a lower resolution.
 - MCP server: four dispatch tools + `wordlive://guide` resource (also fetchable
   as `word_read(command="guide")` since v0.11.0, because resources aren't
   surfaced by every client). Optional `mcp` extra.

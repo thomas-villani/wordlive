@@ -546,17 +546,21 @@ def _snapshot_impl(
     anchor: str | None,
     dpi: int,
     markup: str,
+    max_dim: int | None = None,
 ) -> list[tuple[int, bytes]]:
     dpi = max(72, min(300, int(dpi)))
+    md = max(1, int(max_dim)) if max_dim is not None else None
     pages_arg = _parse_pages(pages)
 
     def job() -> list[tuple[int, bytes]]:
         with attach() as word:
             d = pick_doc(word, doc)
             if anchor:
-                snaps = d.snapshot_anchor(d.anchor_by_id(anchor), dpi=dpi, markup=markup)
+                snaps = d.snapshot_anchor(
+                    d.anchor_by_id(anchor), dpi=dpi, max_dim=md, markup=markup
+                )
             else:
-                snaps = d.snapshot(pages=pages_arg, dpi=dpi, markup=markup)
+                snaps = d.snapshot(pages=pages_arg, dpi=dpi, max_dim=md, markup=markup)
             return [(s.page, s.png) for s in snaps]
 
     return worker.run_on_word(job)
@@ -994,23 +998,28 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         pages: str | None = None,
         anchor: str | None = None,
         dpi: int = 150,
+        max_dim: int | None = None,
         markup: str = "none",
     ) -> list[Any]:
         """Render page(s) of the open document to PNG so you can SEE the layout.
 
         Pick at most one target: `anchor` (the page(s) an anchor occupies — a
         heading expands to its whole section), or `pages` ("4" or "2-5"). With
-        neither, the whole document renders. `markup` is "none" (the final
-        document) or "all" (show tracked changes and comments as visible revision
-        marks / balloons — pair with word_read(command="revisions") for the
-        structured list). Returns image content (and a "page N" label per page)
-        inline, so a vision model sees the render directly — no filesystem path
-        that a remote/sandboxed host couldn't open. Needs the snapshot extra
-        (PyMuPDF).
+        neither, the whole document renders. `max_dim` caps each page's long edge
+        to that many pixels (only ever lowering resolution) — pair it with no page
+        target to check the WHOLE document's layout cheaply: a vision model is
+        billed on pixel area, so the cap is a predictable per-page token budget
+        regardless of paper size (~1000 stays legible for "did my styling land").
+        `markup` is "none" (the final document) or "all" (show tracked changes and
+        comments as visible revision marks / balloons — pair with
+        word_read(command="revisions") for the structured list). Returns image
+        content (and a "page N" label per page) inline, so a vision model sees the
+        render directly — no filesystem path that a remote/sandboxed host couldn't
+        open. Needs the snapshot extra (PyMuPDF).
         """
         try:
             rendered = _snapshot_impl(
-                w, doc=doc, pages=pages, anchor=anchor, dpi=dpi, markup=markup
+                w, doc=doc, pages=pages, anchor=anchor, dpi=dpi, max_dim=max_dim, markup=markup
             )
         except WordliveError as exc:
             raise _tool_error(exc) from exc

@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Low-resolution snapshots — `max_dim` (cheap whole-document layout checks).**
+  `snapshot(..., max_dim=N)` caps each rendered page's **long edge** to `N`
+  pixels (only ever lowering resolution). A vision model is billed on an image's
+  pixel area, not its dpi, and that area depends on the page geometry — so a
+  long-edge cap gives a predictable per-page token budget regardless of paper
+  size, the right lever for "render the whole doc and check my styling landed"
+  without the token cost of full-resolution pages (~1000 stays legible; e.g. a
+  Letter page drops from 1275×1650 to a capped size). On
+  `Document.snapshot` / `Document.snapshot_anchor` / `Anchor.snapshot`, the
+  `wordlive snapshot --max-dim N` CLI flag, and `word_snapshot`'s `max_dim` param.
+  `dpi` is unchanged (default 150) and composes with `max_dim` (the cap wins when
+  it implies a lower resolution).
 - **Image extraction — read embedded pictures back out.** The read mirror of
   `insert_image`, for handing a document's images to a vision model.
   `anchor.read_image()` returns `(bytes, mime_type)` for the single picture in an

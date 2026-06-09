@@ -1225,17 +1225,20 @@ class Anchor(ABC):
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
 
-    def snapshot(self, out: str | Path | None = None, *, dpi: int = 150) -> list[Snapshot]:
+    def snapshot(
+        self, out: str | Path | None = None, *, dpi: int = 150, max_dim: int | None = None
+    ) -> list[Snapshot]:
         """Render the page(s) this anchor sits on to PNG — let a model *see* it.
 
         A heading expands to its whole section; any other anchor renders the
         page(s) its range spans. Returns a list of
         [`Snapshot`][wordlive.Snapshot] (one per page); pass `out` to also write
-        the image(s) to disk. Sugar for
+        the image(s) to disk. `max_dim` caps each page's long edge in pixels (for
+        a cheaper render). Sugar for
         [`Document.snapshot_anchor`][wordlive.Document.snapshot_anchor]; see it
         for the full semantics. Requires the `snapshot` extra (PyMuPDF).
         """
-        return self._doc.snapshot_anchor(self, out, dpi=dpi)
+        return self._doc.snapshot_anchor(self, out, dpi=dpi, max_dim=max_dim)
 
     def read_image(self) -> tuple[bytes, str]:
         """Extract the image embedded in this anchor's range as `(bytes, mime_type)`.

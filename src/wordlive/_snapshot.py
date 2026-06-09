@@ -64,8 +64,16 @@ def _import_fitz() -> Any:
         ) from e
 
 
-def _rasterize_pdf(pdf_path: str, dpi: int) -> list[bytes]:
+def _rasterize_pdf(pdf_path: str, dpi: int, max_dim: int | None = None) -> list[bytes]:
     """Rasterise every page of `pdf_path` to PNG bytes at `dpi`.
+
+    `max_dim`, when given, caps each page's **long edge** to that many pixels:
+    the per-page zoom is `min(dpi/72, max_dim / long_edge_in_points)`, so it only
+    ever *lowers* the resolution. A vision model's token cost scales with the
+    image's pixel area (not its dpi), and that area depends on the page geometry,
+    so a long-edge cap gives a predictable per-page token budget regardless of
+    paper size — the right lever for a cheap whole-document layout check. With
+    `max_dim=None` the behaviour is unchanged (render at `dpi`).
 
     Isolated as its own function so tests can substitute a fake renderer without
     a real PyMuPDF install or a real PDF on disk.
@@ -75,7 +83,14 @@ def _rasterize_pdf(pdf_path: str, dpi: int) -> list[bytes]:
     try:
         with fitz.open(pdf_path) as pdf:
             for page in pdf:
-                pages.append(page.get_pixmap(dpi=dpi).tobytes("png"))
+                zoom = dpi / 72.0
+                if max_dim is not None:
+                    rect = page.rect
+                    long_edge = max(float(rect.width), float(rect.height))
+                    if long_edge > 0:
+                        zoom = min(zoom, max_dim / long_edge)
+                pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+                pages.append(pixmap.tobytes("png"))
     except SnapshotError:
         raise
     except Exception as e:  # noqa: BLE001 — any PyMuPDF failure is a render failure
@@ -121,6 +136,7 @@ def render(
     from_page: int | None = None,
     to_page: int | None = None,
     dpi: int = 150,
+    max_dim: int | None = None,
     markup: bool = False,
 ) -> list[tuple[int, bytes]]:
     """Render `[from_page, to_page]` (or the whole doc) to `(page_number, png)` pairs.
@@ -128,6 +144,8 @@ def render(
     Exports to a temporary PDF, rasterises it, and removes the temp file. Page
     numbers are the document's own 1-based numbers: when a span is exported the
     PDF holds only those pages, so the first rasterised page is `from_page`.
+    `dpi` sets the resolution; `max_dim` caps each page's long edge in pixels
+    (see [`_rasterize_pdf`][wordlive._snapshot._rasterize_pdf]).
     `markup=True` renders tracked changes and comments as visible marks.
     """
     # mkstemp creates the file and returns an open fd; close it immediately so
@@ -136,7 +154,7 @@ def render(
     os.close(fd)
     try:
         _export_pdf(doc_com, pdf_path, from_page=from_page, to_page=to_page, markup=markup)
-        pngs = _rasterize_pdf(pdf_path, dpi)
+        pngs = _rasterize_pdf(pdf_path, dpi, max_dim)
     finally:
         try:
             os.unlink(pdf_path)

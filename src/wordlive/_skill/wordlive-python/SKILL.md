@@ -307,12 +307,19 @@ para = doc.paragraphs.at(sel["start"])           # the containing Paragraph (par
 shots = doc.snapshot(pages=(1, 3), dpi=150)      # all | int | (start, end); read .png bytes
 doc.snapshot("report.png", pages=2)              # also write to disk
 doc.snapshot("review.png", markup="all")         # show tracked changes / comments as marks
+doc.snapshot(max_dim=1000)                        # whole doc, cheap layout check (see below)
 png = doc.heading("Introduction").snapshot()[0].png   # an anchor's page(s); heading → section
 ```
 
 Returns a list of `Snapshot` (`.page`, `.png` bytes, `.path`). Word exports a
 pixel-faithful PDF and wordlive rasterises it — real fonts, spacing, geometry.
 Read-only. Needs the optional `snapshot` extra (PyMuPDF), else `SnapshotError`.
+
+To **check styling across a whole multi-page doc cheaply**, render every page
+(no `pages=`) with `max_dim=N` — it caps each page's long edge to `N` pixels.
+A vision model is billed on pixel area, so the cap is a predictable per-page
+token budget (~1000 stays legible); without it, full-resolution pages are
+several times the tokens.
 
 ## Errors — a small typed hierarchy
 

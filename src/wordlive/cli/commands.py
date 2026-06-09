@@ -1359,6 +1359,15 @@ def _fmt_snapshot(images: list[dict[str, Any]], dpi: int) -> str:
     "--dpi", "dpi", type=int, default=150, show_default=True, help="Render resolution (dots/inch)."
 )
 @click.option(
+    "--max-dim",
+    "max_dim",
+    type=int,
+    default=None,
+    help="Cap each page's long edge to this many pixels (only ever lowers resolution). "
+    "The lever for a cheap whole-document layout check — ~1000 stays legible at a "
+    "fraction of the tokens; predictable per-page cost regardless of paper size.",
+)
+@click.option(
     "--markup",
     "markup",
     type=click.Choice(["none", "all"]),
@@ -1374,6 +1383,7 @@ def snapshot_cmd(
     pages_range: str | None,
     out: Path | None,
     dpi: int,
+    max_dim: int | None,
     markup: str,
 ) -> None:
     """Render document page(s) to PNG so a vision model can see the layout.
@@ -1387,6 +1397,11 @@ def snapshot_cmd(
     none, the whole document is rendered. With `--out` the image is written to
     disk (one file per page); otherwise base64 PNG data is returned inline.
 
+    `--max-dim N` caps each page's long edge to N pixels — pair it with no page
+    target to eyeball the whole document's layout cheaply (a vision model is
+    billed on pixel area, so the cap gives a predictable per-page token budget;
+    ~1000 stays legible). `--dpi 72` is a coarser alternative.
+
     `--markup all` shows tracked changes and comments as visible revision marks
     and balloons (the structured list is the `revisions` command).
 
@@ -1397,6 +1412,8 @@ def snapshot_cmd(
         raise click.UsageError("provide at most one of --anchor-id, --page, or --pages")
     if dpi < 1:
         raise click.UsageError("--dpi must be >= 1")
+    if max_dim is not None and max_dim < 1:
+        raise click.UsageError("--max-dim must be >= 1")
     if page is not None and page < 1:
         raise click.UsageError("--page must be >= 1")
     pages_arg: int | tuple[int, int] | None = None
@@ -1410,10 +1427,10 @@ def snapshot_cmd(
             doc = _pick_doc(word, ctx.obj["doc_name"])
             if anchor_id is not None:
                 anchor = doc.anchor_by_id(anchor_id)
-                shots = doc.snapshot_anchor(anchor, out, dpi=dpi, markup=markup)
+                shots = doc.snapshot_anchor(anchor, out, dpi=dpi, max_dim=max_dim, markup=markup)
                 selector: Any = anchor_id
             else:
-                shots = doc.snapshot(out, pages=pages_arg, dpi=dpi, markup=markup)
+                shots = doc.snapshot(out, pages=pages_arg, dpi=dpi, max_dim=max_dim, markup=markup)
                 selector = pages_range or page or "all"
             images: list[dict[str, Any]] = []
             for s in shots:
@@ -1423,14 +1440,17 @@ def snapshot_cmd(
                 else:
                     entry["base64"] = base64.b64encode(s.png).decode("ascii")
                 images.append(entry)
+            payload: dict[str, Any] = {
+                "ok": True,
+                "selector": selector,
+                "dpi": dpi,
+                "count": len(images),
+                "images": images,
+            }
+            if max_dim is not None:
+                payload["max_dim"] = max_dim
             emit(
-                {
-                    "ok": True,
-                    "selector": selector,
-                    "dpi": dpi,
-                    "count": len(images),
-                    "images": images,
-                },
+                payload,
                 as_text=not ctx.obj["as_json"],
                 text=_fmt_snapshot(images, dpi),
             )

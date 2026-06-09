@@ -297,7 +297,11 @@ occupies, expanding a heading to its whole section. Both return a list of
 `Snapshot` (one per page) and optionally write the image(s) to `out`. Pass
 `markup="all"` to render tracked changes and comments as visible revision marks
 and balloons instead of the final document (the structured counterpart is
-[`Document.revisions`](#wordlive.RevisionCollection)). This needs the optional
+[`Document.revisions`](#wordlive.RevisionCollection)). `dpi` (default 150) sets
+resolution; `max_dim` caps each page's long edge in pixels (only ever lowering
+it) — the lever for a cheap *whole-document* layout check, since a vision model's
+token cost scales with pixel area, so a long-edge cap is a predictable per-page
+budget regardless of paper size (~1000 stays legible). This needs the optional
 `snapshot` extra (PyMuPDF); a missing backend raises
 [`SnapshotError`](#wordlive.SnapshotError).
 
@@ -309,6 +313,7 @@ with wl.attach() as word:
     png = doc.heading("Introduction").snapshot()[0].png   # bytes for a model
     doc.snapshot("report.png", pages=(1, 3))              # write pages 1-3
     doc.snapshot("review.png", markup="all")              # show tracked changes
+    shots = doc.snapshot(max_dim=1000)                    # whole doc, cheap layout check
 ```
 
 ::: wordlive.Snapshot

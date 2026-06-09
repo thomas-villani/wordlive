@@ -600,7 +600,7 @@ or an invalid `--wrap` value; `3` Word busy.
 
 ```
 wordlive snapshot [--anchor-id ID | --page N | --pages A-B] \
-    [--out FILE] [--dpi 150] [--markup none|all] [--doc DOC_NAME]
+    [--out FILE] [--dpi 150] [--max-dim N] [--markup none|all] [--doc DOC_NAME]
 ```
 
 Render document page(s) to PNG so a **vision model can see the layout** — real
@@ -620,6 +620,18 @@ Output: with `--out FILE` the image is written to disk — a single page to `FIL
 multiple pages alongside it as `<stem>-p<N><suffix>`. **Without `--out`, base64
 PNG data is returned inline** in the JSON (`images[].base64`), which suits an LLM
 that wants to look at the page directly. `--dpi` (default `150`) sets resolution.
+
+`--max-dim N` caps each page's **long edge** to `N` pixels (only ever lowering
+resolution). A vision model is billed on an image's pixel area, so a long-edge
+cap is a predictable per-page token budget regardless of paper size — the lever
+for a cheap **whole-document** layout check (pair it with no page target; ~1000
+stays legible for "did my styling land"). It composes with `--dpi` (the cap wins
+when it implies a lower resolution); `--dpi 72` is a coarser alternative.
+
+```bash
+$ wordlive snapshot --max-dim 1000          # whole doc, every page capped to 1000px long edge
+{"ok": true, "selector": "all", "dpi": 150, "max_dim": 1000, "count": 12, "images": [...]}
+```
 
 `--markup all` renders tracked changes and comments as visible revision marks
 and balloons (default `none` renders the final document); the structured list is

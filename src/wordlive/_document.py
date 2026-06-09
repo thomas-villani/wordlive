@@ -854,6 +854,7 @@ class Document:
         *,
         pages: int | tuple[int, int] | None = None,
         dpi: int = 150,
+        max_dim: int | None = None,
         markup: str = "none",
     ) -> list[Snapshot]:
         """Render document page(s) to PNG so a vision model can *see* the layout.
@@ -877,30 +878,55 @@ class Document:
         counterpart is [`revisions`][wordlive.Document.revisions].
 
         `dpi` controls resolution; ~150 reads well for a vision model without
-        bloating the image. Read-only — the document and the user's cursor are
-        untouched. Requires the `snapshot` extra (PyMuPDF), else
-        [`SnapshotError`][wordlive.SnapshotError].
+        bloating the image. `max_dim` caps each page's **long edge** in pixels,
+        only ever lowering the resolution — the lever for a cheap *whole-document*
+        layout check (a vision model is billed on pixel area, so a long-edge cap
+        gives a predictable per-page token budget regardless of paper size; ~1000
+        keeps a page legible for "did my styling land" at a fraction of the
+        tokens). `dpi=72` is a coarser alternative. Read-only — the document and
+        the user's cursor are untouched. Requires the `snapshot` extra (PyMuPDF),
+        else [`SnapshotError`][wordlive.SnapshotError].
         """
+        if max_dim is not None and (isinstance(max_dim, bool) or int(max_dim) < 1):
+            raise OpError(f"max_dim must be a positive integer (pixels); got {max_dim!r}")
         from_page, to_page = self._resolve_page_arg(pages)
         rendered = _snapshot.render(
-            self._doc, from_page=from_page, to_page=to_page, dpi=dpi, markup=_markup_flag(markup)
+            self._doc,
+            from_page=from_page,
+            to_page=to_page,
+            dpi=dpi,
+            max_dim=max_dim,
+            markup=_markup_flag(markup),
         )
         return _snapshot.build_snapshots(rendered, out)
 
     def snapshot_anchor(
-        self, anchor: Anchor, out: str | Path | None = None, *, dpi: int = 150, markup: str = "none"
+        self,
+        anchor: Anchor,
+        out: str | Path | None = None,
+        *,
+        dpi: int = 150,
+        max_dim: int | None = None,
+        markup: str = "none",
     ) -> list[Snapshot]:
         """Render the page(s) an anchor sits on. Backs [`Anchor.snapshot`][wordlive.Anchor.snapshot].
 
         A `heading:` anchor expands to its whole section (the heading plus the
         body beneath it, up to the next same-or-higher heading); any other
         anchor renders the page(s) its range spans. See
-        [`snapshot`][wordlive.Document.snapshot] for `out`/`dpi`/`markup`
+        [`snapshot`][wordlive.Document.snapshot] for `out`/`dpi`/`max_dim`/`markup`
         semantics and the return shape.
         """
+        if max_dim is not None and (isinstance(max_dim, bool) or int(max_dim) < 1):
+            raise OpError(f"max_dim must be a positive integer (pixels); got {max_dim!r}")
         from_page, to_page = self._anchor_page_span(anchor)
         rendered = _snapshot.render(
-            self._doc, from_page=from_page, to_page=to_page, dpi=dpi, markup=_markup_flag(markup)
+            self._doc,
+            from_page=from_page,
+            to_page=to_page,
+            dpi=dpi,
+            max_dim=max_dim,
+            markup=_markup_flag(markup),
         )
         return _snapshot.build_snapshots(rendered, out)
 

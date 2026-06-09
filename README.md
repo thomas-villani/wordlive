@@ -124,6 +124,7 @@ wordlive read-image --anchor-id image:1 --out logo.png     # extract bytes + mim
 wordlive snapshot --anchor-id heading:3 --out section.png   # the section's page(s)
 wordlive snapshot --page 2 --out p2.png                     # one page
 wordlive snapshot --pages 1-3                               # base64 PNGs inline (JSON)
+wordlive snapshot --max-dim 1000                            # whole doc, low-res layout check
 
 # Batch multiple ops in a single Ctrl-Z:
 wordlive exec --script ops.json

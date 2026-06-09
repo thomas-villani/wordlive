@@ -317,7 +317,9 @@ class TestSnapshotImpl:
         monkeypatch.setattr(
             Document,
             "snapshot",
-            lambda self, pages=None, dpi=150, markup="none": [_FakeSnap(3, b"\x89PNGdata")],
+            lambda self, pages=None, dpi=150, max_dim=None, markup="none": [
+                _FakeSnap(3, b"\x89PNGdata")
+            ],
         )
         pairs = _snapshot_impl(W, doc=None, pages="3", anchor=None, dpi=150, markup="none")
         assert pairs == [(3, b"\x89PNGdata")]
@@ -327,13 +329,26 @@ class TestSnapshotImpl:
 
         seen: dict[str, Any] = {}
 
-        def fake_snapshot(self, pages=None, dpi=150, markup="none"):
+        def fake_snapshot(self, pages=None, dpi=150, max_dim=None, markup="none"):
             seen["markup"] = markup
             return [_FakeSnap(1, b"\x89PNGx")]
 
         monkeypatch.setattr(Document, "snapshot", fake_snapshot)
         _snapshot_impl(W, doc=None, pages="1", anchor=None, dpi=150, markup="all")
         assert seen["markup"] == "all"
+
+    def test_max_dim_threads_through(self, fake_word: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wordlive._document import Document
+
+        seen: dict[str, Any] = {}
+
+        def fake_snapshot(self, pages=None, dpi=150, max_dim=None, markup="none"):
+            seen["max_dim"] = max_dim
+            return [_FakeSnap(1, b"\x89PNGx")]
+
+        monkeypatch.setattr(Document, "snapshot", fake_snapshot)
+        _snapshot_impl(W, doc=None, pages="1", anchor=None, dpi=150, markup="none", max_dim=1000)
+        assert seen["max_dim"] == 1000
 
 
 # ---------------------------------------------------------------------------
@@ -391,7 +406,9 @@ class TestSession:
         monkeypatch.setattr(
             Document,
             "snapshot",
-            lambda self, pages=None, dpi=150, markup="none": [_FakeSnap(1, b"\x89PNGdata")],
+            lambda self, pages=None, dpi=150, max_dim=None, markup="none": [
+                _FakeSnap(1, b"\x89PNGdata")
+            ],
         )
 
         async def go() -> Any:
