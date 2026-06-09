@@ -406,6 +406,38 @@ def _validate_table_data(data: Any, rows: int, cols: int) -> None:
             )
 
 
+def _normalize_table_data(data: Any) -> tuple[list[list[Any]], bool]:
+    """Coerce a table `data` payload into a row-major grid + a header flag.
+
+    Two shapes are accepted so the caller can hand over tabular data however it
+    has it:
+
+    - **2-D array** — ``[[r1c1, r1c2], …]`` is returned unchanged with
+      ``header=False`` (the caller's own `header` choice then wins).
+    - **Records** — ``[{col: val, …}, …]`` (a list of dicts): the first record's
+      keys become the header row and each dict contributes a body row, so the
+      grid comes back ``header=True``. The first record fixes the column order;
+      later records fill by key (a missing key is an empty cell, extra keys are
+      ignored). This is the natural LLM "rows of objects" shape.
+
+    Raises `OpError` for a non-list payload or a list that mixes dict and list
+    rows (an ambiguous shape).
+    """
+    if not isinstance(data, list):
+        raise OpError(f"table data must be a list; got {type(data).__name__}")
+    if not data:
+        return [], False
+    dict_rows = [isinstance(row, dict) for row in data]
+    if all(dict_rows):
+        columns = list(data[0].keys())
+        grid: list[list[Any]] = [list(columns)]
+        grid.extend([rec.get(col, "") for col in columns] for rec in data)
+        return grid, True
+    if any(dict_rows):
+        raise OpError("table data mixes object rows and array rows; use one shape")
+    return data, False
+
+
 def _within_table(doc_com: Any, start: int, end: int) -> bool:
     """Whether the `[start, end)` span sits inside a table.
 
@@ -675,6 +707,97 @@ class Anchor(ABC):
                 styled = doc_com.Range(text_start, text_start + _utf16_len(text))
                 styled.Style = style_obj.com
 
+    def insert_block(self, items: list[Any], *, where: str = "after") -> RangeAnchor:
+        """Insert a contiguous run of styled paragraphs at this anchor, atomically.
+
+        The multi-paragraph counterpart to `insert_paragraph_after` — drop a
+        whole styled section (a feature list, a set of bullets, a heading plus
+        its body) in **one** op, in natural reading order. Inserting paragraphs
+        one at a time forces a reverse-order dance to dodge positional-anchor
+        renumbering; this places them all at a single point so order is just the
+        order of `items`.
+
+        Each item is one paragraph, given as either a plain string or a dict:
+
+        - ``"some text"`` — sugar for ``{"text": "some text"}``.
+        - ``{"text": "**Bold lead** — rest", "style": "List Bullet"}`` — `text`
+          carries the tiny inline markdown (`**bold**`, `*italic*`,
+          `***both***`; escape a literal asterisk as ``\\*``), and `style` names
+          the paragraph style.
+        - ``{"runs": [{"text": "Bold lead", "bold": true}, {"text": " — rest"}],
+          "style": "List Bullet"}`` — the structured form: each run is
+          ``{text, bold?, italic?, underline?, style?}`` (a per-run character
+          style). Use it when markup is ambiguous or you need a run `style`.
+
+        Returns a [`RangeAnchor`][wordlive.RangeAnchor] spanning the inserted
+        block (`range:START-END`), so a follow-up op can target the whole run —
+        e.g. `apply_list` it into a bulleted section, or comment on it. `where`
+        is ``"after"`` (default) or ``"before"`` this anchor's range. Resolves
+        every paragraph/run style up front, so an unknown style name raises
+        `StyleNotFoundError` before any text is inserted. Wrap in `doc.edit(...)`
+        for atomic undo. Raises `OpError` for a malformed `items` payload.
+        """
+        from ._runs import normalize_block_items, runs_to_text
+
+        if where not in ("before", "after"):
+            raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+        norm = normalize_block_items(items)
+        # Resolve every paragraph + run style before touching the document, so a
+        # bad name fails the whole block cleanly rather than leaving a partial,
+        # half-styled run behind.
+        para_styles = [self._doc.styles[s] if s else None for _, s in norm]
+        run_styles: dict[str, Any] = {}
+        for runs, _ in norm:
+            for r in runs:
+                if r.style and r.style not in run_styles:
+                    run_styles[r.style] = self._doc.styles[r.style]
+        para_texts = [runs_to_text(runs) for runs, _ in norm]
+        joined = "\r".join(para_texts)
+        with _com.translate_com_errors():
+            doc_com = self._doc.com
+            if where == "before":
+                start = int(self._range().Start)
+                doc_com.Range(start, start).Text = joined + "\r"
+            else:
+                end = int(self._range().End)
+                doc_end = int(doc_com.Content.End)
+                if end >= doc_end:
+                    # At/after the undeletable final mark there's no position to
+                    # write past; split the block in before it (mirrors
+                    # insert_paragraph_after's end-of-document handling).
+                    pos = max(0, doc_end - 1)
+                    doc_com.Range(pos, pos).Text = "\r" + joined
+                    start = pos + 1
+                else:
+                    doc_com.Range(end, end).Text = joined + "\r"
+                    start = end
+            span_end = start + _utf16_len(joined)
+            # Paragraph styling and run formatting both preserve text length, so
+            # offsets stay valid throughout: walk the block by deterministic
+            # UTF-16 offset (Word counts code units) rather than re-querying
+            # Paragraphs() after each mutation.
+            off = start
+            for (runs, _), style_obj, ptext in zip(norm, para_styles, para_texts, strict=True):
+                plen = _utf16_len(ptext)
+                if style_obj is not None:
+                    doc_com.Range(off, off + plen).Paragraphs(1).Range.Style = style_obj.com
+                roff = off
+                for run in runs:
+                    rlen = _utf16_len(run.text)
+                    if run.formatted():
+                        sub = doc_com.Range(roff, roff + rlen)
+                        if run.bold is not None:
+                            sub.Bold = bool(run.bold)
+                        if run.italic is not None:
+                            sub.Italic = bool(run.italic)
+                        if run.underline is not None:
+                            sub.Underline = 1 if run.underline else 0
+                        if run.style:
+                            sub.Style = run_styles[run.style].com
+                    roff += rlen
+                off += plen + 1  # + the paragraph mark (CR)
+        return RangeAnchor(self._doc, start, span_end)
+
     def insert_image(
         self,
         image: str | Path | bytes,
@@ -760,12 +883,12 @@ class Anchor(ABC):
 
     def insert_table(
         self,
-        rows: int,
-        cols: int,
+        rows: int | None = None,
+        cols: int | None = None,
         *,
         where: str = "after",
         style: str | None = None,
-        data: list[list[Any]] | None = None,
+        data: list[Any] | None = None,
         header: bool = False,
     ) -> Any:
         """Create a `rows` × `cols` table at this anchor and return it.
@@ -786,26 +909,49 @@ class Anchor(ABC):
         available, so a table has visible borders by default rather than the
         invisible cell gridlines of a styleless table.
 
-        `data` populates the cells at creation: a row-major 2-D list
-        (``[[r1c1, r1c2], …]``), validated against `rows` × `cols` up front
-        (`OpError` on overflow). A short or partial `data` leaves the remaining
-        cells empty. Filling at creation keeps the whole grid in one atomic
-        undo and beats a `set_cell` storm.
+        `data` populates the cells at creation and can be given two ways:
 
-        `header=True` bolds the first row as a header. Wrap in `doc.edit(...)`
-        for atomic undo. Raises `ValueError` for an unknown `where` and
-        `OpError` for a non-positive `rows`/`cols` or a bad `data` shape.
+        - a **row-major 2-D list** (``[[r1c1, r1c2], …]``); or
+        - **records** — a list of dicts (``[{"Item": "Travel", "Cost": "$400"},
+          …]``), where the first record's keys become a header row and each
+          dict a body row (so `header` is forced on). The natural shape for
+          tabular data an LLM already has as rows of objects.
+
+        When `data` is given, `rows`/`cols` are **optional** — they're inferred
+        from the data's shape — so the common case is just
+        ``end.insert_table(data=…)``. Pass them explicitly to pad the grid
+        larger than the data; `data` is validated against the final `rows` ×
+        `cols` up front (`OpError` on overflow) and a short payload leaves the
+        trailing cells empty. Filling at creation keeps the whole grid in one
+        atomic undo and beats a `set_cell` storm. With no `data`, both `rows`
+        and `cols` are required.
+
+        `header=True` bolds the first row as a header (records imply it). Wrap
+        in `doc.edit(...)` for atomic undo. Raises `ValueError` for an unknown
+        `where` and `OpError` for a non-positive `rows`/`cols`, a missing
+        dimension with no data to infer it from, or a bad `data` shape.
         """
         from ._tables import Table, index_of
 
         if where not in ("before", "after"):
             raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+        # Normalise data first so rows/cols can be inferred from its shape.
+        grid: list[list[Any]] | None = None
+        if data is not None:
+            grid, header_from_data = _normalize_table_data(data)
+            header = header or header_from_data
+            if rows is None:
+                rows = len(grid)
+            if cols is None:
+                cols = max((len(r) for r in grid), default=0)
+        if rows is None or cols is None:
+            raise OpError("insert_table needs rows and cols, or a data payload to infer them from")
         if isinstance(rows, bool) or not isinstance(rows, int) or rows < 1:
             raise OpError(f"table rows must be a positive integer; got {rows!r}")
         if isinstance(cols, bool) or not isinstance(cols, int) or cols < 1:
             raise OpError(f"table cols must be a positive integer; got {cols!r}")
-        if data is not None:
-            _validate_table_data(data, rows, cols)
+        if grid is not None:
+            _validate_table_data(grid, rows, cols)
         # Resolve the style up-front so a bad name fails before any mutation.
         if style is not None:
             style_obj = self._doc.styles[style]  # StyleNotFoundError (exit 2) if missing
@@ -855,8 +1001,8 @@ class Anchor(ABC):
                 for r in range(1, rows + 1):
                     for c in range(1, cols + 1):
                         table_com.Cell(r, c).Range.Style = normal_com
-            if data:
-                for r, row in enumerate(data, start=1):
+            if grid:
+                for r, row in enumerate(grid, start=1):
                     for c, val in enumerate(row, start=1):
                         table_com.Cell(r, c).Range.Text = str(val)
             if header:

@@ -83,6 +83,11 @@ a.insert_before("Prefix ")              # inline insert, left
 a.insert_after(" (verified)")           # inline insert, right
 a.insert_paragraph_before("…", style="Body Text")
 a.insert_paragraph_after("New paragraph.", style="Body Text")
+a.insert_block([                         # contiguous styled paragraphs in one op → RangeAnchor
+    {"text": "**Politeness** first.", "style": "List Bullet"},   # item text takes **bold**/*italic*
+    {"runs": [{"text": "Atomic undo", "bold": True}, {"text": " — one Ctrl-Z."}], "style": "List Bullet"},
+    "Plain third bullet.",
+])                                       # → feed rng.anchor_id to apply_list("bulleted")
 a.apply_style("Heading 2")
 a.format_paragraph(alignment="center", space_before=6, page_break_before=True,
                    keep_with_next=True, keep_together=True, widow_control=True)  # pagination
@@ -99,7 +104,8 @@ a.insert_cross_reference("bookmark:Intro", kind="page")  # ref a bookmark/headin
 a.insert_caption("Figure", text="System overview")       # own-paragraph caption (Table→above, else below; position= to override)
 a.insert_image("diagram.png", wrap="auto")
 a.read_image()                          # → (bytes, mime) — extract the one image in the range
-a.insert_table(2, 2, data=[["Item", "Cost"], ["Travel", "$400"]], header=True)
+a.insert_table(data=[["Item", "Cost"], ["Travel", "$400"]], header=True)  # rows/cols inferred from data
+a.insert_table(data=[{"Item": "Travel", "Cost": "$400"}])  # records → keys become a bolded header row
 a.apply_list("numbered")                # + remove_list/list_info/restart_numbering/indent_list/outdent_list
 a.snapshot("section.png")               # render the page(s) it sits on (heading → whole section)
 a.delete()
@@ -256,7 +262,9 @@ with doc.edit("Build + edit tables"):
 ```
 
 `add_table`/`insert_table` default to the `Table Grid` style (visible borders);
-a cell *is* an anchor (`table:N:R:C`), so it takes `set_text`/`apply_style`/etc.
+`data` is a row-major 2-D array **or** records (a list of dicts whose keys
+become a header row), and `rows`/`cols` are inferred from `data` when omitted.
+A cell *is* an anchor (`table:N:R:C`), so it takes `set_text`/`apply_style`/etc.
 
 ### Lists, sections, headers/footers
 

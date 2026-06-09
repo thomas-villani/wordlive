@@ -443,6 +443,93 @@ def test_exec_create_table_missing_field_fails_cleanly(fake_word):
 
 
 # ---------------------------------------------------------------------------
+# table from tabular data — records + dimension inference
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_table_data_records_to_grid():
+    from wordlive._anchors import _normalize_table_data
+
+    grid, header = _normalize_table_data(
+        [{"Item": "Travel", "Cost": "$400"}, {"Item": "Lodging", "Cost": "$600"}]
+    )
+    assert header is True
+    assert grid == [["Item", "Cost"], ["Travel", "$400"], ["Lodging", "$600"]]
+
+
+def test_normalize_table_data_array_passes_through():
+    from wordlive._anchors import _normalize_table_data
+
+    grid, header = _normalize_table_data([["a", "b"], ["c", "d"]])
+    assert header is False
+    assert grid == [["a", "b"], ["c", "d"]]
+
+
+def test_normalize_table_data_records_missing_key_is_empty_cell():
+    from wordlive._anchors import _normalize_table_data
+
+    # First record fixes the columns; a later record missing a key → empty cell.
+    grid, _ = _normalize_table_data([{"A": "1", "B": "2"}, {"A": "3"}])
+    assert grid == [["A", "B"], ["1", "2"], ["3", ""]]
+
+
+def test_normalize_table_data_mixed_shape_raises():
+    from wordlive._anchors import _normalize_table_data
+
+    with pytest.raises(OpError, match="mixes"):
+        _normalize_table_data([{"A": "1"}, ["B", "2"]])
+
+
+def test_add_table_from_records_infers_dims_and_header(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("records table"):
+            t = doc.end.insert_table(
+                data=[{"Item": "Travel", "Cost": "$400"}, {"Item": "Lodging", "Cost": "$600"}]
+            )
+        assert t.row_count == 3 and t.column_count == 2
+        assert t.grid() == [["Item", "Cost"], ["Travel", "$400"], ["Lodging", "$600"]]
+
+
+def test_add_table_from_array_infers_dims(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("array table"):
+            t = doc.end.insert_table(data=[["Name", "Qty"], ["Widget", "3"]])
+        assert t.row_count == 2 and t.column_count == 2
+        assert t.grid() == [["Name", "Qty"], ["Widget", "3"]]
+
+
+def test_insert_table_without_dims_or_data_raises(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(OpError, match="rows and cols"):
+            doc.end.insert_table()
+
+
+def test_insert_table_explicit_dims_pad_beyond_data(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("padded"):
+            t = doc.end.insert_table(4, 2, data=[["a", "b"]])
+        assert t.row_count == 4 and t.column_count == 2
+
+
+def test_exec_create_table_from_records(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [{"op": "create_table", "anchor_id": "end", "data": [{"X": "1", "Y": "2"}]}],
+            label="rec",
+        )
+        assert exc is None
+        out = result["outputs"][0]
+        assert (out["rows"], out["columns"]) == (2, 2)
+        assert doc.tables[out["table"]].grid() == [["X", "Y"], ["1", "2"]]
+
+
+# ---------------------------------------------------------------------------
 # anchor_by_id resolution
 # ---------------------------------------------------------------------------
 

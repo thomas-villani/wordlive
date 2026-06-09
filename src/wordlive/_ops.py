@@ -37,7 +37,8 @@ def pick_doc(word: Word, doc_name: str | None) -> Document:
 OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "write_bookmark": ("name", "text"),
     "write_cc": ("name", "text"),
-    "insert_paragraph": ("anchor_id", "text"),
+    "insert_paragraph": ("anchor_id",),  # exactly one of text/runs (checked in apply_op)
+    "insert_block": ("anchor_id", "items"),
     "delete_paragraph": ("anchor_id",),
     "append_paragraph": ("text",),
     "append": ("text",),
@@ -70,7 +71,7 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "add_row": ("table",),
     "delete_row": ("table", "row"),
     "set_heading_row": ("table",),
-    "create_table": ("anchor_id", "rows", "cols"),
+    "create_table": ("anchor_id",),  # rows/cols required only without data (apply_op)
     "delete_table": ("table",),
     "insert_break": ("anchor_id",),
     "add_comment": ("anchor_id", "text"),
@@ -148,7 +149,8 @@ _PAGE_SETUP_FIELDS = (
 OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "write_bookmark": (),
     "write_cc": (),
-    "insert_paragraph": ("style", *_WHERE_FIELDS),
+    "insert_paragraph": ("text", "runs", "style", *_WHERE_FIELDS),
+    "insert_block": ("items", *_WHERE_FIELDS),
     "delete_paragraph": (),
     "append_paragraph": ("style",),
     "append": ("style",),
@@ -190,7 +192,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "add_row": ("values",),
     "delete_row": (),
     "set_heading_row": ("row", "heading", "allow_break"),
-    "create_table": ("style", "data", "header", *_WHERE_FIELDS),
+    "create_table": ("rows", "cols", "style", "data", "header", *_WHERE_FIELDS),
     "delete_table": (),
     "insert_break": ("kind", *_WHERE_FIELDS),
     "add_comment": ("author",),
@@ -263,11 +265,26 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
     elif kind == "write_cc":
         doc.content_controls[op["name"]].set_text(op["text"])
     elif kind == "insert_paragraph":
+        if ("text" in op) == ("runs" in op):
+            raise OpError("op 'insert_paragraph' requires exactly one of 'text' or 'runs'")
         anchor = doc.anchor_by_id(op["anchor_id"])
-        if op_before(op):
+        if "runs" in op:
+            # Structured inline formatting — route through the block primitive
+            # (one item). `text` stays a literal plain insert (no markdown sugar);
+            # markdown lives in insert_block's item text.
+            anchor.insert_block(
+                [{"runs": op["runs"], "style": op.get("style")}],
+                where=("before" if op_before(op) else "after"),
+            )
+        elif op_before(op):
             anchor.insert_paragraph_before(op["text"], style=op.get("style"))
         else:
             anchor.insert_paragraph_after(op["text"], style=op.get("style"))
+    elif kind == "insert_block":
+        rng = doc.anchor_by_id(op["anchor_id"]).insert_block(
+            op["items"], where=("before" if op_before(op) else "after")
+        )
+        return {"anchor_id": rng.anchor_id, "paragraphs": len(op["items"])}
     elif kind == "delete_paragraph":
         doc.delete_paragraph(op["anchor_id"])
     elif kind in ("append", "append_paragraph"):
@@ -399,9 +416,11 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
     elif kind == "create_table":
         anchor = doc.anchor_by_id(op["anchor_id"])
         kwargs = {k: op[k] for k in ("style", "data", "header") if k in op}
+        # rows/cols are optional when `data` is present — insert_table infers
+        # them (and raises OpError if they're missing with nothing to infer from).
         table = anchor.insert_table(
-            int(op["rows"]),
-            int(op["cols"]),
+            int(op["rows"]) if "rows" in op else None,
+            int(op["cols"]) if "cols" in op else None,
             where=("before" if op_before(op) else "after"),
             **kwargs,
         )

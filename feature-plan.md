@@ -786,11 +786,21 @@ ergonomics items, triaged into 0.12.0 vs. the next cycle:
     surfaces. *Error messages leaked control chars* (§6) — boundary message
     normalised. *Batch anchor-resolution model* (§6) — documented as per-op live
     resolution in both SKILLs.
+- ✅ **Shipped 2026-06-09 (block insert + inline runs + table-from-data).**
+  - **Multi-paragraph block insert + inline runs** (§3): `Anchor.insert_block`
+    places a contiguous run of styled paragraphs atomically (CLI `insert-block`,
+    the `insert_block` op, `word_write`/`word_exec`) and returns the block's
+    `range:START-END` for a follow-on `apply_list`/comment. Inline runs land via
+    `runs:[{text, bold?, italic?, underline?, style?}]` (on `insert_block` items
+    and the `insert_paragraph` op / CLI `insert --runs`) **and** a tiny
+    `**bold**`/`*italic*`/`***both***` markdown in any item `text` (escapes
+    `\*`/`\\`) — the "bold lead-in bullet" is now one op. Plain `insert --text`
+    stays literal. Parser lives in `_runs.py`.
+  - **Table from tabular data** (relatedly): `insert_table` / `table create` /
+    `create_table` accept **records** (a list of dicts whose keys become a bolded
+    header row) alongside the 2-D array, and infer `rows`/`cols` from `data` when
+    omitted — so the common case is `table create --data …` / `insert_table(data=…)`.
 - ⏳ **Deferred to a later cluster.**
-  - **Multi-paragraph block insert + inline runs** (§3): `insert_block` /
-    `insert_paragraphs {items:[{text, style}]}` placing a contiguous run
-    atomically, and inline run support in insert ops (`runs:[{text, bold?,…}]` or
-    lightweight `**markup**`). The frequent "bold lead-in bullet" pattern.
   - **Intra-batch output refs + durable insert handles** (§5): let an op
     reference a prior op's output (`anchor_id: "$ops[0].table"`), and an optional
     `bind: "name"` that mints a bookmark on inserted content (a durable handle vs.
