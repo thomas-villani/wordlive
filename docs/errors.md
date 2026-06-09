@@ -17,8 +17,10 @@ Exception
     ├── AmbiguousMatchError
     ├── ReplaceVerificationError
     ├── ImageSourceError
+    ├── PathNotAllowedError
     ├── SnapshotError
     ├── WordBusyError
+    ├── OpError
     └── ComError
 ```
 
@@ -90,6 +92,19 @@ It's a *bad-input* error — not a missing named thing — so it maps to the
 generic exit code (1) rather than reusing the anchor-not-found code.
 **Not retryable**: fix the input.
 
+### `PathNotAllowedError`
+A filesystem path was refused by the gated CLI / MCP surface's default-deny
+policy. The Python API is trusted and ungated, but the CLI and MCP surfaces —
+whose inputs can be prompt-injected — run every path through a whitelist. Raised
+when a **save / save-as / export-pdf** target falls outside the configured
+save-directory whitelist (or none is set, so saving is off), or when an
+**image-source path** is a non-local form (UNC `\\…`, `file://`, a URL) or sits
+outside the optional image-directory allowlist. It's a policy denial / bad-input
+error, so it maps to the generic exit code (1) and surfaces `code:
+"path_not_allowed"` to MCP clients. **Not retryable**: configure a whitelist
+(`--save-dir` / `WORDLIVE_SAVE_DIRS`, `--image-dir` / `WORDLIVE_IMAGE_DIRS`) or
+pass a local path inside it.
+
 ### `SnapshotError`
 A page/section [`snapshot`](python-api.md#snapshots) couldn't be rendered —
 almost always because the optional PDF backend (PyMuPDF) isn't installed, or
@@ -104,6 +119,13 @@ Word rejected the COM RPC. This usually means a modal dialog is open (Save
 As, Find & Replace, etc.) or Word is mid-operation. **Retryable** with
 exponential back-off. The HRESULT is on `.hresult`; `.retryable` is always
 `True` so callers can pattern-match generically.
+
+### `OpError`
+A batch/`exec` op — or a single dispatched write — was malformed: an unknown op
+kind, a missing required field, or a mutually exclusive pair given together
+(e.g. both `path` and `base64` for an image, or both `text` and `runs` on an
+`insert`). It's a bad-input error — fix the request — so it maps to the generic
+exit code (1) and `code: "error"` for MCP clients. **Not retryable** as-is.
 
 ### `ComError`
 Catch-all for any other classified COM error. Carries `.hresult` and
@@ -136,7 +158,7 @@ The CLI maps the exception hierarchy onto six exit codes, defined in
 | Exit | Exception(s)                                | Meaning                          | Retry?                |
 | ---- | ------------------------------------------- | -------------------------------- | --------------------- |
 | `0`  | —                                           | success                          | —                     |
-| `1`  | `WordliveError` (default), `DocumentNotFoundError`, `ImageSourceError`, `SnapshotError`, `ReplaceVerificationError` | other / unclassified | depends on cause |
+| `1`  | `WordliveError` (default), `DocumentNotFoundError`, `ImageSourceError`, `PathNotAllowedError`, `SnapshotError`, `ReplaceVerificationError`, `OpError` | other / unclassified | depends on cause |
 | `2`  | `AnchorNotFoundError`, `StyleNotFoundError`  | bookmark / cc / heading / style missing, or `find` had zero matches | yes, after re-reading content |
 | `3`  | `WordBusyError`                              | modal dialog or busy RPC         | **yes**, with back-off |
 | `4`  | `WordNotRunningError`                        | no Word instance                 | only if user launches Word |

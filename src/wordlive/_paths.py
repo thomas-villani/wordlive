@@ -17,7 +17,7 @@ Two boundaries:
   SMB/NTLM auth, the sharpest threat), plus an optional image-directory
   allowlist (`--image-dir` / `WORDLIVE_IMAGE_DIRS`).
 
-All refusals raise [`PathNotAllowedError`][wordlive.exceptions.PathNotAllowedError].
+All refusals raise [`PathNotAllowedError`][wordlive.PathNotAllowedError].
 """
 
 from __future__ import annotations
