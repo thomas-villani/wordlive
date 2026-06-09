@@ -398,7 +398,8 @@ class WdReferenceKind(IntEnum):
 class WdCaptionPosition(IntEnum):
     """`InsertCaption(Position=...)` — whether a caption goes above or below.
 
-    `insert_caption` defaults to `BELOW` (the figure convention).
+    `insert_caption` picks by convention when no position is given: `ABOVE` for
+    a ``"Table"`` label, `BELOW` for figures and everything else.
     """
 
     ABOVE = 0

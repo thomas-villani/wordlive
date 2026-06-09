@@ -115,6 +115,59 @@ def test_format_paragraph_page_break_before_false_clears(fake_word):
 
 
 # ---------------------------------------------------------------------------
+# format_paragraph pagination controls — keep_together / keep_with_next /
+# widow_control (tri-state: None leaves the property untouched)
+# ---------------------------------------------------------------------------
+
+
+def test_format_paragraph_pagination_flags(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.bookmarks["Address"].format_paragraph(
+            keep_together=True, keep_with_next=True, widow_control=False
+        )
+    pf = fake_word.ActiveDocument.Bookmarks("Address").Range.ParagraphFormat
+    assert pf.KeepTogether is True
+    assert pf.KeepWithNext is True
+    assert pf.WidowControl is False
+
+
+def test_format_paragraph_pagination_flags_untouched_when_none(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.bookmarks["Address"].format_paragraph(keep_with_next=True)
+    pf = fake_word.ActiveDocument.Bookmarks("Address").Range.ParagraphFormat
+    # Only the explicitly-passed flag is written; the others keep their auto-mock
+    # default (never assigned True/False).
+    assert pf.KeepWithNext is True
+    assert pf.KeepTogether is not True and pf.KeepTogether is not False
+    assert pf.WidowControl is not True and pf.WidowControl is not False
+
+
+def test_exec_format_paragraph_pagination_flags(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [
+                {
+                    "op": "format_paragraph",
+                    "anchor_id": "bookmark:Address",
+                    "keep_together": True,
+                    "keep_with_next": True,
+                    "widow_control": False,
+                }
+            ],
+            label="test",
+        )
+    assert exc is None
+    pf = fake_word.ActiveDocument.Bookmarks("Address").Range.ParagraphFormat
+    assert pf.KeepTogether is True
+    assert pf.KeepWithNext is True
+    assert pf.WidowControl is False
+
+
+# ---------------------------------------------------------------------------
 # exec ops
 # ---------------------------------------------------------------------------
 

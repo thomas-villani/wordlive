@@ -954,33 +954,38 @@ def cross_ref_cmd(
 )
 @click.option("--text", "text", default=None, help="Caption title after the label and number.")
 @click.option(
-    "--before/--after",
-    "before",
-    default=False,
-    show_default="--after",
-    help="Insert before the anchor instead of after it.",
+    "--position",
+    "position",
+    type=click.Choice(["above", "below"], case_sensitive=False),
+    default=None,
+    help="Place the caption above or below the anchor "
+    "(default: above for a Table, below otherwise).",
 )
 @click.pass_context
 def caption_cmd(
-    ctx: click.Context, anchor_id: str, label: str, text: str | None, before: bool
+    ctx: click.Context, anchor_id: str, label: str, text: str | None, position: str | None
 ) -> None:
-    """Insert a numbered caption (Figure 1, Table 2, …) at an anchor (atomic-undo)."""
-    where = "before" if before else "after"
+    """Insert a numbered caption (Figure 1, Table 2, …) as its own paragraph (atomic-undo).
+
+    The caption always becomes its own Caption-styled paragraph; on a table cell
+    it is placed above/below the whole table. Table captions default to above,
+    figures to below — pass --position to override.
+    """
 
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             anchor = doc.anchor_by_id(anchor_id)
-            with doc.edit(f"CLI: caption {label} {where} {anchor_id}"):
-                anchor.insert_caption(label, text=text, where=where)
+            with doc.edit(f"CLI: caption {label} {anchor_id}"):
+                anchor.insert_caption(label, text=text, position=position)
             emit(
                 {
                     "ok": True,
                     "anchor_id": anchor_id,
-                    "applied": {"label": label, "text": text, "where": where},
+                    "applied": {"label": label, "text": text, "position": position},
                 },
                 as_text=not ctx.obj["as_json"],
-                text=f"inserted {label} caption {where} {anchor_id}",
+                text=f"inserted {label} caption at {anchor_id}",
             )
 
     _run(ctx, go)
@@ -1801,6 +1806,25 @@ def style_set(
     help="Force (or clear) a page break before the paragraph — the clean, "
     "reflow-safe way to page-break (e.g. on every Heading 1).",
 )
+@click.option(
+    "--keep-together/--no-keep-together",
+    "keep_together",
+    default=None,
+    help="Keep all lines of the paragraph on one page.",
+)
+@click.option(
+    "--keep-with-next/--no-keep-with-next",
+    "keep_with_next",
+    default=None,
+    help="Keep the paragraph on the same page as the next one (e.g. a heading "
+    "with its first body line).",
+)
+@click.option(
+    "--widow-control/--no-widow-control",
+    "widow_control",
+    default=None,
+    help="Prevent a lone first/last line stranded at a page boundary.",
+)
 @click.pass_context
 def format_paragraph_cmd(
     ctx: click.Context,
@@ -1812,6 +1836,9 @@ def format_paragraph_cmd(
     space_before: float | None,
     space_after: float | None,
     page_break_before: bool | None,
+    keep_together: bool | None,
+    keep_with_next: bool | None,
+    widow_control: bool | None,
 ) -> None:
     """Set paragraph-formatting properties on the anchor's range (atomic-undo)."""
     kwargs: dict[str, Any] = {}
@@ -1829,6 +1856,12 @@ def format_paragraph_cmd(
         kwargs["space_after"] = space_after
     if page_break_before is not None:
         kwargs["page_break_before"] = page_break_before
+    if keep_together is not None:
+        kwargs["keep_together"] = keep_together
+    if keep_with_next is not None:
+        kwargs["keep_with_next"] = keep_with_next
+    if widow_control is not None:
+        kwargs["widow_control"] = widow_control
     if not kwargs:
         raise click.UsageError("pass at least one formatting option")
 
@@ -2173,6 +2206,45 @@ def table_delete_row(ctx: click.Context, table_index: int, row: int) -> None:
                 {"ok": True, "table": table_index, "rows": t.row_count},
                 as_text=not ctx.obj["as_json"],
                 text=f"deleted row {row} from table:{table_index} (now {t.row_count} rows)",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="set-heading-row")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option("--row", "row", type=int, default=1, show_default=True, help="1-based row.")
+@click.option(
+    "--heading/--no-heading",
+    "heading",
+    default=True,
+    show_default=True,
+    help="Make the row a repeating table heading (repeats on every page).",
+)
+@click.option(
+    "--allow-break/--no-allow-break",
+    "allow_break",
+    default=None,
+    help="Allow the row to split across a page (default: off for a heading row).",
+)
+@click.pass_context
+def table_set_heading_row(
+    ctx: click.Context, table_index: int, row: int, heading: bool, allow_break: bool | None
+) -> None:
+    """Mark a row as a repeating table heading row (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: set heading row {row} on table {table_index}"):
+                t.set_heading_row(row, heading=heading, allow_break=allow_break)
+            emit(
+                {"ok": True, "table": table_index, "row": row, "heading": heading},
+                as_text=not ctx.obj["as_json"],
+                text=(
+                    f"{'set' if heading else 'cleared'} heading row {row} on table:{table_index}"
+                ),
             )
 
     _run(ctx, go)

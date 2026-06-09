@@ -211,6 +211,66 @@ def test_delete_row_out_of_range_raises(fake_word):
 
 
 # ---------------------------------------------------------------------------
+# Heading-row repeat — Rows(n).HeadingFormat / AllowBreakAcrossPages
+# ---------------------------------------------------------------------------
+
+
+def test_set_heading_row_marks_repeating(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("heading row"):
+            t.set_heading_row(1)
+        row = fake_word.ActiveDocument.Tables(1).Rows(1)
+        assert row.HeadingFormat is True
+        # A repeating header shouldn't fracture across a page by default.
+        assert row.AllowBreakAcrossPages is False
+
+
+def test_set_heading_row_clear(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("clear heading"):
+            t.set_heading_row(1, heading=False)
+        row = fake_word.ActiveDocument.Tables(1).Rows(1)
+        assert row.HeadingFormat is False
+        assert row.AllowBreakAcrossPages is True
+
+
+def test_set_heading_row_allow_break_override(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("heading allow break"):
+            t.set_heading_row(1, heading=True, allow_break=True)
+        row = fake_word.ActiveDocument.Tables(1).Rows(1)
+        assert row.HeadingFormat is True
+        assert row.AllowBreakAcrossPages is True
+
+
+def test_set_heading_row_out_of_range_raises(fake_word):
+    with wordlive.attach() as word:
+        t = word.documents.active.tables[1]
+        with pytest.raises(AnchorNotFoundError) as exc_info:
+            t.set_heading_row(9)
+    assert exc_info.value.kind == "table row"
+
+
+def test_exec_set_heading_row(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [{"op": "set_heading_row", "table": 1, "row": 1}],
+            label="t",
+        )
+    assert exc is None and result["ok"] is True
+    row = fake_word.ActiveDocument.Tables(1).Rows(1)
+    assert row.HeadingFormat is True
+
+
+# ---------------------------------------------------------------------------
 # Table creation / deletion
 # ---------------------------------------------------------------------------
 

@@ -329,6 +329,8 @@ class _FakeTable:
         self._start = start
         self._owner = owner
         self._rows = [[self._mk_cell_range(text) for text in row] for row in grid]
+        self._range_mock: Any | None = None
+        self._rows_view: _FakeRows | None = None
 
     @staticmethod
     def _mk_cell_range(text: str) -> MagicMock:
@@ -346,13 +348,17 @@ class _FakeTable:
 
     @property
     def Range(self) -> Any:
-        rng = MagicMock(name="TableRange")
-        rng.Start = self._start
-        return rng
+        if self._range_mock is None:
+            rng = MagicMock(name="TableRange")
+            rng.Start = self._start
+            self._range_mock = rng
+        return self._range_mock
 
     @property
     def Rows(self) -> Any:
-        return _FakeRows(self._rows, self._mk_cell_range)
+        if self._rows_view is None:
+            self._rows_view = _FakeRows(self._rows, self._mk_cell_range)
+        return self._rows_view
 
     @property
     def Columns(self) -> Any:
@@ -379,6 +385,9 @@ class _FakeRows:
     def __init__(self, rows: list[list[Any]], mk: Any) -> None:
         self._rows = rows
         self._mk = mk
+        # Persist row mocks so property writes (HeadingFormat,
+        # AllowBreakAcrossPages) round-trip through the same handle.
+        self._row_mocks: dict[int, Any] = {}
 
     @property
     def Count(self) -> int:
@@ -389,9 +398,12 @@ class _FakeRows:
         self._rows.append([self._mk("") for _ in range(ncols)])
 
     def __call__(self, index: int) -> Any:
-        row = MagicMock(name=f"Row[{index}]")
-        rows = self._rows
-        row.Delete = lambda: rows.__delitem__(index - 1)
+        row = self._row_mocks.get(index)
+        if row is None:
+            row = MagicMock(name=f"Row[{index}]")
+            rows = self._rows
+            row.Delete = lambda: rows.__delitem__(index - 1)
+            self._row_mocks[index] = row
         return row
 
 

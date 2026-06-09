@@ -61,7 +61,7 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive replace --find "old" --text "new" [--all | --occurrence N] [--in ID]` — fuzzy find + replace. To edit **inside a table**, scope it to the cell (`--in table:N:R:C`); an unverifiable whole-document match fails (exit 1, `replace_verification`) rather than risk overwriting the wrong cell.
 - `wordlive style apply --anchor-id ID --name "Heading 2"` (names: `style list`).
 - `wordlive style add NAME [--type paragraph|character] [--based-on NAME] [--next-style NAME]` then `wordlive style set NAME [--bold] [--color "#1F3864"] [--size 16pt] [--alignment center] [--space-before 12] …` — define and configure a style, then `style apply` it everywhere (the brand/template workflow).
-- `wordlive format-paragraph --anchor-id ID [--alignment center] [--left-indent 36] [--space-before 6] [--page-break-before] …` — `--page-break-before` is the clean, reflow-safe way to make a paragraph (e.g. a `Heading 1`) start a new page, leaving no stray break character.
+- `wordlive format-paragraph --anchor-id ID [--alignment center] [--left-indent 36] [--space-before 6] [--page-break-before] [--keep-together] [--keep-with-next] [--widow-control] …` — `--page-break-before` is the clean, reflow-safe way to make a paragraph (e.g. a `Heading 1`) start a new page, leaving no stray break character. The three pagination flags keep a paragraph's lines together, keep it with the next paragraph, and suppress widows/orphans.
 - `wordlive format-run --anchor-id ID [--bold] [--italic] [--underline] [--font NAME] [--size 12pt] [--color "#FF0000"] [--highlight yellow] …` — **character** formatting; pair with a `range:` id (from `find`) to style a phrase. Colours take a name/hex/`r,g,b`; sizes take points or a unit string.
 - `wordlive shading --anchor-id ID --fill "#FFF2CC"` · `wordlive borders --anchor-id ID [--sides all|top|…] [--style single|double|dot|dash] [--weight 0.5] [--color black]` · `wordlive tab-stop --anchor-id ID --position 3in [--align right] [--leader dots]` — range/cell fill, borders, and tab stops (a cell is an anchor, so these shade/border table cells too).
 - `wordlive insert-break --anchor-id ID [--kind page|column|section_next|section_continuous] [--before | --after]` — an **explicit** one-off page/column/section break (the discoverable replacement for a literal form-feed paragraph). `--kind` defaults to `page`. Section breaks start a new section that can carry its own headers/footers + page setup. For a break that follows a *style*, prefer `format-paragraph --page-break-before`.
@@ -71,10 +71,10 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive bookmark add NAME --anchor-id ID` — create a bookmark over a range (the prerequisite for internal links and cross-refs). NAME starts with a letter; letters/digits/underscores only.
 - `wordlive link --anchor-id ID (--url URL | --bookmark NAME) [--text "…"]` — turn an anchor into a hyperlink: external `--url` or internal `--bookmark`. `--text` inserts new linked text (no `--text` links the existing range).
 - `wordlive cross-ref --anchor-id ID --target TARGET [--kind text|page|number|above_below] [--no-hyperlink]` — reference another anchor; `--target` is `bookmark:NAME` / `heading:N` / `footnote:N` / `endnote:N`. Refresh with `update-fields`.
-- `wordlive caption --anchor-id ID [--label Figure] [--text "…"]` — insert an auto-numbered caption (Figure/Table/…). Pairs with `cross-ref`.
+- `wordlive caption --anchor-id ID [--label Figure] [--text "…"] [--position above|below]` — insert an auto-numbered caption (Figure/Table/…) as its own `Caption` paragraph (on a `table:N:R:C` anchor it captions the whole table). Default placement is above for a `Table`, below otherwise; `--position` overrides. Pairs with `cross-ref`.
 - `wordlive page-setup [--section N] [--margins 1in] [--top-margin … --bottom-margin … --left-margin … --right-margin …] [--gutter …] [--orientation portrait|landscape] [--paper-size letter|legal|tabloid|a3|a4|a5] [--columns N] [--column-spacing …]` — set a section's page geometry. `--margins` sets all four (per-side flags override); lengths take points or a unit string; `--columns N` makes N equal columns. `--section` defaults to `1`.
 - `wordlive list apply --anchor-id ID --type bulleted|numbered|outline` (+ `list remove|restart|indent|outdent`). **To number N paragraphs 1..N, scope one apply to a `range:` that spans them all** (offsets from `paragraphs`/`find`) — applying `numbered` per-paragraph makes N separate "1." lists.
-- `wordlive table create --anchor-id ID --rows R --cols C [--style NAME] [--header] [--before | --after] [--data '[["…"],…]' | --data -]` — **build a new table** at a *position* anchor (`heading:`/`para:`/`start`/`end`); reports its 1-based `index`. Fill cells row-major with `--data` (use `--data -` for stdin to dodge Windows quoting); `--style` defaults to `Table Grid` (visible borders); `--header` bolds row 1. New cells default to the `Normal` paragraph style regardless of the anchor, so a table dropped under a heading doesn't inherit that heading style. Edit existing tables with `table add-row`/`delete-row` and `table delete N`; cells are anchors (`table:N:R:C`) you can `replace`/`style apply`/`format-paragraph`.
+- `wordlive table create --anchor-id ID --rows R --cols C [--style NAME] [--header] [--before | --after] [--data '[["…"],…]' | --data -]` — **build a new table** at a *position* anchor (`heading:`/`para:`/`start`/`end`); reports its 1-based `index`. Fill cells row-major with `--data` (use `--data -` for stdin to dodge Windows quoting); `--style` defaults to `Table Grid` (visible borders); `--header` bolds row 1. New cells default to the `Normal` paragraph style regardless of the anchor, so a table dropped under a heading doesn't inherit that heading style. Edit existing tables with `table add-row`/`delete-row`/`set-heading-row` and `table delete N`; `table set-heading-row --table N [--row R]` marks a row as a repeating header across pages. Cells are anchors (`table:N:R:C`) you can `replace`/`style apply`/`format-paragraph`.
 - `wordlive comment add --anchor-id ID --text "…"` (+ `comment list` · `comment resolve --index N` · `comment delete --index N`).
 - `wordlive track on|off|status` — toggle / inspect Track Changes. Read the recorded edits structurally with `wordlive revisions`, or see them with `snapshot --markup all`.
 - `wordlive header write --section S --text "…"` · `footer write --section S --text "…"` (`--which primary|first|even`).
@@ -152,7 +152,7 @@ stable across the batch.
 Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `delete_paragraph`,
 `append`, `append_inline`, `prepend`, `prepend_inline`, `insert_image`,
 `replace`, `find_replace`, `apply_style`, `format_paragraph`, `set_cell`,
-`add_row`, `delete_row`, `create_table`, `delete_table`, `insert_break`,
+`add_row`, `delete_row`, `set_heading_row`, `create_table`, `delete_table`, `insert_break`,
 `add_comment`, `resolve_comment`, `delete_comment`, `apply_list`, `remove_list`,
 `restart_numbering`, `indent_list`, `outdent_list`, `write_header`,
 `write_footer`.
@@ -166,7 +166,10 @@ anchor, so they don't inherit a heading style from the paragraph above. A
 successful batch returns an `outputs` array reporting each new table's `index`.
 `insert_break` takes `anchor_id`, optional `kind` (default `page`) and `before`;
 `format_paragraph`'s `page_break_before` bool is the reflow-safe alternative for
-breaking before a styled paragraph.)
+breaking before a styled paragraph, alongside the `keep_together` /
+`keep_with_next` / `widow_control` pagination bools. `set_heading_row` takes
+`table`, optional `row` (default 1) / `heading` / `allow_break` — a repeating
+header row.)
 
 ## Exit codes — branch on these
 | Code | Meaning | Retry? |

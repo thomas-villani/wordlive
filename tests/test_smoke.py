@@ -275,6 +275,19 @@ def test_cross_reference_bad_target_raises(scratch_doc):
             doc.end.insert_cross_reference("bookmark:DoesNotExist")
 
 
+def _paras(doc):
+    """[(text, style_name)] for each paragraph in the live document."""
+    return [(p.Range.Text.rstrip("\r\x07"), p.Range.Style.NameLocal) for p in doc.com.Paragraphs]
+
+
+def _para_id_by_text(doc, text):
+    """anchor_id of the first paragraph whose text matches `text` (1-based scan)."""
+    for p in doc.paragraphs:
+        if p.text == text:
+            return p.anchor_id
+    raise AssertionError(f"no paragraph with text {text!r}")
+
+
 def test_caption_insert(scratch_doc):
     doc = scratch_doc
     _, methods_id = _seed_two_sections(doc)
@@ -282,6 +295,96 @@ def test_caption_insert(scratch_doc):
         doc.anchor_by_id(methods_id).insert_caption("Figure", text="System overview")
     # The caption adds a paragraph; the doc still has its headings.
     assert "Methods" in [h["text"] for h in doc.outline()]
+
+
+def test_caption_is_own_paragraph_below_target(scratch_doc):
+    """A figure caption is a *separate* Caption paragraph below the target,
+    leaving the target paragraph's text untouched (regression: it used to fuse
+    inline into the following paragraph)."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Target paragraph.", style="Normal")
+        doc.append_paragraph("Trailing paragraph.", style="Normal")
+    target_id = _para_id_by_text(doc, "Target paragraph.")
+    with doc.edit("caption"):
+        doc.anchor_by_id(target_id).insert_caption("Figure", text="Overview")
+    paras = _paras(doc)
+    texts = [t for t, _ in paras]
+    # The target text is intact and *not* merged with the caption.
+    assert "Target paragraph." in texts
+    assert "Trailing paragraph." in texts
+    # Exactly one paragraph is styled Caption, and it carries the label+title.
+    caps = [(t, s) for t, s in paras if s == "Caption"]
+    assert len(caps) == 1
+    cap_text, _ = caps[0]
+    assert cap_text.startswith("Figure")
+    assert "Overview" in cap_text
+    # The caption sits immediately after the target, before the trailing para.
+    idx_target = texts.index("Target paragraph.")
+    idx_cap = next(i for i, (t, s) in enumerate(paras) if s == "Caption")
+    assert idx_cap == idx_target + 1
+
+
+def test_caption_table_label_is_above(scratch_doc):
+    """A 'Table' caption defaults *above* the anchor's paragraph."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Target paragraph.", style="Normal")
+    target_id = _para_id_by_text(doc, "Target paragraph.")
+    with doc.edit("caption"):
+        doc.anchor_by_id(target_id).insert_caption("Table", text="Costs")
+    paras = _paras(doc)
+    texts = [t for t, _ in paras]
+    idx_target = texts.index("Target paragraph.")
+    idx_cap = next(i for i, (t, s) in enumerate(paras) if s == "Caption")
+    assert idx_cap == idx_target - 1  # caption is above the target
+
+
+def test_caption_on_table_cell_is_standalone(scratch_doc):
+    """Captioning a table cell produces a real standalone caption above the
+    whole table — not fused into a cell — even from the last cell (regression:
+    the last cell used to raise a COM 'end of table row' error)."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        t = doc.add_table(2, 2)
+    last_cell_id = t.cell(2, 2).anchor_id
+    with doc.edit("caption"):
+        doc.anchor_by_id(last_cell_id).insert_caption("Table", text="Grid data")
+    # The caption paragraph exists, is styled Caption, and is *not* inside the table.
+    cap = None
+    for p in doc.com.Paragraphs:
+        if p.Range.Style.NameLocal == "Caption":
+            cap = p
+            break
+    assert cap is not None
+    assert cap.Range.Information(12) is False  # wdWithInTable
+    assert "Grid data" in cap.Range.Text
+
+
+def test_format_paragraph_pagination_flags(scratch_doc):
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("A heading-ish line.", style="Normal")
+    pid = _para_id_by_text(doc, "A heading-ish line.")
+    with doc.edit("pag"):
+        doc.anchor_by_id(pid).format_paragraph(
+            keep_together=True, keep_with_next=True, widow_control=False
+        )
+    pf = doc.anchor_by_id(pid).com.ParagraphFormat
+    assert int(pf.KeepTogether) == -1  # True
+    assert int(pf.KeepWithNext) == -1
+    assert int(pf.WidowControl) == 0  # False
+
+
+def test_set_heading_row_repeats(scratch_doc):
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(3, 2)
+    with doc.edit("heading row"):
+        doc.tables[1].set_heading_row(1)
+    row = doc.tables[1].com.Rows(1)
+    assert int(row.HeadingFormat) == -1  # True
+    assert int(row.AllowBreakAcrossPages) == 0  # kept intact
 
 
 # ---------------------------------------------------------------------------

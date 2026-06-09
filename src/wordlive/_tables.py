@@ -95,6 +95,16 @@ class Cell(Anchor):
     def _range(self) -> Any:
         return self._cell().Range
 
+    def _caption_object_range(self) -> Any:
+        """Caption the *whole table*, not this cell.
+
+        Returning the parent table's range lets `insert_caption` place a real
+        standalone caption above / below the table (Word's native behaviour for
+        a caption-able object), instead of fusing it into the cell — which also
+        sidesteps the "end of a table row" COM error on the last cell.
+        """
+        return self._table.com.Range
+
     @property
     def text(self) -> str:
         with _com.translate_com_errors():
@@ -222,6 +232,33 @@ class Table:
             raise AnchorNotFoundError("table row", f"table:{self._index}:row:{index}")
         with _com.translate_com_errors():
             self._com.Rows(index).Delete()
+
+    def set_heading_row(
+        self, row: int = 1, *, heading: bool = True, allow_break: bool | None = None
+    ) -> None:
+        """Mark a 1-based row as a repeating table heading row.
+
+        A heading row (`HeadingFormat`) repeats at the top of every page the
+        table spans — set it on the header row of a multi-page table so the
+        column labels carry over. `heading=False` clears the flag.
+
+        `allow_break` controls `AllowBreakAcrossPages` (whether a row's content
+        may split across a page boundary). It defaults to ``not heading`` — a
+        repeating header shouldn't fracture — so the common
+        `set_heading_row(1)` both repeats row 1 *and* keeps it intact; pass
+        `allow_break` explicitly to override.
+
+        Raises `AnchorNotFoundError` (kind `"table row"`) if `row` is out of
+        range.
+        """
+        rows = self.row_count
+        if not (1 <= row <= rows):
+            raise AnchorNotFoundError("table row", f"table:{self._index}:row:{row}")
+        keep_intact = (not heading) if allow_break is None else bool(allow_break)
+        with _com.translate_com_errors():
+            r = self._com.Rows(row)
+            r.HeadingFormat = bool(heading)
+            r.AllowBreakAcrossPages = keep_intact
 
     def delete(self) -> None:
         """Delete this entire table — the structural mirror of `add_row`.

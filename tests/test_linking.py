@@ -270,21 +270,53 @@ def test_insert_caption_defaults(fake_word):
         doc = word.documents.active
         with doc.edit("cap"):
             doc.bookmarks["Address"].insert_caption()
-    args = _addr_dup(fake_word).InsertCaption.call_args.args
-    # (Label, Title, Position=below(1), ExcludeLabel=False)
+    dup = _addr_dup(fake_word)
+    # A text anchor gets its own paragraph first, then the caption drops in.
+    dup.InsertParagraphBefore.assert_called_once()
+    args = dup.InsertCaption.call_args.args
+    # (Label, Title, Position=below(1) for a Figure, ExcludeLabel=False)
     assert args[0] == "Figure"
     assert args[1] == ""
     assert args[2] == 1
     assert args[3] is False
 
 
-def test_insert_caption_label_and_text(fake_word):
+def test_insert_caption_table_label_defaults_above(fake_word):
+    # Convention: a "Table" caption goes above (Position=0) with no override.
     with wordlive.attach() as word:
         doc = word.documents.active
         doc.bookmarks["Address"].insert_caption("Table", text="Quarterly costs")
     args = _addr_dup(fake_word).InsertCaption.call_args.args
     assert args[0] == "Table"
     assert args[1] == "Quarterly costs"
+    assert args[2] == 0  # ABOVE
+
+
+def test_insert_caption_position_override(fake_word):
+    # Explicit position beats the label convention.
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.bookmarks["Address"].insert_caption("Table", position="below")
+    assert _addr_dup(fake_word).InsertCaption.call_args.args[2] == 1  # BELOW
+
+
+def test_insert_caption_bad_position_raises(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(OpError):
+            doc.bookmarks["Address"].insert_caption("Figure", position="sideways")
+
+
+def test_insert_caption_on_cell_targets_whole_table(fake_word):
+    # A table cell captions the whole table (its parent's range), never the cell.
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        table_com = doc.tables[1].com
+        doc.tables[1].cell(1, 1).insert_caption("Table", text="Grid")
+    table_com.Range.InsertCaption.assert_called_once()
+    args = table_com.Range.InsertCaption.call_args.args
+    assert args[0] == "Table"
+    assert args[2] == 0  # ABOVE by convention
 
 
 def test_exec_insert_caption(fake_word):
@@ -296,6 +328,24 @@ def test_exec_insert_caption(fake_word):
             label="t",
         )
     assert exc is None and result["ok"] is True
+
+
+def test_exec_insert_caption_position(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        run_batch(
+            doc,
+            [
+                {
+                    "op": "insert_caption",
+                    "anchor_id": "bookmark:Address",
+                    "label": "Figure",
+                    "position": "above",
+                }
+            ],
+            label="t",
+        )
+    assert _addr_dup(fake_word).InsertCaption.call_args.args[2] == 0  # ABOVE
 
 
 def test_cli_caption(fake_word):

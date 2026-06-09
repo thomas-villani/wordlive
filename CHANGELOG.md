@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Paragraph pagination controls.** `format_paragraph` gains three tri-state
+  flags for clean multi-page layout: `keep_together` (keep all lines of a
+  paragraph on one page), `keep_with_next` (keep a paragraph with the following
+  one — e.g. a heading with its first body line), and `widow_control` (prevent a
+  lone first/last line stranded at a page boundary). They join the existing
+  `page_break_before`, write to `ParagraphFormat.KeepTogether` /
+  `.KeepWithNext` / `.WidowControl`, and are available on the `format_paragraph`
+  exec op, `wordlive format-paragraph` CLI (`--keep-together` / `--keep-with-next`
+  / `--widow-control`), and `word_write command="format_paragraph"` — plus
+  `style.format_paragraph(…)` for a style's defaults.
+- **Repeating table heading rows.** `Table.set_heading_row(row=1, heading=True,
+  allow_break=None)` marks a row as a heading that repeats at the top of every
+  page the table spans (`Row.HeadingFormat`); `allow_break` controls
+  `Row.AllowBreakAcrossPages` and defaults to keeping a heading row intact. Wired
+  through the `set_heading_row` exec op, `wordlive table set-heading-row` CLI, and
+  `word_write command="table" action="set_heading_row"`.
+
+### Fixed
+- **`insert_caption` now produces a real standalone caption.** Previously it
+  collapsed the anchor to a point and let Word fuse the `SEQ` field + title
+  **inline into the host paragraph** (restyling it `Caption`); on a table cell it
+  could raise a COM "end of a table row" error. The caption now always lands in
+  its **own `Caption`-styled paragraph**, leaving the target paragraph untouched,
+  and a table-cell anchor captions the **whole table** (above/below it) rather
+  than a cell. Placement follows convention — a `Table` caption goes **above**, a
+  figure **below** — overridable with the new `position` argument
+  (`"above"`/`"below"`); the CLI gains `--position` and MCP a `position` param
+  (the old `before` flag is still honoured on the exec op for back-compat).
+
 ## [0.12.0] — 2026-06-08
 
 ### Added
