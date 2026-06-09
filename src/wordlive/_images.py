@@ -1,9 +1,18 @@
-"""Image-source helpers — turn a path / bytes / base64 string into a file on disk.
+"""Image helpers — get images *into* a document (path/bytes/base64 → disk) and
+*out* of one (an embedded picture → raw bytes + MIME type).
 
-`insert_image` needs an actual file path for Word's `InlineShapes.AddPicture`,
-which only reads from disk. This module normalises the three input shapes an
-LLM might hold, sniffs the raster format from magic bytes (to pick a sensible
-temp-file extension), and removes any temp file once Word has embedded a copy.
+The **in** path: `insert_image` needs an actual file path for Word's
+`InlineShapes.AddPicture`, which only reads from disk. `image_on_disk` normalises
+the three input shapes an LLM might hold, sniffs the raster format from magic
+bytes (to pick a sensible temp-file extension), and removes any temp file once
+Word has embedded a copy.
+
+The **out** path: `read_image_from_range` extracts the picture embedded in a
+range as raw bytes + MIME type — the read side that feeds a vision model. It goes
+through `Range.WordOpenXML`, which serialises the range as a Flat OPC package with
+every referenced media part inlined as base64; we parse that, take the sole
+`image/*` part, and base64-decode it. No clipboard, no save-to-temp, no fragile
+position→media mapping — pure stdlib.
 """
 
 from __future__ import annotations
@@ -12,11 +21,21 @@ import base64
 import binascii
 import os
 import tempfile
+import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from .exceptions import ImageSourceError
+
+# The Flat OPC package namespace. `Range.WordOpenXML` emits a
+# `<pkg:package>` whose `<pkg:part>` children carry a `pkg:contentType` and,
+# for binary parts (images), a base64 `<pkg:binaryData>` body.
+_PKG_NS = "http://schemas.microsoft.com/office/2006/xmlPackage"
+_PKG_PART = f"{{{_PKG_NS}}}part"
+_PKG_CONTENT_TYPE = f"{{{_PKG_NS}}}contentType"
+_PKG_BINARY_DATA = f"{{{_PKG_NS}}}binaryData"
 
 # (magic-number prefix, extension) in match order. Raster formats only; vector
 # types (EMF/WMF) and anything unrecognised fall through to ImageSourceError.
@@ -109,3 +128,59 @@ def image_on_disk(image: str | Path | bytes) -> Iterator[str]:
             os.unlink(tmp)
         except OSError:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Reading images out — Flat OPC parsing
+# ---------------------------------------------------------------------------
+
+
+def image_parts_in_opc(xml_text: str) -> list[tuple[str, str]]:
+    """Return `[(content_type, base64_data), …]` for every image part in a Flat OPC fragment.
+
+    `Range.WordOpenXML` always serialises the full package skeleton (so even a
+    one-character range comes back wrapped in a `<pkg:package>` with the document
+    parts); the media parts are the `<pkg:part>` elements whose `pkg:contentType`
+    is an `image/*` MIME and which carry a base64 `<pkg:binaryData>` body. We
+    return those untouched (not yet decoded) so callers can either count them or
+    decode the one they want.
+    """
+    root = ET.fromstring(xml_text)
+    out: list[tuple[str, str]] = []
+    for part in root.iter(_PKG_PART):
+        ctype = part.get(_PKG_CONTENT_TYPE, "")
+        if not ctype.startswith("image/"):
+            continue
+        binary = part.find(_PKG_BINARY_DATA)
+        if binary is None or binary.text is None:
+            continue
+        out.append((ctype, binary.text))
+    return out
+
+
+def read_image_from_range(rng: Any) -> tuple[bytes, str]:
+    """Extract the single embedded image in a COM `rng` as `(bytes, mime_type)`.
+
+    Serialises the range with `Range.WordOpenXML` and pulls the lone `image/*`
+    part out of the resulting Flat OPC package. Raises `ImageSourceError` when
+    the range carries no image, or more than one — the caller should target a
+    single picture (e.g. an `image:N` anchor) in the latter case.
+    """
+    try:
+        xml_text = str(rng.WordOpenXML)
+    except Exception as e:  # noqa: BLE001 — surfaced as a clean bad-input error
+        raise ImageSourceError(f"could not read the range's package XML: {e}") from e
+    parts = image_parts_in_opc(xml_text)
+    if not parts:
+        raise ImageSourceError("no embedded image found in this range")
+    if len(parts) > 1:
+        raise ImageSourceError(
+            f"range contains {len(parts)} images; target a single image "
+            "(an image:N anchor reads exactly one)"
+        )
+    ctype, b64 = parts[0]
+    try:
+        data = base64.b64decode(b64, validate=False)
+    except (binascii.Error, ValueError) as e:
+        raise ImageSourceError("embedded image data is not valid base64") from e
+    return data, ctype

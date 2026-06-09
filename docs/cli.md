@@ -400,6 +400,39 @@ $ wordlive revisions
 
 Failures: `3` Word busy, `4` Word not running.
 
+## `images` / `read-image --anchor-id ID [--out FILE]`
+
+```
+wordlive images [--doc DOC_NAME]
+wordlive read-image --anchor-id ID [--out FILE] [--doc DOC_NAME]
+```
+
+The read side of images — pull an embedded picture's bytes back out (the write
+side is `insert-image`). `images` lists every embedded picture: its `image:N` id,
+MIME type, size (points), alt text, and the `para:N` it sits in.
+
+```bash
+$ wordlive images
+[{"index": 1, "anchor_id": "image:1", "mime": "image/png",
+  "width": 240.0, "height": 160.0, "alt_text": "Chart", "para": "para:6"}]
+```
+
+`read-image` extracts one picture, resolved by `--anchor-id image:N` (or any
+anchor whose range contains exactly one image). With `--out` the raw bytes are
+written to that file and the JSON reports `{path, mime, bytes}`; without it,
+base64 data is returned inline (`{mime, bytes, base64}`).
+
+```bash
+$ wordlive read-image --anchor-id image:1 --out logo.png
+{"ok": true, "anchor_id": "image:1", "mime": "image/png", "bytes": 8462, "path": "logo.png"}
+
+$ wordlive read-image --anchor-id image:1
+{"ok": true, "anchor_id": "image:1", "mime": "image/png", "bytes": 8462, "base64": "iVBORw0KG…"}
+```
+
+Reading is non-mutating. Failures: `1` bad input (a range with no image, or more
+than one); `2` anchor not found; `3` Word busy, `4` Word not running.
+
 ## `bookmark add NAME --anchor-id ID`
 
 ```

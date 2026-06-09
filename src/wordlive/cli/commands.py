@@ -95,6 +95,8 @@ def register(group: click.Group) -> None:
     group.add_command(footnotes_cmd)
     group.add_command(endnotes_cmd)
     group.add_command(revisions_cmd)
+    group.add_command(images_cmd)
+    group.add_command(read_image_cmd)
     group.add_command(bookmark)
     group.add_command(link_cmd)
     group.add_command(cross_ref_cmd)
@@ -793,6 +795,94 @@ def revisions_cmd(ctx: click.Context) -> None:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             rows = doc.revisions.list()
             emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_revisions(rows))
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# images / read-image  (image extraction — read embedded pictures out)
+# ---------------------------------------------------------------------------
+
+
+def _fmt_images(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "(no images)"
+    lines: list[str] = []
+    for r in rows:
+        w, h = r.get("width"), r.get("height")
+        size = f"  {w:.0f}×{h:.0f}pt" if w and h else ""
+        mime = r.get("mime") or "?"
+        para = r.get("para") or ""
+        alt = r.get("alt_text") or ""
+        suffix = f"  {alt!r}" if alt else ""
+        lines.append(f"[{r['anchor_id']}] {mime}{size}  {para}{suffix}")
+    return "\n".join(lines)
+
+
+@click.command(name="images")
+@click.pass_context
+def images_cmd(ctx: click.Context) -> None:
+    """List the document's embedded images (image:N id, MIME, size, alt text, para:N).
+
+    The discovery half of image extraction: see what pictures are in the document
+    before pulling any bytes with `read-image`. Reading is non-mutating.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.images.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_images(rows))
+
+    _run(ctx, go)
+
+
+@click.command(name="read-image")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="The image to read: an image:N id (or any anchor whose range holds one picture).",
+)
+@click.option(
+    "--out",
+    "out",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write the raw image bytes here. Without --out, base64 data is returned in the JSON.",
+)
+@click.pass_context
+def read_image_cmd(ctx: click.Context, anchor_id: str, out: Path | None) -> None:
+    """Extract an embedded image's bytes + MIME type (the read side for vision models).
+
+    Resolve the picture by `--anchor-id image:N` (discover them with `images`) or
+    any anchor whose range contains exactly one image. With `--out` the raw bytes
+    are written to that file and the JSON reports `{path, mime, bytes}`; without
+    it, base64 data is returned inline (`{mime, bytes, base64}`). A range with no
+    image — or more than one — is a bad-input error (exit 1). Read-only.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            data, mime = doc.anchor_by_id(anchor_id).read_image()
+            result: dict[str, Any] = {
+                "ok": True,
+                "anchor_id": anchor_id,
+                "mime": mime,
+                "bytes": len(data),
+            }
+            if out is not None:
+                out.write_bytes(data)
+                result["path"] = str(out)
+            else:
+                result["base64"] = base64.b64encode(data).decode("ascii")
+            where = result.get("path") or "base64"
+            emit(
+                result,
+                as_text=not ctx.obj["as_json"],
+                text=f"{anchor_id}: {mime}, {len(data)} bytes → {where}",
+            )
 
     _run(ctx, go)
 

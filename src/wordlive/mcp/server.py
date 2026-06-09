@@ -21,6 +21,7 @@ a `retryable` hint (the same taxonomy as the CLI's exit codes).
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -168,6 +169,17 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.footnotes.list()
             if command == "endnotes":
                 return doc.endnotes.list()
+            if command == "images":
+                return doc.images.list()
+            if command == "read_image":
+                anchor_id = _need(p, "anchor_id", command)
+                data, mime = doc.anchor_by_id(anchor_id).read_image()
+                return {
+                    "anchor_id": anchor_id,
+                    "mime": mime,
+                    "bytes": len(data),
+                    "base64": base64.b64encode(data).decode("ascii"),
+                }
             raise OpError(f"unknown read command: {command!r}")
 
     return worker.run_on_word(job)
@@ -590,6 +602,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "sections",
             "footnotes",
             "endnotes",
+            "images",
+            "read_image",
         ],
         doc: str | None = None,
         name: str | None = None,
@@ -611,7 +625,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         find {text,[in_anchor]} · read_bookmark {name} · read_cc {name} ·
         read_section {heading | anchor_id} · table_list · table_read {table} ·
         styles · comments · revisions (tracked changes: type/author/text/range per
-        change) · track (is Track Changes on?) · sections · footnotes · endnotes.
+        change) · track (is Track Changes on?) · sections · footnotes · endnotes ·
+        images (embedded pictures: image:N id, mime, size, alt, para) ·
+        read_image {anchor_id} (an embedded picture's bytes as base64 + mime — pass
+        an image:N id or any single-image anchor).
         `doc` targets a document by name (default: active).
         """
         params = {

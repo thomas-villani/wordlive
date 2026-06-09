@@ -13,6 +13,7 @@ from ._anchors import (
     EndAnchor,
     Heading,
     HeadingCollection,
+    ImageCollection,
     Paragraph,
     ParagraphCollection,
     RangeAnchor,
@@ -136,6 +137,19 @@ class Document:
         formatting itself is applied through any anchor's `apply_list(...)`.
         """
         return ListCollection(self)
+
+    @property
+    def images(self) -> ImageCollection:
+        """Read-only, iterable view over the document's embedded images (`doc.images`).
+
+        Index an image by 1-based position (`doc.images[2]`) to get an
+        [`ImageAnchor`][wordlive.ImageAnchor] (`image:N`), then `read_image()`
+        for its raw bytes + MIME type — the path for handing an embedded picture
+        to a vision model. `list()` summarises each image (MIME, size, alt text,
+        and the `para:N` it's anchored in). The write mirror is any anchor's
+        [`insert_image`][wordlive.Anchor.insert_image].
+        """
+        return ImageCollection(self)
 
     @property
     def sections(self) -> SectionCollection:
@@ -334,6 +348,7 @@ class Document:
           - `cc:NAME`          — content control by Title (or Tag)
           - `footnote:N`       — Nth footnote (1-based), resolving to its note body
           - `endnote:N`        — Nth endnote (1-based), resolving to its note body
+          - `image:N`          — Nth embedded image (1-based, Word's InlineShapes order)
           - `table:N:R:C`      — cell at 1-based (row, column) of the Nth table
           - `range:START-END`  — arbitrary character span (the form `find()` emits)
           - `header:S:WHICH`   — the WHICH header of section S (WHICH = primary/first/even)
@@ -381,6 +396,15 @@ class Document:
                 return coll[idx]
             except AnchorNotFoundError as e:
                 raise AnchorNotFoundError(kind, anchor_id) from e
+        if kind == "image":
+            try:
+                idx = int(value)
+            except ValueError as e:
+                raise AnchorNotFoundError("image", anchor_id) from e
+            try:
+                return self.images[idx]
+            except AnchorNotFoundError as e:
+                raise AnchorNotFoundError("image", anchor_id) from e
         if kind == "table":
             parts = value.split(":")
             if len(parts) != 3:
@@ -428,7 +452,7 @@ class Document:
             anchor_id,
             hint=(
                 f"unknown anchor type {kind!r}; expected one of "
-                "start/end/heading/para/bookmark/cc/footnote/endnote/table/range/header/footer"
+                "start/end/heading/para/bookmark/cc/footnote/endnote/image/table/range/header/footer"
             ),
         )
 

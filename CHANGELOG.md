@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Image extraction — read embedded pictures back out.** The read mirror of
+  `insert_image`, for handing a document's images to a vision model.
+  `anchor.read_image()` returns `(bytes, mime_type)` for the single picture in an
+  anchor's range; the new `image:N` anchor (1-based over Word's `InlineShapes`)
+  targets one directly, and `doc.images` is a read-only discovery collection
+  whose `list()` emits `{index, anchor_id, mime, width, height, alt_text, para}`.
+  Extraction goes through `Range.WordOpenXML` (Flat OPC) — no clipboard, no
+  save-to-temp, pure stdlib. CLI `wordlive images` (list) and `wordlive
+  read-image --anchor-id ID [--out FILE]` (`--out` writes the raw bytes and
+  reports `{path, mime, bytes}`; otherwise base64 + mime inline), and
+  `word_read command="images"` / `command="read_image"` over MCP. A range with no
+  image — or more than one — raises `ImageSourceError`. No exec op (extraction is
+  a read, off the `doc.edit()` surface).
 - **Paragraph pagination controls.** `format_paragraph` gains three tri-state
   flags for clean multi-page layout: `keep_together` (keep all lines of a
   paragraph on one page), `keep_with_next` (keep a paragraph with the following

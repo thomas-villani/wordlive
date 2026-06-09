@@ -49,7 +49,9 @@ content controls, headings, paragraphs, table cells, header/footer ranges, and
 arbitrary range anchors. `insert_image` accepts a file path, raw bytes, or a
 base64 string and embeds the picture; `wrap` is required (`"inline"`, `"auto"`,
 or a float wrap like `"square"`/`"top-bottom"`), and `block=True` places the
-image on its own new line rather than in the anchor's text run.
+image on its own new line rather than in the anchor's text run. The read mirror
+is `read_image()`, which returns `(bytes, mime_type)` for the single picture in
+the anchor's range — see [Images](#images).
 `insert_table(rows, cols, …)`
 creates a new table at the anchor and returns its [`Table`](#wordlive.Table)
 (append at the end with [`Document.add_table`](#wordlive.Document)).
@@ -98,6 +100,24 @@ see [Snapshots](#snapshots).
 ::: wordlive.StartAnchor
 
 ::: wordlive.EndAnchor
+
+## Images
+
+The read side of the image story (the write side is
+[`Anchor.insert_image`](#wordlive.Anchor)). `doc.images` is a read-only
+discovery collection over the document's embedded pictures; its `list()` reports
+each image's `image:N` id, MIME type, size (points), alt text, and the `para:N`
+it sits in. Index it (`doc.images[2]`) for an [`ImageAnchor`](#wordlive.ImageAnchor),
+then call [`read_image()`](#wordlive.Anchor) for the raw bytes + MIME — the path
+for handing an embedded picture to a vision model. `read_image()` also works on
+any anchor whose range contains exactly one picture (e.g. `doc.paragraphs[7]`);
+a range with no image, or more than one, raises
+[`ImageSourceError`](#wordlive.ImageSourceError). Extraction is non-mutating, so
+it needs no `doc.edit(...)`.
+
+::: wordlive.ImageAnchor
+
+::: wordlive.ImageCollection
 
 ## Footnotes, endnotes & TOC
 

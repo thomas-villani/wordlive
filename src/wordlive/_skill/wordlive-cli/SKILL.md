@@ -33,6 +33,7 @@ short string you pass as `--anchor-id`:
 | `bookmark:NAME`      | a bookmark |
 | `cc:NAME`            | a content control (by title) |
 | `footnote:N` / `endnote:N` | the Nth note's body (1-based; see `footnotes` / `endnotes`) |
+| `image:N`            | the Nth embedded picture (1-based; see `images`) |
 | `table:N:R:C`        | row R, col C of the Nth table (all 1-based) |
 | `range:START-END`    | a raw character span (what `find` emits) |
 | `header:S:WHICH` / `footer:S:WHICH` | header/footer of section S (`primary` / `first` / `even`) |
@@ -49,6 +50,7 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive find --text "phrase"` — locate before editing; returns `range:` ids.
 - `wordlive table list` · `wordlive table read N`
 - `wordlive footnotes` · `wordlive endnotes` — each note's `footnote:N`/`endnote:N` id, text, and `para:N`.
+- `wordlive images` — each embedded picture's `image:N` id, MIME, size, alt text, and `para:N`. Pull one out with `wordlive read-image --anchor-id image:N [--out FILE]` (`--out` writes the raw bytes; otherwise base64 + mime inline) — the path for handing a picture to a vision model.
 - `wordlive revisions` — tracked changes as structured data (`type`/`author`/`text`/`range`); the readable counterpart to `snapshot --markup all`. `wordlive track status` reports whether Track Changes is on.
 
 ## Writing — each command is one atomic undo
