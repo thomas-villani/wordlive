@@ -42,15 +42,14 @@ Quick index (capability → real release):
 | Footnotes / endnotes; table of contents | v0.12.0 |
 | Bookmark creation, hyperlinks, cross-references, captions | v0.12.0 |
 | Tracked-changes visibility (`doc.revisions`, `snapshot(markup=…)`); `delete_paragraph`; ergonomics fixes | v0.12.0 |
-| Multi-page pagination (paragraph controls, repeating heading rows, caption fix) | next (unreleased) |
-| Image **extraction** (`read_image`, `image:N`, `doc.images`); low-res `max_dim` snapshots | next (unreleased) |
-| Persistence (save / save-as / export-pdf, gated) + image-source hardening | next (unreleased) |
-| Block insert + inline runs; tables from records; verb-first bookmark CLI | next (unreleased) |
+| Multi-page pagination (paragraph controls, repeating heading rows, caption fix) | v0.13.0 |
+| Image **extraction** (`read_image`, `image:N`, `doc.images`); low-res `max_dim` snapshots | v0.13.0 |
+| Persistence (save / save-as / export-pdf, gated) + image-source hardening | v0.13.0 |
+| Block insert + inline runs; tables from records; verb-first bookmark CLI | v0.13.0 |
 
 The detail below preserves the **load-bearing reference facts** (addressing
 schemes, gotchas a future change must respect). Deeper deliberation lives in git
-history, `CHANGELOG.md`, and `spec.md`. Items landed since v0.12.0 are marked
-**(unreleased)** — they ship in the next cut.
+history, `CHANGELOG.md`, and `spec.md`.
 
 ## Core loop — anchors, edit scope, exec (v0.8.x)
 
@@ -223,7 +222,7 @@ points) — not in `__all__`, mirrors the `WdStyleType` pattern.
   sugar; `doc.update_fields()` recomputes (main story only — header/footer fields
   self-render on repagination). Fields land in the anchor's own story, so
   header/footer page numbers work.
-- **Paragraph pagination controls (unreleased)** — `format_paragraph` gains
+- **Paragraph pagination controls (v0.13.0)** — `format_paragraph` gains
   tri-state `keep_together` / `keep_with_next` / `widow_control`, joining
   `page_break_before` → `ParagraphFormat.KeepTogether`/`.KeepWithNext`/
   `.WidowControl`. Also on `style.format_paragraph(…)`.
@@ -278,9 +277,9 @@ covered by **live-Word smoke tests**.
   so Word's native above/below placement fires — fixes the old "end of a table
   row" `ComError`). Convention default: table caption **above**, figure **below**
   (the exec op still honours a legacy `before` bool). *(Caption fix shipped in the
-  unreleased pagination batch.)*
+  v0.13.0 pagination batch.)*
 
-## Image extraction — read images out for vLLMs (unreleased)
+## Image extraction — read images out for vLLMs (v0.13.0)
 
 The read mirror of `insert_image`, for handing a document's images to a vision
 model. Spiked clean: extraction goes through **`Range.WordOpenXML`** (Flat OPC,
@@ -301,7 +300,7 @@ save-to-temp, pure stdlib (`xml.etree` + `base64`).
   bytes+mime untouched (not separately exercised). Possible follow-up: an MCP
   `ImageContent` block so the model *sees* the extracted original directly.
 
-## Persistence — save / save-as / PDF export, gated (unreleased)
+## Persistence — save / save-as / PDF export, gated (v0.13.0)
 
 wordlive's one coherent **filesystem boundary**: the **Python API is
 trusted/ungated**; the **CLI/MCP surfaces are gated** because their input can be
@@ -321,7 +320,7 @@ prompt-injected.
   that also guards image-source reads). **Not an exec op** (terminal side-effect,
   no undo). **Deferred:** `doc`/`rtf`/`txt`/`html` formats.
 
-## Block insert, inline runs, tables-from-records; CLI cleanup (unreleased)
+## Block insert, inline runs, tables-from-records; CLI cleanup (v0.13.0)
 
 From the 2026-06-08 LLM-ergonomics probe; the still-open items from that triage
 are in Part II, the full triage in `CHANGELOG.md`.
@@ -362,9 +361,8 @@ are in Part II, the full triage in `CHANGELOG.md`.
 # Part II — Approved / next up (priority order)
 
 Everything here is **specced but not yet implemented** (re-verified 2026-06-09 —
-the bulk of the 2026-06-01 roadmap shipped in **v0.12.0** and the unreleased
-batch and moved to Part I; what's left below is the genuine backlog). Ordered by
-leverage.
+the bulk of the 2026-06-01 roadmap shipped in **v0.12.0**–**v0.13.0** and moved
+to Part I; what's left below is the genuine backlog). Ordered by leverage.
 
 ## Publishing flourishes — the rest of the grab-bag
 
@@ -634,7 +632,7 @@ one-call-to-see-everything pattern is still missing for:
   (`insert-break` ↔ `insert_break`). **Explicitly rejected:** folding the
   `insert-*` family into an `insert` group (would break that op parallel for six
   commands). The one outstanding violation — bookmark ops split across three
-  places — was cleaned up verb-first (see Part I, unreleased).
+  places — was cleaned up verb-first (see Part I, v0.13.0).
 
 ## Open papercuts (from the 2026-05 agent test)
 
@@ -656,7 +654,7 @@ A Claude-in-Claude-Desktop session driving v0.11.1 end to end surfaced eight
 ergonomics items. **All but two shipped** — in-cell `find` boundary fix, tracked-
 changes visibility, the numbered-list span path, `delete_paragraph` + control-char
 message normalisation (v0.12.0); multi-paragraph block insert, inline runs, and
-table-from-records (unreleased) — all now in **Part I**, with the full per-item
+table-from-records (v0.13.0) — all now in **Part I**, with the full per-item
 triage in `CHANGELOG.md`. The two still open (intra-batch output refs + durable
 insert handles §5; revision accept/reject + revision-aware text reads §1c) are in
 **Part II**.
