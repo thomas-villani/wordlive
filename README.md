@@ -259,11 +259,13 @@ python examples/python/append_note.py "Reviewed." # append one paragraph (atomic
 - **Escape hatch** — every wrapper exposes `.com` for the raw COM object;
   you're never blocked by missing coverage.
 
-See [`spec.md`](spec.md) for the full design.
+See [`spec.md`](https://github.com/thomas-villani/wordlive/blob/main/spec.md) for the full design.
 
 ## Contributing & security
 
-Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the dev
-setup (`uv`), the design invariants, and the test / lint / docs gates. To report
-a security issue, please use private disclosure as described in
-[`SECURITY.md`](SECURITY.md) rather than a public issue.
+Contributions are welcome — see
+[`CONTRIBUTING.md`](https://github.com/thomas-villani/wordlive/blob/main/CONTRIBUTING.md)
+for the dev setup (`uv`), the design invariants, and the test / lint / docs
+gates. To report a security issue, please use private disclosure as described in
+[`SECURITY.md`](https://github.com/thomas-villani/wordlive/blob/main/SECURITY.md)
+rather than a public issue.
