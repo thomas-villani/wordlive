@@ -128,6 +128,17 @@ regex = true
 search = 'wordlive\[mcp,snapshot\]>={current_version}'
 replace = 'wordlive[mcp,snapshot]>={new_version}'
 
+# Keep uv.lock's own `wordlive` package version in lock-step with the bump.
+# bump-my-version only string-substitutes the files listed here, so without this
+# entry a release leaves uv.lock pinning the old version and the next PR fails CI
+# at `uv lock --locked`. The fixed-width lookbehind anchors on the package name
+# so only the wordlive entry's version line is matched, never another package's.
+[[tool.bumpversion.files]]
+filename = "uv.lock"
+regex = true
+search = '(?<=name = "wordlive"\nversion = "){current_version}'
+replace = '{new_version}'
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
