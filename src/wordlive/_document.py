@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import _com, _findreplace, _snapshot
@@ -33,7 +34,7 @@ from ._selection import Selection
 from ._snapshot import Snapshot
 from ._styles import StyleCollection
 from ._tables import Table, TableCollection
-from .constants import WdInformation
+from .constants import WdInformation, WdSaveFormat
 from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
@@ -43,8 +44,6 @@ from .exceptions import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from ._anchors import Anchor
     from ._app import Word
 
@@ -79,6 +78,74 @@ class Document:
     def path(self) -> str:
         with _com.translate_com_errors():
             return str(self._doc.FullName)
+
+    @property
+    def saved(self) -> bool:
+        """Whether the document has no unsaved changes (Word's `Document.Saved`).
+
+        `True` right after a save; `False` once an edit dirties it. A brand-new,
+        never-saved document reads `False` until its first save. This is the same
+        flag `wordlive status` reports per open document.
+        """
+        with _com.translate_com_errors():
+            return bool(self._doc.Saved)
+
+    def save(self) -> str:
+        """Save the document to its existing file, returning the absolute path.
+
+        Raises [`OpError`][wordlive.exceptions.OpError] if the document has never
+        been saved (it has no path yet) — call [`save_as`][wordlive.Document.save_as]
+        first. This is the **ungated** Python-API surface: it writes wherever the
+        document already lives. The CLI / MCP `save` verb additionally checks that
+        path against the configured save-directory whitelist before calling this.
+        """
+        with _com.translate_com_errors():
+            folder = str(self._doc.Path)
+            if not folder:
+                raise OpError("document has never been saved; use save_as(path) first")
+            self._doc.Save()
+            return str(self._doc.FullName)
+
+    def save_as(self, path: str | Path, *, fmt: str = "docx", overwrite: bool = False) -> str:
+        """Save the document to `path`, returning the absolute path written.
+
+        `fmt` is `"docx"` (the modern Open XML format). For PDF, use
+        [`export_pdf`][wordlive.Document.export_pdf] (it goes through a different
+        COM call and takes a page range). By default refuses to clobber an
+        existing file — pass `overwrite=True` to allow it. **Ungated** like
+        [`save`][wordlive.Document.save]; the CLI / MCP surface whitelists the
+        target first.
+        """
+        target = Path(path).expanduser()
+        fmt_norm = str(fmt).lower().lstrip(".")
+        if fmt_norm == "pdf":
+            raise OpError("save_as does not write PDF; use export_pdf(path) instead")
+        if fmt_norm not in ("docx",):
+            raise OpError(f"unsupported save format {fmt!r}; supported: docx (PDF via export_pdf)")
+        if not overwrite and target.exists():
+            raise OpError(
+                f"refusing to overwrite existing file {str(target)!r}; pass overwrite=True"
+            )
+        abspath = str(target.resolve())
+        with _com.translate_com_errors():
+            self._doc.SaveAs2(FileName=abspath, FileFormat=int(WdSaveFormat.DOCUMENT_DEFAULT))
+        return abspath
+
+    def export_pdf(
+        self, path: str | Path, *, from_page: int | None = None, to_page: int | None = None
+    ) -> str:
+        """Export the document (or a page span) to a PDF at `path`; return the path.
+
+        `from_page` / `to_page` are 1-based and inclusive; omit both to export the
+        whole document, or give `from_page` alone to export a single page. Goes
+        through `Document.ExportAsFixedFormat` (the same engine
+        [`snapshot`][wordlive.Document.snapshot] uses), so the PDF is a
+        pixel-faithful render — the recommended "hand back a deliverable" path.
+        Overwrites an existing file. **Ungated** like [`save`][wordlive.Document.save].
+        """
+        abspath = str(Path(path).expanduser().resolve())
+        _snapshot._export_pdf(self._doc, abspath, from_page=from_page, to_page=to_page)
+        return abspath
 
     @property
     def bookmarks(self) -> BookmarkCollection:

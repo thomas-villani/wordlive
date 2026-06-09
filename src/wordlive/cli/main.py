@@ -8,6 +8,7 @@ from typing import Any
 
 import click
 
+from .._paths import PathPolicy
 from ..exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
@@ -53,14 +54,38 @@ def _exit_for(exc: WordliveError) -> int:
         return EXIT_WORD_NOT_RUNNING
     if isinstance(exc, DocumentNotFoundError):
         return EXIT_OTHER
+    # PathNotAllowedError (policy denial) also lands on EXIT_OTHER (1), like
+    # ImageSourceError / SnapshotError — the bad-input / policy bucket.
     return EXIT_OTHER
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("--json/--text", "as_json", default=True, help="Output format (default JSON).")
 @click.option("--doc", "doc_name", default=None, help="Target document by name (default: active).")
+@click.option(
+    "--save-dir",
+    "save_dirs",
+    multiple=True,
+    metavar="DIR",
+    help="Allow save/save-as/export-pdf to write under DIR (repeatable). "
+    "Default-deny: with no --save-dir (and no WORDLIVE_SAVE_DIRS), saving is off.",
+)
+@click.option(
+    "--image-dir",
+    "image_dirs",
+    multiple=True,
+    metavar="DIR",
+    help="Restrict insert-image --path to files under DIR (repeatable; adds to "
+    "WORDLIVE_IMAGE_DIRS). Non-local paths (UNC, URLs) are always rejected.",
+)
 @click.pass_context
-def main(ctx: click.Context, as_json: bool, doc_name: str | None) -> None:
+def main(
+    ctx: click.Context,
+    as_json: bool,
+    doc_name: str | None,
+    save_dirs: tuple[str, ...],
+    image_dirs: tuple[str, ...],
+) -> None:
     """wordlive — drive a running Microsoft Word instance.
 
     LLM agent? Run `wordlive llm-help` for the full agent guide in one shot: the
@@ -68,10 +93,15 @@ def main(ctx: click.Context, as_json: bool, doc_name: str | None) -> None:
     `--python` for the Python-API guide). `wordlive install-skill` drops those
     guides into `.agents/skills/`, and `wordlive install-mcp` registers the MCP
     server with Claude Desktop or Claude Code.
+
+    Saving is gated: `save`/`save-as`/`export-pdf` only write under a directory
+    you whitelist with `--save-dir` (or `WORDLIVE_SAVE_DIRS`); the Python API is
+    ungated.
     """
     ctx.ensure_object(dict)
     ctx.obj["as_json"] = as_json
     ctx.obj["doc_name"] = doc_name
+    ctx.obj["policy"] = PathPolicy.from_env(extra_save=save_dirs, extra_image=image_dirs)
 
 
 def _run(ctx: click.Context, fn: Any) -> None:

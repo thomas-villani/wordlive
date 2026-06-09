@@ -321,6 +321,20 @@ A vision model is billed on pixel area, so the cap is a predictable per-page
 token budget (~1000 stays legible); without it, full-resolution pages are
 several times the tokens.
 
+## Saving — persist or hand back a deliverable (ungated in Python)
+
+```python
+doc.saved                          # False once there are unsaved edits
+doc.save()                         # save to the existing file (errors if never saved)
+doc.save_as("out/report.docx")     # save a .docx (overwrite=False by default)
+doc.export_pdf("out/report.pdf")   # a pixel-faithful PDF; from_page/to_page limit the range
+```
+
+The Python API is **trusted and ungated** — it writes wherever you point it.
+(The CLI / MCP surfaces gate these behind a `WORDLIVE_SAVE_DIRS` whitelist, since
+their input can be prompt-injected.) `export_pdf` is the recommended deliverable
+path — same engine as `snapshot`. `save_as` writes `.docx`; PDF is `export_pdf`.
+
 ## Errors — a small typed hierarchy
 
 Catch the base `wl.WordliveError` for everything wordlive raises.
@@ -334,6 +348,7 @@ Catch the base `wl.WordliveError` for everything wordlive raises.
 | `AmbiguousMatchError` | `find_replace` hit several; `.matches` lists them | yes — pass `all`/`occurrence` |
 | `ReplaceVerificationError` | `find_replace` target unverifiable (e.g. a whole-doc match inside a table) | no — scope to the cell (`table:N:R:C`) |
 | `ImageSourceError` | bad/unreadable/non-raster image | no — fix the input |
+| `PathNotAllowedError` | a save/image path was refused by the CLI/MCP whitelist (Python API never raises it) | no — configure a save/image dir |
 | `SnapshotError` | PyMuPDF missing or PDF rasterise failed | no — install `wordlive[snapshot]` |
 | `WordBusyError` | a modal dialog is open / mid-operation; `.retryable` is True | **yes** — back off and retry |
 | `ComError` | other classified COM error (`.hresult`, `.description`) | generally no |

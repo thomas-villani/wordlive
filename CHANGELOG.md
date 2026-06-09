@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Persistence — save the document, or export a PDF deliverable.** New ungated
+  Python-API methods: `doc.save()` (to the existing file), `doc.save_as(path,
+  fmt="docx", overwrite=False)`, `doc.export_pdf(path, from_page=None,
+  to_page=None)`, and a `doc.saved` property. The CLI gains `save`, `save-as
+  PATH [--format docx] [--overwrite]`, and `export-pdf PATH [--pages A-B]`; MCP
+  gains `word_write` commands `save` / `save_as` / `export_pdf`. **The CLI/MCP
+  surfaces are gated** (the Python API is not): saving is *default-deny* and only
+  writes inside directories whitelisted with `--save-dir` (repeatable) /
+  `WORDLIVE_SAVE_DIRS` — with none configured, saving is off. Containment
+  resolves the target first (so `..`/symlinks can't escape) then requires it
+  inside the whitelist. `save_as` writes `.docx`; PDF goes through `export_pdf`
+  (the recommended hand-back-a-deliverable path, a pixel-faithful render via the
+  same engine as `snapshot`). `PathNotAllowedError` (exit 1) is the policy-denial
+  type. **Not an exec op** — a terminal side-effect with no undo.
 - **Low-resolution snapshots — `max_dim` (cheap whole-document layout checks).**
   `snapshot(..., max_dim=N)` caps each rendered page's **long edge** to `N`
   pixels (only ever lowering resolution). A vision model is billed on an image's
@@ -49,6 +63,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Row.AllowBreakAcrossPages` and defaults to keeping a heading row intact. Wired
   through the `set_heading_row` exec op, `wordlive table set-heading-row` CLI, and
   `word_write command="table" action="set_heading_row"`.
+
+### Security
+- **Image-source path hardening (read-side gate, pairs with persistence).** On
+  the CLI / MCP surfaces, `insert-image --path` (and the `insert_image` exec op's
+  `path`) now **reject a non-local source** — a UNC path (`\\host\share\…`), a
+  `file://`, or any URL — *before* the filesystem `is_file()` probe, which on a
+  UNC path would itself authenticate to a remote SMB server and leak NTLM
+  credentials (URLs were an SSRF / local-file-disclosure vector). An optional
+  `--image-dir` / `WORDLIVE_IMAGE_DIRS` allowlist further restricts which local
+  directories a path may come from. The Python API is unchanged (trusted);
+  base64 / bytes image sources are unaffected.
+
+### Changed
+- **CLI bookmark ops consolidated (verb-first).** Creating a bookmark moved from
+  `bookmark add NAME --anchor-id ID` to **`write bookmark NAME --create
+  --anchor-id ID`** (bookmark creation is semantically a write, keeping the
+  `read`/`write` dispatch groups whole and parallel with `cc`). `read bookmark`
+  gained **`--list`** (every bookmark name; `--include-hidden` for Word's
+  internal ones), surfacing `doc.bookmarks.list()`. Section listing moved from
+  the one-verb `section list` group to a top-level **`sections`** verb
+  (flat-first). The old `bookmark add` and `section list` spellings remain as
+  **hidden, deprecated aliases for one release**. The Python API and `exec` ops
+  are unchanged.
 
 ### Fixed
 - **`insert_caption` now produces a real standalone caption.** Previously it

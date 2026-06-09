@@ -8,13 +8,15 @@ politeness, same atomic-undo.
 ## Global flags
 
 ```
-wordlive [--json|--text] [--doc DOC_NAME] <subcommand> [args]
+wordlive [--json|--text] [--doc DOC_NAME] [--save-dir DIR]... [--image-dir DIR]... <subcommand> [args]
 ```
 
 | Flag             | Default     | Purpose                                                |
 | ---------------- | ----------- | ------------------------------------------------------ |
 | `--json/--text`  | `--json`    | Output format. `--text` prints a per-command human form (indented outline tree, bare text for reads, one-line acks for writes); JSON stays the LLM-friendly default. |
 | `--doc DOC_NAME` | active doc  | Target a specific open document by name (e.g. `Report.docx`). |
+| `--save-dir DIR` | none (deny) | Allow `save`/`save-as`/`export-pdf` to write under `DIR` (repeatable; merges with `WORDLIVE_SAVE_DIRS`). **Default-deny:** with no directory configured, saving is off. |
+| `--image-dir DIR`| none        | Restrict `insert-image --path` to files under `DIR` (repeatable; merges with `WORDLIVE_IMAGE_DIRS`). Non-local paths (UNC, URLs) are *always* rejected regardless. |
 | `-h`, `--help`   | —           | Show help for the command or subgroup.                  |
 
 ## Exit codes
@@ -26,7 +28,7 @@ mode without parsing strings:
 | Code | Meaning                | Source exception           |
 | ---- | ---------------------- | -------------------------- |
 | `0`  | OK                     | —                          |
-| `1`  | Other / unclassified   | `WordliveError` (default), `DocumentNotFoundError`, `ImageSourceError` |
+| `1`  | Other / unclassified   | `WordliveError` (default), `DocumentNotFoundError`, `ImageSourceError`, `PathNotAllowedError` (save/image policy denial) |
 | `2`  | Anchor or style missing | `AnchorNotFoundError` / `StyleNotFoundError` (also used for zero-match `find`/`replace --find`) |
 | `3`  | Word busy / modal      | `WordBusyError` (retryable) |
 | `4`  | Word not running       | `WordNotRunningError`      |
@@ -102,20 +104,27 @@ $ wordlive paragraphs
 [`range:START-END`](concepts.md) target for an offset-precise, mid-paragraph
 insertion via `replace`.
 
-## `read bookmark NAME`
+## `read bookmark NAME` / `read bookmark --list`
 
 ```
-wordlive read bookmark NAME [--doc DOC_NAME]
+wordlive read bookmark NAME                    [--doc DOC_NAME]
+wordlive read bookmark --list [--include-hidden] [--doc DOC_NAME]
 ```
 
-Read the text of a bookmark.
+Read the text of a bookmark, or with `--list` emit every bookmark **name** in
+document order (`--include-hidden` also returns Word's internal bookmarks —
+`_Toc…`, `_Ref…`).
 
 ```bash
 $ wordlive read bookmark Address
 {"text": "123 Main St"}
+
+$ wordlive read bookmark --list
+["Address", "Intro"]
 ```
 
-Failures: `2` if the bookmark doesn't exist.
+Failures: `2` if the named bookmark doesn't exist. Pass exactly one of `NAME`
+or `--list`.
 
 ## `read cc NAME`
 
@@ -161,21 +170,34 @@ same visible heading text appears more than once.
 
 Failures: `2` heading not found.
 
-## `write bookmark NAME --text "…"`
+## `write bookmark NAME (--text "…" | --create --anchor-id ID)`
 
 ```
-wordlive write bookmark NAME --text "..." [--doc DOC_NAME]
+wordlive write bookmark NAME --text "..."             [--doc DOC_NAME]   # set existing
+wordlive write bookmark NAME --create --anchor-id ID  [--doc DOC_NAME]   # create new
 ```
 
-Replace a bookmark's text inside a single atomic-undo scope.
+Two modes, both in a single atomic-undo scope:
+
+- `--text "…"` replaces an **existing** bookmark's text. The bookmark is
+  preserved — wordlive re-adds it covering the new content after the Word
+  `Range.Text` assignment (which would otherwise delete it).
+- `--create --anchor-id ID` **creates** a new bookmark `NAME` over an anchor's
+  range (e.g. `heading:2`, `range:120-140`) — the prerequisite for internal
+  links (`link --bookmark NAME`) and cross-references (`cross-ref --target
+  bookmark:NAME`). `NAME` must start with a letter and contain only letters,
+  digits, and underscores.
 
 ```bash
 $ wordlive write bookmark Address --text "456 Elm St"
 {"ok": true, "anchor": {"kind": "bookmark", "name": "Address"}}
+
+$ wordlive write bookmark Intro --create --anchor-id heading:1
+{"ok": true, "bookmark": "Intro", "anchor_id": "heading:1", "created": true}
 ```
 
-The bookmark is preserved — wordlive re-adds it covering the new content
-after the Word `Range.Text` assignment (which would otherwise delete it).
+(Creating a bookmark was previously `bookmark add NAME --anchor-id ID`, now a
+hidden deprecated alias.)
 
 Failures: `2` anchor not found, `3` Word busy.
 
@@ -433,23 +455,10 @@ $ wordlive read-image --anchor-id image:1
 Reading is non-mutating. Failures: `1` bad input (a range with no image, or more
 than one); `2` anchor not found; `3` Word busy, `4` Word not running.
 
-## `bookmark add NAME --anchor-id ID`
+## `bookmark add NAME --anchor-id ID` *(deprecated)*
 
-```
-wordlive bookmark add NAME --anchor-id ID [--doc DOC_NAME]
-```
-
-Create a bookmark `NAME` over an anchor's range — the prerequisite for internal
-links and cross-references. `NAME` must start with a letter and contain only
-letters, digits, and underscores (no spaces), ≤ 40 chars. (Read existing
-bookmarks with `read bookmark NAME`.)
-
-```bash
-$ wordlive bookmark add Intro --anchor-id heading:1
-{"ok": true, "bookmark": "Intro", "anchor_id": "heading:1"}
-```
-
-Failures: `1` invalid name; `2` anchor not found; `3` Word busy.
+Hidden, deprecated alias for **`write bookmark NAME --create --anchor-id ID`**
+(see above). Kept for one release; prefer the `write bookmark --create` form.
 
 ## `link --anchor-id ID (--url U | --bookmark B) [--text T] [--screen-tip S]`
 
@@ -571,6 +580,11 @@ linked, so the source file can move or vanish afterwards. Word auto-detects the
 image's natural size; `--width`/`--height` (points) override it and
 `--lock-aspect` (the default) keeps the aspect ratio.
 
+A `--path` source is **screened** before any filesystem access: a non-local
+path — a UNC `\\host\share\…`, a `file://`, or any URL — is rejected (exit `1`),
+and if `--image-dir` / `WORDLIVE_IMAGE_DIRS` is configured the path must resolve
+inside it. Prefer `--base64`/stdin for untrusted (e.g. LLM-supplied) images.
+
 `--wrap` is **required** so layout intent is always explicit:
 
 | `--wrap`                                            | Effect                                              |
@@ -650,6 +664,45 @@ $ wordlive snapshot --page 1
 
 Failures: `1` PyMuPDF isn't installed, or rasterising the PDF failed — a
 `SnapshotError`; `2` `--anchor-id` not found; `3` Word busy.
+
+## `save` / `save-as PATH` / `export-pdf PATH` (gated)
+
+```
+wordlive save                                              [--doc DOC_NAME]
+wordlive save-as PATH [--format docx] [--overwrite]        [--doc DOC_NAME]
+wordlive export-pdf PATH [--pages A-B]                     [--doc DOC_NAME]
+```
+
+Persist the document or hand back a deliverable. **These three verbs are gated:**
+they only write inside a directory whitelisted with the global `--save-dir`
+(repeatable) or `WORDLIVE_SAVE_DIRS` (an `os.pathsep`-separated list). With no
+whitelist configured, saving is **off** (exit `1`, `PathNotAllowedError`). The
+target is resolved *first* (so `..`/symlinks can't escape) and must then sit
+inside an allowed directory. The Python API (`doc.save()` etc.) is ungated.
+
+- `save` writes to the document's existing file (fails if it was never saved —
+  use `save-as` first). Its existing path must itself be whitelisted.
+- `save-as PATH` writes a `.docx` (the only `--format`; PDF is `export-pdf`).
+  Refuses to clobber an existing file unless `--overwrite` is given.
+- `export-pdf PATH` exports a PDF — a pixel-faithful render via Word's PDF
+  engine (the same one `snapshot` uses), the recommended way to hand back a
+  deliverable. `--pages A-B` (or a single `--pages N`) limits the page range;
+  the whole document by default. Overwrites an existing PDF.
+
+```bash
+$ wordlive --save-dir C:\out save-as C:\out\report.docx
+{"ok": true, "path": "C:\\out\\report.docx", "format": "docx"}
+
+$ wordlive --save-dir C:\out export-pdf C:\out\report.pdf
+{"ok": true, "path": "C:\\out\\report.pdf"}
+
+$ wordlive save-as C:\elsewhere\x.docx          # no whitelist → denied
+error: saving is disabled: no save directories are configured …
+# exit 1
+```
+
+Failures: `1` policy denial (no/wrong whitelist, refused overwrite) or bad
+input; `3` Word busy; `4` Word not running.
 
 ## `cursor read` / `cursor write --text "…"`
 
@@ -1310,16 +1363,17 @@ $ wordlive list restart --anchor-id range:512-540
 
 Failures: `2` anchor not found, `3` Word busy.
 
-## `section list`
+## `sections`
 
 ```
-wordlive section list [--doc DOC_NAME]
+wordlive sections [--doc DOC_NAME]
 ```
 
-List the document's sections with each one's page setup.
+List the document's sections with each one's page setup. (Previously
+`section list`, now a hidden deprecated alias.)
 
 ```bash
-$ wordlive section list
+$ wordlive sections
 [{"index": 1,
   "page_setup": {"orientation": "portrait",
                  "top_margin": 72.0, "bottom_margin": 72.0,
