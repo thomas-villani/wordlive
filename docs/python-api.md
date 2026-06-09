@@ -350,6 +350,8 @@ constants.WdParagraphAlignment.CENTER   # 1
 
 ::: wordlive.ImageSourceError
 
+::: wordlive.PathNotAllowedError
+
 ::: wordlive.SnapshotError
 
 ::: wordlive.WordBusyError

@@ -495,3 +495,46 @@ def test_read_image_on_imageless_range_raises(scratch_doc):
         doc.append_paragraph("No picture here.")
     with pytest.raises(wordlive.ImageSourceError):
         doc.paragraphs[1].read_image()
+
+
+def test_save_as_and_export_pdf_roundtrip(scratch_doc, tmp_path):
+    """Ungated Python-API persistence: save a .docx, export a PDF, both land on disk."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("A deliverable paragraph.")
+
+    docx = tmp_path / "out.docx"
+    written = doc.save_as(docx)
+    assert written == str(docx.resolve())
+    assert docx.is_file() and docx.stat().st_size > 0
+    # After a save, Word reports the document clean.
+    assert doc.saved is True
+
+    # save() to the now-existing path succeeds (no longer "never saved").
+    doc.append_paragraph("One more line.")
+    assert doc.saved is False
+    doc.save()
+    assert doc.saved is True
+
+    pdf = tmp_path / "out.pdf"
+    assert doc.export_pdf(pdf) == str(pdf.resolve())
+    assert pdf.is_file()
+    assert pdf.read_bytes()[:5] == b"%PDF-"  # a real PDF header
+
+    # save_as refuses to clobber without overwrite, then allows it.
+    with pytest.raises(wordlive.exceptions.OpError):
+        doc.save_as(docx)
+    doc.save_as(docx, overwrite=True)
+
+
+def test_save_gating_blocks_outside_whitelist(scratch_doc, tmp_path):
+    """The CLI/MCP path policy denies a save outside the whitelist (resolve-first)."""
+    from wordlive._paths import PathPolicy
+
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    pol = PathPolicy(save_dirs=[allowed])
+    # Inside the whitelist resolves; an escape via .. is refused.
+    assert pol.resolve_save_target(allowed / "ok.docx") == (allowed / "ok.docx").resolve()
+    with pytest.raises(wordlive.PathNotAllowedError):
+        pol.resolve_save_target(allowed / ".." / "escape.docx")

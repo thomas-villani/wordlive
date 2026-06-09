@@ -29,6 +29,7 @@ from .. import attach
 from .._anchors import Heading
 from .._guide import skill_body
 from .._ops import _PAGE_SETUP_FIELDS, _PARA_FIELDS, _STYLE_RUN_FIELDS, pick_doc, run_batch
+from .._paths import PathPolicy
 from ..exceptions import OpError, WordliveError, classify
 from ._worker import ComWorker, Worker
 
@@ -478,7 +479,13 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
     raise OpError(f"unknown write command: {command!r}")
 
 
-def _write_impl(worker: Worker, command: str, p: dict[str, Any]) -> dict[str, Any]:
+def _write_impl(
+    worker: Worker, command: str, p: dict[str, Any], *, policy: PathPolicy | None = None
+) -> dict[str, Any]:
+    # Default to a deny-all policy: saving is off and non-local image paths are
+    # rejected unless the caller (build_server) supplies a configured policy.
+    policy = policy if policy is not None else PathPolicy()
+
     def job() -> dict[str, Any]:
         with attach() as word:
             doc = pick_doc(word, p.get("doc"))
@@ -488,7 +495,26 @@ def _write_impl(worker: Worker, command: str, p: dict[str, Any]) -> dict[str, An
                     raise OpError("write command 'track' requires 'on' (bool)")
                 doc.track_changes = bool(on)
                 return {"ok": True, "command": "track", "track_changes": bool(on)}
+            # Persistence — terminal side-effects, not undoable ops, so they bypass
+            # run_batch (like `track`). Gated: the target must sit inside the
+            # configured save-directory whitelist (WORDLIVE_SAVE_DIRS) or saving is off.
+            if command == "save":
+                policy.resolve_save_target(doc.path)
+                return {"ok": True, "command": "save", "path": doc.save(), "saved": True}
+            if command == "save_as":
+                target = policy.resolve_save_target(_need(p, "path", command))
+                written = doc.save_as(target, overwrite=bool(p.get("overwrite", False)))
+                return {"ok": True, "command": "save_as", "path": written}
+            if command == "export_pdf":
+                target = policy.resolve_save_target(_need(p, "path", command))
+                written = doc.export_pdf(
+                    target, from_page=p.get("from_page"), to_page=p.get("to_page")
+                )
+                return {"ok": True, "command": "export_pdf", "path": written}
             op = _build_write_op(command, p)
+            # Screen an insert_image op's path before it reaches COM/filesystem
+            # (a UNC path's existence probe would authenticate to a remote SMB host).
+            policy.screen_op_image_paths([op])
             result, exc = run_batch(doc, [op], label=f"MCP: {command}")
             if exc is not None:
                 raise exc
@@ -512,10 +538,15 @@ def _exec_impl(
     doc: str | None,
     label: str | None,
     tracked: bool,
+    policy: PathPolicy | None = None,
 ) -> tuple[dict[str, Any], WordliveError | None]:
+    pol = policy if policy is not None else PathPolicy()
+
     def job() -> tuple[dict[str, Any], WordliveError | None]:
         with attach() as word:
             d = pick_doc(word, doc)
+            # Vet image-source paths before any COM/filesystem access.
+            pol.screen_op_image_paths(ops)
             return run_batch(d, ops, label=label or "MCP: exec", tracked=tracked)
 
     return worker.run_on_word(job)
@@ -584,6 +615,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         ) from e
 
     w: Worker = worker if worker is not None else ComWorker()
+    # Saving is default-deny: the operator opts in by configuring WORDLIVE_SAVE_DIRS
+    # at launch (image-source paths optionally restricted via WORDLIVE_IMAGE_DIRS).
+    policy = PathPolicy.from_env()
     mcp = FastMCP("wordlive", instructions=_INSTRUCTIONS)
 
     @mcp.tool()
@@ -688,6 +722,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "insert_cross_reference",
             "insert_caption",
             "page_setup",
+            "save",
+            "save_as",
+            "export_pdf",
         ],
         doc: str | None = None,
         anchor_id: str | None = None,
@@ -778,6 +815,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         target: str | None = None,
         hyperlink: bool | None = None,
         label: str | None = None,
+        overwrite: bool = False,
+        from_page: int | None = None,
+        to_page: int | None = None,
     ) -> dict[str, Any]:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
@@ -826,7 +866,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         header/footer {section,text,[which]} · track {on} ·
         insert_image {anchor_id,wrap, image_base64|path,
             [before,block,width,height,alt_text,lock_aspect]} — block puts the image on its
-            own new line instead of in the anchor's text run.
+            own new line instead of in the anchor's text run ·
+        save {} — save to the document's existing file (must already be saved) ·
+        save_as {path,[overwrite]} — save a .docx to path ·
+        export_pdf {path,[from_page,to_page]} — export a PDF (the deliverable path).
+            save/save_as/export_pdf are GATED: they only write inside the server's
+            configured save directories (WORDLIVE_SAVE_DIRS); with none set, saving is off.
 
         For several edits in one undo step, use word_exec instead. Call
         word_read(command="guide") for the full anchor model and field reference.
@@ -921,9 +966,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "target": target,
             "hyperlink": hyperlink,
             "label": label,
+            "overwrite": overwrite,
+            "from_page": from_page,
+            "to_page": to_page,
         }
         try:
-            return _write_impl(w, command, params)
+            return _write_impl(w, command, params, policy=policy)
         except WordliveError as exc:
             raise _tool_error(exc) from exc
 
@@ -979,7 +1027,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         Call word_read(command="guide") for the full field reference.
         """
         try:
-            result, exc = _exec_impl(w, ops, doc=doc, label=label, tracked=tracked)
+            result, exc = _exec_impl(w, ops, doc=doc, label=label, tracked=tracked, policy=policy)
         except WordliveError as setup_exc:
             raise _tool_error(setup_exc) from setup_exc
         if exc is not None:

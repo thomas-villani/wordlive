@@ -443,6 +443,21 @@ this order. Spike-confirmed 2026-05-31.
 
 ## Persistence — save / save-as / PDF export (directory-whitelisted)
 
+> **Status (2026-06-09): shipped** (with image-source hardening, below).
+> `doc.save()` / `doc.save_as(path, fmt="docx", overwrite=False)` /
+> `doc.export_pdf(path, from_page, to_page)` / `doc.saved` (ungated Python API);
+> CLI `save` / `save-as` / `export-pdf` with the global `--save-dir` (repeatable)
+> / `WORDLIVE_SAVE_DIRS` default-deny whitelist; MCP `word_write` commands
+> `save` / `save_as` / `export_pdf` gated by `WORDLIVE_SAVE_DIRS` at launch.
+> Containment resolves the target first then `is_relative_to` the whitelist.
+> `PathNotAllowedError` → exit 1 (the neutral name that also guards image reads).
+> `export_pdf` reuses `_snapshot._export_pdf`. Decided at build time: MCP exposes
+> save as `word_write` commands (special-cased like `track`, bypassing
+> `run_batch`) to hold the four-tool invariant; `save_as` writes `.docx` only and
+> rejects `fmt="pdf"` (use `export_pdf`). Covered by unit tests **and a live-Word
+> smoke round-trip** (save_as → save → export_pdf, PDF header verified). See
+> CHANGELOG `[Unreleased]`. **Deferred:** `doc`/`rtf`/`txt`/`html` formats.
+
 wordlive's one coherent **filesystem boundary**: the **Python API is
 trusted/ungated**; the **CLI/MCP surfaces are gated** because their input can be
 prompt-injected. (The read side — image-source hardening — is bundled with this;
@@ -485,6 +500,15 @@ priority than the publishing cluster.
   axis/series formatting, `BreakLink` policy, reading existing charts back out.
 
 ## CLI consistency — consolidate bookmark ops (next release)
+
+> **Status (2026-06-09): shipped (verb-first).** Bookmark creation moved from
+> `bookmark add NAME --anchor-id ID` to `write bookmark NAME --create --anchor-id
+> ID`; `read bookmark --list [--include-hidden]` surfaces `doc.bookmarks.list()`;
+> the section listing flattened from `section list` to a top-level `sections`
+> verb. The old `bookmark add` and `section list` spellings stay as **hidden
+> deprecated aliases for one release**. CLI-only (Python API + exec ops
+> unchanged). Per the lean, verb-first won (keeps `read`/`write` dispatch groups
+> whole and parallel with `cc`). See CHANGELOG `[Unreleased]`.
 
 The flat-first rule (see Cross-cutting) leaves one outstanding violation:
 bookmark operations are split three ways — `read bookmark`, `write bookmark`,
@@ -683,7 +707,13 @@ wordlive already has `doc.lists` / `doc.tables` / (planned) `doc.images` /
 
 # Cross-cutting work (any release)
 
-- **Image-source hardening (read-side gate, pairs with Persistence).** Raised
+- **Image-source hardening (read-side gate, pairs with Persistence).** ✅
+  **Shipped 2026-06-09** with the persistence cluster. CLI/MCP now reject a
+  non-local `--path` / op `path` (UNC `\\…`, `file://`, URL) via
+  `_paths.reject_nonlocal_image_path` *before* the `is_file()` probe, plus an
+  optional `--image-dir` / `WORDLIVE_IMAGE_DIRS` allowlist; the Python API stays
+  ungated; base64/bytes unaffected. Refusals raise the shared
+  `PathNotAllowedError`. Original notes below. Raised
   2026-05-31. `insert_image --path …` hands `FileName` to `AddPicture`, which
   resolves more than local paths — making the *path* input (not bytes/base64) an
   attack surface a prompt injection can reach. Threats: **UNC → NTLM credential

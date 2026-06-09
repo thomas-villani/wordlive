@@ -46,6 +46,9 @@ with wl.attach() as word:
         doc.bookmarks["Address"].set_text("123 Main St")
         doc.content_controls["Signatory"].set_text("Jane Doe")
         doc.heading("Introduction").insert_paragraph_after("New context paragraph.")
+
+    # Hand back a deliverable (the Python API is ungated):
+    doc.export_pdf("report.pdf")
 ```
 
 ## CLI
@@ -107,7 +110,7 @@ wordlive list apply --anchor-id heading:6 --type numbered
 wordlive list restart --anchor-id heading:6
 
 # Sections, headers & footers (header:S:WHICH / footer:S:WHICH):
-wordlive section list
+wordlive sections
 wordlive header write --section 1 --text "ACME Corporation"
 wordlive footer read --section 1
 
@@ -128,6 +131,11 @@ wordlive snapshot --max-dim 1000                            # whole doc, low-res
 
 # Batch multiple ops in a single Ctrl-Z:
 wordlive exec --script ops.json
+
+# Save / hand back a deliverable — GATED behind a directory whitelist
+# (--save-dir or WORDLIVE_SAVE_DIRS; with none set, saving is off):
+wordlive --save-dir C:\out save-as C:\out\report.docx
+wordlive --save-dir C:\out export-pdf C:\out\report.pdf    # pixel-faithful PDF
 ```
 
 Where `ops.json` looks like:

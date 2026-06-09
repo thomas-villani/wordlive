@@ -102,6 +102,26 @@ class ImageSourceError(WordliveError):
         super().__init__(message)
 
 
+class PathNotAllowedError(WordliveError):
+    """A filesystem path was refused by the gated CLI / MCP surface's policy.
+
+    wordlive's Python API is trusted and ungated, but the CLI and MCP surfaces —
+    whose inputs can be prompt-injected — run every filesystem path through a
+    default-deny policy. This is raised when a **save / save-as / export-pdf**
+    target falls outside the configured save-directory whitelist (or no whitelist
+    is configured, so saving is off), or when an **image-source path** is a
+    non-local form (UNC `\\…`, `file://`, or a URL) or sits outside the optional
+    image-directory allowlist. It's a policy denial / bad-input error — not a
+    "named thing is missing" — so it maps to the generic exit code (1), keeping
+    the six-code contract untouched. Not retryable: configure a whitelist
+    (`--save-dir` / `WORDLIVE_SAVE_DIRS`, `--image-dir` / `WORDLIVE_IMAGE_DIRS`)
+    or pass a local path inside it.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class SnapshotError(WordliveError):
     """A page/section snapshot couldn't be rendered.
 
@@ -237,4 +257,6 @@ def classify(exc: WordliveError) -> tuple[str, bool]:
         return "word_not_running", False
     if isinstance(exc, DocumentNotFoundError):
         return "document_not_found", False
+    if isinstance(exc, PathNotAllowedError):
+        return "path_not_allowed", False
     return "error", False

@@ -46,7 +46,7 @@ edit (a new paragraph, an inserted table) shifts the document, so re-read
 are name-based and survive edits — reach for them when you need a durable handle.
 
 ## Reading
-- `wordlive read bookmark NAME` · `read cc NAME` · `read section "Heading Text"`
+- `wordlive read bookmark NAME` (or `read bookmark --list` for every bookmark name) · `read cc NAME` · `read section "Heading Text"`
 - `wordlive find --text "phrase"` — locate before editing; returns `range:` ids.
 - `wordlive table list` · `wordlive table read N`
 - `wordlive footnotes` · `wordlive endnotes` — each note's `footnote:N`/`endnote:N` id, text, and `para:N`.
@@ -54,7 +54,7 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive revisions` — tracked changes as structured data (`type`/`author`/`text`/`range`); the readable counterpart to `snapshot --markup all`. `wordlive track status` reports whether Track Changes is on.
 
 ## Writing — each command is one atomic undo
-- `wordlive write bookmark NAME --text "…"` · `write cc NAME --text "…"`
+- `wordlive write bookmark NAME --text "…"` (set existing) · `write bookmark NAME --create --anchor-id ID` (create a new bookmark over a range — the prerequisite for internal links and cross-refs; NAME starts with a letter, letters/digits/underscores only) · `write cc NAME --text "…"`
 - `wordlive insert --anchor-id ID --text "…" [--before | --after] [--style "Body Text"]` — new paragraph relative to any anchor (`--after` is the default; appending after the document's last paragraph works too, so you can build a doc top-down).
 - `wordlive delete-paragraph --anchor-id ID` — remove the paragraph(s) at an anchor, **mark included**, so the text closes up (no blank line left, unlike `replace --text ""`). Good for a stray leading empty `para:1`.
 - `wordlive append --text "…" [--inline] [--style "Body Text"]` — add a new final paragraph at the very end of the document (`--inline` continues the last paragraph). The high-level "end of doc" helper; same as `insert --anchor-id end`.
@@ -70,7 +70,6 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive insert-field --anchor-id ID --kind page|numpages|date|time|filename|author|title|field [--text "RAW CODE"] [--before | --after]` — a **self-updating** field; put page numbers in a footer (`--anchor-id footer:1:primary --kind page`). `--kind field` takes a raw field code via `--text`. Refresh stale fields with `wordlive update-fields`.
 - `wordlive insert-footnote --anchor-id ID --text "…"` · `wordlive insert-endnote --anchor-id ID --text "…"` — attach a footnote/endnote to a range; reports the new `footnote:N`/`endnote:N`. List them with `wordlive footnotes` / `wordlive endnotes`.
 - `wordlive insert-toc [--anchor-id start] [--levels 1-3] [--no-heading-styles] [--no-hyperlinks]` — insert a table of contents from the headings. Page numbers fill in after `wordlive update-fields` (or `snapshot`).
-- `wordlive bookmark add NAME --anchor-id ID` — create a bookmark over a range (the prerequisite for internal links and cross-refs). NAME starts with a letter; letters/digits/underscores only.
 - `wordlive link --anchor-id ID (--url URL | --bookmark NAME) [--text "…"]` — turn an anchor into a hyperlink: external `--url` or internal `--bookmark`. `--text` inserts new linked text (no `--text` links the existing range).
 - `wordlive cross-ref --anchor-id ID --target TARGET [--kind text|page|number|above_below] [--no-hyperlink]` — reference another anchor; `--target` is `bookmark:NAME` / `heading:N` / `footnote:N` / `endnote:N`. Refresh with `update-fields`.
 - `wordlive caption --anchor-id ID [--label Figure] [--text "…"] [--position above|below]` — insert an auto-numbered caption (Figure/Table/…) as its own `Caption` paragraph (on a `table:N:R:C` anchor it captions the whole table). Default placement is above for a `Table`, below otherwise; `--position` overrides. Pairs with `cross-ref`.
@@ -80,6 +79,11 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive comment add --anchor-id ID --text "…"` (+ `comment list` · `comment resolve --index N` · `comment delete --index N`).
 - `wordlive track on|off|status` — toggle / inspect Track Changes. Read the recorded edits structurally with `wordlive revisions`, or see them with `snapshot --markup all`.
 - `wordlive header write --section S --text "…"` · `footer write --section S --text "…"` (`--which primary|first|even`).
+- `wordlive sections` — list sections with their page setup (orientation, margins, page size).
+
+## Saving — gated, hand back a deliverable
+- `wordlive save` · `wordlive save-as PATH [--overwrite]` (a `.docx`) · `wordlive export-pdf PATH [--pages A-B]` (a PDF — the recommended deliverable, a pixel-faithful render).
+- **Default-deny:** saving only writes inside a directory whitelisted with the global `--save-dir DIR` (repeatable) or `WORDLIVE_SAVE_DIRS`. With none set, every save fails (exit 1, `path_not_allowed`). `save` needs the doc already saved once; `save-as` refuses to overwrite without `--overwrite`.
 
 ## Images
 ```
@@ -88,6 +92,9 @@ wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP 
 ```
 - Supply the image as a file (`--path`) **or** base64 (`--base64`; use `--base64 -`
   to read base64 from stdin). Base64 is ideal when you hold image data in memory.
+  A `--path` is screened: non-local sources (UNC `\\host\…`, `file://`, URLs) are
+  rejected, and `--image-dir`/`WORDLIVE_IMAGE_DIRS` can restrict it further —
+  prefer base64 for images you're holding rather than a path.
 - `--wrap` is **required**: `inline` (stays in the text flow), `auto` (floats —
   Square if small, else top-and-bottom), or
   `square|tight|through|top-bottom|behind|front`.

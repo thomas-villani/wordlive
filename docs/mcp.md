@@ -97,7 +97,7 @@ is the active one).
 | Tool | What it does |
 | --- | --- |
 | `word_read` | Every read, dispatched on `command`: `guide`, `status`, `outline`, `paragraphs`, `find`, `read_bookmark`, `read_cc`, `read_section`, `table_list`, `table_read`, `styles`, `comments`, `revisions` (tracked changes), `track` (is Track Changes on?), `sections`, `footnotes`, `endnotes`, `images` (embedded pictures: `image:N` id, mime, size, alt, para), `read_image` `{anchor_id}` (an embedded picture's bytes as base64 + mime — pass an `image:N` id or any single-image anchor). |
-| `word_write` | Every single atomic-undo edit, dispatched on `command`: `insert`, `delete_paragraph`, `insert_break`, `append`, `prepend`, `replace`, `write_bookmark`, `write_cc`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`, `set_borders`, `add_tab_stop`, `add_style`, `set_style`, `list`, `comment`, `table` (`action` = `set_cell`/`add_row`/`delete_row`/`set_heading_row`/`create`/`delete`), `header`, `footer`, `track`, `insert_image`, `insert_field`, `update_fields`, `insert_footnote`, `insert_endnote`, `insert_toc`, `add_bookmark`, `add_hyperlink`, `insert_cross_reference`, `insert_caption`, `page_setup`. `delete_paragraph {anchor_id}` removes the paragraph(s) at an anchor, mark included. `append`/`prepend` add a new paragraph (optional `style`); pass `paragraph: false` to continue the adjacent paragraph inline (no `style`). `format_paragraph` also carries the pagination controls `keep_together`/`keep_with_next`/`widow_control` (multi-page layout); `table action="set_heading_row"` `{table,[row=1,heading,allow_break]}` marks a repeating header row. `format_run` styles characters (bold/italic/colour/highlight/…); `set_shading`/`set_borders`/`add_tab_stop` add cell/range shading, borders, and tab stops; `add_style`/`set_style` create and configure styles (the border line style is the `line_style` param, to avoid colliding with `style`). `insert_field` drops a self-updating field (page numbers, dates, refs) — put `kind: page` in a footer; `update_fields` refreshes them; `page_setup` sets a section's margins/orientation/paper size/`columns`. `insert_footnote`/`insert_endnote` attach a note (the new `footnote:N`/`endnote:N` comes back in `result`); `insert_toc` inserts a table of contents (run `update_fields` after to fill its page numbers). `add_bookmark` names a range; `add_hyperlink` links it (external `url` or internal `bookmark`); `insert_cross_reference` references a `bookmark:`/`heading:`/`footnote:`/`endnote:` target; `insert_caption` adds a numbered caption in its own paragraph (`position` = `above`/`below`, default above for a `Table` and below otherwise; on a `table:N:R:C` anchor it captions the whole table). |
+| `word_write` | Every single atomic-undo edit, dispatched on `command`: `insert`, `delete_paragraph`, `insert_break`, `append`, `prepend`, `replace`, `write_bookmark`, `write_cc`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`, `set_borders`, `add_tab_stop`, `add_style`, `set_style`, `list`, `comment`, `table` (`action` = `set_cell`/`add_row`/`delete_row`/`set_heading_row`/`create`/`delete`), `header`, `footer`, `track`, `insert_image`, `insert_field`, `update_fields`, `insert_footnote`, `insert_endnote`, `insert_toc`, `add_bookmark`, `add_hyperlink`, `insert_cross_reference`, `insert_caption`, `page_setup`. `delete_paragraph {anchor_id}` removes the paragraph(s) at an anchor, mark included. `append`/`prepend` add a new paragraph (optional `style`); pass `paragraph: false` to continue the adjacent paragraph inline (no `style`). `format_paragraph` also carries the pagination controls `keep_together`/`keep_with_next`/`widow_control` (multi-page layout); `table action="set_heading_row"` `{table,[row=1,heading,allow_break]}` marks a repeating header row. `format_run` styles characters (bold/italic/colour/highlight/…); `set_shading`/`set_borders`/`add_tab_stop` add cell/range shading, borders, and tab stops; `add_style`/`set_style` create and configure styles (the border line style is the `line_style` param, to avoid colliding with `style`). `insert_field` drops a self-updating field (page numbers, dates, refs) — put `kind: page` in a footer; `update_fields` refreshes them; `page_setup` sets a section's margins/orientation/paper size/`columns`. `insert_footnote`/`insert_endnote` attach a note (the new `footnote:N`/`endnote:N` comes back in `result`); `insert_toc` inserts a table of contents (run `update_fields` after to fill its page numbers). `add_bookmark` names a range; `add_hyperlink` links it (external `url` or internal `bookmark`); `insert_cross_reference` references a `bookmark:`/`heading:`/`footnote:`/`endnote:` target; `insert_caption` adds a numbered caption in its own paragraph (`position` = `above`/`below`, default above for a `Table` and below otherwise; on a `table:N:R:C` anchor it captions the whole table). Plus the **gated** persistence commands `save` (to the existing file), `save_as {path,[overwrite]}` (a `.docx`), and `export_pdf {path,[from_page,to_page]}` (a PDF deliverable) — terminal side-effects, not undoable; see [Saving](#saving). |
 | `word_exec` | Apply a batch of `ops` as a **single** atomic undo — the power tool for multi-step intents. |
 | `word_snapshot` | Render page(s) to PNG so the model can *see* the layout (`markup: "all"` shows tracked changes / comments as revision marks). `max_dim` caps each page's long edge in pixels — pair it with no page target to check the whole document's layout cheaply (a predictable per-page token budget; ~1000 stays legible). Returns image content. Needs the `snapshot` extra. |
 
@@ -134,6 +134,37 @@ the successful prefix still rolls back as one undo step. A field an op doesn't
 use (a typo, or `style` on an inline append) is reported in a `warnings` array on
 the result rather than silently dropped.
 
+## Saving
+
+The `word_write` commands `save` / `save_as` / `export_pdf` are **gated and
+default-deny**: they only write inside directories the operator whitelists when
+launching the server, via the **`WORDLIVE_SAVE_DIRS`** environment variable (an
+`os.pathsep`-separated list). With none configured, saving is off and every
+attempt returns a `path_not_allowed` error. The target is resolved first (so
+`..`/symlinks can't escape) and must then sit inside an allowed directory.
+`export_pdf` is the recommended way to hand back a deliverable — a pixel-faithful
+PDF via the same engine as `word_snapshot`.
+
+The same launch config optionally restricts image-source paths with
+**`WORDLIVE_IMAGE_DIRS`**; regardless of that allowlist, `insert_image` with a
+non-local `path` (a UNC `\\host\share\…`, a `file://`, or any URL) is always
+rejected before any filesystem access — prefer `image_base64` for
+LLM-supplied images. Configure both in the client's server entry:
+
+```json
+{
+  "mcpServers": {
+    "wordlive": {
+      "command": "wordlive-mcp",
+      "env": {
+        "WORDLIVE_SAVE_DIRS": "C:\\Users\\you\\Documents\\wordlive-out",
+        "WORDLIVE_IMAGE_DIRS": "C:\\Users\\you\\Pictures"
+      }
+    }
+  }
+}
+```
+
 ## Errors
 
 A failed tool call comes back flagged as an error whose message is a JSON object:
@@ -153,6 +184,7 @@ A failed tool call comes back flagged as an error whose message is a JSON object
 | `word_busy` | a modal dialog is open | **yes** — back off and retry |
 | `word_not_running` | Word isn't running | no — until Word is opened |
 | `document_not_found` | no document by that name | no |
+| `path_not_allowed` | a save/image path was outside the whitelist (or saving is off) | no — configure `WORDLIVE_SAVE_DIRS` / use a local image |
 | `error` | bad input / other | no — fix the request |
 
 ## How it works

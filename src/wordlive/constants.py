@@ -155,6 +155,20 @@ class MsoTriState(IntEnum):
     FALSE = 0
 
 
+class WdSaveFormat(IntEnum):
+    """`Document.SaveAs2(FileFormat=...)` values — the formats `save_as` exposes.
+
+    A deliberately narrow slice of Word's full `WdSaveFormat`: the modern Open
+    XML `.docx` (`DOCUMENT_DEFAULT`, what `save_as(fmt="docx")` writes). PDF
+    export goes through `ExportAsFixedFormat` (`export_pdf`), not `SaveAs2`, so
+    PDF isn't listed here. The legacy `.doc`, `.rtf`, `.txt`, and `.html`
+    formats are deferred until a use case needs them, mirroring how the other
+    `Wd*` subsets were kept narrow.
+    """
+
+    DOCUMENT_DEFAULT = 16
+
+
 class WdExportFormat(IntEnum):
     """`Document.ExportAsFixedFormat` output format. Only PDF is used (for snapshots)."""
 

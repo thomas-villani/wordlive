@@ -106,6 +106,9 @@ def register(group: click.Group) -> None:
     group.add_command(append_cmd)
     group.add_command(insert_image_cmd)
     group.add_command(snapshot_cmd)
+    group.add_command(save_cmd)
+    group.add_command(save_as_cmd)
+    group.add_command(export_pdf_cmd)
     group.add_command(cursor)
     group.add_command(find_cmd)
     group.add_command(replace)
@@ -120,6 +123,7 @@ def register(group: click.Group) -> None:
     group.add_command(comment)
     group.add_command(track)
     group.add_command(list_cmd)
+    group.add_command(sections_cmd)
     group.add_command(section)
     group.add_command(header)
     group.add_command(footer)
@@ -216,16 +220,43 @@ def read() -> None:
 
 
 @read.command(name="bookmark")
-@click.argument("name")
+@click.argument("name", required=False)
+@click.option(
+    "--list",
+    "list_all",
+    is_flag=True,
+    default=False,
+    help="List every bookmark name instead of reading one.",
+)
+@click.option(
+    "--include-hidden",
+    "include_hidden",
+    is_flag=True,
+    default=False,
+    help="With --list, also include Word's internal bookmarks (_Toc…, _Ref…).",
+)
 @click.pass_context
-def read_bookmark(ctx: click.Context, name: str) -> None:
-    """Read the text of bookmark NAME."""
+def read_bookmark(
+    ctx: click.Context, name: str | None, list_all: bool, include_hidden: bool
+) -> None:
+    """Read the text of bookmark NAME, or list all bookmarks with --list."""
+    if list_all == (name is not None):
+        raise click.UsageError("provide either NAME or --list (not both)")
 
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
-            text = doc.bookmarks[name].text
-            emit({"text": text}, as_text=not ctx.obj["as_json"], text=text)
+            if list_all:
+                names = doc.bookmarks.list(include_hidden=include_hidden)
+                emit(
+                    names,
+                    as_text=not ctx.obj["as_json"],
+                    text="\n".join(names) if names else "(no bookmarks)",
+                )
+            else:
+                assert name is not None  # guaranteed by the validation above
+                text = doc.bookmarks[name].text
+                emit({"text": text}, as_text=not ctx.obj["as_json"], text=text)
 
     _run(ctx, go)
 
@@ -296,22 +327,74 @@ def write() -> None:
 
 @write.command(name="bookmark")
 @click.argument("name")
-@click.option("--text", "text", required=True, help="New text for the bookmark.")
+@click.option("--text", "text", default=None, help="New text for an existing bookmark.")
+@click.option(
+    "--create",
+    "create",
+    is_flag=True,
+    default=False,
+    help="Create the bookmark over --anchor-id (instead of writing text).",
+)
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    default=None,
+    help="With --create: the anchor whose range the new bookmark covers "
+    "(e.g. heading:2, range:120-140).",
+)
 @click.pass_context
-def write_bookmark(ctx: click.Context, name: str, text: str) -> None:
-    """Set the text of bookmark NAME (atomic-undo)."""
+def write_bookmark(
+    ctx: click.Context, name: str, text: str | None, create: bool, anchor_id: str | None
+) -> None:
+    """Create a bookmark, or set an existing one's text (atomic-undo).
+
+    Two modes:
+
+    \b
+      write bookmark NAME --text "…"                set an existing bookmark's text
+      write bookmark NAME --create --anchor-id ID   create NAME over an anchor's range
+
+    Creating a bookmark is the prerequisite for internal links
+    (`link --bookmark NAME`) and cross-references (`cross-ref --target
+    bookmark:NAME`). NAME must start with a letter and contain only letters,
+    digits, and underscores.
+    """
+    if create:
+        if text is not None:
+            raise click.UsageError("--create and --text are mutually exclusive")
+        if anchor_id is None:
+            raise click.UsageError("--create requires --anchor-id")
+    else:
+        if anchor_id is not None:
+            raise click.UsageError("--anchor-id is only valid with --create")
+        if text is None:
+            raise click.UsageError(
+                "provide --text (write an existing bookmark) or "
+                "--create --anchor-id ID (create a new one)"
+            )
 
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
-            bm = doc.bookmarks[name]
-            with doc.edit(f"CLI: write bookmark {name}"):
-                bm.set_text(text)
-            emit(
-                {"ok": True, "anchor": {"kind": bm.kind, "name": name}},
-                as_text=not ctx.obj["as_json"],
-                text=f"wrote bookmark:{name}",
-            )
+            if create:
+                assert anchor_id is not None  # guaranteed by the validation above
+                with doc.edit(f"CLI: add bookmark {name}"):
+                    doc.bookmarks.add(name, anchor_id)
+                emit(
+                    {"ok": True, "bookmark": name, "anchor_id": anchor_id, "created": True},
+                    as_text=not ctx.obj["as_json"],
+                    text=f"added bookmark:{name} over {anchor_id}",
+                )
+            else:
+                assert text is not None  # guaranteed by the validation above
+                bm = doc.bookmarks[name]
+                with doc.edit(f"CLI: write bookmark {name}"):
+                    bm.set_text(text)
+                emit(
+                    {"ok": True, "anchor": {"kind": bm.kind, "name": name}},
+                    as_text=not ctx.obj["as_json"],
+                    text=f"wrote bookmark:{name}",
+                )
 
     _run(ctx, go)
 
@@ -892,9 +975,12 @@ def read_image_cmd(ctx: click.Context, anchor_id: str, out: Path | None) -> None
 # ---------------------------------------------------------------------------
 
 
-@click.group(name="bookmark")
+@click.group(name="bookmark", hidden=True)
 def bookmark() -> None:
-    """Create bookmarks (read existing ones with `read bookmark NAME`)."""
+    """Deprecated: use `write bookmark NAME --create --anchor-id ID`.
+
+    Kept as a hidden alias for one release.
+    """
 
 
 @bookmark.command(name="add")
@@ -907,11 +993,12 @@ def bookmark() -> None:
 )
 @click.pass_context
 def bookmark_add(ctx: click.Context, name: str, anchor_id: str) -> None:
-    """Create a bookmark NAME over an anchor's range (atomic-undo).
+    """Deprecated alias for `write bookmark NAME --create --anchor-id ID`.
 
-    The prerequisite for internal links (`link --bookmark NAME`) and
-    cross-references (`cross-ref --target bookmark:NAME`). NAME must start with a
-    letter and contain only letters, digits, and underscores.
+    Create a bookmark NAME over an anchor's range (atomic-undo). The prerequisite
+    for internal links (`link --bookmark NAME`) and cross-references
+    (`cross-ref --target bookmark:NAME`). NAME must start with a letter and
+    contain only letters, digits, and underscores.
     """
 
     def go() -> None:
@@ -1254,6 +1341,11 @@ def insert_image_cmd(
     where = "before" if before else "after"
 
     def go() -> None:
+        # Screen a --path source against the policy *before* the COM/filesystem
+        # probe: a UNC path's own existence check would authenticate to a remote
+        # SMB server. Inside go() so _run() maps a denial to the right exit code.
+        if path is not None:
+            ctx.obj["policy"].screen_image_path(path)
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             anchor = doc.anchor_by_id(anchor_id)
@@ -1453,6 +1545,121 @@ def snapshot_cmd(
                 payload,
                 as_text=not ctx.obj["as_json"],
                 text=_fmt_snapshot(images, dpi),
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# save | save-as PATH [--format] [--overwrite] | export-pdf PATH [--pages]
+#   (gated: writes only under a --save-dir / WORDLIVE_SAVE_DIRS directory)
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="save")
+@click.pass_context
+def save_cmd(ctx: click.Context) -> None:
+    """Save the document to its existing file (gated).
+
+    Fails if the document has never been saved — use `save-as PATH` first. The
+    existing path must itself sit inside a whitelisted `--save-dir`
+    (or `WORDLIVE_SAVE_DIRS`); with no whitelist, saving is off.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            # The save target is the doc's own path; it must also be whitelisted.
+            ctx.obj["policy"].resolve_save_target(doc.path)
+            path = doc.save()
+            emit(
+                {"ok": True, "path": path, "saved": True},
+                as_text=not ctx.obj["as_json"],
+                text=f"saved {path}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="save-as")
+@click.argument("path", type=click.Path(path_type=Path))
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["docx"]),
+    default="docx",
+    show_default=True,
+    help="Output format (PDF is `export-pdf`).",
+)
+@click.option(
+    "--overwrite",
+    "overwrite",
+    is_flag=True,
+    default=False,
+    help="Allow overwriting an existing file (default: refuse).",
+)
+@click.pass_context
+def save_as_cmd(ctx: click.Context, path: Path, fmt: str, overwrite: bool) -> None:
+    """Save the document to PATH (gated).
+
+    PATH must resolve inside a whitelisted `--save-dir` (or `WORDLIVE_SAVE_DIRS`);
+    with no whitelist, saving is off. Refuses to clobber an existing file unless
+    `--overwrite` is given. For PDF, use `export-pdf`.
+    """
+
+    def go() -> None:
+        target = ctx.obj["policy"].resolve_save_target(path)
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            written = doc.save_as(target, fmt=fmt, overwrite=overwrite)
+            emit(
+                {"ok": True, "path": written, "format": fmt},
+                as_text=not ctx.obj["as_json"],
+                text=f"saved {written}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="export-pdf")
+@click.argument("path", type=click.Path(path_type=Path))
+@click.option(
+    "--pages",
+    "pages_range",
+    default=None,
+    help="Export an inclusive page span, e.g. '2-4' (or a single page '3'). "
+    "Default: the whole document.",
+)
+@click.pass_context
+def export_pdf_cmd(ctx: click.Context, path: Path, pages_range: str | None) -> None:
+    """Export the document (or a page span) to a PDF at PATH (gated).
+
+    PATH must resolve inside a whitelisted `--save-dir` (or `WORDLIVE_SAVE_DIRS`).
+    The recommended "hand back a deliverable" path — a pixel-faithful render via
+    Word's PDF engine (the same one `snapshot` uses). Overwrites an existing PDF.
+    """
+    from_page: int | None = None
+    to_page: int | None = None
+    if pages_range is not None:
+        if "-" in pages_range:
+            from_page, to_page = _parse_pages_range(pages_range)
+        else:
+            try:
+                from_page = int(pages_range)
+            except ValueError as e:
+                raise click.UsageError("--pages must be 'N' or 'A-B' (inclusive)") from e
+            if from_page < 1:
+                raise click.UsageError("--pages must be >= 1")
+
+    def go() -> None:
+        target = ctx.obj["policy"].resolve_save_target(path)
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            written = doc.export_pdf(target, from_page=from_page, to_page=to_page)
+            emit(
+                {"ok": True, "path": written},
+                as_text=not ctx.obj["as_json"],
+                text=f"exported {written}",
             )
 
     _run(ctx, go)
@@ -2864,23 +3071,34 @@ def _fmt_section_list(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-@click.group(name="section")
+def _emit_section_list(ctx: click.Context) -> None:
+    with attach() as word:
+        doc = _pick_doc(word, ctx.obj["doc_name"])
+        rows = doc.sections.list()
+        emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_section_list(rows))
+
+
+@click.command(name="sections")
+@click.pass_context
+def sections_cmd(ctx: click.Context) -> None:
+    """List sections with their page setup (orientation, margins, page size).
+
+    Per-section page geometry is written with `page-setup --section N`;
+    headers/footers live in `header` / `footer`.
+    """
+    _run(ctx, lambda: _emit_section_list(ctx))
+
+
+@click.group(name="section", hidden=True)
 def section() -> None:
-    """Inspect document sections (headers/footers live in `header` / `footer`)."""
+    """Deprecated: use the top-level `sections` command. Kept one release."""
 
 
 @section.command(name="list")
 @click.pass_context
 def section_list(ctx: click.Context) -> None:
-    """List sections with their page setup (orientation, margins, page size)."""
-
-    def go() -> None:
-        with attach() as word:
-            doc = _pick_doc(word, ctx.obj["doc_name"])
-            rows = doc.sections.list()
-            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_section_list(rows))
-
-    _run(ctx, go)
+    """Deprecated alias for the top-level `sections` command."""
+    _run(ctx, lambda: _emit_section_list(ctx))
 
 
 _WHICH_OPTION = click.option(
@@ -3158,6 +3376,9 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
         ops = payload.get("ops") or []
         if not isinstance(ops, list):
             raise click.ClickException("'ops' must be a list")
+        # Vet image-source paths before any COM/filesystem access (a UNC path's
+        # own existence probe would authenticate to a remote SMB server).
+        ctx.obj["policy"].screen_op_image_paths(ops)
 
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
