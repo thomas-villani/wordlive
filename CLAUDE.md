@@ -81,6 +81,15 @@ uv run mypy              # type-check src/wordlive (py310 target)
 uv build                 # build sdist/wheel
 ```
 
+**Once per clone**, install the git hooks — they don't self-install:
+
+```bash
+uvx pre-commit install   # then every commit re-locks uv.lock if it drifted
+```
+
+The `uv-lock` hook keeps `uv.lock` in sync with `pyproject.toml`; skipping it is
+how a release once shipped a stale lockfile that failed `uv lock --locked` in CI.
+
 Tests use a `fake_word` COM fixture (`tests/conftest.py`), so most run
 off-Windows; anything marked `smoke` needs Word. CI (`.github/workflows/ci.yml`)
 runs lint + tests across Python 3.10–3.15. Optional extras: `snapshot` (PyMuPDF,
