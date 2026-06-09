@@ -1,0 +1,17 @@
+# Git pre-commit hooks. These do NOT install themselves — once per clone, run:
+#
+#     uvx pre-commit install
+#
+# (uvx fetches pre-commit on demand, so nothing is added to the project's deps.)
+# Thereafter every `git commit` runs the hooks; `uvx pre-commit run -a` runs
+# them on the whole tree on demand.
+repos:
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    # Keep this rev in sync with [tool.uv] required-version and the CI uv pin,
+    # so the hook re-locks with the same uv that produced the committed lockfile.
+    rev: "0.11.17"
+    hooks:
+      # Re-runs `uv lock` and fails the commit if uv.lock was out of sync with
+      # pyproject.toml — the lockfile can't silently drift, and (unlike a blind
+      # `git checkout uv.lock`) a *legitimate* dependency change is preserved.
+      - id: uv-lock

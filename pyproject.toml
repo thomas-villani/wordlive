@@ -57,6 +57,13 @@ wordlive-mcp = "wordlive.mcp.__main__:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.uv]
+# Floor the uv version so an older uv can't regenerate uv.lock in a stale format
+# (pre-`upload-time` metadata / older lock revision), which is what caused the
+# lockfile to churn on every `uv run`. CI pins the exact uv (see ci.yml); this
+# guards local contributors. Bump together with the CI pin when upgrading uv.
+required-version = ">=0.11.17"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
