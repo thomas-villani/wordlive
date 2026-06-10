@@ -45,6 +45,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     / values key → exit 1; no matching row → exit 2). CLI `table update-row`,
     the `update_row` exec op, MCP `table` action.
 
+### Fixed
+- **Documentation: the `exec` op vocabulary is now listed in full.** The CLI
+  agent skill (`wordlive-cli/SKILL.md`) and the `exec --help` docstring each
+  enumerated only a subset of the batch ops, silently omitting 16 that have long
+  been supported (`format_run`, `set_shading`, `set_borders`, `add_tab_stop`,
+  `add_style`, `set_style`, `insert_field`, `set_page_setup`, `update_fields`,
+  `insert_footnote`, `insert_endnote`, `insert_toc`, `add_bookmark`,
+  `add_hyperlink`, `insert_cross_reference`, `insert_caption`) — so an agent
+  reading the skill would wrongly conclude they could not be batched. Both lists
+  are completed, the CLI skill now also points at the `list show` / `list info`
+  and `header read` / `footer read` read commands, and a new
+  `tests/test_skill_consistency.py` pins both enumerations to
+  `_ops.OP_REQUIRED_FIELDS` so the surfaces can no longer drift apart silently.
+
 ## [0.13.0] — 2026-06-09
 
 ### Added
