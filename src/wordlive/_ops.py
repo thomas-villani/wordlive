@@ -69,6 +69,8 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_caption": ("anchor_id",),
     "set_cell": ("table", "row", "col", "text"),
     "add_row": ("table",),
+    "append_record": ("table", "record"),
+    "update_row": ("table", "key", "values"),
     "delete_row": ("table", "row"),
     "set_heading_row": ("table",),
     "create_table": ("anchor_id",),  # rows/cols required only without data (apply_op)
@@ -190,6 +192,8 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_caption": ("label", "text", "position", *_WHERE_FIELDS),
     "set_cell": (),
     "add_row": ("values",),
+    "append_record": (),
+    "update_row": ("column",),
     "delete_row": (),
     "set_heading_row": ("row", "heading", "allow_break"),
     "create_table": ("rows", "cols", "style", "data", "header", *_WHERE_FIELDS),
@@ -408,6 +412,11 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
     elif kind == "add_row":
         doc.tables[op["table"]].add_row(op.get("values"))
+    elif kind == "append_record":
+        doc.tables[op["table"]].append_record(op["record"])
+    elif kind == "update_row":
+        kwargs = {"column": op["column"]} if "column" in op else {}
+        doc.tables[op["table"]].update_row(op["key"], op["values"], **kwargs)
     elif kind == "delete_row":
         doc.tables[op["table"]].delete_row(op["row"])
     elif kind == "set_heading_row":

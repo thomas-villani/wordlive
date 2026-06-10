@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import _com
 from ._anchors import Anchor, range_text
-from .exceptions import AnchorNotFoundError
+from .exceptions import AnchorNotFoundError, OpError
 
 if TYPE_CHECKING:
     from ._document import Document
@@ -206,6 +206,27 @@ class Table:
             "columns": self.column_count,
         }
 
+    def _header_names(self) -> list[str]:
+        """Row 1's cell texts — the column labels the records API keys on."""
+        return [self.cell(1, c).text for c in range(1, self.column_count + 1)]
+
+    def records(self) -> list[dict[str, str]]:
+        """Read the body rows as a list of dicts keyed by the header row.
+
+        Row 1 is taken as the header (the exact inverse of building a table from
+        `data=[{...}]` — see `insert_table`); each row below it becomes
+        `{header: cell_text}`. A pure read — no `doc.edit()` needed.
+
+        Edge cases mirror the write path: a **duplicate** header label collapses
+        (the rightmost column wins), and a **blank** header cell yields an
+        empty-string key — both the caller's responsibility.
+        """
+        headers = self._header_names()
+        out: list[dict[str, str]] = []
+        for r in range(2, self.row_count + 1):
+            out.append({headers[c - 1]: self.cell(r, c).text for c in range(1, len(headers) + 1)})
+        return out
+
     def add_row(self, values: list[Any] | None = None) -> None:
         """Append a row at the end of the table, optionally filling its cells.
 
@@ -221,6 +242,48 @@ class Table:
                     if c > cols:
                         break
                     self._com.Cell(last, c).Range.Text = str(val)
+
+    def append_record(self, record: dict[str, Any]) -> None:
+        """Append a row from a dict, mapping its keys to the header columns.
+
+        Keys are matched against row 1's headers; a header with no matching key
+        gets an empty cell and an extra key is ignored — the same lenient
+        mapping `insert_table(data=[{...}])` uses. The new row inherits the
+        table's existing formatting / banding (Word's `Rows.Add`). Wrap in
+        `doc.edit(...)` for atomic undo.
+        """
+        headers = self._header_names()
+        self.add_row([record.get(name, "") for name in headers])
+
+    def update_row(self, key: Any, values: dict[str, Any], *, column: str | None = None) -> None:
+        """Update the first row whose key-column cell equals `key`, by header name.
+
+        The key column is the **first** column by default, or the header named
+        by `column=`. Each item in `values` sets the cell under that header
+        (`{header: new_text}`). First match wins when several rows share `key`.
+
+        Validates against the header **before** mutating: an unknown `column`,
+        or a `values` key that isn't a header, raises `OpError` (exit 1). If no
+        row matches `key`, raises `AnchorNotFoundError` (exit 2). Wrap in
+        `doc.edit(...)` for atomic undo.
+        """
+        headers = self._header_names()
+        # Rightmost duplicate header wins, matching `records()`.
+        col_of = {name: i + 1 for i, name in enumerate(headers)}
+        if column is not None and column not in col_of:
+            raise OpError(f"update_row: column {column!r} is not a header; have {headers}")
+        unknown = [name for name in values if name not in col_of]
+        if unknown:
+            raise OpError(f"update_row: {unknown} not in the header row; have {headers}")
+        key_col = col_of[column] if column is not None else 1
+        target = str(key)
+        for r in range(2, self.row_count + 1):
+            if self.cell(r, key_col).text == target:
+                for name, val in values.items():
+                    self.cell(r, col_of[name]).set_text(str(val))
+                return
+        keyed = column if column is not None else (headers[0] if headers else "1")
+        raise AnchorNotFoundError("table row", f"table:{self._index}:{keyed}={target!r}")
 
     def delete_row(self, index: int) -> None:
         """Delete the 1-based row `index`.

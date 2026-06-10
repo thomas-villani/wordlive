@@ -156,6 +156,13 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.tables.list()
             if command == "table_read":
                 return doc.tables[_need(p, "table", command)].read()
+            if command == "table_records":
+                return doc.tables[_need(p, "table", command)].records()
+            if command == "location":
+                anchor_id = _need(p, "anchor_id", command)
+                return {"anchor_id": anchor_id, **doc.anchor_by_id(anchor_id).location()}
+            if command == "stats":
+                return doc.stats()
             if command == "styles":
                 return doc.styles.list()
             if command == "comments":
@@ -429,6 +436,18 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             return op
         if action == "delete_row":
             return {"op": "delete_row", "table": need("table"), "row": need("row")}
+        if action == "append_record":
+            return {"op": "append_record", "table": need("table"), "record": need("record")}
+        if action == "update_row":
+            op = {
+                "op": "update_row",
+                "table": need("table"),
+                "key": need("key"),
+                "values": need("values"),
+            }
+            if p.get("column") is not None:
+                op["column"] = p["column"]
+            return op
         if action == "set_heading_row":
             op = {"op": "set_heading_row", "table": need("table")}
             if p.get("row") is not None:
@@ -652,6 +671,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "read_section",
             "table_list",
             "table_read",
+            "table_records",
             "styles",
             "comments",
             "revisions",
@@ -661,6 +681,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "endnotes",
             "images",
             "read_image",
+            "location",
+            "stats",
         ],
         doc: str | None = None,
         name: str | None = None,
@@ -681,11 +703,18 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         outline [all_paragraphs] · paragraphs [start,count] ·
         find {text,[in_anchor]} · read_bookmark {name} · read_cc {name} ·
         read_section {heading | anchor_id} · table_list · table_read {table} ·
+        table_records {table} (body rows as dicts keyed by the header row — the
+        read mirror of building a table from records) ·
         styles · comments · revisions (tracked changes: type/author/text/range per
         change) · track (is Track Changes on?) · sections · footnotes · endnotes ·
         images (embedded pictures: image:N id, mime, size, alt, para) ·
         read_image {anchor_id} (an embedded picture's bytes as base64 + mime — pass
-        an image:N id or any single-image anchor).
+        an image:N id or any single-image anchor) ·
+        location {anchor_id} (where an anchor sits in the laid-out document:
+        page/end_page span, line, column, in_table — "what page is this on"
+        without a snapshot) ·
+        stats (one-shot document summary: page/word/character/paragraph/line
+        counts plus section/heading/table/image/comment/revision counts and saved).
         `doc` targets a document by name (default: active).
         """
         params = {
@@ -772,7 +801,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         header: bool | None = None,
         heading: bool | None = None,
         allow_break: bool | None = None,
-        values: list[Any] | None = None,
+        values: list[Any] | dict[str, Any] | None = None,
+        record: dict[str, Any] | None = None,
+        key: str | None = None,
+        column: str | None = None,
         section: int | None = None,
         which: str = "primary",
         on: bool | None = None,
@@ -869,10 +901,13 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             based_on,next_style]} — set an existing style's font/paragraph defaults ·
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
         comment {action=add|resolve|delete,...} ·
-        table {action=set_cell|add_row|delete_row|set_heading_row|create|delete,
+        table {action=set_cell|add_row|append_record|update_row|delete_row|set_heading_row|create|delete,
                create needs anchor_id and [rows,cols] (optional when data is given —
                inferred from it),[style,header,data,before]; data is a 2-D array OR
                records (a list of objects whose keys become a header row);
+               append_record {table,record} — append a row from a {header: value} object;
+               update_row {table,key,values,[column]} — set cells (values={header: value})
+               on the first row whose key-column (column=, default first) equals key;
                set_heading_row {table,[row=1,heading=true,allow_break]} — repeating header row} ·
         insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
         insert_field {anchor_id,kind=page|numpages|date|time|filename|author|title|field,[text,before]} —
@@ -933,6 +968,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "heading": heading,
             "allow_break": allow_break,
             "values": values,
+            "record": record,
+            "key": key,
+            "column": column,
             "section": section,
             "which": which,
             "on": on,
@@ -1055,6 +1093,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           create_table {anchor_id, [rows,cols] (optional when data given — inferred),[style,data,header,before]} —
             data is a 2-D array OR records (objects whose keys become a header row); cells default to Normal; returns the new index in outputs ·
           set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} ·
+          append_record {table,record} — append a row from a {header: value} object ·
+          update_row {table,key,values,[column]} — set cells (values={header: value}) on the first row whose key-column equals key ·
           set_heading_row {table,[row=1,heading,allow_break]} — repeating header row on a multi-page table · delete_table {table} ·
           add_comment {anchor_id,text,[author]} · resolve_comment {index} · delete_comment {index} ·
           apply_list {anchor_id,[type=bulleted|numbered|outline,continue_previous]} · remove_list/restart_numbering/indent_list/outdent_list {anchor_id} ·

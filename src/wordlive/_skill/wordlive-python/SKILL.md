@@ -44,7 +44,16 @@ doc.sections[1].page_setup          # margins / orientation / page size (points)
 list(doc.comments)                  # review comments
 doc.lists[1]                        # RangeAnchor over the 1st list (doc.lists is read-only)
 doc.selection.info()                # {"start","end","collapsed","text"} — never moves the user
+doc.tables[1].records()             # body rows as [{header: value}, …] (row 1 = header)
+doc.stats()                         # {pages,words,characters,paragraphs,lines,sections,
+                                    #   headings,tables,images,comments,revisions,saved}
+anchor.location()                   # {page,end_page,line,column,in_table} — "what page is this on"
 ```
+
+`stats()` and `location()` are the non-visual layout reads — answer "how long is
+this" / "what page is this on" without a `snapshot` vision pass. Both repaginate
+first (content-neutral: selection/scroll/view untouched), so page numbers are
+print-layout truth.
 
 `find()` matching is forgiving: whitespace runs collapse, smart quotes/dashes
 fold to ASCII, NBSPs become spaces, and strings are NFKC-normalised — so text an
@@ -255,16 +264,23 @@ with doc.edit("Build + edit tables"):
                             ["Finch", "$99", "99.9%"]])
     t.cell(2, 2).set_text("$19")
     t.add_row(["Owl", "$199", "99.99%"])
+    t.append_record({"Tier": "Hawk", "Monthly": "$299"})      # append by header name
+    t.update_row("Wobble", {"Monthly": "$12"})                # match first column, set by header
     doc.heading("Budget").insert_table(2, 2)                   # at any position anchor
     doc.tables[1].delete_row(3)
     doc.tables[1].set_heading_row(1)                          # row 1 repeats on every page
     doc.tables[2].delete()
+
+records = doc.tables[1].records()   # body rows as [{header: value}, …] — read, no edit scope
 ```
 
 `add_table`/`insert_table` default to the `Table Grid` style (visible borders);
 `data` is a row-major 2-D array **or** records (a list of dicts whose keys
 become a header row), and `rows`/`cols` are inferred from `data` when omitted.
 A cell *is* an anchor (`table:N:R:C`), so it takes `set_text`/`apply_style`/etc.
+Treat a table as records keyed by row 1: `records()` reads it back,
+`append_record({...})` adds a row by header name, `update_row(key, {...},
+column=None)` sets cells on the first row whose key-column equals `key`.
 
 ### Lists, sections, headers/footers
 
