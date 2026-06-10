@@ -46,6 +46,8 @@ Quick index (capability → real release):
 | Image **extraction** (`read_image`, `image:N`, `doc.images`); low-res `max_dim` snapshots | v0.13.0 |
 | Persistence (save / save-as / export-pdf, gated) + image-source hardening | v0.13.0 |
 | Block insert + inline runs; tables from records; verb-first bookmark CLI | v0.13.0 |
+| Non-visual layout introspection (`anchor.location()`, `doc.stats()`) | v0.14.0 |
+| Table-as-records read/update (`records`/`append_record`/`update_row`) | v0.14.0 |
 
 The detail below preserves the **load-bearing reference facts** (addressing
 schemes, gotchas a future change must respect). Deeper deliberation lives in git
@@ -356,13 +358,74 @@ are in Part II, the full triage in `CHANGELOG.md`.
   Old `bookmark add` / `section list` stay as **hidden deprecated aliases for one
   release**. CLI-only (Python API + exec ops unchanged).
 
+## Non-visual layout introspection + table-as-records (v0.14.0)
+
+The top two asks from the 2026-06-09 gpt-5.4 review, both promoted from Part II.
+
+- **`anchor.location()`** → `{page, end_page, line, column, in_table}` off
+  `Range.Information` — where an anchor sits in the laid-out document. `page` /
+  `end_page` are the pages the first / last character fall on (the anchor's page
+  *span*; equal for a single-line anchor), so a table/section/image straddling a
+  boundary reports both, and scanning `paragraphs` for a `page` step-up answers
+  "which paragraph starts page 2". CLI `locate --anchor-id ID`, MCP
+  `word_read location`. **No exec op** (a read).
+- **`doc.stats()`** → `{pages, words, characters, paragraphs, lines, sections,
+  headings, tables, images, comments, revisions, saved}`. Text counts from
+  `ComputeStatistics(wdStatistic*)`; structural counts from wordlive's own
+  collections; `saved` from `doc.saved`. CLI `stats`, MCP `word_read stats`.
+- Both are **reads** that **repaginate first** (`Document.Repaginate()` —
+  content-neutral; selection/scroll/view untouched) so page/line numbers are
+  print-layout truth, the same guarantee `snapshot` gives. New `WdStatistic`
+  enum + widened `WdInformation` (line/column/adjusted-page selectors).
+- **Table-as-records** — the read/update mirror of v0.13.0's tables-from-records,
+  header-name indexed (row 1 = header): `Table.records()` (read body rows as
+  `list[dict]`), `Table.append_record({...})` (append a row from a dict, lenient
+  mapping like the create path), `Table.update_row(key, {...}, column=None)`
+  (set cells by header on the first row whose key-column equals `key` — content,
+  not index; validates against the header before mutating). CLI `table
+  records`/`append-record`/`update-row`; the `append_record`/`update_row` exec
+  ops; MCP `word_read table_records` + `table` write actions.
+
 ---
 
 # Part II — Approved / next up (priority order)
 
 Everything here is **specced but not yet implemented** (re-verified 2026-06-09 —
-the bulk of the 2026-06-01 roadmap shipped in **v0.12.0**–**v0.13.0** and moved
-to Part I; what's left below is the genuine backlog). Ordered by leverage.
+the bulk of the 2026-06-01 roadmap shipped in **v0.12.0**–**v0.13.0**, and the
+review's #1/#2 asks — non-visual introspection and table-as-records — shipped in
+**v0.14.0**; all moved to Part I). What's left below is the genuine backlog,
+ordered by leverage.
+
+## Higher-level compose helpers — sections & block markdown (from the 2026-06-09 review)
+
+gpt-5.4's #10 ask: a few opinionated macros over the low-level ops so an agent
+can add a whole section in one shot. The building blocks already ship —
+`insert_block` places styled paragraphs atomically and `_runs.py` parses inline
+`**bold**` / `*italic*` — so this is a thin, well-scoped layer, not new
+machinery:
+
+- **`anchor.insert_section(heading, body, *, level=1, where="after")`** — the
+  opinionated common case: one `Heading {level}` paragraph + body paragraphs in
+  a single atomic `insert_block`, returning the section's `range:START-END`.
+  `body` accepts the same inline-run markdown the block insert already
+  understands.
+- **Block-markdown subset — `anchor.insert_markdown(md)`.** Map a *constrained*
+  block dialect to Word structure: `#`/`##`/`###` → `Heading 1/2/3`, `-`/`*` →
+  bulleted list, `1.` → numbered list, blank-line-separated runs → `Normal`
+  paragraphs, inline spans via the existing `_runs.py` parser. **Explicitly a
+  subset** (Word is not Markdown) — documented surface, no code fences / nested
+  lists / block quotes / tables in v1 (deferred until asked). Holds the
+  v0.13.0 decision that plain `insert --text` stays **literal**: markdown is an
+  opt-in verb (`insert-markdown` / `insert_section`), never an overload of
+  `--text`.
+- **Replace a section's body, preserving its heading** — pairs with the
+  structural "block between two headings" query (review triage above): resolve
+  the span from after `heading:N` to before the next same-or-higher heading,
+  delete it, then `insert_block` / `insert_markdown` the replacement. The
+  "rewrite section X" workflow the review keeps returning to.
+
+**Deferred:** full CommonMark (tables, code fences, nested/mixed lists,
+images-by-URL); round-trip *export* back to markdown.
 
 ## Publishing flourishes — the rest of the grab-bag
 
@@ -408,6 +471,49 @@ shipped (see Part I). Two related `exec`-batch ergonomics:
 - **Durable insert handles** — an optional `bind: "name"` that mints a bookmark
   on inserted content, giving a stable handle instead of a fragile positional
   `para:N` that renumbers under later inserts.
+
+**Paragraph IDs for *existing* content (design note, 2026-06-09).** The gpt-5.4
+review's #1 repeated ask was durable IDs for paragraphs the agent *didn't*
+insert. A live probe (throwaway doc, `WordOpenXML` + saved-zip inspection)
+settles the mechanism:
+
+- **Word's native `w14:paraId` is unusable for wordlive.** It's an 8-hex-digit
+  value (observed `2754048E`, `5D3F89E2`, `69999C2F`) but (a) assigned
+  **lazily** — a freshly authored doc has *none*, even after save; Word only
+  stamps them when a feature needs them (adding a single comment triggered
+  assignment on all three test paragraphs), and (b) **invisible through the COM
+  surface** — both `Range.WordOpenXML` and `Content.WordOpenXML` strip it; it
+  surfaces only in the saved-zip `word/document.xml`. Reading it means
+  save-then-unzip, which fights the "drive a *running* instance" model.
+- **Content-derived codes (hash or slug) are labels, not anchors.** A git-style
+  6-char hash of the text, or a `heading1-project-budget` slug, is readable but
+  breaks on the exact edits we want to survive: it changes when the paragraph's
+  text is edited, collides across duplicate paragraphs (two empty cells, two
+  identical headings), and still needs a full scan to resolve back to a live
+  Range. Durability across *content* edits is impossible without a stored marker.
+- **Decision — minted durable handle, same machinery as `bind:`.** A
+  `pin`/`stamp` verb plants a hidden bookmark (`_wl_<code>`; the `_` prefix is
+  Word-hidden) on an existing paragraph's range and returns a short id
+  (`pin:a3f9c2`). Word maintains the Range association across insert / delete /
+  text edits natively — the real source of durability — and resolve is O(1) via
+  `Bookmarks`. The code is just the bookmark's *name*, so an agent may instead
+  supply a readable slug (`pin:budget-intro`). A deleted paragraph's handle
+  correctly vanishes → feeds the stale-anchor diagnostic below. This unifies
+  existing-content IDs with the insert-time `bind:` handle under one
+  bookmark-backed scheme.
+- **Bulk-pin the outline — `doc.pin_outline(levels=…)`.** Walk the outline and
+  stamp a handle on every heading (or section start) in one call, returning the
+  `{anchor_id → pin}` map, so an agent gets a durable navigation scaffold *up
+  front* instead of pinning paragraph-by-paragraph. Idempotent (skip a range
+  that already carries a `_wl_` bookmark); the natural form is a `pin=True`
+  option on the `outline` read that stamps-and-returns in the same call.
+
+**Stale-anchor diagnostics (from the same review).** When a positional `para:N`
+resolves to something the agent didn't expect after a mutation, return a recovery
+hint — the op index that failed, whether the target likely moved vs. vanished,
+and a nearest-match suggestion (closest heading / fuzzy text hit) — rather than a
+bare `AnchorNotFoundError`. Pairs with the minted handles above (the durable
+escape hatch the hint can recommend).
 
 ## Revision write surface (read side already shipped)
 
@@ -499,7 +605,7 @@ need a louder opt-in than an ordinary edit, or should stay reads.
   Data-driven templates: set a variable, refresh fields. *Pairs with the field
   primitive.*
 - **Statistics** — page/word/char/line counts via `ComputeStatistics`. *Cheap
-  read; useful before/after an edit.*
+  read; useful before/after an edit.* ✅ **shipped v0.14.0** as `doc.stats()`.
 
 ### C. Document lifecycle & safety
 
@@ -557,7 +663,8 @@ need a louder opt-in than an ordinary edit, or should stay reads.
 
 - **`Range.Information(wd…)`** — computed reads: page number, line number,
   in-table, end-of-row, zoom, caps-lock, … Lets an agent answer "what page is
-  this on" *without* a snapshot. *Weight: high value, low cost.*
+  this on" *without* a snapshot. *Weight: high value, low cost.* ✅ **shipped
+  v0.14.0** as `anchor.location()` (`page`/`end_page`/`line`/`column`/`in_table`).
 - **Story ranges** — `Document.StoryRanges` / `StoryType` iteration (main text,
   footnotes, headers, text frames, comments as distinct stories). Makes
   find/read *story-aware* instead of main-text-only. *Weight: medium; sharpens
@@ -658,3 +765,36 @@ table-from-records (v0.13.0) — all now in **Part I**, with the full per-item
 triage in `CHANGELOG.md`. The two still open (intra-batch output refs + durable
 insert handles §5; revision accept/reject + revision-aware text reads §1c) are in
 **Part II**.
+
+## gpt-5.4 review (2026-06-09, MCP test-drive)
+
+A gpt-5.4 session driving the MCP over a toy doc (add table + footnote + comment
+in one atomic op, snapshot with markup, read back). Most of what it praised is
+**shipped behaviour** — batch/single-undo, snapshot-with-markup, the read-after-
+write loop, tables-from-records, the structure/layout split — so the review is
+mostly validation. Wishlist triage:
+
+- **Non-visual layout introspection** + **document stats** — its #1/#2 repeated
+  ask; ✅ **shipped v0.14.0** as `anchor.location()` / `doc.stats()` (promoted
+  from the Part III catalogue §H/§B, now in Part I).
+- **Table-as-records read + update-by-key** — ✅ **shipped v0.14.0** as
+  `Table.records()` / `append_record()` / `update_row()` (completes the v0.13.0
+  tables-from-records write side; now in Part I).
+- **Stable paragraph IDs** — its top ask. Investigated with a live probe
+  (2026-06-09); Word's native `w14:paraId` proved unusable (lazy + COM-invisible),
+  so the answer is the minted bookmark-backed handle already in Part II
+  ("durable insert handles"), extended with a `pin`/`stamp` verb for *existing*
+  paragraphs. Full design note under that Part II item.
+- **Stale-anchor diagnostics / recovery hints** — new; captured alongside the
+  paragraph-ID note in Part II.
+- **Structural query helpers** (content-under-heading, block-between-headings,
+  nearest-heading-before/after, find-paragraph-by-approx-text) — new backlog;
+  several reduce to thin compositions over `outline` + `find`, so lower priority
+  than the introspection reads. Not yet ticketed.
+- **Style usage inventory** ("used vs. defined styles", "style near this anchor")
+  — Part III "Styles deep cuts"; cheap, bundle if a discovery-surface pass lands.
+- Already in backlog: accept/reject revisions + section revision summary (Part II
+  revision write surface); image position / floating-vs-inline metadata
+  (Part III §G image polish).
+- **Noise:** the first pass's "batch denied by the tool approval layer" was MCP
+  permission-gating working as designed, not a defect.

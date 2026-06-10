@@ -271,6 +271,101 @@ def test_exec_set_heading_row(fake_word):
 
 
 # ---------------------------------------------------------------------------
+# Table-as-records — read (records) / write (append_record / update_row)
+# ---------------------------------------------------------------------------
+# The seeded "Grid" table is [["A1","B1"],["A2","B2"]] — row 1 ("A1"/"B1") is the
+# header, so the lone body row reads back keyed by it.
+
+
+def test_records_keys_body_rows_by_header(fake_word):
+    with wordlive.attach() as word:
+        recs = word.documents.active.tables[1].records()
+    assert recs == [{"A1": "A2", "B1": "B2"}]
+
+
+def test_append_record_maps_keys_to_header_columns(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("append record"):
+            t.append_record({"B1": "Y", "A1": "X"})  # order-independent
+        assert t.row_count == 3
+        assert t.cell(3, 1).text == "X" and t.cell(3, 2).text == "Y"
+
+
+def test_append_record_missing_key_empty_extra_ignored(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("append partial record"):
+            t.append_record({"A1": "only", "Zzz": "ignored"})
+        assert t.cell(3, 1).text == "only" and t.cell(3, 2).text == ""
+
+
+def test_update_row_matches_first_column_sets_by_header(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("update row"):
+            t.update_row("A2", {"B1": "Z"})
+        assert t.cell(2, 2).text == "Z"
+
+
+def test_update_row_matches_named_column(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("update by column"):
+            t.update_row("B2", {"A1": "Q"}, column="B1")
+        assert t.cell(2, 1).text == "Q"
+
+
+def test_update_row_no_match_raises_anchor_not_found(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with pytest.raises(AnchorNotFoundError) as exc_info:
+            with doc.edit("update miss"):
+                t.update_row("nope", {"B1": "Z"})
+    assert exc_info.value.kind == "table row"
+
+
+def test_update_row_unknown_header_raises_op_error(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with pytest.raises(OpError):
+            with doc.edit("update bad header"):
+                t.update_row("A2", {"Nonexistent": "Z"})
+
+
+def test_update_row_unknown_column_raises_op_error(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with pytest.raises(OpError):
+            with doc.edit("update bad column"):
+                t.update_row("A2", {"B1": "Z"}, column="Nope")
+
+
+def test_exec_append_record_and_update_row(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [
+                {"op": "append_record", "table": 1, "record": {"A1": "X", "B1": "Y"}},
+                {"op": "update_row", "table": 1, "key": "A2", "values": {"B1": "Z"}},
+            ],
+            label="t",
+        )
+        assert exc is None and result["ok"] is True
+        t = doc.tables[1]
+        assert t.cell(3, 1).text == "X" and t.cell(3, 2).text == "Y"
+        assert t.cell(2, 2).text == "Z"
+
+
+# ---------------------------------------------------------------------------
 # Table creation / deletion
 # ---------------------------------------------------------------------------
 

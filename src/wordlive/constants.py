@@ -350,10 +350,37 @@ class WdInformation(IntEnum):
     `WITH_IN_TABLE` is True when the range sits inside a table — used when
     inserting a new table to detect (and separate) an adjacent table that Word
     would otherwise silently merge into.
+
+    The line/column selectors report the laid-out position of the range's *first*
+    character (`anchor.location()`); `ACTIVE_END_ADJUSTED_PAGE_NUMBER` is the
+    page number as the user would read it (honouring per-section page-number
+    restarts), kept alongside the raw `ACTIVE_END_PAGE_NUMBER`. All of these are
+    print-layout reads, so `location()` repaginates first.
     """
 
+    ACTIVE_END_ADJUSTED_PAGE_NUMBER = 1
     ACTIVE_END_PAGE_NUMBER = 3
+    FIRST_CHARACTER_COLUMN_NUMBER = 9
+    FIRST_CHARACTER_LINE_NUMBER = 10
     WITH_IN_TABLE = 12
+
+
+class WdStatistic(IntEnum):
+    """`Document.ComputeStatistics(...)` selectors — Word's own counters.
+
+    The narrow subset `Document.stats()` surfaces: the counts Word computes
+    itself (pages/words/characters/lines/paragraphs). The structural counts
+    (tables, images, comments, …) come from wordlive's own collections instead,
+    so they're not mirrored here. `wdStatisticCharactersWithSpaces` (5) and
+    `wdStatisticFarEastCharacters` (6) exist but aren't exposed yet. Page/line
+    counts are print-layout reads, so `stats()` repaginates first.
+    """
+
+    WORDS = 0
+    LINES = 1
+    PAGES = 2
+    CHARACTERS = 3
+    PARAGRAPHS = 4
 
 
 class WdPaperSize(IntEnum):

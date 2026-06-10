@@ -96,6 +96,8 @@ def register(group: click.Group) -> None:
     group.add_command(footnotes_cmd)
     group.add_command(endnotes_cmd)
     group.add_command(revisions_cmd)
+    group.add_command(locate_cmd)
+    group.add_command(stats_cmd)
     group.add_command(images_cmd)
     group.add_command(read_image_cmd)
     group.add_command(bookmark)
@@ -986,6 +988,91 @@ def revisions_cmd(ctx: click.Context) -> None:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             rows = doc.revisions.list()
             emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_revisions(rows))
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# locate / stats  (non-visual layout introspection — reads, no snapshot)
+# ---------------------------------------------------------------------------
+
+
+def _fmt_location(anchor_id: str, loc: dict[str, Any]) -> str:
+    span = (
+        f"page {loc['page']}"
+        if loc["page"] == loc["end_page"]
+        else f"pages {loc['page']}–{loc['end_page']}"
+    )
+    where = f"{anchor_id}: {span}, line {loc['line']}, col {loc['column']}"
+    return where + (" (in table)" if loc["in_table"] else "")
+
+
+@click.command(name="locate")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Anchor to locate (e.g. 'para:5', 'heading:3', 'table:1', 'image:2').",
+)
+@click.pass_context
+def locate_cmd(ctx: click.Context, anchor_id: str) -> None:
+    """Report where an anchor sits in the laid-out document.
+
+    Returns the anchor's page span (`page`/`end_page`), `line`, `column`, and
+    `in_table` — a non-visual layout read that answers "what page is this on"
+    without a `snapshot` vision pass. Page numbers are print-layout truth, so
+    the document is repaginated first; the user's selection, scroll, and view
+    are left untouched. Non-mutating.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            loc = doc.anchor_by_id(anchor_id).location()
+            emit(
+                {"anchor_id": anchor_id, **loc},
+                as_text=not ctx.obj["as_json"],
+                text=_fmt_location(anchor_id, loc),
+            )
+
+    _run(ctx, go)
+
+
+def _fmt_stats(s: dict[str, Any]) -> str:
+    order = [
+        "pages",
+        "words",
+        "characters",
+        "paragraphs",
+        "lines",
+        "sections",
+        "headings",
+        "tables",
+        "images",
+        "comments",
+        "revisions",
+    ]
+    parts = [f"{k}: {s[k]}" for k in order if k in s]
+    parts.append("saved" if s.get("saved") else "unsaved")
+    return "  ".join(parts)
+
+
+@click.command(name="stats")
+@click.pass_context
+def stats_cmd(ctx: click.Context) -> None:
+    """Summarise the document in one read — counts plus structure.
+
+    Returns `{pages, words, characters, paragraphs, lines, sections, headings,
+    tables, images, comments, revisions, saved}`: the "what am I looking at
+    before I act" read. The page/line counts are print-layout truth, so the
+    document is repaginated first (selection/scroll/view untouched). Non-mutating.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            s = doc.stats()
+            emit(s, as_text=not ctx.obj["as_json"], text=_fmt_stats(s))
 
     _run(ctx, go)
 
@@ -2670,6 +2757,94 @@ def table_set_heading_row(
                 text=(
                     f"{'set' if heading else 'cleared'} heading row {row} on table:{table_index}"
                 ),
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="records")
+@click.argument("index", type=int)
+@click.pass_context
+def table_records(ctx: click.Context, index: int) -> None:
+    """Read table INDEX as records — body rows as dicts keyed by the header row.
+
+    The read mirror of `table create --data` from records: row 1 is the header,
+    each row below becomes a `{header: value}` object. Non-mutating.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            recs = doc.tables[index].records()
+            emit(recs, as_text=not ctx.obj["as_json"])
+
+    _run(ctx, go)
+
+
+@table.command(name="append-record")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option(
+    "--record", "record", required=True, help="JSON object mapping header names to cell values."
+)
+@click.pass_context
+def table_append_record(ctx: click.Context, table_index: int, record: str) -> None:
+    """Append a row from a JSON record, mapping keys to header columns (atomic-undo)."""
+    try:
+        parsed = json.loads(record)
+    except json.JSONDecodeError as e:
+        raise click.UsageError(f"--record must be a JSON object: {e}") from e
+    if not isinstance(parsed, dict):
+        raise click.UsageError("--record must be a JSON object")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: append record to table {table_index}"):
+                t.append_record(parsed)
+            emit(
+                {"ok": True, "table": table_index, "rows": t.row_count},
+                as_text=not ctx.obj["as_json"],
+                text=f"appended record to table:{table_index} (now {t.row_count} rows)",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="update-row")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option("--key", "key", required=True, help="Value to match in the key column.")
+@click.option(
+    "--values", "values", required=True, help="JSON object of {header: new_value} cells to set."
+)
+@click.option(
+    "--column",
+    "column",
+    default=None,
+    help="Header name of the key column to match (default: first column).",
+)
+@click.pass_context
+def table_update_row(
+    ctx: click.Context, table_index: int, key: str, values: str, column: str | None
+) -> None:
+    """Update the first row whose key-column cell equals --key, by header (atomic-undo)."""
+    try:
+        parsed = json.loads(values)
+    except json.JSONDecodeError as e:
+        raise click.UsageError(f"--values must be a JSON object: {e}") from e
+    if not isinstance(parsed, dict):
+        raise click.UsageError("--values must be a JSON object")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: update row in table {table_index}"):
+                t.update_row(key, parsed, column=column)
+            emit(
+                {"ok": True, "table": table_index, "key": key},
+                as_text=not ctx.obj["as_json"],
+                text=f"updated row {key!r} in table:{table_index}",
             )
 
     _run(ctx, go)

@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Document introspection — reason about layout without a snapshot.** Two cheap
+  read surfaces so an agent can answer "what page is this on" / "how long is
+  this" deterministically, no vision pass:
+  - `anchor.location()` → `{page, end_page, line, column, in_table}`: where an
+    anchor sits in the laid-out document. `page`/`end_page` are the pages its
+    first and last characters fall on (its page *span* — equal for a single-line
+    anchor), so a table/section/image that straddles a boundary reports both;
+    scan `paragraphs` and watch `page` step up to find "which paragraph starts
+    page 2". CLI `locate --anchor-id ID`, MCP `word_read location`.
+  - `doc.stats()` → `{pages, words, characters, paragraphs, lines, sections,
+    headings, tables, images, comments, revisions, saved}`: the "what am I
+    looking at before I act" read. Text counts come from Word's
+    `ComputeStatistics`; the structural counts from wordlive's own collections
+    (so they agree with `doc.tables` / `outline` / …). CLI `stats`, MCP
+    `word_read stats`.
+
+  Both are pure reads with **no exec op**. Page/line numbers are print-layout
+  truth, so each **repaginates first** — content-neutral, so the user's
+  selection, scroll, and view are left untouched (the same guarantee a snapshot
+  gives). Backed by a widened `WdInformation` and a new `WdStatistic`
+  constant enum.
+- **Table-as-records — read/update a table by its header row.** The read/update
+  mirror of v0.13.0's "tables from records" write side, header-name indexed
+  throughout:
+  - `Table.records()` reads the body rows back as a list of `{header: value}`
+    dicts (row 1 is the header). CLI `table records N`, MCP `word_read
+    table_records`.
+  - `Table.append_record({...})` appends a row from a dict (keys mapped to
+    header columns; missing → empty, extra → ignored, like the create path).
+    CLI `table append-record`, the `append_record` exec op, MCP `table` action.
+  - `Table.update_row(key, {...}, column=None)` sets cells by header name on the
+    first row whose key-column (the first column, or the header named by
+    `column`) equals `key` — addressing a row by content instead of a fragile
+    1-based index. Validates against the header before mutating (unknown column
+    / values key → exit 1; no matching row → exit 2). CLI `table update-row`,
+    the `update_row` exec op, MCP `table` action.
+
 ## [0.13.0] — 2026-06-09
 
 ### Added

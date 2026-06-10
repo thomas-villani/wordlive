@@ -87,6 +87,11 @@ references another anchor, and `insert_caption(label, …)` adds a numbered
 caption — see [Anchoring & linking](#anchoring-linking). Every anchor also has `snapshot(...)`, which
 renders the page(s) it sits on to PNG (a heading expands to its whole section) —
 see [Snapshots](#snapshots).
+`location()` is the non-visual companion: it returns `{page, end_page, line,
+column, in_table}` — where the anchor sits in the laid-out document (its page
+span, and its first character's line/column) — so an agent can answer "what page
+is this on" without a snapshot. It repaginates first (content-neutral; selection
+and view untouched), so page numbers are print-layout truth.
 
 ::: wordlive.Anchor
 
@@ -208,6 +213,15 @@ appended tables from merging into an adjacent one. `Table.delete()` removes a
 whole table — the structural mirror of `add_row` / `delete_row`.
 `Table.set_heading_row(row=1, heading=True, allow_break=None)` marks a row as a
 repeating header that reprints on every page the table spans.
+
+Treat a table as **records** keyed by its header row (row 1) — the read/update
+mirror of building one from `data=[{...}]`. `Table.records()` returns the body
+rows as a list of `{header: cell_text}` dicts; `Table.append_record({...})`
+appends a row from a dict (keys mapped to header columns, missing → empty, extra
+→ ignored); `Table.update_row(key, {...}, column=None)` sets cells by header name
+on the first row whose key-column (the first column, or the header named by
+`column`) equals `key` — addressing a row by content instead of a fragile
+1-based index.
 
 ::: wordlive.TableCollection
 

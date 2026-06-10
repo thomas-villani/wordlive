@@ -1639,6 +1639,41 @@ class Anchor(ABC):
         with _com.translate_com_errors():
             return _lists.read_list_info(self._range())
 
+    def location(self) -> dict[str, Any]:
+        """Where this anchor sits in the laid-out document — a pure read.
+
+        Returns `{page, end_page, line, column, in_table}`:
+
+        - `page` / `end_page` — the 1-based pages the anchor's **first** and
+          **last** characters fall on (equal for a collapsed/single-line anchor);
+          the pair is the anchor's *page span*, so a section/table/image that
+          straddles a page boundary reports both. `page` is what answers "what
+          page is this on"; scan `paragraphs` and watch `page` step up to find
+          "which paragraph starts page 2".
+        - `line` / `column` — the first character's 1-based line and column in
+          the page's text grid (`Range.Information`).
+        - `in_table` — whether the anchor sits inside a table.
+
+        Page/line numbers are only meaningful in print layout, so the document
+        is **repaginated first** (content-neutral — it touches neither the
+        user's selection, scroll, nor view), mirroring the guarantee a
+        `snapshot` gives. No politeness concern: this mutates nothing.
+        """
+        with _com.translate_com_errors():
+            rng = self._range()
+            self._doc.com.Repaginate()
+            start, end = int(rng.Start), int(rng.End)
+            doc_com = self._doc.com
+            head = doc_com.Range(start, start)
+            tail = doc_com.Range(end, end)
+            return {
+                "page": int(head.Information(int(WdInformation.ACTIVE_END_PAGE_NUMBER))),
+                "end_page": int(tail.Information(int(WdInformation.ACTIVE_END_PAGE_NUMBER))),
+                "line": int(head.Information(int(WdInformation.FIRST_CHARACTER_LINE_NUMBER))),
+                "column": int(head.Information(int(WdInformation.FIRST_CHARACTER_COLUMN_NUMBER))),
+                "in_table": bool(rng.Information(int(WdInformation.WITH_IN_TABLE))),
+            }
+
     def restart_numbering(self) -> None:
         """Restart this list's numbering at 1.
 

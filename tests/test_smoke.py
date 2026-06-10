@@ -597,3 +597,103 @@ def test_table_from_records_builds_bolded_header(scratch_doc):
     assert t.grid() == [["Item", "Cost"], ["Travel", "$400"], ["Lodging", "$600"]]
     # Records imply a header row — it's bolded.
     assert bool(t.com.Rows(1).Range.Bold) is True
+
+
+# ---------------------------------------------------------------------------
+# v0.14 introspection — location() / stats() against REAL Word (the gate that
+# catches a wrong WdStatistic / WdInformation constant value) and table records
+# ---------------------------------------------------------------------------
+
+
+def test_stats_reports_real_counts(scratch_doc):
+    """doc.stats() must return integer counts that move with real content —
+    proves the WdStatistic selector values are right (a wrong enum would read
+    the wrong counter or raise)."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Introduction", style="Heading 1")
+        doc.append_paragraph("Some body words here for the counters.")
+        doc.add_table(2, 2)
+    s = doc.stats()
+    assert {
+        "pages",
+        "words",
+        "characters",
+        "paragraphs",
+        "lines",
+        "sections",
+        "headings",
+        "tables",
+        "images",
+        "comments",
+        "revisions",
+        "saved",
+    } <= set(s)
+    assert all(isinstance(s[k], int) for k in ("pages", "words", "characters", "paragraphs"))
+    assert s["pages"] >= 1
+    assert s["words"] >= 5  # the body line alone has 6 words
+    assert s["tables"] == 1  # structural count from doc.tables
+    assert s["headings"] >= 1  # at least the one Heading 1 (template may add more)
+    assert s["saved"] is False  # a never-saved scratch doc
+
+
+def test_location_reports_page_and_table_flag(scratch_doc):
+    """anchor.location() must report a real page and the in-table flag — proves
+    the WdInformation line/column/page selectors resolve."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("On page one.")
+        doc.add_table(1, 1)
+    pid = _para_id_by_text(doc, "On page one.")
+    loc = doc.anchor_by_id(pid).location()
+    assert {"page", "end_page", "line", "column", "in_table"} == set(loc)
+    assert loc["page"] == 1 and loc["in_table"] is False
+    assert loc["line"] >= 1 and loc["column"] >= 1
+    # A cell anchor reports in_table True.
+    assert doc.tables[1].cell(1, 1).location()["in_table"] is True
+
+
+def test_location_page_rises_after_a_page_break(scratch_doc):
+    """A paragraph after a page break reports a higher page than one before it —
+    proves location()'s page read tracks real layout. (Trailing 'Tail.' keeps the
+    after-break paragraph off the undeletable terminal mark.)"""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Top of block.")
+        doc.end.insert_break("page")
+        doc.append_paragraph("After the break.")
+        doc.append_paragraph("Tail.")
+    top = doc.anchor_by_id(_para_id_by_text(doc, "Top of block.")).location()
+    bot = doc.anchor_by_id(_para_id_by_text(doc, "After the break.")).location()
+    assert bot["page"] >= top["page"] + 1
+
+
+def test_table_records_round_trip_and_update(scratch_doc):
+    """records() reads back what insert_table(data=[{...}]) wrote; append_record
+    and update_row edit by header name."""
+    doc = scratch_doc
+    with doc.edit("records table"):
+        t = doc.end.insert_table(data=[{"Item": "Travel", "Cost": "$400"}])
+    assert t.records() == [{"Item": "Travel", "Cost": "$400"}]
+    with doc.edit("append + update"):
+        t.append_record({"Item": "Lodging", "Cost": "$600"})
+        t.update_row("Travel", {"Cost": "$450"})
+    assert t.records() == [
+        {"Item": "Travel", "Cost": "$450"},
+        {"Item": "Lodging", "Cost": "$600"},
+    ]
+
+
+def test_stats_and_location_preserve_selection(scratch_doc):
+    """Politeness: the repagination inside stats()/location() must not move the
+    user's Selection."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Anchor line for the selection probe.")
+    sel = doc.com.Application.Selection
+    sel.SetRange(3, 9)
+    before = (int(sel.Start), int(sel.End))
+    doc.stats()
+    doc.range(0, 5).location()
+    after_sel = doc.com.Application.Selection
+    assert (int(after_sel.Start), int(after_sel.End)) == before

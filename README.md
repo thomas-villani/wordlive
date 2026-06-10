@@ -99,8 +99,11 @@ wordlive format-paragraph --anchor-id heading:3 --alignment center --space-befor
 # Tables (cells are anchors: table:N:R:C):
 wordlive table list
 wordlive table read 1
+wordlive table records 1                                   # body rows as {header: value} dicts
 wordlive replace --anchor-id table:1:2:2 --text "$450"
 wordlive table add-row --table 1 --values '["Lodging", "$600"]'
+wordlive table append-record --table 1 --record '{"Item":"Lodging","Cost":"$600"}'  # by header name
+wordlive table update-row --table 1 --key Travel --values '{"Cost":"$450"}'         # match a row by content
 wordlive table create --anchor-id end --data '[["Item","Cost"],["Travel","$400"]]' --header
 wordlive table create --anchor-id end \
     --data '[{"Item":"Travel","Cost":"$400"}]'             # records → keys are a header row
@@ -118,6 +121,10 @@ wordlive comment resolve --index 1
 wordlive track on            # record edits as revisions; `track off` to stop
 wordlive revisions           # read the tracked changes back (type/author/text/range)
 # …and `wordlive snapshot --markup all` renders those changes as visible marks.
+
+# Non-visual layout introspection (reason about pages without a snapshot):
+wordlive stats               # pages/words/…/tables/images/comments + saved, one read
+wordlive locate --anchor-id heading:8   # {page, end_page, line, column, in_table}
 
 # Lists & numbering (any anchor's paragraphs):
 wordlive list apply --anchor-id heading:6 --type numbered

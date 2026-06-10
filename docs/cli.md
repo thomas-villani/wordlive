@@ -466,6 +466,58 @@ $ wordlive revisions
 
 Failures: `3` Word busy, `4` Word not running.
 
+## `locate --anchor-id ID`
+
+```
+wordlive locate --anchor-id ID [--doc DOC_NAME]
+```
+
+Report where an anchor sits in the **laid-out** document — a non-visual layout
+read that answers "what page is this on" without a `snapshot` vision pass.
+Returns the anchor's page span (`page` / `end_page` — the pages its first and
+last characters fall on, equal for a single-line anchor), its first character's
+`line` and `column`, and whether it's `in_table`.
+
+Page numbers are only meaningful in print layout, so the document is
+**repaginated first** — content-neutral, so the user's selection, scroll, and
+view are left untouched (the same guarantee `snapshot` gives). Non-mutating.
+
+```bash
+$ wordlive locate --anchor-id heading:8
+{"anchor_id": "heading:8", "page": 2, "end_page": 2, "line": 1, "column": 1, "in_table": false}
+```
+
+Scan `paragraphs` and watch `page` step up to find "which paragraph starts page
+2"; compare a table/section anchor's `page` and `end_page` for its page span.
+
+Failures: `2` anchor not found, `3` Word busy, `4` Word not running.
+
+## `stats`
+
+```
+wordlive stats [--doc DOC_NAME]
+```
+
+A one-call document summary — the "what am I looking at before I act" read.
+Returns `pages`, `words`, `characters`, `paragraphs`, and `lines` (Word's own
+`ComputeStatistics`), plus the structural counts `sections`, `headings`,
+`tables`, `images`, `comments`, `revisions` (from wordlive's discovery
+collections, so they agree with `table list` / `images` / `outline`), and
+`saved`. Page/line counts are print-layout truth, so the document is
+repaginated first (selection/scroll/view untouched). Non-mutating.
+
+```bash
+$ wordlive stats
+{"pages": 2, "words": 312, "characters": 1840, "paragraphs": 24, "lines": 48,
+ "sections": 1, "headings": 5, "tables": 1, "images": 0, "comments": 1,
+ "revisions": 0, "saved": false}
+```
+
+Composes with `locate`: `stats.pages` + an anchor's `locate` page answers "why
+is this 2 pages" structurally, no image pass.
+
+Failures: `3` Word busy, `4` Word not running.
+
 ## `images` / `read-image --anchor-id ID [--out FILE]`
 
 ```
@@ -1130,6 +1182,25 @@ $ wordlive replace --anchor-id table:1:2:2 --text "$450"
 
 Failures: `2` table index out of range, `3` Word busy.
 
+## `table records INDEX`
+
+```
+wordlive table records INDEX [--doc DOC_NAME]
+```
+
+Read table `INDEX` as **records** — the read mirror of `table create --data`
+from a list of objects. Row 1 is taken as the header; each row below becomes a
+`{header: cell_text}` object. Non-mutating.
+
+```bash
+$ wordlive table records 1
+[{"Item": "Travel", "Cost": "$400"}]
+```
+
+A duplicate header label collapses (rightmost column wins); a blank header cell
+yields an empty-string key — both the caller's responsibility, matching the
+write path. Failures: `2` table index out of range, `3` Word busy.
+
 ## `table create`
 
 ```
@@ -1197,6 +1268,48 @@ $ wordlive table add-row --table 1 --values '["Lodging", "$600"]'
 ```
 
 Failures: `2` table index out of range, `3` Word busy.
+
+## `table append-record`
+
+```
+wordlive table append-record --table INDEX --record '{"Item":"Lodging","Cost":"$600"}' [--doc DOC_NAME]
+```
+
+Append a row from a JSON **object**, mapping its keys to the header columns
+(row 1). A header with no matching key gets an empty cell and an extra key is
+ignored — the same lenient mapping `table create --data` (records) uses. The new
+row inherits the table's existing formatting/banding. Atomic-undo. The header-
+name companion to `add-row` (which is positional).
+
+```bash
+$ wordlive table append-record --table 1 --record '{"Item":"Lodging","Cost":"$600"}'
+{"ok": true, "table": 1, "rows": 3}
+```
+
+Failures: `1` `--record` not a JSON object, `2` table index out of range, `3` Word busy.
+
+## `table update-row`
+
+```
+wordlive table update-row --table INDEX --key VALUE --values '{"Cost":"$450"}'
+    [--column HEADER] [--doc DOC_NAME]
+```
+
+Update the **first** row whose key-column cell equals `--key`, setting cells by
+header name (`--values` is a `{header: new_value}` object). The key column is the
+first column by default, or the header named by `--column`. First match wins on
+duplicate keys. Atomic-undo — addresses a row by *content* instead of a fragile
+1-based index.
+
+```bash
+$ wordlive table update-row --table 1 --key Travel --values '{"Cost":"$450"}'
+{"ok": true, "table": 1, "key": "Travel"}
+```
+
+Validation happens before any edit: an unknown `--column`, or a `--values` key
+that isn't a header, is a clean error. Failures: `1` `--values` not a JSON
+object / unknown header or column, `2` table index out of range or no row matches
+`--key`, `3` Word busy.
 
 ## `table delete-row`
 

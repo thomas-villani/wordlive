@@ -48,10 +48,11 @@ are name-based and survive edits — reach for them when you need a durable hand
 ## Reading
 - `wordlive read bookmark NAME` (or `read bookmark --list` for every bookmark name) · `read cc NAME` · `read section "Heading Text"`
 - `wordlive find --text "phrase"` — locate before editing; returns `range:` ids.
-- `wordlive table list` · `wordlive table read N`
+- `wordlive table list` · `wordlive table read N` · `wordlive table records N` — body rows as `{header: value}` dicts (row 1 is the header), the read mirror of building a table from records.
 - `wordlive footnotes` · `wordlive endnotes` — each note's `footnote:N`/`endnote:N` id, text, and `para:N`.
 - `wordlive images` — each embedded picture's `image:N` id, MIME, size, alt text, and `para:N`. Pull one out with `wordlive read-image --anchor-id image:N [--out FILE]` (`--out` writes the raw bytes; otherwise base64 + mime inline) — the path for handing a picture to a vision model.
 - `wordlive revisions` — tracked changes as structured data (`type`/`author`/`text`/`range`); the readable counterpart to `snapshot --markup all`. `wordlive track status` reports whether Track Changes is on.
+- `wordlive locate --anchor-id ID` — where an anchor sits in the laid-out doc: `page`/`end_page` span, `line`, `column`, `in_table`. Answers "what page is this on" without a `snapshot`. `wordlive stats` — one-shot summary: page/word/char/paragraph/line counts plus section/heading/table/image/comment/revision counts and `saved`. Both repaginate first (selection/scroll untouched); reads, non-mutating.
 
 ## Writing — each command is one atomic undo
 - `wordlive write bookmark NAME --text "…"` (set existing) · `write bookmark NAME --create --anchor-id ID` (create a new bookmark over a range — the prerequisite for internal links and cross-refs; NAME starts with a letter, letters/digits/underscores only) · `write cc NAME --text "…"`
@@ -76,7 +77,7 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive caption --anchor-id ID [--label Figure] [--text "…"] [--position above|below]` — insert an auto-numbered caption (Figure/Table/…) as its own `Caption` paragraph (on a `table:N:R:C` anchor it captions the whole table). Default placement is above for a `Table`, below otherwise; `--position` overrides. Pairs with `cross-ref`.
 - `wordlive page-setup [--section N] [--margins 1in] [--top-margin … --bottom-margin … --left-margin … --right-margin …] [--gutter …] [--orientation portrait|landscape] [--paper-size letter|legal|tabloid|a3|a4|a5] [--columns N] [--column-spacing …]` — set a section's page geometry. `--margins` sets all four (per-side flags override); lengths take points or a unit string; `--columns N` makes N equal columns. `--section` defaults to `1`.
 - `wordlive list apply --anchor-id ID --type bulleted|numbered|outline` (+ `list remove|restart|indent|outdent`). **To number N paragraphs 1..N, scope one apply to a `range:` that spans them all** (offsets from `paragraphs`/`find`) — applying `numbered` per-paragraph makes N separate "1." lists.
-- `wordlive table create --anchor-id ID --rows R --cols C [--style NAME] [--header] [--before | --after] [--data '[["…"],…]' | --data -]` — **build a new table** at a *position* anchor (`heading:`/`para:`/`start`/`end`); reports its 1-based `index`. Fill cells row-major with `--data` (use `--data -` for stdin to dodge Windows quoting); `--style` defaults to `Table Grid` (visible borders); `--header` bolds row 1. New cells default to the `Normal` paragraph style regardless of the anchor, so a table dropped under a heading doesn't inherit that heading style. Edit existing tables with `table add-row`/`delete-row`/`set-heading-row` and `table delete N`; `table set-heading-row --table N [--row R]` marks a row as a repeating header across pages. Cells are anchors (`table:N:R:C`) you can `replace`/`style apply`/`format-paragraph`.
+- `wordlive table create --anchor-id ID --rows R --cols C [--style NAME] [--header] [--before | --after] [--data '[["…"],…]' | --data -]` — **build a new table** at a *position* anchor (`heading:`/`para:`/`start`/`end`); reports its 1-based `index`. Fill cells row-major with `--data` (use `--data -` for stdin to dodge Windows quoting); `--style` defaults to `Table Grid` (visible borders); `--header` bolds row 1. New cells default to the `Normal` paragraph style regardless of the anchor, so a table dropped under a heading doesn't inherit that heading style. Edit existing tables with `table add-row`/`delete-row`/`set-heading-row` and `table delete N`; `table set-heading-row --table N [--row R]` marks a row as a repeating header across pages. `table append-record --table N --record '{"Header":"val",…}'` appends a row by header name (the dict-keyed companion to positional `add-row`); `table update-row --table N --key VALUE --values '{"Header":"new",…}' [--column HEADER]` updates the first row whose key-column equals `--key`, addressing a row by content not index. Cells are anchors (`table:N:R:C`) you can `replace`/`style apply`/`format-paragraph`.
 - `wordlive comment add --anchor-id ID --text "…"` (+ `comment list` · `comment resolve --index N` · `comment delete --index N`).
 - `wordlive track on|off|status` — toggle / inspect Track Changes. Read the recorded edits structurally with `wordlive revisions`, or see them with `snapshot --markup all`.
 - `wordlive header write --section S --text "…"` · `footer write --section S --text "…"` (`--which primary|first|even`).
@@ -167,7 +168,7 @@ stable across the batch.
 Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `insert_block`, `delete_paragraph`,
 `append`, `append_inline`, `prepend`, `prepend_inline`, `insert_image`,
 `replace`, `find_replace`, `apply_style`, `format_paragraph`, `set_cell`,
-`add_row`, `delete_row`, `set_heading_row`, `create_table`, `delete_table`, `insert_break`,
+`add_row`, `append_record`, `update_row`, `delete_row`, `set_heading_row`, `create_table`, `delete_table`, `insert_break`,
 `add_comment`, `resolve_comment`, `delete_comment`, `apply_list`, `remove_list`,
 `restart_numbering`, `indent_list`, `outdent_list`, `write_header`,
 `write_footer`.
@@ -190,7 +191,10 @@ array reporting each new table's `index` and each block's `range`.
 breaking before a styled paragraph, alongside the `keep_together` /
 `keep_with_next` / `widow_control` pagination bools. `set_heading_row` takes
 `table`, optional `row` (default 1) / `heading` / `allow_break` — a repeating
-header row.)
+header row. `append_record` takes `table` + `record` (a `{header: value}` object
+→ a new row); `update_row` takes `table` + `key` + `values` (`{header: value}`)
+and optional `column` — it sets cells on the first row whose key-column equals
+`key`.)
 
 ## Exit codes — branch on these
 | Code | Meaning | Retry? |

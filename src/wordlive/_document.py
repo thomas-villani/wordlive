@@ -34,7 +34,7 @@ from ._selection import Selection
 from ._snapshot import Snapshot
 from ._styles import StyleCollection
 from ._tables import Table, TableCollection
-from .constants import WdInformation, WdSaveFormat
+from .constants import WdInformation, WdSaveFormat, WdStatistic
 from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
@@ -872,6 +872,40 @@ class Document:
                     }
                 )
         return out
+
+    def stats(self) -> dict[str, Any]:
+        """A one-call summary of the document — the "what am I looking at" read.
+
+        Returns `{pages, words, characters, paragraphs, lines, sections,
+        headings, tables, images, comments, revisions, saved}`. The five text
+        counts come from Word's own `ComputeStatistics`; the structural counts
+        come from wordlive's discovery collections (so they agree with
+        `doc.tables` / `doc.images` / `outline` etc.); `saved` is `doc.saved`.
+
+        `pages`/`lines` are print-layout truth, so the document is
+        **repaginated first** (content-neutral — selection, scroll, and view are
+        untouched), the same guarantee a `snapshot` gives. A pure read; nothing
+        is mutated.
+        """
+        with _com.translate_com_errors():
+            self._doc.Repaginate()
+            text_counts = {
+                "pages": int(self._doc.ComputeStatistics(int(WdStatistic.PAGES))),
+                "words": int(self._doc.ComputeStatistics(int(WdStatistic.WORDS))),
+                "characters": int(self._doc.ComputeStatistics(int(WdStatistic.CHARACTERS))),
+                "paragraphs": int(self._doc.ComputeStatistics(int(WdStatistic.PARAGRAPHS))),
+                "lines": int(self._doc.ComputeStatistics(int(WdStatistic.LINES))),
+            }
+        return {
+            **text_counts,
+            "sections": len(self.sections),
+            "headings": len(self.outline()),
+            "tables": len(self.tables),
+            "images": len(self.images),
+            "comments": len(self.comments),
+            "revisions": len(self.revisions),
+            "saved": self.saved,
+        }
 
     def _page_of(self, position: int) -> int:
         """1-based page number that document offset `position` falls on."""
