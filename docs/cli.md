@@ -292,6 +292,71 @@ $ wordlive list apply --anchor-id range:412-470 --type bulleted
 Styles are validated before anything is inserted, so a bad name fails the whole
 block cleanly. Failures: `2` anchor not found or style not found, `3` Word busy.
 
+## `insert-section --anchor-id ID --heading TEXT --body JSON`
+
+```
+wordlive insert-section --anchor-id ID --heading TEXT --body JSON [--level N] [--before | --after] [--doc DOC_NAME]
+```
+
+The opinionated common case over `insert-block`: a `Heading {level}` paragraph
+followed by its body, in reading order and one op. `--heading` carries the same
+inline markdown an item's `text` does; `--body` is the same JSON items shape
+`insert-block` takes (or `-` for stdin). `--level` is 1–9 (default `1`). Reports
+the section's spanning `range:START-END`.
+
+```bash
+$ wordlive insert-section --anchor-id end --heading "Results" --level 2 --body \
+    '["We observed a **20%** lift.", {"text":"Caveats apply.","style":"Body Text"}]'
+{"ok": true, "anchor_id": "range:512-560", "where": "after"}
+```
+
+## `insert-markdown --anchor-id ID --markdown TEXT`
+
+```
+wordlive insert-markdown --anchor-id ID --markdown TEXT [--before | --after] [--doc DOC_NAME]
+```
+
+Drop a chunk of **constrained Markdown** as real Word structure. The dialect is a
+documented subset, not CommonMark:
+
+- `#` / `##` / `###` → `Heading 1` / `Heading 2` / `Heading 3`.
+- `-` / `*` → a bulleted list; `1.` → a numbered list (each list is numbered
+  1..N over its own span).
+- a blank line separates paragraphs; consecutive plain lines join into one
+  `Normal` paragraph.
+- inline `**bold**` / `*italic*` / `***both***` are honoured.
+
+Out of scope in v1: code fences, nested lists, block quotes, tables — anything
+unrecognised becomes literal paragraph text. Multi-line input is easiest from
+stdin with `--markdown -`. Reports the spanning `range:START-END`.
+
+```bash
+$ printf '# Plan\n\nKick-off notes.\n\n- scope it\n- staff it\n' | \
+    wordlive insert-markdown --anchor-id end --markdown -
+{"ok": true, "anchor_id": "range:600-640", "where": "after"}
+```
+
+## `replace-section --anchor-id heading:N (--body JSON | --markdown TEXT)`
+
+```
+wordlive replace-section --anchor-id heading:N (--body JSON | --markdown TEXT) [--doc DOC_NAME]
+```
+
+Rewrite a heading's body — everything from after the heading up to the next
+same-or-higher heading — while **keeping the heading paragraph**. The "rewrite
+section X" workflow. Give exactly one of `--body` (the `insert-block` items shape)
+or `--markdown` (the constrained subset above); either accepts `-` for stdin.
+Reports the new body's spanning `range:START-END`. Needs a `heading:N` anchor
+(exit 1 otherwise).
+
+```bash
+$ wordlive replace-section --anchor-id heading:3 --markdown "Updated findings.
+
+- point one
+- point two"
+{"ok": true, "anchor_id": "range:300-340"}
+```
+
 ## `delete-paragraph --anchor-id ID`
 
 ```

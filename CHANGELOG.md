@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Compose helpers — add a whole section, or a chunk of Markdown, in one op.**
+  A thin layer over `insert_block` (and the `**bold**`/`*italic*` run parser) so
+  an agent composes structure instead of issuing a storm of single inserts:
+  - `anchor.insert_section(heading, body, *, level=1, where="after")` places a
+    `Heading {level}` paragraph plus its body (the `insert_block` items shape, or
+    a bare string) atomically and returns the section's `range:START-END`.
+  - `anchor.insert_markdown(md, *, where="after")` maps a **constrained-Markdown
+    subset** to real Word structure — `#`/`##`/`###` → `Heading 1/2/3`, `-`/`*`
+    → a bulleted list, `1.` → a numbered list (numbered 1..N over its own span),
+    blank-line-separated text → `Normal` paragraphs, inline `**bold**`/`*italic*`
+    honoured. Explicitly a subset, not CommonMark: no code fences, nested lists,
+    block quotes, or tables in v1 — anything unrecognised stays literal text.
+  - `heading.replace_section_body(body, *, markdown=False)` clears the body under
+    a heading (up to the next same-or-higher heading) and inserts a replacement,
+    keeping the heading — the "rewrite section X" workflow. `body` is the items
+    shape, or a Markdown string with `markdown=True`.
+
+  All three return the new content's `range:START-END`. New CLI commands
+  `insert-section`, `insert-markdown`, `replace-section`; the `insert_section` /
+  `insert_markdown` / `replace_section` exec ops; and the matching `word_write` /
+  `word_exec` MCP commands. Block parsing lives in a new COM-free `_markdown.py`.
 - **Document introspection — reason about layout without a snapshot.** Two cheap
   read surfaces so an agent can answer "what page is this on" / "how long is
   this" deterministically, no vision pass:
