@@ -5,6 +5,25 @@ All notable changes to **wordlive** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **A pure read no longer dirties the document.** `doc.stats()` and
+  `anchor.location()` repaginate first (for print-layout-truth `pages`/`lines`),
+  which flips Word's dirty bit — so a read of a freshly-saved document used to
+  report (and leave) a spurious unsaved-changes star. Both now snapshot and
+  restore `Document.Saved` around the repaginate, honouring their "nothing is
+  mutated" contract.
+
+### Changed
+- **`set_borders` reconciles its line-style field name across surfaces.** The
+  MCP `set_borders` command and its `word_write` schema name the line style
+  `line_style` (to avoid colliding with the paragraph-`style` param), but a
+  hand-built `word_exec`/`exec` batch reusing that name had it warned-and-ignored
+  — the op only read `style`. The exec op now accepts `line_style` as an alias
+  for `style`, so the same name works on every surface. (CLI `--style` and the
+  Python `set_borders(style=…)` keyword are unchanged.)
+
 ## [0.14.0] — 2026-06-11
 
 ### Added

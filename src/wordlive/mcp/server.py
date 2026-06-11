@@ -324,7 +324,9 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
     if command == "set_borders":
         op = {"op": "set_borders", "anchor_id": need("anchor_id")}
         # `line_style` is the MCP param name (avoids colliding with the `style`
-        # param used by apply_style/create_table); the op field is `style`.
+        # param used by apply_style/create_table); the canonical op field is
+        # `style`, but the exec op also accepts `line_style` as an alias, so a
+        # hand-built word_exec batch reusing this name is honoured too.
         if p.get("line_style") is not None:
             op["style"] = p["line_style"]
         for k in ("sides", "weight", "color"):

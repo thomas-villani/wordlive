@@ -908,9 +908,10 @@ class Document:
         `pages`/`lines` are print-layout truth, so the document is
         **repaginated first** (content-neutral — selection, scroll, and view are
         untouched), the same guarantee a `snapshot` gives. A pure read; nothing
-        is mutated.
+        is mutated — `Repaginate` flips Word's dirty bit, so the document's
+        `Saved` state is snapshotted and restored around it.
         """
-        with _com.translate_com_errors():
+        with _com.translate_com_errors(), _com.preserve_saved(self._doc):
             self._doc.Repaginate()
             text_counts = {
                 "pages": int(self._doc.ComputeStatistics(int(WdStatistic.PAGES))),

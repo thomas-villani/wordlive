@@ -1944,9 +1944,11 @@ class Anchor(ABC):
         Page/line numbers are only meaningful in print layout, so the document
         is **repaginated first** (content-neutral — it touches neither the
         user's selection, scroll, nor view), mirroring the guarantee a
-        `snapshot` gives. No politeness concern: this mutates nothing.
+        `snapshot` gives. No politeness concern: this mutates nothing — the
+        document's `Saved` state is snapshotted and restored around the
+        repaginate, which would otherwise flip Word's dirty bit.
         """
-        with _com.translate_com_errors():
+        with _com.translate_com_errors(), _com.preserve_saved(self._doc.com):
             rng = self._range()
             self._doc.com.Repaginate()
             start, end = int(rng.Start), int(rng.End)

@@ -182,6 +182,28 @@ def test_exec_set_borders(fake_word):
     assert _addr_range(fake_word).Borders(-1).LineStyle == int(WdLineStyle.DASH_LARGE_GAP)
 
 
+def test_exec_set_borders_line_style_alias(fake_word):
+    # `line_style` is the name the MCP/word_write surface uses; the exec op must
+    # honour it as an alias for `style` (not warn-and-ignore it).
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [
+                {
+                    "op": "set_borders",
+                    "anchor_id": "bookmark:Address",
+                    "sides": "top",
+                    "line_style": "double",
+                }
+            ],
+            label="test",
+        )
+    assert exc is None and result["ok"] is True
+    assert "warnings" not in result  # the alias is recognised, not a stray field
+    assert _addr_range(fake_word).Borders(-1).LineStyle == int(WdLineStyle.DOUBLE)
+
+
 def test_exec_add_tab_stop(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active

@@ -80,6 +80,19 @@ def test_location_repaginates_first(fake_word):
     fake_word.ActiveDocument.Repaginate.assert_called()
 
 
+def test_location_preserves_saved_dirty_bit(fake_word):
+    # Repaginate dirties the document in real Word; a pure read must not. Emulate
+    # the flip and assert location() puts the Saved flag back.
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        dc = doc.com
+        _seed_location(dc, 0, 10, start_page=1, end_page=1)
+        dc.Saved = True
+        dc.Repaginate.side_effect = lambda: setattr(dc, "Saved", False)
+        doc.range(0, 10).location()
+    assert dc.Saved is True
+
+
 def test_location_in_table_flag(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active
@@ -125,6 +138,19 @@ def test_stats_repaginates_first(fake_word):
         _seed_stats(doc.com)
         doc.stats()
     fake_word.ActiveDocument.Repaginate.assert_called()
+
+
+def test_stats_preserves_saved_dirty_bit(fake_word):
+    # `stats` repaginates, which flips Word's dirty bit; a read of a saved
+    # document must report (and leave) saved=True, not a spurious unsaved star.
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        dc = doc.com
+        _seed_stats(dc, saved=True)
+        dc.Repaginate.side_effect = lambda: setattr(dc, "Saved", False)
+        s = doc.stats()
+    assert dc.Saved is True
+    assert s["saved"] is True
 
 
 # ---------------------------------------------------------------------------
