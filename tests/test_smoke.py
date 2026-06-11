@@ -171,6 +171,34 @@ def test_section_continuous_break_no_outline_pollution(scratch_doc):
     assert after == before
 
 
+def test_insert_block_at_end_does_not_merge_into_last_paragraph(scratch_doc):
+    """WL-A: composing at doc.end must not fuse the first block paragraph into a
+    non-empty last paragraph (and steal its style)."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("…single slide.", style="Normal")
+    with doc.edit("markdown at end"):
+        doc.end.insert_markdown("## The Problem\n\nBody line.")
+    texts = [p.text for p in doc.paragraphs]
+    # The seeded line survives verbatim — no "…single slide.The Problem" merge.
+    assert "…single slide." in texts
+    assert not any("single slide.The Problem" in t for t in texts)
+    # And the heading is its own paragraph, styled as a heading (not Normal,
+    # not merged into the body line) — so it shows up as its own outline entry.
+    assert doc.headings["The Problem"].text == "The Problem"
+    assert "The Problem" in [h["text"] for h in doc.outline()]
+
+
+def test_insert_block_at_end_of_fresh_doc_leaves_no_trailing_empty(scratch_doc):
+    """WL-A: filling an empty terminal paragraph must not strand a stray empty
+    paragraph after the block."""
+    doc = scratch_doc
+    with doc.edit("markdown into fresh"):
+        doc.end.insert_markdown("## Title\n\nOnly body.")
+    texts = [p.text for p in doc.paragraphs]
+    assert texts[-1] == "Only body."  # last paragraph is real content, not ""
+
+
 # ---------------------------------------------------------------------------
 # Reference apparatus — footnotes / endnotes / TOC (live)
 # ---------------------------------------------------------------------------

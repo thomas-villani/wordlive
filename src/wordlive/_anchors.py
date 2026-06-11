@@ -455,6 +455,22 @@ def _within_table(doc_com: Any, start: int, end: int) -> bool:
         return False
 
 
+def _final_paragraph_empty(doc_com: Any, final_mark: int) -> bool:
+    """Whether the document's terminal paragraph holds no text (just its mark).
+
+    Used by `insert_block` to decide, when appending at the very end, whether to
+    *fill* the final paragraph (it's empty — the fresh-document case) or open a
+    new one after it (it already has text — don't merge into it). If the probe
+    can't read the paragraph's offsets (e.g. a stubbed COM in tests), default to
+    "not empty" — the safe choice, which opens a new paragraph and never merges.
+    """
+    try:
+        para = doc_com.Range(final_mark, final_mark).Paragraphs(1).Range
+        return int(para.End) - int(para.Start) <= 1
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
 def _equation_index_at(doc_com: Any, pos: int) -> int:
     """1-based document index of the OMath at `pos` — the just-inserted equation.
 
@@ -815,13 +831,28 @@ class Anchor(ABC):
             else:
                 end = int(self._range().End)
                 doc_end = int(doc_com.Content.End)
-                if end >= doc_end:
-                    # At/after the undeletable final mark there's no position to
-                    # write past; split the block in before it (mirrors
-                    # insert_paragraph_after's end-of-document handling).
-                    pos = max(0, doc_end - 1)
-                    doc_com.Range(pos, pos).Text = "\r" + joined
-                    start = pos + 1
+                final_mark = max(0, doc_end - 1)
+                if end >= final_mark:
+                    # We're at the document's terminal paragraph mark — the one
+                    # position you can't write *past* (`doc.end` resolves here,
+                    # as does an anchor ending at the last paragraph). The old
+                    # `end >= doc_end` guard missed `doc.end` (whose range ends at
+                    # doc_end - 1), so the block was written *before* the final
+                    # mark and merged into a non-empty last paragraph — stealing
+                    # its style too. Decide by whether that final paragraph holds
+                    # text, so the block neither merges nor leaves a stray empty:
+                    if _final_paragraph_empty(doc_com, final_mark):
+                        # Reuse the empty final paragraph as the block's last one:
+                        # write without a trailing break so the existing mark
+                        # closes it (no leftover empty paragraph).
+                        doc_com.Range(final_mark, final_mark).Text = joined
+                        start = final_mark
+                    else:
+                        # Open a fresh paragraph after the final one: the leading
+                        # break terminates it and the block becomes new trailing
+                        # paragraphs (the original final mark closes the last one).
+                        doc_com.Range(final_mark, final_mark).Text = "\r" + joined
+                        start = final_mark + 1
                 else:
                     doc_com.Range(end, end).Text = joined + "\r"
                     start = end

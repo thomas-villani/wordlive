@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Composing at the end of a document no longer merges into the last
+  paragraph.** `insert_block` (and so `insert_section` / `insert_markdown`)
+  targeting `doc.end` wrote the block *before* the final paragraph mark, so when
+  the last paragraph already had text the first inserted paragraph fused into it
+  — `…last line.` + `## Heading` became one `…last line.Heading` paragraph,
+  stealing the heading's style. The end-of-document case now detects the
+  terminal mark correctly (`doc.end`'s range ends one short of it) and either
+  fills an empty final paragraph (no stray trailing empty) or opens a fresh one
+  after a non-empty one (no merge, no style theft).
 - **A pure read no longer dirties the document.** `doc.stats()` and
   `anchor.location()` repaginate first (for print-layout-truth `pages`/`lines`),
   which flips Word's dirty bit — so a read of a freshly-saved document used to
