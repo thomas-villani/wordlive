@@ -1104,6 +1104,7 @@ wordlive format-paragraph --anchor-id ID
     [--alignment left|center|centre|right|justify]
     [--left-indent POINTS] [--right-indent POINTS] [--first-line-indent POINTS]
     [--space-before POINTS] [--space-after POINTS]
+    [--line-spacing MULTIPLE|single|1.5|double|LENGTH]
     [--page-break-before | --no-page-break-before]
     [--keep-together | --no-keep-together]
     [--keep-with-next | --no-keep-with-next]
@@ -1115,7 +1116,11 @@ wordlive format-paragraph --anchor-id ID
 
 Set paragraph-formatting properties on the anchor's range. At least one
 formatting flag is required. Indent and spacing values are in **points** —
-the unit Word's COM API uses natively for these fields.
+the unit Word's COM API uses natively for these fields. `--line-spacing` sets
+the leading *within* the paragraph (distinct from `--space-before`/`--space-after`,
+which space paragraphs apart): a **multiple** of single spacing (`1`, `1.5`,
+`2`), the keywords `single`/`1.5`/`double`, or an **exact length** (`14pt`,
+`1.5cm`) for a fixed line height.
 `--page-break-before` forces the paragraph to begin on a new page (and
 `--no-page-break-before` clears it) — the *clean*, reflow-safe way to
 page-break, leaving no stray break character (contrast `insert-break`, which
@@ -1236,6 +1241,7 @@ wordlive style set NAME
     [--font NAME] [--size POINTS|UNIT] [--color NAME|HEX|R,G,B]
     [--alignment left|center|right|justify]
     [--space-before POINTS|UNIT] [--space-after POINTS|UNIT]
+    [--line-spacing MULTIPLE|single|1.5|double|LENGTH]
     [--based-on NAME] [--next-style NAME] [--doc DOC_NAME]
 ```
 
@@ -1767,7 +1773,7 @@ Script shape:
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
-| `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after`, `page_break_before`, `keep_together`, `keep_with_next`, `widow_control` |
+| `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after`, `line_spacing` (a multiple `1`/`1.5`/`2`, `single`/`1.5`/`double`, or an exact length like `14pt`), `page_break_before`, `keep_together`, `keep_with_next`, `widow_control` |
 | `format_run`           | `anchor_id`                                | `bold`, `italic`, `underline`, `strikethrough`, `font`, `size`, `color`, `highlight`, `subscript`, `superscript`, `small_caps`, `all_caps`, `spacing` |
 | `set_shading`          | `anchor_id`                                | `fill`, `pattern`                 |
 | `set_borders`          | `anchor_id`                                | `sides` (`all`/`box`/`top`/`bottom`/`left`/`right`/`horizontal`/`vertical`), `style` (a.k.a. `line_style`: `single`/`double`/`dot`/`dash`/`none`/…), `weight`, `color` |

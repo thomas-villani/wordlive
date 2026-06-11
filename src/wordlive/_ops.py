@@ -121,6 +121,7 @@ _PARA_FIELDS = (
     "first_line_indent",
     "space_before",
     "space_after",
+    "line_spacing",
     "page_break_before",
     "keep_together",
     "keep_with_next",

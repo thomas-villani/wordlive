@@ -84,7 +84,9 @@ and `rows`/`cols` are inferred from `data` when omitted.
 `insert_break(kind="page"|"column"|"section_next"|"section_continuous")` drops
 an explicit break; for a reflow-safe page break tied to a paragraph (e.g. every
 `Heading 1`), pass `page_break_before=True` to `format_paragraph` instead.
-`format_paragraph` also takes the pagination controls `keep_together`,
+`format_paragraph` also takes `line_spacing` (the leading within a paragraph: a
+multiple like `1.5`, the keywords `"single"`/`"1.5"`/`"double"`, or an exact
+length such as `"14pt"`) and the pagination controls `keep_together`,
 `keep_with_next`, and `widow_control` (tri-state booleans) for clean multi-page
 layout.
 `format_run(...)` sets character formatting (bold/italic/underline, `font`,

@@ -287,6 +287,7 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             "first_line_indent",
             "space_before",
             "space_after",
+            "line_spacing",
             "page_break_before",
             "keep_together",
             "keep_with_next",
@@ -870,6 +871,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         first_line_indent: float | None = None,
         space_before: float | None = None,
         space_after: float | None = None,
+        line_spacing: str | float | None = None,
         page_break_before: bool | None = None,
         keep_together: bool | None = None,
         keep_with_next: bool | None = None,
@@ -953,7 +955,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             to continue the adjacent paragraph inline (an inline append takes no style) ·
         replace {text, find|anchor_id, [all,occurrence,in_anchor]} ·
         write_bookmark/write_cc {name,text} · apply_style {anchor_id,name} ·
-        format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before,keep_together,keep_with_next,widow_control]} ·
+        format_paragraph {anchor_id,[alignment,*_indent,space_*,line_spacing,page_break_before,keep_together,keep_with_next,widow_control]} ·
         format_run {anchor_id,[bold,italic,underline,strikethrough,font,size,color,
             highlight,subscript,superscript,small_caps,all_caps,spacing]} — colour is a
             name/hex; highlight is a named palette colour; size/spacing accept unit strings ·
@@ -964,7 +966,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             leader=dots|dashes|lines|none]} ·
         add_style {name,[type=paragraph|character|table|list,based_on,next_style]} —
             define a new style ·
-        set_style {name,[bold,italic,underline,font,size,color,alignment,space_*,
+        set_style {name,[bold,italic,underline,font,size,color,alignment,space_*,line_spacing,
             based_on,next_style]} — set an existing style's font/paragraph defaults ·
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
         comment {action=add|resolve|delete,...} ·
@@ -1053,6 +1055,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "first_line_indent": first_line_indent,
             "space_before": space_before,
             "space_after": space_after,
+            "line_spacing": line_spacing,
             "page_break_before": page_break_before,
             "keep_together": keep_together,
             "keep_with_next": keep_with_next,
@@ -1163,7 +1166,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           append_inline {text} / prepend_inline {text} — continue the last/first paragraph (NO style) ·
           append_paragraph / prepend_paragraph — explicit synonyms of append/prepend ·
           replace {anchor_id,text} · find_replace {find,text,[all,occurrence,in]} ·
-          apply_style {anchor_id,name} · format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before,keep_together,keep_with_next,widow_control]} ·
+          apply_style {anchor_id,name} · format_paragraph {anchor_id,[alignment,*_indent,space_*,line_spacing,page_break_before,keep_together,keep_with_next,widow_control]} ·
           insert_image {anchor_id,wrap, path|base64, [before,block,width,height,alt_text,lock_aspect]} ·
           insert_equation {anchor_id, unicodemath|latex|mathml, [display=true,before]} — own-paragraph
             math; unicodemath native, latex needs the latex extra, mathml via Office; returns equation:N in outputs ·

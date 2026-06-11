@@ -6,7 +6,7 @@ import pytest
 
 import wordlive
 from wordlive._ops import run_batch
-from wordlive.constants import WdBreakType
+from wordlive.constants import WdBreakType, WdLineSpacing
 
 # ---------------------------------------------------------------------------
 # insert_break — the anchor verb
@@ -165,6 +165,62 @@ def test_exec_format_paragraph_pagination_flags(fake_word):
     assert pf.KeepTogether is True
     assert pf.KeepWithNext is True
     assert pf.WidowControl is False
+
+
+# ---------------------------------------------------------------------------
+# format_paragraph(line_spacing=...) — leading within the paragraph
+# ---------------------------------------------------------------------------
+
+
+def test_coerce_line_spacing_variants():
+    from wordlive._anchors import _coerce_line_spacing
+
+    # A number is a multiple of single spacing (rule MULTIPLE, value × 12pt).
+    assert _coerce_line_spacing(1.5) == (int(WdLineSpacing.MULTIPLE), 18.0)
+    assert _coerce_line_spacing(2) == (int(WdLineSpacing.MULTIPLE), 24.0)
+    # Named multiples carry no companion value.
+    assert _coerce_line_spacing("single") == (int(WdLineSpacing.SINGLE), None)
+    assert _coerce_line_spacing("1.5") == (int(WdLineSpacing.ONE_POINT_FIVE), None)
+    assert _coerce_line_spacing("double") == (int(WdLineSpacing.DOUBLE), None)
+    # A length string with a unit is an exact line height.
+    assert _coerce_line_spacing("14pt") == (int(WdLineSpacing.EXACTLY), 14.0)
+    # A unitless numeric string is a multiple, like a bare number.
+    assert _coerce_line_spacing("1.15") == (int(WdLineSpacing.MULTIPLE), pytest.approx(13.8))
+    with pytest.raises(ValueError, match="line_spacing"):
+        _coerce_line_spacing("loose")
+    with pytest.raises(TypeError):
+        _coerce_line_spacing(True)
+
+
+def test_format_paragraph_line_spacing_multiple(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.bookmarks["Address"].format_paragraph(line_spacing=2)
+    pf = fake_word.ActiveDocument.Bookmarks("Address").Range.ParagraphFormat
+    assert int(pf.LineSpacingRule) == int(WdLineSpacing.MULTIPLE)
+    assert pf.LineSpacing == 24.0
+
+
+def test_format_paragraph_line_spacing_exact_points(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.bookmarks["Address"].format_paragraph(line_spacing="14pt")
+    pf = fake_word.ActiveDocument.Bookmarks("Address").Range.ParagraphFormat
+    assert int(pf.LineSpacingRule) == int(WdLineSpacing.EXACTLY)
+    assert pf.LineSpacing == 14.0
+
+
+def test_exec_format_paragraph_line_spacing(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [{"op": "format_paragraph", "anchor_id": "bookmark:Address", "line_spacing": "double"}],
+            label="test",
+        )
+    assert exc is None and "warnings" not in result
+    pf = fake_word.ActiveDocument.Bookmarks("Address").Range.ParagraphFormat
+    assert int(pf.LineSpacingRule) == int(WdLineSpacing.DOUBLE)
 
 
 # ---------------------------------------------------------------------------

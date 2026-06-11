@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`line_spacing` on `format_paragraph` / `set_style`.** Sets the leading
+  *within* a paragraph (distinct from `space_before`/`space_after`, which space
+  paragraphs apart): a number is a multiple of single spacing (`1`, `1.5`, `2`),
+  the keywords `"single"`/`"1.5"`/`"double"` map to Word's named rules, and a
+  length string (`"14pt"`, `"1.5cm"`) sets an exact line height. Wired through
+  the Python API, the `format_paragraph` / `set_style` exec ops, the CLI
+  (`format-paragraph --line-spacing` / `style set --line-spacing`), and MCP.
 - **A dedicated `Equation` paragraph style.** Display equations now land on a
   centred, `Normal`-based `Equation` paragraph style (created on first use), so
   an equation is styled consistently regardless of where it was inserted — and

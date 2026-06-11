@@ -2509,6 +2509,13 @@ def style_add(
 )
 @click.option("--space-before", "space_before", default=None, help="Space before in points/units.")
 @click.option("--space-after", "space_after", default=None, help="Space after in points/units.")
+@click.option(
+    "--line-spacing",
+    "line_spacing",
+    default=None,
+    help="Leading within the paragraph: a multiple (1, 1.5, 2), single/1.5/double, "
+    "or an exact length (e.g. 14pt).",
+)
 @click.option("--based-on", "based_on", default=None, help="Existing style to inherit from.")
 @click.option(
     "--next-style", "next_style", default=None, help="Style applied to the following paragraph."
@@ -2526,6 +2533,7 @@ def style_set(
     alignment: str | None,
     space_before: str | None,
     space_after: str | None,
+    line_spacing: str | None,
     based_on: str | None,
     next_style: str | None,
 ) -> None:
@@ -2542,6 +2550,7 @@ def style_set(
         "alignment": alignment,
         "space_before": space_before,
         "space_after": space_after,
+        "line_spacing": line_spacing,
     }
     run_kwargs = {k: v for k, v in run_raw.items() if v is not None}
     para_kwargs = {k: v for k, v in para_raw.items() if v is not None}
@@ -2620,6 +2629,13 @@ def style_set(
     help="Space after paragraph in points.",
 )
 @click.option(
+    "--line-spacing",
+    "line_spacing",
+    default=None,
+    help="Leading within the paragraph: a multiple (1, 1.5, 2), single/1.5/double, "
+    "or an exact length (e.g. 14pt).",
+)
+@click.option(
     "--page-break-before/--no-page-break-before",
     "page_break_before",
     default=None,
@@ -2655,6 +2671,7 @@ def format_paragraph_cmd(
     first_line_indent: float | None,
     space_before: float | None,
     space_after: float | None,
+    line_spacing: str | None,
     page_break_before: bool | None,
     keep_together: bool | None,
     keep_with_next: bool | None,
@@ -2674,6 +2691,8 @@ def format_paragraph_cmd(
         kwargs["space_before"] = space_before
     if space_after is not None:
         kwargs["space_after"] = space_after
+    if line_spacing is not None:
+        kwargs["line_spacing"] = line_spacing
     if page_break_before is not None:
         kwargs["page_break_before"] = page_break_before
     if keep_together is not None:

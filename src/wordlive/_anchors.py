@@ -23,6 +23,7 @@ from .constants import (
     WdColorIndex,
     WdFieldType,
     WdInformation,
+    WdLineSpacing,
     WdLineStyle,
     WdNumberType,
     WdParagraphAlignment,
@@ -208,6 +209,7 @@ def _apply_paragraph_format(
     first_line_indent: Any = None,
     space_before: Any = None,
     space_after: Any = None,
+    line_spacing: Any = None,
     page_break_before: bool | None = None,
     keep_together: bool | None = None,
     keep_with_next: bool | None = None,
@@ -233,6 +235,13 @@ def _apply_paragraph_format(
         pf.SpaceBefore = to_points(space_before)
     if space_after is not None:
         pf.SpaceAfter = to_points(space_after)
+    if line_spacing is not None:
+        rule, value = _coerce_line_spacing(line_spacing)
+        # Set the value first: assigning LineSpacing forces the rule to Multiple,
+        # so we write the rule last to land on Exactly/AtLeast/the named rules.
+        if value is not None:
+            pf.LineSpacing = value
+        pf.LineSpacingRule = rule
     if page_break_before is not None:
         pf.PageBreakBefore = bool(page_break_before)
     if keep_together is not None:
@@ -311,6 +320,48 @@ def _resolve_border_sides(sides: Any) -> list[int]:
             if int(edge) not in out:
                 out.append(int(edge))
     return out
+
+
+# Line-spacing keywords -> the rule that needs no companion value.
+_LINE_SPACING_NAMES: dict[str, WdLineSpacing] = {
+    "single": WdLineSpacing.SINGLE,
+    "1.5": WdLineSpacing.ONE_POINT_FIVE,
+    "1.5x": WdLineSpacing.ONE_POINT_FIVE,
+    "double": WdLineSpacing.DOUBLE,
+}
+
+
+def _coerce_line_spacing(value: Any) -> tuple[int, float | None]:
+    """Map a `line_spacing` value to ``(LineSpacingRule, LineSpacing | None)``.
+
+    - a **number** ``n`` → a multiple of single spacing (rule ``MULTIPLE``,
+      ``LineSpacing = n × 12pt`` — Word's points-per-line);
+    - ``"single"`` / ``"1.5"`` / ``"double"`` → the named multiple rules, with no
+      companion value (``None``);
+    - a **length string** carrying a unit (``"14pt"``, ``"1.5cm"``) → an *exact*
+      line height (rule ``EXACTLY``, the value in points);
+    - a unitless numeric string (``"1.5"``) → a multiple, as for a number.
+
+    Raises `ValueError`/`TypeError` on anything else (translated to `OpError`).
+    """
+    if isinstance(value, bool):
+        raise TypeError("line_spacing must be a number or string, not bool")
+    if isinstance(value, (int, float)):
+        return int(WdLineSpacing.MULTIPLE), float(value) * 12.0
+    if isinstance(value, str):
+        key = value.strip().lower()
+        if key in _LINE_SPACING_NAMES:
+            return int(_LINE_SPACING_NAMES[key]), None
+        if any(key.endswith(u) for u in ("pt", "in", "cm", "mm")):
+            return int(WdLineSpacing.EXACTLY), to_points(value)
+        try:
+            return int(WdLineSpacing.MULTIPLE), float(key) * 12.0
+        except ValueError:
+            raise ValueError(
+                f"unknown line_spacing {value!r}; expected a number (a multiple of single "
+                "spacing), one of single/1.5/double, or an exact length like '14pt'"
+            ) from None
+    raise TypeError(f"line_spacing must be a number or string; got {type(value).__name__}")
 
 
 def _coerce_named(value: Any, table: dict[str, Any], label: str) -> int:
@@ -1801,6 +1852,7 @@ class Anchor(ABC):
         first_line_indent: float | None = None,
         space_before: float | None = None,
         space_after: float | None = None,
+        line_spacing: Any = None,
         page_break_before: bool | None = None,
         keep_together: bool | None = None,
         keep_with_next: bool | None = None,
@@ -1813,6 +1865,13 @@ class Anchor(ABC):
         `ParagraphFormat.LeftIndent` etc.). `alignment` accepts a
         `WdParagraphAlignment` enum, its int value, or a string
         (`"left"`/`"center"`/`"right"`/`"justify"`).
+
+        `line_spacing` sets the leading between lines *within* the paragraph
+        (distinct from `space_before`/`space_after`, which space paragraphs
+        apart). It accepts a **number** — a multiple of single spacing (`1`
+        single, `1.5`, `2` double) — one of the keywords `"single"`/`"1.5"`/
+        `"double"`, or an **exact length string** (`"14pt"`, `"1.5cm"`) for a
+        fixed line height.
 
         `page_break_before=True` forces the paragraph to begin on a new page —
         the *clean* way to page-break (e.g. apply it to every `Heading 1`): it's
@@ -1839,6 +1898,7 @@ class Anchor(ABC):
                     first_line_indent=first_line_indent,
                     space_before=space_before,
                     space_after=space_after,
+                    line_spacing=line_spacing,
                     page_break_before=page_break_before,
                     keep_together=keep_together,
                     keep_with_next=keep_with_next,

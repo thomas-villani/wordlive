@@ -404,6 +404,32 @@ def test_format_paragraph_pagination_flags(scratch_doc):
     assert int(pf.WidowControl) == 0  # False
 
 
+def test_format_paragraph_line_spacing(scratch_doc):
+    """line_spacing sets the leading: a multiple, an exact length, or a keyword."""
+    from wordlive.constants import WdLineSpacing
+
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Multiple.", style="Normal")
+        doc.append_paragraph("Exact.", style="Normal")
+    mult_id = _para_id_by_text(doc, "Multiple.")
+    exact_id = _para_id_by_text(doc, "Exact.")
+    with doc.edit("line spacing"):
+        doc.anchor_by_id(mult_id).format_paragraph(line_spacing=2)  # double, as a multiple
+        doc.anchor_by_id(exact_id).format_paragraph(line_spacing="20pt")
+    mult_pf = doc.anchor_by_id(mult_id).com.ParagraphFormat
+    # Word stores an exact-double multiple as either the MULTIPLE rule (24pt) or
+    # its named DOUBLE rule; both render as double spacing.
+    assert int(mult_pf.LineSpacingRule) in (
+        int(WdLineSpacing.MULTIPLE),
+        int(WdLineSpacing.DOUBLE),
+    )
+    assert abs(float(mult_pf.LineSpacing) - 24.0) < 0.01
+    exact_pf = doc.anchor_by_id(exact_id).com.ParagraphFormat
+    assert int(exact_pf.LineSpacingRule) == int(WdLineSpacing.EXACTLY)
+    assert abs(float(exact_pf.LineSpacing) - 20.0) < 0.01
+
+
 def test_set_heading_row_repeats(scratch_doc):
     doc = scratch_doc
     with doc.edit("seed"):

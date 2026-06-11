@@ -102,8 +102,8 @@ a.insert_section("Results", ["Body para.", "Another."], level=2)  # heading + bo
 a.insert_markdown("# Title\n\nIntro.\n\n- bullet one\n- bullet two\n\n1. step")  # constrained MD → Word structure
 doc.headings["Results"].replace_section_body("New body.", markdown=True)  # rewrite a section, keep its heading
 a.apply_style("Heading 2")
-a.format_paragraph(alignment="center", space_before=6, page_break_before=True,
-                   keep_with_next=True, keep_together=True, widow_control=True)  # pagination
+a.format_paragraph(alignment="center", space_before=6, line_spacing=1.5,  # leading: 1.5/"double"/"14pt"
+                   page_break_before=True, keep_with_next=True, keep_together=True, widow_control=True)
 a.format_run(bold=True, color="#FF0000", highlight="yellow", size="12pt")  # character formatting
 a.set_shading(fill="navy")              # range/cell background fill
 a.set_borders(sides="all", style="single", weight=0.5, color="black")
