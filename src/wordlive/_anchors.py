@@ -579,6 +579,39 @@ def _caption_above(label: str, position: str | None) -> bool:
     raise ValueError(f"position must be 'above' or 'below'; got {position!r}")
 
 
+def _markdown_segments(blocks: list[Any]) -> list[tuple[list[dict[str, Any]], str | None]]:
+    """Group parsed Markdown `blocks` into `(insert_block_items, list_type)` runs.
+
+    A maximal run of same-kind list items becomes one segment whose `list_type`
+    is `"bulleted"`/`"numbered"` (applied over the span after insertion). A
+    maximal run of heading/normal blocks becomes one segment with `list_type`
+    `None`. Normal paragraphs are pinned to the built-in ``Normal`` style so they
+    don't inherit a heading style from the insertion point.
+    """
+    from ._markdown import BULLET, HEADING, NORMAL, NUMBER
+
+    segments: list[tuple[list[dict[str, Any]], str | None]] = []
+    i, n = 0, len(blocks)
+    while i < n:
+        kind = blocks[i].kind
+        items: list[dict[str, Any]] = []
+        if kind in (BULLET, NUMBER):
+            style = "List Bullet" if kind == BULLET else "List Number"
+            list_type = "bulleted" if kind == BULLET else "numbered"
+            while i < n and blocks[i].kind == kind:
+                items.append({"text": blocks[i].text, "style": style})
+                i += 1
+            segments.append((items, list_type))
+        else:
+            while i < n and blocks[i].kind in (HEADING, NORMAL):
+                b = blocks[i]
+                style = f"Heading {b.level}" if b.kind == HEADING else "Normal"
+                items.append({"text": b.text, "style": style})
+                i += 1
+            segments.append((items, None))
+    return segments
+
+
 # ---------------------------------------------------------------------------
 # Base
 # ---------------------------------------------------------------------------
@@ -797,6 +830,85 @@ class Anchor(ABC):
                     roff += rlen
                 off += plen + 1  # + the paragraph mark (CR)
         return RangeAnchor(self._doc, start, span_end)
+
+    def insert_section(
+        self, heading: str, body: Any, *, level: int = 1, where: str = "after"
+    ) -> RangeAnchor:
+        """Insert a heading plus its body in one atomic op.
+
+        The opinionated common case over `insert_block`: a single
+        ``Heading {level}`` paragraph followed by `body`, placed in reading
+        order at one point. `heading` carries the same inline markdown a block
+        item's `text` does (`**bold**`, `*italic*`); `body` is the `insert_block`
+        items shape — a list of plain strings or ``{text|runs, style?}`` dicts
+        (a bare string is sugar for a one-paragraph body). `level` is 1–9 and
+        selects the built-in ``Heading {level}`` style (validated before any
+        mutation; an absent style raises `StyleNotFoundError` via `insert_block`).
+
+        Returns the section's spanning [`RangeAnchor`][wordlive.RangeAnchor]
+        (`range:START-END`). Wrap in `doc.edit(...)` for atomic undo.
+        """
+        if not isinstance(level, int) or isinstance(level, bool) or not 1 <= level <= 9:
+            raise ValueError(f"level must be an integer 1–9; got {level!r}")
+        if isinstance(body, str):
+            body = [body]
+        if not isinstance(body, list):
+            raise OpError(
+                f"insert_section body must be a string or list; got {type(body).__name__}"
+            )
+        items = [{"text": heading, "style": f"Heading {level}"}, *body]
+        return self.insert_block(items, where=where)
+
+    def insert_markdown(self, md: str, *, where: str = "after") -> RangeAnchor:
+        """Insert a constrained-Markdown block as real Word structure, atomically.
+
+        Maps a deliberately tiny block dialect (see `_markdown`) to paragraphs,
+        headings, and lists: ``#``/``##``/``###`` → `Heading 1/2/3`, ``-``/``*``
+        → a bulleted list, ``1.`` → a numbered list, blank-line-separated text →
+        `Normal` paragraphs, with inline ``**bold**``/``*italic*`` spans honoured.
+        It is **a subset, not CommonMark** — no code fences, nested lists, block
+        quotes, or tables in v1; anything unrecognised is literal paragraph text.
+
+        The whole block is one `insert_block` (one contiguous write); each
+        same-kind list run is then `apply_list`-ed over its own span, so a
+        numbered list reads 1..N. `where` is ``"after"`` (default) or ``"before"``
+        this anchor's range. Returns the [`RangeAnchor`][wordlive.RangeAnchor]
+        spanning everything inserted. Raises `OpError` for empty markdown.
+        """
+        from ._markdown import parse_markdown
+        from ._runs import normalize_block_items, runs_to_text
+
+        blocks = parse_markdown(md)
+        if not blocks:
+            raise OpError("insert_markdown requires non-empty markdown")
+        # Flatten every block into ONE insert_block (a single contiguous write —
+        # chaining separate inserts would land each list before the previous
+        # block's paragraph mark and merge them). Record which paragraph runs are
+        # lists so we can apply_list over their spans afterwards.
+        segments = _markdown_segments(blocks)
+        items: list[dict[str, Any]] = []
+        list_groups: list[tuple[int, int, str]] = []  # (first_para, last_para, list_type)
+        for seg_items, list_type in segments:
+            start_idx = len(items)
+            items.extend(seg_items)
+            if list_type is not None:
+                list_groups.append((start_idx, len(items) - 1, list_type))
+        rng = self.insert_block(items, where=where)
+        if not list_groups:
+            return rng
+        # Recompute each paragraph's offset exactly as insert_block walks them
+        # (UTF-16 text length + one CR each, from the block's start), so a list
+        # group's span can be addressed without re-querying the document.
+        texts = [runs_to_text(runs) for runs, _ in normalize_block_items(items)]
+        offsets: list[int] = []
+        off = rng.start
+        for t in texts:
+            offsets.append(off)
+            off += _utf16_len(t) + 1
+        for first, last, list_type in list_groups:
+            span = RangeAnchor(self._doc, offsets[first], offsets[last] + _utf16_len(texts[last]))
+            span.apply_list(list_type)
+        return rng
 
     def insert_image(
         self,
@@ -2441,6 +2553,33 @@ class Heading(Anchor):
         """Plain text of the body under this heading."""
         with _com.translate_com_errors():
             return str(self.section_range().Text or "")
+
+    def replace_section_body(self, body: Any, *, markdown: bool = False) -> RangeAnchor:
+        """Rewrite this heading's body, leaving the heading paragraph intact.
+
+        The "rewrite section X" workflow: clears the span under this heading
+        (`section_range`, up to the next same-or-higher heading) and inserts
+        `body` after the heading. With ``markdown=False`` (default) `body` is the
+        `insert_block` items shape (or a bare string); with ``markdown=True``
+        `body` is a constrained-Markdown string routed through `insert_markdown`.
+        Returns the new body's spanning [`RangeAnchor`][wordlive.RangeAnchor].
+        Wrap in `doc.edit(...)` for atomic undo.
+        """
+        with _com.translate_com_errors():
+            span = self.section_range()
+            doc_com = self._doc.com
+            doc_com.Range(int(span.Start), int(span.End)).Delete()
+        if markdown:
+            if not isinstance(body, str):
+                raise OpError("replace_section_body with markdown=True requires a string body")
+            return self.insert_markdown(body, where="after")
+        if isinstance(body, str):
+            body = [body]
+        if not isinstance(body, list):
+            raise OpError(
+                f"replace_section_body body must be a string or list; got {type(body).__name__}"
+            )
+        return self.insert_block(body, where="after")
 
     def _range(self) -> Any:
         return self._paragraph().Range

@@ -222,6 +222,33 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             "items": need("items"),
             "before": bool(p.get("before", False)),
         }
+    if command == "insert_section":
+        op = {
+            "op": "insert_section",
+            "anchor_id": need("anchor_id"),
+            "heading": need("heading"),
+            "body": need("body"),
+            "before": bool(p.get("before", False)),
+        }
+        if p.get("level") is not None:
+            op["level"] = p["level"]
+        return op
+    if command == "insert_markdown":
+        return {
+            "op": "insert_markdown",
+            "anchor_id": need("anchor_id"),
+            "markdown": need("markdown"),
+            "before": bool(p.get("before", False)),
+        }
+    if command == "replace_section":
+        if (p.get("body") is None) == (p.get("markdown") is None):
+            raise OpError("replace_section requires exactly one of 'body' or 'markdown'")
+        op = {"op": "replace_section", "anchor_id": need("anchor_id")}
+        if p.get("markdown") is not None:
+            op["markdown"] = p["markdown"]
+        else:
+            op["body"] = p["body"]
+        return op
     if command == "delete_paragraph":
         return {"op": "delete_paragraph", "anchor_id": need("anchor_id")}
     if command in ("append", "prepend"):
@@ -739,6 +766,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         command: Literal[
             "insert",
             "insert_block",
+            "insert_section",
+            "insert_markdown",
+            "replace_section",
             "delete_paragraph",
             "append",
             "prepend",
@@ -799,7 +829,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         cols: int | None = None,
         data: list[Any] | None = None,
         header: bool | None = None,
-        heading: bool | None = None,
+        heading: str | bool | None = None,
+        body: list[Any] | str | None = None,
+        markdown: str | None = None,
+        level: int | None = None,
         allow_break: bool | None = None,
         values: list[Any] | dict[str, Any] | None = None,
         record: dict[str, Any] | None = None,
@@ -881,6 +914,13 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             paragraphs in one op; each item is "plain text" or {text|runs, style?}
             (text carries **bold**/*italic* markdown); returns the block's
             range:START-END so you can apply_list/comment over the whole run ·
+        insert_section {anchor_id, heading, body, [level=1, before]} — a Heading {level}
+            paragraph plus its body (body = insert_block items shape) in one op ·
+        insert_markdown {anchor_id, markdown, [before]} — a constrained-Markdown block
+            as real Word structure: #/##/### headings, -/* bullets, 1. numbers,
+            blank-line paragraphs, inline **bold**/*italic* (a subset, not CommonMark) ·
+        replace_section {anchor_id=heading:N, body | markdown} — rewrite a heading's body
+            (up to the next same-or-higher heading), keeping the heading; one of body/markdown ·
         delete_paragraph {anchor_id} — remove the paragraph(s) at an anchor, mark included ·
         append/prepend {text,[style]} — new final/first paragraph; pass paragraph=false
             to continue the adjacent paragraph inline (an inline append takes no style) ·
@@ -966,6 +1006,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "data": data,
             "header": header,
             "heading": heading,
+            "body": body,
+            "markdown": markdown,
+            "level": level,
             "allow_break": allow_break,
             "values": values,
             "record": record,
@@ -1076,6 +1119,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           insert_block {anchor_id, items, [before]} — a contiguous run of styled paragraphs in one
             op; items are "plain text" or {text|runs, style?} (text takes **bold**/*italic*);
             returns the block's range:START-END in outputs ·
+          insert_section {anchor_id, heading, body, [level=1,before]} — a Heading {level} + its body
+            (body = insert_block items) in one op; returns the section's range:START-END ·
+          insert_markdown {anchor_id, markdown, [before]} — a constrained-Markdown block as Word
+            structure (#/##/### headings, -/* bullets, 1. numbers, paragraphs, inline **bold**/*italic*) ·
+          replace_section {anchor_id=heading:N, body|markdown} — rewrite a heading's body, keep the heading ·
           delete_paragraph {anchor_id} — remove the paragraph(s) at an anchor, mark included ·
           append {text,[style]} / prepend {text,[style]} — new final/first paragraph ·
           append_inline {text} / prepend_inline {text} — continue the last/first paragraph (NO style) ·

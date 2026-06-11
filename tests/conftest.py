@@ -349,6 +349,9 @@ _DEFAULT_STYLES: tuple[dict[str, Any], ...] = (
     {"name": "Body Text", "type": 1, "builtin": True, "in_use": True},
     {"name": "Heading 1", "type": 1, "builtin": True, "in_use": True},
     {"name": "Heading 2", "type": 1, "builtin": True, "in_use": True},
+    {"name": "Heading 3", "type": 1, "builtin": True, "in_use": True},
+    {"name": "List Bullet", "type": 1, "builtin": True, "in_use": True},
+    {"name": "List Number", "type": 1, "builtin": True, "in_use": True},
 )
 
 

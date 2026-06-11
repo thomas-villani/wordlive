@@ -86,6 +86,9 @@ def register(group: click.Group) -> None:
     group.add_command(write)
     group.add_command(insert)
     group.add_command(insert_block_cmd)
+    group.add_command(insert_section_cmd)
+    group.add_command(insert_markdown_cmd)
+    group.add_command(replace_section_cmd)
     group.add_command(delete_paragraph_cmd)
     group.add_command(insert_break_cmd)
     group.add_command(insert_field_cmd)
@@ -584,6 +587,190 @@ def insert_block_cmd(ctx: click.Context, anchor_id: str, items: str, before: boo
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted {len(parsed)} paragraph(s) {where} {anchor_id} → {rng.anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# insert-section --anchor-id ID --heading TEXT --body JSON [--level N]
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="insert-section")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Anchor to insert the section relative to (heading:/para:/end/…).",
+)
+@click.option(
+    "--heading", "heading", required=True, help="Heading text (inline **bold**/*italic* ok)."
+)
+@click.option(
+    "--body",
+    "body",
+    required=True,
+    help="JSON array of body paragraphs (insert-block items shape), or '-' for stdin.",
+)
+@click.option("--level", "level", type=int, default=1, show_default=True, help="Heading level 1–9.")
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert the section before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_section_cmd(
+    ctx: click.Context, anchor_id: str, heading: str, body: str, level: int, before: bool
+) -> None:
+    """Insert a heading plus its body in one atomic op.
+
+    The opinionated common case over `insert-block`: a `Heading {level}`
+    paragraph followed by the body paragraphs, in reading order. `--body` is the
+    same items shape `insert-block` takes. Reports the section's spanning
+    `range:START-END`.
+    """
+    raw = click.get_text_stream("stdin").read() if body == "-" else body
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise click.UsageError(f"--body must be a JSON array: {e}") from e
+    if not isinstance(parsed, list):
+        raise click.UsageError("--body must be a JSON array of paragraphs")
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert section {where} {anchor_id}"):
+                rng = anchor.insert_section(heading, parsed, level=level, where=where)
+            emit(
+                {"ok": True, "anchor_id": rng.anchor_id, "where": where},
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted section {where} {anchor_id} → {rng.anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# insert-markdown --anchor-id ID --markdown TEXT
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="insert-markdown")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="Anchor to insert the markdown relative to (heading:/para:/end/…).",
+)
+@click.option(
+    "--markdown",
+    "markdown",
+    required=True,
+    help="Constrained-Markdown text, or '-' to read it from stdin. Subset: "
+    "#/##/### headings, -/* bullets, 1. numbers, blank-line paragraphs, "
+    "inline **bold**/*italic*. No code fences/nested lists/tables.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert the markdown before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_markdown_cmd(ctx: click.Context, anchor_id: str, markdown: str, before: bool) -> None:
+    """Insert a constrained-Markdown block as real Word structure (atomic-undo).
+
+    Maps a tiny block dialect to paragraphs/headings/lists — a documented subset,
+    not CommonMark. Path-bearing or multi-line input is easiest via `--markdown -`
+    (stdin). Reports the spanning `range:START-END` of everything inserted.
+    """
+    md = click.get_text_stream("stdin").read() if markdown == "-" else markdown
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert markdown {where} {anchor_id}"):
+                rng = anchor.insert_markdown(md, where=where)
+            emit(
+                {"ok": True, "anchor_id": rng.anchor_id, "where": where},
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted markdown {where} {anchor_id} → {rng.anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# replace-section --anchor-id heading:N (--body JSON | --markdown TEXT)
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="replace-section")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    required=True,
+    help="The heading whose body to replace (heading:N). The heading itself is kept.",
+)
+@click.option(
+    "--body", "body", default=None, help="JSON array of new body paragraphs, or '-' for stdin."
+)
+@click.option(
+    "--markdown",
+    "markdown",
+    default=None,
+    help="New body as constrained Markdown, or '-' for stdin.",
+)
+@click.pass_context
+def replace_section_cmd(
+    ctx: click.Context, anchor_id: str, body: str | None, markdown: str | None
+) -> None:
+    """Rewrite a heading's body, preserving the heading paragraph.
+
+    Clears the span under `--anchor-id` (up to the next same-or-higher heading)
+    and inserts the new body after the heading. Give exactly one of `--body`
+    (insert-block items) or `--markdown` (constrained Markdown).
+    """
+    if (body is None) == (markdown is None):
+        raise click.UsageError("give exactly one of --body or --markdown")
+    if markdown is not None:
+        new_body = click.get_text_stream("stdin").read() if markdown == "-" else markdown
+    else:
+        assert body is not None
+        raw = click.get_text_stream("stdin").read() if body == "-" else body
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise click.UsageError(f"--body must be a JSON array: {e}") from e
+        if not isinstance(parsed, list):
+            raise click.UsageError("--body must be a JSON array of paragraphs")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            if not hasattr(anchor, "replace_section_body"):
+                raise click.UsageError(
+                    f"replace-section needs a heading anchor; {anchor_id} is a {anchor.kind}"
+                )
+            with doc.edit(f"CLI: replace section {anchor_id}"):
+                if markdown is not None:
+                    rng = anchor.replace_section_body(new_body, markdown=True)
+                else:
+                    rng = anchor.replace_section_body(parsed)
+            emit(
+                {"ok": True, "anchor_id": rng.anchor_id},
+                as_text=not ctx.obj["as_json"],
+                text=f"replaced section body of {anchor_id} → {rng.anchor_id}",
             )
 
     _run(ctx, go)
@@ -3640,6 +3827,7 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     level to record the whole batch as Word revisions (Track Changes is restored
     to its prior state afterwards).
     Supported ops: write_bookmark, write_cc, insert_paragraph, insert_block,
+    insert_section, insert_markdown, replace_section,
     delete_paragraph, append, append_inline, prepend, prepend_inline,
     insert_image, replace, find_replace, apply_style, format_paragraph,
     format_run, set_shading, set_borders, add_tab_stop, add_style, set_style,

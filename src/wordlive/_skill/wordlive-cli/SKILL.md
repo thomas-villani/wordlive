@@ -58,6 +58,9 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive write bookmark NAME --text "…"` (set existing) · `write bookmark NAME --create --anchor-id ID` (create a new bookmark over a range — the prerequisite for internal links and cross-refs; NAME starts with a letter, letters/digits/underscores only) · `write cc NAME --text "…"`
 - `wordlive insert --anchor-id ID (--text "…" | --runs JSON) [--before | --after] [--style "Body Text"]` — new paragraph relative to any anchor (`--after` is the default; appending after the document's last paragraph works too, so you can build a doc top-down). `--text` is literal; `--runs '[{"text":"Bold","bold":true},{"text":" rest"}]'` gives inline-formatted spans in one op.
 - `wordlive insert-block --anchor-id ID --items JSON [--before | --after]` — insert a **contiguous run of styled paragraphs** in one op (a whole bulleted section, a heading + body) in reading order, instead of reverse-ordered `insert` calls. Each item is `"plain text"` or `{text|runs, style?}`; item `text` takes `**bold**`/`*italic*` markdown. Reports the block's `range:START-END` — feed it to `list apply --anchor-id range:… --type bulleted` to bullet the section you just inserted.
+- `wordlive insert-section --anchor-id ID --heading "…" --body JSON [--level N] [--before | --after]` — a `Heading {level}` paragraph plus its body (`--body` is the same items shape as `insert-block`) in one op. The "add a whole section" shortcut.
+- `wordlive insert-markdown --anchor-id ID --markdown "…"|-` — drop a chunk of **constrained Markdown** as real Word structure: `#`/`##`/`###` headings, `-`/`*` bullets, `1.` numbers, blank-line paragraphs, inline `**bold**`/`*italic*`. A documented subset, not CommonMark (no code fences/nested lists/tables). Use `--markdown -` for multi-line stdin.
+- `wordlive replace-section --anchor-id heading:N (--body JSON | --markdown "…")` — rewrite a heading's body (everything up to the next same-or-higher heading), **keeping the heading**. The "rewrite section X" workflow.
 - `wordlive delete-paragraph --anchor-id ID` — remove the paragraph(s) at an anchor, **mark included**, so the text closes up (no blank line left, unlike `replace --text ""`). Good for a stray leading empty `para:1`.
 - `wordlive append --text "…" [--inline] [--style "Body Text"]` — add a new final paragraph at the very end of the document (`--inline` continues the last paragraph). The high-level "end of doc" helper; same as `insert --anchor-id end`.
 - `wordlive prepend --text "…" [--inline] [--style "Body Text"]` — the mirror: add to the very start of the document (same as `insert --anchor-id start`).
@@ -166,7 +169,8 @@ anchor each to the previous insert; name-based ids (`bookmark:` / `cc:`) are
 stable across the batch.
 
 Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
-`write_cc`, `insert_paragraph`, `insert_block`, `delete_paragraph`, `append`,
+`write_cc`, `insert_paragraph`, `insert_block`, `insert_section`,
+`insert_markdown`, `replace_section`, `delete_paragraph`, `append`,
 `append_inline`, `prepend`, `prepend_inline`, `insert_image`, `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`,
 `set_borders`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,
@@ -184,7 +188,11 @@ last / first paragraph and take `text` only — no `style`. `insert_paragraph`
 takes `text` **or** `runs` (`[{text,bold?,italic?,underline?,style?}]`) for
 inline formatting; `insert_block` takes `anchor_id` + `items` (each a string or
 `{text|runs, style?}`, item `text` carrying `**bold**`/`*italic*` markdown) and
-returns the block's `range:START-END` in `outputs`. `create_table` takes
+returns the block's `range:START-END` in `outputs`. `insert_section` takes
+`anchor_id` + `heading` + `body` (items shape) + optional `level`;
+`insert_markdown` takes `anchor_id` + `markdown` (the constrained block subset);
+`replace_section` takes a heading `anchor_id` + one of `body`/`markdown` and keeps
+the heading — each returns the new content's `range:START-END`. `create_table` takes
 `anchor_id` + optional `rows`/`cols` (inferred from `data` when omitted),
 optional `style` / `data` / `header`; `data` is a row-major 2-D array **or**
 records (objects whose keys become a header row). New cells default to the

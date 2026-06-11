@@ -79,6 +79,10 @@ wordlive insert-block --anchor-id heading:1 --items \
     '[{"text":"**Politeness** first.","style":"List Bullet"},"Atomic undo."]'
 #   → reports range:START-END; then: wordlive list apply --anchor-id range:… --type bulleted
 
+# Or hand it constrained Markdown and get real headings/lists/paragraphs (a subset, not CommonMark):
+printf '# Plan\n\nKick-off.\n\n- scope it\n- staff it\n' | wordlive insert-markdown --anchor-id end --markdown -
+#   insert-section adds a heading + body in one op; replace-section --anchor-id heading:N rewrites a section's body
+
 # Append / prepend at the very end / start of the document (no anchor needed):
 wordlive append  --text "Closing note."                     # new final paragraph
 wordlive prepend --text "DRAFT" --inline                    # join the first paragraph

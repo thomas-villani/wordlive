@@ -57,7 +57,26 @@ paragraphs in one op (each item a plain string or `{text | runs, style?}`, where
 `text` carries `**bold**`/`*italic*` markdown and `runs` is the structured
 `[{text, bold?, italic?, underline?, style?}]` form) and returns a
 [`RangeAnchor`](#wordlive.RangeAnchor) spanning the block — feed it straight into
-`apply_list` to bullet the section. `insert_table(rows, cols, …)`
+`apply_list` to bullet the section. Two opinionated macros build on it:
+`insert_section(heading, body, *, level=1, where="after")` places a
+`Heading {level}` paragraph plus its body (the same items shape, or a bare
+string) in one op, and `insert_markdown(md, *, where="after")` maps a
+**constrained-Markdown subset** — `#`/`##`/`###` headings, `-`/`*` bullets, `1.`
+numbers, blank-line paragraphs, inline `**bold**`/`*italic*` — to real Word
+structure (not CommonMark: no code fences, nested lists, or tables in v1).
+Headings additionally have `replace_section_body(body, *, markdown=False)`, which
+clears the body under a heading (up to the next same-or-higher heading) and
+inserts a replacement, keeping the heading — the "rewrite section X" workflow.
+All three return the new content's [`RangeAnchor`](#wordlive.RangeAnchor).
+
+```python
+a = doc.headings["Methods"]
+a.insert_section("Results", ["We saw a **20%** lift.", "Caveats apply."], level=2)
+a.insert_markdown("# Plan\n\nKick-off.\n\n- scope it\n- staff it")
+a.replace_section_body("Updated findings.\n\n- point one\n- point two", markdown=True)
+```
+
+`insert_table(rows, cols, …)`
 creates a new table at the anchor and returns its [`Table`](#wordlive.Table)
 (append at the end with [`Document.add_table`](#wordlive.Document)); pass `data`
 as a 2-D array or as records (a list of dicts whose keys become a header row),
