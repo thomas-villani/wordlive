@@ -39,6 +39,9 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "write_cc": ("name", "text"),
     "insert_paragraph": ("anchor_id",),  # exactly one of text/runs (checked in apply_op)
     "insert_block": ("anchor_id", "items"),
+    "insert_section": ("anchor_id", "heading", "body"),
+    "insert_markdown": ("anchor_id", "markdown"),
+    "replace_section": ("anchor_id",),  # exactly one of body/markdown (checked in apply_op)
     "delete_paragraph": ("anchor_id",),
     "append_paragraph": ("text",),
     "append": ("text",),
@@ -153,6 +156,9 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "write_cc": (),
     "insert_paragraph": ("text", "runs", "style", *_WHERE_FIELDS),
     "insert_block": ("items", *_WHERE_FIELDS),
+    "insert_section": ("level", *_WHERE_FIELDS),
+    "insert_markdown": _WHERE_FIELDS,
+    "replace_section": ("body", "markdown"),
     "delete_paragraph": (),
     "append_paragraph": ("style",),
     "append": ("style",),
@@ -289,6 +295,32 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             op["items"], where=("before" if op_before(op) else "after")
         )
         return {"anchor_id": rng.anchor_id, "paragraphs": len(op["items"])}
+    elif kind == "insert_section":
+        rng = doc.anchor_by_id(op["anchor_id"]).insert_section(
+            op["heading"],
+            op["body"],
+            level=int(op.get("level", 1)),
+            where=("before" if op_before(op) else "after"),
+        )
+        return {"anchor_id": rng.anchor_id}
+    elif kind == "insert_markdown":
+        rng = doc.anchor_by_id(op["anchor_id"]).insert_markdown(
+            op["markdown"], where=("before" if op_before(op) else "after")
+        )
+        return {"anchor_id": rng.anchor_id}
+    elif kind == "replace_section":
+        if ("body" in op) == ("markdown" in op):
+            raise OpError("op 'replace_section' requires exactly one of 'body' or 'markdown'")
+        anchor = doc.anchor_by_id(op["anchor_id"])
+        if not hasattr(anchor, "replace_section_body"):
+            raise OpError(
+                f"replace_section needs a heading anchor; {op['anchor_id']!r} is a {anchor.kind}"
+            )
+        if "markdown" in op:
+            rng = anchor.replace_section_body(op["markdown"], markdown=True)
+        else:
+            rng = anchor.replace_section_body(op["body"])
+        return {"anchor_id": rng.anchor_id}
     elif kind == "delete_paragraph":
         doc.delete_paragraph(op["anchor_id"])
     elif kind in ("append", "append_paragraph"):

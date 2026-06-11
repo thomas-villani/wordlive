@@ -48,6 +48,7 @@ Quick index (capability → real release):
 | Block insert + inline runs; tables from records; verb-first bookmark CLI | v0.13.0 |
 | Non-visual layout introspection (`anchor.location()`, `doc.stats()`) | v0.14.0 |
 | Table-as-records read/update (`records`/`append_record`/`update_row`) | v0.14.0 |
+| Compose helpers: `insert_section`, `insert_markdown`, `replace_section_body` | v0.14.0 |
 
 The detail below preserves the **load-bearing reference facts** (addressing
 schemes, gotchas a future change must respect). Deeper deliberation lives in git
@@ -386,46 +387,46 @@ The top two asks from the 2026-06-09 gpt-5.4 review, both promoted from Part II.
   records`/`append-record`/`update-row`; the `append_record`/`update_row` exec
   ops; MCP `word_read table_records` + `table` write actions.
 
+## Higher-level compose helpers — sections & block markdown (v0.14.0)
+
+gpt-5.4's #10 ask, built as a thin layer over `insert_block` + the `_runs.py`
+inline parser (block parsing in a new COM-free `_markdown.py`). All three return
+the new content's `range:START-END`.
+
+- **`anchor.insert_section(heading, body, *, level=1, where="after")`** — a
+  `Heading {level}` paragraph plus its body (the `insert_block` items shape, or a
+  bare string) in one atomic op. `heading` carries the same inline markdown an
+  item's `text` does; `level` is 1–9.
+- **`anchor.insert_markdown(md, *, where="after")`** — a **constrained-Markdown
+  subset** → Word structure: `#`/`##`/`###` → `Heading 1/2/3`, `-`/`*` → a
+  bulleted list, `1.` → a numbered list (numbered 1..N over its own span — each
+  same-kind run is inserted then `apply_list`-ed over that span), blank-line text
+  → `Normal` paragraphs, inline spans via `_runs.parse_markup`. **Explicitly a
+  subset, not CommonMark** — no code fences / nested lists / block quotes /
+  tables in v1; unrecognised lines stay literal. Holds the v0.13.0 decision that
+  plain `insert --text` stays literal: markdown is an opt-in verb.
+- **`heading.replace_section_body(body, *, markdown=False)`** — clears the body
+  under a heading (`section_range`, up to the next same-or-higher heading) and
+  inserts a replacement after the heading, keeping the heading. `body` is the
+  items shape, or a Markdown string with `markdown=True`. The "rewrite section X"
+  workflow.
+
+CLI `insert-section` / `insert-markdown` / `replace-section`; the
+`insert_section` / `insert_markdown` / `replace_section` exec ops; matching
+`word_write` / `word_exec` MCP commands.
+
+- **Deferred:** full CommonMark (tables, code fences, nested/mixed lists,
+  images-by-URL); round-trip *export* back to markdown.
+
 ---
 
 # Part II — Approved / next up (priority order)
 
 Everything here is **specced but not yet implemented** (re-verified 2026-06-09 —
 the bulk of the 2026-06-01 roadmap shipped in **v0.12.0**–**v0.13.0**, and the
-review's #1/#2 asks — non-visual introspection and table-as-records — shipped in
-**v0.14.0**; all moved to Part I). What's left below is the genuine backlog,
-ordered by leverage.
-
-## Higher-level compose helpers — sections & block markdown (from the 2026-06-09 review)
-
-gpt-5.4's #10 ask: a few opinionated macros over the low-level ops so an agent
-can add a whole section in one shot. The building blocks already ship —
-`insert_block` places styled paragraphs atomically and `_runs.py` parses inline
-`**bold**` / `*italic*` — so this is a thin, well-scoped layer, not new
-machinery:
-
-- **`anchor.insert_section(heading, body, *, level=1, where="after")`** — the
-  opinionated common case: one `Heading {level}` paragraph + body paragraphs in
-  a single atomic `insert_block`, returning the section's `range:START-END`.
-  `body` accepts the same inline-run markdown the block insert already
-  understands.
-- **Block-markdown subset — `anchor.insert_markdown(md)`.** Map a *constrained*
-  block dialect to Word structure: `#`/`##`/`###` → `Heading 1/2/3`, `-`/`*` →
-  bulleted list, `1.` → numbered list, blank-line-separated runs → `Normal`
-  paragraphs, inline spans via the existing `_runs.py` parser. **Explicitly a
-  subset** (Word is not Markdown) — documented surface, no code fences / nested
-  lists / block quotes / tables in v1 (deferred until asked). Holds the
-  v0.13.0 decision that plain `insert --text` stays **literal**: markdown is an
-  opt-in verb (`insert-markdown` / `insert_section`), never an overload of
-  `--text`.
-- **Replace a section's body, preserving its heading** — pairs with the
-  structural "block between two headings" query (review triage above): resolve
-  the span from after `heading:N` to before the next same-or-higher heading,
-  delete it, then `insert_block` / `insert_markdown` the replacement. The
-  "rewrite section X" workflow the review keeps returning to.
-
-**Deferred:** full CommonMark (tables, code fences, nested/mixed lists,
-images-by-URL); round-trip *export* back to markdown.
+review's #1/#2 asks — non-visual introspection and table-as-records — plus the
+#10 compose helpers shipped in **v0.14.0**; all moved to Part I). What's left
+below is the genuine backlog, ordered by leverage.
 
 ## Publishing flourishes — the rest of the grab-bag
 
@@ -780,6 +781,9 @@ mostly validation. Wishlist triage:
 - **Table-as-records read + update-by-key** — ✅ **shipped v0.14.0** as
   `Table.records()` / `append_record()` / `update_row()` (completes the v0.13.0
   tables-from-records write side; now in Part I).
+- **Higher-level compose helpers** — its #10 ask; ✅ **shipped v0.14.0** as
+  `insert_section` / `insert_markdown` / `replace_section_body` (a thin layer over
+  `insert_block`; now in Part I).
 - **Stable paragraph IDs** — its top ask. Investigated with a live probe
   (2026-06-09); Word's native `w14:paraId` proved unusable (lazy + COM-invisible),
   so the answer is the minted bookmark-backed handle already in Part II

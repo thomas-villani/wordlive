@@ -697,3 +697,70 @@ def test_stats_and_location_preserve_selection(scratch_doc):
     doc.range(0, 5).location()
     after_sel = doc.com.Application.Selection
     assert (int(after_sel.Start), int(after_sel.End)) == before
+
+
+# ---------------------------------------------------------------------------
+# v0.14 compose helpers — insert_section / insert_markdown / replace_section_body
+# against REAL Word (styles applied, list markers contiguous, heading preserved)
+# ---------------------------------------------------------------------------
+
+
+def test_insert_markdown_maps_blocks_to_real_word_structure(scratch_doc):
+    """A constrained-Markdown chunk lands as real headings, lists, and paragraphs:
+    styles applied, numbered list reads 1..N, inline bold on the right span."""
+    doc = scratch_doc
+    with doc.edit("md"):
+        doc.end.insert_markdown(
+            "# Overview\n\nA **bold** lead paragraph.\n\n- first bullet\n- second bullet\n\n1. step one\n2. step two"
+        )
+
+    rows = doc.paragraphs.list()
+    by_text = {r["text"]: r for r in rows}
+    assert by_text["Overview"]["style"] == "Heading 1"
+    # The two list runs carry list styles and real list formatting.
+    dc = doc.com
+    for marker_text in ("first bullet", "second bullet"):
+        s = by_text[marker_text]["start"]
+        assert int(dc.Range(s, s + 1).ListFormat.ListType) != 0
+
+    # The numbered run reads 1., 2. — one contiguous list, not two "1."s.
+    numbers = [
+        p.list_info().get("string") for p in doc.paragraphs if p.text in ("step one", "step two")
+    ]
+    assert numbers == ["1.", "2."]
+
+    # Inline markdown bolded only the word "bold" in the lead paragraph.
+    lead = by_text["A bold lead paragraph."]
+    s = lead["start"]
+    assert bool(dc.Range(s + 2, s + 6).Bold) is True  # "bold"
+    assert bool(dc.Range(s, s + 1).Bold) is False  # "A"
+
+
+def test_insert_section_places_heading_and_body(scratch_doc):
+    """insert_section drops a Heading {level} + its body in one op."""
+    doc = scratch_doc
+    with doc.edit("sec"):
+        doc.end.insert_section("Results", ["We saw a lift.", "Caveats apply."], level=2)
+    rows = {r["text"]: r for r in doc.paragraphs.list()}
+    assert rows["Results"]["style"] == "Heading 2"
+    assert "We saw a lift." in rows
+    assert "Caveats apply." in rows
+
+
+def test_replace_section_body_keeps_heading(scratch_doc):
+    """Rewriting a section's body preserves the heading and the next section."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Alpha", style="Heading 1")
+        doc.append_paragraph("old alpha body")
+        doc.append_paragraph("Beta", style="Heading 1")
+        doc.append_paragraph("beta body")
+
+    with doc.edit("rewrite"):
+        doc.headings["Alpha"].replace_section_body("fresh alpha body")
+
+    texts = [r["text"] for r in doc.paragraphs.list()]
+    assert "Alpha" in texts and "Beta" in texts  # both headings survive
+    assert "fresh alpha body" in texts
+    assert "old alpha body" not in texts  # the old body is gone
+    assert "beta body" in texts  # the next section is untouched
