@@ -791,12 +791,17 @@ required:
 UnicodeMath is typed into a math zone and *built up* by Word itself; LaTeX and
 MathML travel LaTeX→MathML→OMML→Word through Office's own shipped transform, so
 only the LaTeX→MathML hop needs a third party (`pip install "wordlive[latex]"`).
-The equation lands on its own paragraph — `--display` (default) centres it,
-`--inline` left-aligns it. `--after` (default) places it below the anchor;
-`--before` above (including a clean prepend at the document start).
+The equation lands on its own paragraph with a pinned style (so it never
+inherits a neighbouring heading's style and pollutes the outline/TOC):
+`--display` (default) gives it the centred `Equation` paragraph style
+(auto-created, based on `Normal`); `--inline` makes it `Normal` and left-aligned
+(still its own paragraph, not mid-sentence). `--after` (default) places it below
+the anchor; `--before` above (including a clean prepend at the document start).
 
 `equations` is the read side: every equation's `equation:N` id, `type`
-(display/inline), a linear preview, and the `para:N` it sits in.
+(display/inline), a linear preview, and the `para:N` it sits in. `equation:N` is
+positional (Word's `OMaths` order) — inserting another equation before an
+existing one renumbers it, so re-list rather than caching an id across inserts.
 
 ```bash
 $ wordlive insert-equation --anchor-id heading:2 --unicodemath "a^2+b^2=c^2"
@@ -1099,6 +1104,7 @@ wordlive format-paragraph --anchor-id ID
     [--alignment left|center|centre|right|justify]
     [--left-indent POINTS] [--right-indent POINTS] [--first-line-indent POINTS]
     [--space-before POINTS] [--space-after POINTS]
+    [--line-spacing MULTIPLE|single|1.5|double|LENGTH]
     [--page-break-before | --no-page-break-before]
     [--keep-together | --no-keep-together]
     [--keep-with-next | --no-keep-with-next]
@@ -1110,7 +1116,11 @@ wordlive format-paragraph --anchor-id ID
 
 Set paragraph-formatting properties on the anchor's range. At least one
 formatting flag is required. Indent and spacing values are in **points** —
-the unit Word's COM API uses natively for these fields.
+the unit Word's COM API uses natively for these fields. `--line-spacing` sets
+the leading *within* the paragraph (distinct from `--space-before`/`--space-after`,
+which space paragraphs apart): a **multiple** of single spacing (`1`, `1.5`,
+`2`), the keywords `single`/`1.5`/`double`, or an **exact length** (`14pt`,
+`1.5cm`) for a fixed line height.
 `--page-break-before` forces the paragraph to begin on a new page (and
 `--no-page-break-before` clears it) — the *clean*, reflow-safe way to
 page-break, leaving no stray break character (contrast `insert-break`, which
@@ -1193,6 +1203,24 @@ snapped to Word's discrete line-width set (0.25/0.5/0.75/1/1.5/2.25/3 pt).
 Page-wide and table-wide borders are out of scope (this sets per-range/per-cell
 borders). Atomic-undo.
 
+## `drop-cap --anchor-id ID [...]`
+
+```
+wordlive drop-cap --anchor-id ID
+    [--position dropped|margin|none] [--lines N]
+    [--distance POINTS|UNIT] [--font NAME] [--doc DOC_NAME]
+```
+
+Turn the first letter of the anchor's **paragraph** into a drop cap — the
+editorial oversized initial, a real Word `DropCap` so the body text wraps around
+it natively (not a faked big-font run). `--position` is `dropped` (default — the
+letter sits into the text), `margin` (it hangs in the left margin), or `none`
+(remove an existing drop cap; the other flags are then ignored). `--lines` is
+how many lines tall the letter is (default 3), `--distance` the gap from the body
+text, and `--font` an optional font for the dropped letter. Word rejects a drop
+cap on an **empty** paragraph (no letter to drop) — that surfaces as a `3`/COM
+error. Atomic-undo. Failures: `2` anchor not found, `1` bad value.
+
 ## `tab-stop --anchor-id ID --position POS [...]`
 
 ```
@@ -1231,6 +1259,7 @@ wordlive style set NAME
     [--font NAME] [--size POINTS|UNIT] [--color NAME|HEX|R,G,B]
     [--alignment left|center|right|justify]
     [--space-before POINTS|UNIT] [--space-after POINTS|UNIT]
+    [--line-spacing MULTIPLE|single|1.5|double|LENGTH]
     [--based-on NAME] [--next-style NAME] [--doc DOC_NAME]
 ```
 
@@ -1762,7 +1791,12 @@ Script shape:
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
-| `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after`, `page_break_before`, `keep_together`, `keep_with_next`, `widow_control` |
+| `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after`, `line_spacing` (a multiple `1`/`1.5`/`2`, `single`/`1.5`/`double`, or an exact length like `14pt`), `page_break_before`, `keep_together`, `keep_with_next`, `widow_control` |
+| `format_run`           | `anchor_id`                                | `bold`, `italic`, `underline`, `strikethrough`, `font`, `size`, `color`, `highlight`, `subscript`, `superscript`, `small_caps`, `all_caps`, `spacing` |
+| `set_shading`          | `anchor_id`                                | `fill`, `pattern`                 |
+| `set_borders`          | `anchor_id`                                | `sides` (`all`/`box`/`top`/`bottom`/`left`/`right`/`horizontal`/`vertical`), `style` (a.k.a. `line_style`: `single`/`double`/`dot`/`dash`/`none`/…), `weight`, `color` |
+| `drop_cap`             | `anchor_id`                                | `position` (`dropped`/`margin`/`none`), `lines` (default 3), `distance`, `font` |
+| `add_tab_stop`         | `anchor_id`, `position`                    | `align`, `leader`                 |
 | `set_cell`             | `table`, `row`, `col`, `text`              | —                                 |
 | `add_row`              | `table`                                    | `values`                          |
 | `delete_row`           | `table`, `row`                             | —                                 |

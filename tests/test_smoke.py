@@ -171,6 +171,34 @@ def test_section_continuous_break_no_outline_pollution(scratch_doc):
     assert after == before
 
 
+def test_insert_block_at_end_does_not_merge_into_last_paragraph(scratch_doc):
+    """WL-A: composing at doc.end must not fuse the first block paragraph into a
+    non-empty last paragraph (and steal its style)."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("…single slide.", style="Normal")
+    with doc.edit("markdown at end"):
+        doc.end.insert_markdown("## The Problem\n\nBody line.")
+    texts = [p.text for p in doc.paragraphs]
+    # The seeded line survives verbatim — no "…single slide.The Problem" merge.
+    assert "…single slide." in texts
+    assert not any("single slide.The Problem" in t for t in texts)
+    # And the heading is its own paragraph, styled as a heading (not Normal,
+    # not merged into the body line) — so it shows up as its own outline entry.
+    assert doc.headings["The Problem"].text == "The Problem"
+    assert "The Problem" in [h["text"] for h in doc.outline()]
+
+
+def test_insert_block_at_end_of_fresh_doc_leaves_no_trailing_empty(scratch_doc):
+    """WL-A: filling an empty terminal paragraph must not strand a stray empty
+    paragraph after the block."""
+    doc = scratch_doc
+    with doc.edit("markdown into fresh"):
+        doc.end.insert_markdown("## Title\n\nOnly body.")
+    texts = [p.text for p in doc.paragraphs]
+    assert texts[-1] == "Only body."  # last paragraph is real content, not ""
+
+
 # ---------------------------------------------------------------------------
 # Reference apparatus — footnotes / endnotes / TOC (live)
 # ---------------------------------------------------------------------------
@@ -374,6 +402,54 @@ def test_format_paragraph_pagination_flags(scratch_doc):
     assert int(pf.KeepTogether) == -1  # True
     assert int(pf.KeepWithNext) == -1
     assert int(pf.WidowControl) == 0  # False
+
+
+def test_format_paragraph_line_spacing(scratch_doc):
+    """line_spacing sets the leading: a multiple, an exact length, or a keyword."""
+    from wordlive.constants import WdLineSpacing
+
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Multiple.", style="Normal")
+        doc.append_paragraph("Exact.", style="Normal")
+    mult_id = _para_id_by_text(doc, "Multiple.")
+    exact_id = _para_id_by_text(doc, "Exact.")
+    with doc.edit("line spacing"):
+        doc.anchor_by_id(mult_id).format_paragraph(line_spacing=2)  # double, as a multiple
+        doc.anchor_by_id(exact_id).format_paragraph(line_spacing="20pt")
+    mult_pf = doc.anchor_by_id(mult_id).com.ParagraphFormat
+    # Word stores an exact-double multiple as either the MULTIPLE rule (24pt) or
+    # its named DOUBLE rule; both render as double spacing.
+    assert int(mult_pf.LineSpacingRule) in (
+        int(WdLineSpacing.MULTIPLE),
+        int(WdLineSpacing.DOUBLE),
+    )
+    assert abs(float(mult_pf.LineSpacing) - 24.0) < 0.01
+    exact_pf = doc.anchor_by_id(exact_id).com.ParagraphFormat
+    assert int(exact_pf.LineSpacingRule) == int(WdLineSpacing.EXACTLY)
+    assert abs(float(exact_pf.LineSpacing) - 20.0) < 0.01
+
+
+def test_drop_cap_roundtrip(scratch_doc):
+    """drop_cap sets a real Word DropCap (position + geometry stick), and
+    position='none' removes it."""
+    from wordlive.constants import WdDropPosition
+
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Once upon a time a paragraph wanted a fancy initial.", style="Normal")
+    pid = _para_id_by_text(doc, "Once upon a time a paragraph wanted a fancy initial.")
+    with doc.edit("drop cap"):
+        doc.anchor_by_id(pid).drop_cap(4, position="dropped", distance="2pt", font="Georgia")
+    dc = doc.anchor_by_id(pid).com.Paragraphs(1).DropCap
+    assert int(dc.Position) == int(WdDropPosition.DROPPED)
+    assert int(dc.LinesToDrop) == 4
+    assert abs(float(dc.DistanceFromText) - 2.0) < 0.01
+    assert str(dc.FontName) == "Georgia"
+    with doc.edit("remove drop cap"):
+        doc.anchor_by_id(pid).drop_cap(position="none")
+    dc = doc.anchor_by_id(pid).com.Paragraphs(1).DropCap
+    assert int(dc.Position) == int(WdDropPosition.NONE)
 
 
 def test_set_heading_row_repeats(scratch_doc):
@@ -832,6 +908,43 @@ def test_equations_list_reports_each(scratch_doc):
     assert [r["anchor_id"] for r in rows] == ["equation:1", "equation:2"]
     assert rows[0]["type"] == "display"
     assert rows[1]["type"] == "inline"
+
+
+def _seed_body_then_heading(doc):
+    """Body paragraph (para:1) immediately followed by a Heading 2 (para:2)."""
+    with doc.edit("seed"):
+        doc.append_paragraph("Body paragraph before the equation.", style="Normal")
+        doc.append_paragraph("A Heading 2 right after", style="Heading 2")
+
+
+def test_display_equation_uses_equation_style_not_following_heading(scratch_doc):
+    """WL-B: a display equation inserted before a Heading 2 must not adopt the
+    heading's style (outline/TOC pollution) — it gets the centred `Equation`
+    style instead."""
+    doc = scratch_doc
+    _seed_body_then_heading(doc)
+    with doc.edit("display eq"):
+        eq = doc.paragraphs[1].insert_equation(unicodemath="a^2+b^2=c^2", display=True)
+    para = doc.paragraphs.at(int(eq.com.Start))
+    assert para is not None
+    assert not para.is_heading  # not styled Heading 2
+    assert para.com.Style.NameLocal == "Equation"
+
+
+def test_inline_equation_is_normal_and_left_aligned(scratch_doc):
+    """WL-D: a display=False equation lands on its own paragraph but reads as
+    body text — Normal style, left-aligned — not centred, not a heading."""
+    from wordlive.constants import WdParagraphAlignment
+
+    doc = scratch_doc
+    _seed_body_then_heading(doc)
+    with doc.edit("inline eq"):
+        eq = doc.paragraphs[1].insert_equation(unicodemath="x=y", display=False)
+    para = doc.paragraphs.at(int(eq.com.Start))
+    assert para is not None
+    assert not para.is_heading
+    assert para.com.Style.NameLocal == "Normal"
+    assert int(para.com.ParagraphFormat.Alignment) == int(WdParagraphAlignment.LEFT)
 
 
 def test_insert_equation_latex_when_backend_present(scratch_doc):

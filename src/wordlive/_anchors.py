@@ -21,8 +21,10 @@ from .constants import (
     WdCaptionPosition,
     WdCollapseDirection,
     WdColorIndex,
+    WdDropPosition,
     WdFieldType,
     WdInformation,
+    WdLineSpacing,
     WdLineStyle,
     WdNumberType,
     WdParagraphAlignment,
@@ -208,6 +210,7 @@ def _apply_paragraph_format(
     first_line_indent: Any = None,
     space_before: Any = None,
     space_after: Any = None,
+    line_spacing: Any = None,
     page_break_before: bool | None = None,
     keep_together: bool | None = None,
     keep_with_next: bool | None = None,
@@ -233,6 +236,13 @@ def _apply_paragraph_format(
         pf.SpaceBefore = to_points(space_before)
     if space_after is not None:
         pf.SpaceAfter = to_points(space_after)
+    if line_spacing is not None:
+        rule, value = _coerce_line_spacing(line_spacing)
+        # Set the value first: assigning LineSpacing forces the rule to Multiple,
+        # so we write the rule last to land on Exactly/AtLeast/the named rules.
+        if value is not None:
+            pf.LineSpacing = value
+        pf.LineSpacingRule = rule
     if page_break_before is not None:
         pf.PageBreakBefore = bool(page_break_before)
     if keep_together is not None:
@@ -268,6 +278,14 @@ _LINE_STYLES: dict[str, WdLineStyle] = {
     "dash-dot-dot": WdLineStyle.DASH_DOT_DOT,
     "double": WdLineStyle.DOUBLE,
 }
+
+_DROP_POSITIONS: dict[str, WdDropPosition] = {
+    "none": WdDropPosition.NONE,
+    "normal": WdDropPosition.DROPPED,
+    "dropped": WdDropPosition.DROPPED,
+    "margin": WdDropPosition.MARGIN,
+}
+
 
 _TAB_ALIGN: dict[str, WdTabAlignment] = {
     "left": WdTabAlignment.LEFT,
@@ -311,6 +329,48 @@ def _resolve_border_sides(sides: Any) -> list[int]:
             if int(edge) not in out:
                 out.append(int(edge))
     return out
+
+
+# Line-spacing keywords -> the rule that needs no companion value.
+_LINE_SPACING_NAMES: dict[str, WdLineSpacing] = {
+    "single": WdLineSpacing.SINGLE,
+    "1.5": WdLineSpacing.ONE_POINT_FIVE,
+    "1.5x": WdLineSpacing.ONE_POINT_FIVE,
+    "double": WdLineSpacing.DOUBLE,
+}
+
+
+def _coerce_line_spacing(value: Any) -> tuple[int, float | None]:
+    """Map a `line_spacing` value to ``(LineSpacingRule, LineSpacing | None)``.
+
+    - a **number** ``n`` → a multiple of single spacing (rule ``MULTIPLE``,
+      ``LineSpacing = n × 12pt`` — Word's points-per-line);
+    - ``"single"`` / ``"1.5"`` / ``"double"`` → the named multiple rules, with no
+      companion value (``None``);
+    - a **length string** carrying a unit (``"14pt"``, ``"1.5cm"``) → an *exact*
+      line height (rule ``EXACTLY``, the value in points);
+    - a unitless numeric string (``"1.5"``) → a multiple, as for a number.
+
+    Raises `ValueError`/`TypeError` on anything else (translated to `OpError`).
+    """
+    if isinstance(value, bool):
+        raise TypeError("line_spacing must be a number or string, not bool")
+    if isinstance(value, (int, float)):
+        return int(WdLineSpacing.MULTIPLE), float(value) * 12.0
+    if isinstance(value, str):
+        key = value.strip().lower()
+        if key in _LINE_SPACING_NAMES:
+            return int(_LINE_SPACING_NAMES[key]), None
+        if any(key.endswith(u) for u in ("pt", "in", "cm", "mm")):
+            return int(WdLineSpacing.EXACTLY), to_points(value)
+        try:
+            return int(WdLineSpacing.MULTIPLE), float(key) * 12.0
+        except ValueError:
+            raise ValueError(
+                f"unknown line_spacing {value!r}; expected a number (a multiple of single "
+                "spacing), one of single/1.5/double, or an exact length like '14pt'"
+            ) from None
+    raise TypeError(f"line_spacing must be a number or string; got {type(value).__name__}")
 
 
 def _coerce_named(value: Any, table: dict[str, Any], label: str) -> int:
@@ -452,6 +512,22 @@ def _within_table(doc_com: Any, start: int, end: int) -> bool:
     try:
         return bool(doc_com.Range(start, end).Information(int(WdInformation.WITH_IN_TABLE)))
     except Exception:
+        return False
+
+
+def _final_paragraph_empty(doc_com: Any, final_mark: int) -> bool:
+    """Whether the document's terminal paragraph holds no text (just its mark).
+
+    Used by `insert_block` to decide, when appending at the very end, whether to
+    *fill* the final paragraph (it's empty — the fresh-document case) or open a
+    new one after it (it already has text — don't merge into it). If the probe
+    can't read the paragraph's offsets (e.g. a stubbed COM in tests), default to
+    "not empty" — the safe choice, which opens a new paragraph and never merges.
+    """
+    try:
+        para = doc_com.Range(final_mark, final_mark).Paragraphs(1).Range
+        return int(para.End) - int(para.Start) <= 1
+    except (TypeError, ValueError, AttributeError):
         return False
 
 
@@ -815,13 +891,28 @@ class Anchor(ABC):
             else:
                 end = int(self._range().End)
                 doc_end = int(doc_com.Content.End)
-                if end >= doc_end:
-                    # At/after the undeletable final mark there's no position to
-                    # write past; split the block in before it (mirrors
-                    # insert_paragraph_after's end-of-document handling).
-                    pos = max(0, doc_end - 1)
-                    doc_com.Range(pos, pos).Text = "\r" + joined
-                    start = pos + 1
+                final_mark = max(0, doc_end - 1)
+                if end >= final_mark:
+                    # We're at the document's terminal paragraph mark — the one
+                    # position you can't write *past* (`doc.end` resolves here,
+                    # as does an anchor ending at the last paragraph). The old
+                    # `end >= doc_end` guard missed `doc.end` (whose range ends at
+                    # doc_end - 1), so the block was written *before* the final
+                    # mark and merged into a non-empty last paragraph — stealing
+                    # its style too. Decide by whether that final paragraph holds
+                    # text, so the block neither merges nor leaves a stray empty:
+                    if _final_paragraph_empty(doc_com, final_mark):
+                        # Reuse the empty final paragraph as the block's last one:
+                        # write without a trailing break so the existing mark
+                        # closes it (no leftover empty paragraph).
+                        doc_com.Range(final_mark, final_mark).Text = joined
+                        start = final_mark
+                    else:
+                        # Open a fresh paragraph after the final one: the leading
+                        # break terminates it and the block becomes new trailing
+                        # paragraphs (the original final mark closes the last one).
+                        doc_com.Range(final_mark, final_mark).Text = "\r" + joined
+                        start = final_mark + 1
                 else:
                     doc_com.Range(end, end).Text = joined + "\r"
                     start = end
@@ -1038,12 +1129,18 @@ class Anchor(ABC):
         - ``mathml=`` — a **MathML** (``<math>…</math>``) string. Converted
           MathML→OMML through Office's own transform (no extra needed).
 
-        The equation lands on its **own paragraph**. `display` (default ``True``)
-        makes it a centred display equation; ``display=False`` marks it inline
-        (left-aligned). `where` is ``"after"`` (default) or ``"before"`` this
-        anchor's range — so ``doc.headings["Derivation"].insert_equation(...)``
-        drops an equation under a heading and ``doc.end.insert_equation(...)``
-        appends one.
+        The equation always lands on its **own paragraph**, and that paragraph's
+        style is pinned so it never inherits the style of whatever it was
+        inserted next to (an equation dropped before a `Heading 2` used to come
+        out *styled* `Heading 2` and land in the outline/TOC). `display` (default
+        ``True``) gives it the dedicated centred ``Equation`` paragraph style
+        (created on first use, based on ``Normal`` — a stable hook for later
+        equation numbering); ``display=False`` resets the paragraph to ``Normal``
+        and left-aligns it (it is still its own paragraph — wordlive does not
+        place math mid-sentence — but reads as body text, not centred display
+        math). `where` is ``"after"`` (default) or ``"before"`` this anchor's
+        range — so ``doc.headings["Derivation"].insert_equation(...)`` drops an
+        equation under a heading and ``doc.end.insert_equation(...)`` appends one.
 
         Returns an [`EquationAnchor`][wordlive.EquationAnchor] (`equation:N`);
         read it back as MathML with `equation.mathml`, or discover every equation
@@ -1131,6 +1228,7 @@ class Anchor(ABC):
                 zone.BuildUp()
                 zone.Type = 1 if display else 0
             index = _equation_index_at(doc_com, ms)
+            self._style_equation_paragraph(ms, display=display)
         return EquationAnchor(self._doc, index)
 
     def _insert_equation_omml(
@@ -1165,8 +1263,58 @@ class Anchor(ABC):
             if prepend and str(doc_com.Content.Text).startswith("\r"):
                 # Trim the leading empty paragraph opened to anchor the prepend.
                 doc_com.Range(0, 1).Delete()
-            index = _equation_index_at(doc_com, t if prepend else t + 1)
+            eq_pos = t if prepend else t + 1
+            index = _equation_index_at(doc_com, eq_pos)
+            self._style_equation_paragraph(eq_pos, display=display)
         return EquationAnchor(self._doc, index)
+
+    def _ensure_equation_style(self) -> Any | None:
+        """Return the COM ``Equation`` paragraph style, creating it if absent.
+
+        A centred, ``Normal``-based paragraph style dedicated to display
+        equations. Applying it to every display equation means an inserted
+        equation can never inherit a heading style from its insertion point
+        (which would drop the equation into the navigation outline / TOC), and
+        gives a stable, named hook for future equation numbering and
+        cross-references. Returns ``None`` for a degenerate document with no
+        ``Normal`` to base it on — the caller then falls back to ``Normal``.
+        """
+        styles = self._doc.styles
+        if "Equation" in styles:
+            return styles["Equation"].com
+        if "Normal" not in styles:
+            return None
+        style = styles.add("Equation", based_on="Normal", next_style="Normal")
+        style.format_paragraph(alignment="center")
+        return style.com
+
+    def _style_equation_paragraph(self, pos: int, *, display: bool) -> None:
+        """Pin the style/alignment of the paragraph an equation just landed on.
+
+        Without this, an equation written at a paragraph boundary inherits the
+        *following* paragraph's style — so an equation inserted before a
+        ``Heading 2`` came out styled ``Heading 2`` and polluted the outline/TOC.
+        A **display** equation gets the dedicated centred ``Equation`` style; an
+        **inline** (``display=False``) equation is reset to ``Normal`` and
+        left-aligned (it still lands on its own paragraph, but reads as body
+        text, not centred display math). Best-effort — a COM hiccup here must not
+        sink an otherwise-successful insert.
+        """
+        doc_com = self._doc.com
+        try:
+            para = doc_com.Range(pos, pos).Paragraphs(1).Range
+            if display:
+                eq_style = self._ensure_equation_style()
+                if eq_style is not None:
+                    para.Style = eq_style
+                # Centring comes from the Equation style, so a redefined style
+                # still drives it — no competing direct alignment.
+            else:
+                if "Normal" in self._doc.styles:
+                    para.Style = self._doc.styles["Normal"].com
+                para.ParagraphFormat.Alignment = int(WdParagraphAlignment.LEFT)
+        except Exception:  # noqa: BLE001 — styling is a finishing touch, not the insert
+            pass
 
     def insert_table(
         self,
@@ -1713,6 +1861,7 @@ class Anchor(ABC):
         first_line_indent: float | None = None,
         space_before: float | None = None,
         space_after: float | None = None,
+        line_spacing: Any = None,
         page_break_before: bool | None = None,
         keep_together: bool | None = None,
         keep_with_next: bool | None = None,
@@ -1725,6 +1874,13 @@ class Anchor(ABC):
         `ParagraphFormat.LeftIndent` etc.). `alignment` accepts a
         `WdParagraphAlignment` enum, its int value, or a string
         (`"left"`/`"center"`/`"right"`/`"justify"`).
+
+        `line_spacing` sets the leading between lines *within* the paragraph
+        (distinct from `space_before`/`space_after`, which space paragraphs
+        apart). It accepts a **number** — a multiple of single spacing (`1`
+        single, `1.5`, `2` double) — one of the keywords `"single"`/`"1.5"`/
+        `"double"`, or an **exact length string** (`"14pt"`, `"1.5cm"`) for a
+        fixed line height.
 
         `page_break_before=True` forces the paragraph to begin on a new page —
         the *clean* way to page-break (e.g. apply it to every `Heading 1`): it's
@@ -1751,11 +1907,58 @@ class Anchor(ABC):
                     first_line_indent=first_line_indent,
                     space_before=space_before,
                     space_after=space_after,
+                    line_spacing=line_spacing,
                     page_break_before=page_break_before,
                     keep_together=keep_together,
                     keep_with_next=keep_with_next,
                     widow_control=widow_control,
                 )
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def drop_cap(
+        self,
+        lines: int = 3,
+        *,
+        position: str = "dropped",
+        distance: Any = 0.0,
+        font: str | None = None,
+    ) -> None:
+        """Turn the first letter of this anchor's paragraph into a drop cap.
+
+        The editorial oversized initial — a real Word `DropCap`, not a faked
+        big-font run, so it reflows and re-wraps the body text around it
+        natively. Applies to the **first paragraph** of the anchor's range.
+
+        `position` is ``"dropped"`` (the default — the letter sits *into* the
+        text, the common magazine style), ``"margin"`` (it hangs out in the left
+        margin), or ``"none"`` (remove an existing drop cap; `lines`/`distance`/
+        `font` are then ignored). `lines` is how many lines tall the letter is
+        (Word's default is 3). `distance` is the gap between the letter and the
+        body text, in points (or a unit string like ``"2pt"``). `font` optionally
+        sets the dropped letter's font family.
+
+        Word rejects a drop cap on an **empty** paragraph (there's no letter to
+        drop) — that surfaces as a `ComError`. Wrap in `doc.edit(...)` for atomic
+        undo. Raises `OpError` for an unknown `position` or a bad `distance`.
+        """
+        try:
+            pos = _coerce_named(position, _DROP_POSITIONS, "drop-cap position")
+            dist = to_points(distance)
+            if not isinstance(lines, int) or isinstance(lines, bool) or lines < 1:
+                raise ValueError(f"lines must be a positive integer; got {lines!r}")
+            with _com.translate_com_errors():
+                dc = self._range().Paragraphs(1).DropCap
+                # Enable the cap first: Word resets LinesToDrop/DistanceFromText/
+                # FontName to its defaults when Position changes, so the geometry
+                # must be written *after* the position or it's silently dropped.
+                dc.Position = pos
+                if pos == int(WdDropPosition.NONE):
+                    return
+                dc.LinesToDrop = lines
+                dc.DistanceFromText = dist
+                if font is not None:
+                    dc.FontName = str(font)
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
 
@@ -1944,9 +2147,11 @@ class Anchor(ABC):
         Page/line numbers are only meaningful in print layout, so the document
         is **repaginated first** (content-neutral — it touches neither the
         user's selection, scroll, nor view), mirroring the guarantee a
-        `snapshot` gives. No politeness concern: this mutates nothing.
+        `snapshot` gives. No politeness concern: this mutates nothing — the
+        document's `Saved` state is snapshotted and restored around the
+        repaginate, which would otherwise flip Word's dirty bit.
         """
-        with _com.translate_com_errors():
+        with _com.translate_com_errors(), _com.preserve_saved(self._doc.com):
             rng = self._range()
             self._doc.com.Repaginate()
             start, end = int(rng.Start), int(rng.End)

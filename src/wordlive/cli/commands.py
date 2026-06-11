@@ -126,6 +126,7 @@ def register(group: click.Group) -> None:
     group.add_command(format_run_cmd)
     group.add_command(shading_cmd)
     group.add_command(borders_cmd)
+    group.add_command(drop_cap_cmd)
     group.add_command(tab_stop_cmd)
     group.add_command(table)
     group.add_command(comment)
@@ -2509,6 +2510,13 @@ def style_add(
 )
 @click.option("--space-before", "space_before", default=None, help="Space before in points/units.")
 @click.option("--space-after", "space_after", default=None, help="Space after in points/units.")
+@click.option(
+    "--line-spacing",
+    "line_spacing",
+    default=None,
+    help="Leading within the paragraph: a multiple (1, 1.5, 2), single/1.5/double, "
+    "or an exact length (e.g. 14pt).",
+)
 @click.option("--based-on", "based_on", default=None, help="Existing style to inherit from.")
 @click.option(
     "--next-style", "next_style", default=None, help="Style applied to the following paragraph."
@@ -2526,6 +2534,7 @@ def style_set(
     alignment: str | None,
     space_before: str | None,
     space_after: str | None,
+    line_spacing: str | None,
     based_on: str | None,
     next_style: str | None,
 ) -> None:
@@ -2542,6 +2551,7 @@ def style_set(
         "alignment": alignment,
         "space_before": space_before,
         "space_after": space_after,
+        "line_spacing": line_spacing,
     }
     run_kwargs = {k: v for k, v in run_raw.items() if v is not None}
     para_kwargs = {k: v for k, v in para_raw.items() if v is not None}
@@ -2620,6 +2630,13 @@ def style_set(
     help="Space after paragraph in points.",
 )
 @click.option(
+    "--line-spacing",
+    "line_spacing",
+    default=None,
+    help="Leading within the paragraph: a multiple (1, 1.5, 2), single/1.5/double, "
+    "or an exact length (e.g. 14pt).",
+)
+@click.option(
     "--page-break-before/--no-page-break-before",
     "page_break_before",
     default=None,
@@ -2655,6 +2672,7 @@ def format_paragraph_cmd(
     first_line_indent: float | None,
     space_before: float | None,
     space_after: float | None,
+    line_spacing: str | None,
     page_break_before: bool | None,
     keep_together: bool | None,
     keep_with_next: bool | None,
@@ -2674,6 +2692,8 @@ def format_paragraph_cmd(
         kwargs["space_before"] = space_before
     if space_after is not None:
         kwargs["space_after"] = space_after
+    if line_spacing is not None:
+        kwargs["line_spacing"] = line_spacing
     if page_break_before is not None:
         kwargs["page_break_before"] = page_break_before
     if keep_together is not None:
@@ -2861,6 +2881,53 @@ def borders_cmd(
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"bordered {anchor_id}: {side_list} {style}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="drop-cap")
+@click.option(
+    "--anchor-id", "anchor_id", required=True, help="Anchor whose paragraph's first letter to drop."
+)
+@click.option(
+    "--position",
+    "position",
+    default="dropped",
+    type=click.Choice(["dropped", "normal", "margin", "none"], case_sensitive=False),
+    help="dropped (into the text), margin (in the left margin), or none (remove).",
+)
+@click.option("--lines", "lines", type=int, default=3, help="How many lines tall the letter is.")
+@click.option(
+    "--distance", "distance", default="0", help="Gap from the body text in points or a unit string."
+)
+@click.option("--font", "font", default=None, help="Font family for the dropped letter.")
+@click.pass_context
+def drop_cap_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    position: str,
+    lines: int,
+    distance: str,
+    font: str | None,
+) -> None:
+    """Turn the first letter of the anchor's paragraph into a drop cap (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: drop cap {anchor_id}"):
+                anchor.drop_cap(lines, position=position, distance=distance, font=font)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": {"position": position, "lines": lines},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"drop cap on {anchor_id}: {position}",
             )
 
     _run(ctx, go)
@@ -3951,7 +4018,7 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     insert_section, insert_markdown, replace_section,
     delete_paragraph, append, append_inline, prepend, prepend_inline,
     insert_image, insert_equation, replace, find_replace, apply_style, format_paragraph,
-    format_run, set_shading, set_borders, add_tab_stop, add_style, set_style,
+    format_run, set_shading, set_borders, drop_cap, add_tab_stop, add_style, set_style,
     insert_field, set_page_setup, update_fields, insert_footnote, insert_endnote,
     insert_toc, add_bookmark, add_hyperlink, insert_cross_reference,
     insert_caption, set_cell, add_row, append_record, update_row, delete_row,

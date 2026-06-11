@@ -84,7 +84,9 @@ and `rows`/`cols` are inferred from `data` when omitted.
 `insert_break(kind="page"|"column"|"section_next"|"section_continuous")` drops
 an explicit break; for a reflow-safe page break tied to a paragraph (e.g. every
 `Heading 1`), pass `page_break_before=True` to `format_paragraph` instead.
-`format_paragraph` also takes the pagination controls `keep_together`,
+`format_paragraph` also takes `line_spacing` (the leading within a paragraph: a
+multiple like `1.5`, the keywords `"single"`/`"1.5"`/`"double"`, or an exact
+length such as `"14pt"`) and the pagination controls `keep_together`,
 `keep_with_next`, and `widow_control` (tri-state booleans) for clean multi-page
 layout.
 `format_run(...)` sets character formatting (bold/italic/underline, `font`,
@@ -92,7 +94,9 @@ layout.
 layer, ideal with a `range:START-END` anchor to style a phrase. `set_shading`,
 `set_borders`, and `add_tab_stop` add range/cell fill, borders, and tab stops;
 colours accept a name, hex, or `(r, g, b)` and sizes/positions accept points or
-a unit string (`"12pt"`, `"1in"`). `insert_field(kind, ...)` drops a
+a unit string (`"12pt"`, `"1in"`). `drop_cap(lines=3, position="dropped"|"margin"|"none", …)`
+turns the first letter of the anchor's paragraph into a real Word drop cap (the
+editorial oversized initial; `position="none"` removes one). `insert_field(kind, ...)` drops a
 self-updating field (`"page"`, `"numpages"`, `"date"`, …, or `"field"` + a raw
 code) — pair it with a footer for page numbers and refresh with
 [`Document.update_fields()`](#wordlive.Document). `insert_footnote(text)` /
@@ -157,9 +161,14 @@ Mathematical equations as first-class anchors. The write side is
 dialects — `unicodemath=` (Word's native linear form, e.g. `"a^2+b^2=c^2"`,
 zero-dependency), `latex=` (the optional `latex` extra does the LaTeX→MathML
 hop), or `mathml=` (a `<math>` string) — converts it to Office Math, and places
-it on its own paragraph (`display=True` centres it, `display=False` marks it
-inline). It returns an [`EquationAnchor`](#wordlive.EquationAnchor) addressed
-`equation:N`. LaTeX and MathML travel LaTeX→MathML→OMML→Word through Office's own
+it on its own paragraph with a pinned style so it never inherits a neighbouring
+heading's style: `display=True` gives it the dedicated centred `Equation`
+paragraph style (created on first use, based on `Normal`); `display=False`
+resets the paragraph to `Normal` and left-aligns it (still its own paragraph,
+not mid-sentence). It returns an [`EquationAnchor`](#wordlive.EquationAnchor)
+addressed `equation:N` — a *positional* id in Word's `OMaths` order, so
+inserting another equation before it renumbers it (re-list rather than caching
+the id across further inserts). LaTeX and MathML travel LaTeX→MathML→OMML→Word through Office's own
 shipped XSLT (`MML2OMML.XSL`), so only the LaTeX→MathML step needs a third-party
 library; malformed input or a missing backend raises
 [`EquationError`](#wordlive.EquationError).

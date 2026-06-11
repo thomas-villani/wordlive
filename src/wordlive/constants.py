@@ -301,6 +301,35 @@ class WdLineStyle(IntEnum):
     DOUBLE = 7
 
 
+class WdLineSpacing(IntEnum):
+    """`ParagraphFormat.LineSpacingRule` values — `format_paragraph(line_spacing=…)`.
+
+    `SINGLE`/`ONE_POINT_FIVE`/`DOUBLE` are the named multiples (no companion
+    `LineSpacing` value needed). `MULTIPLE` carries an arbitrary multiple of
+    single spacing (its `LineSpacing` is the multiple × 12pt). `AT_LEAST` and
+    `EXACTLY` set a fixed minimum / exact line height in points.
+    """
+
+    SINGLE = 0
+    ONE_POINT_FIVE = 1
+    DOUBLE = 2
+    AT_LEAST = 3
+    EXACTLY = 4
+    MULTIPLE = 5
+
+
+class WdDropPosition(IntEnum):
+    """`DropCap.Position` — where `drop_cap(position=...)` puts the dropped letter.
+
+    `NONE` removes an existing drop cap; `DROPPED` sets it into the body text;
+    `MARGIN` hangs it out in the left margin.
+    """
+
+    NONE = 0
+    DROPPED = 1
+    MARGIN = 2
+
+
 class WdTabAlignment(IntEnum):
     """`TabStop.Alignment` — `add_tab_stop(align=...)` maps its keys onto these."""
 

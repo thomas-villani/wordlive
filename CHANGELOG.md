@@ -5,6 +5,61 @@ All notable changes to **wordlive** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`drop_cap` — the editorial oversized initial letter.** `anchor.drop_cap(lines=3,
+  position="dropped"|"margin"|"none", distance=…, font=…)` turns the first letter
+  of the anchor's paragraph into a real Word `DropCap` (the body text wraps around
+  it natively, not a faked big-font run); `position="none"` removes one. Across
+  the Python API, the `drop_cap` exec op, the CLI (`drop-cap`), and MCP.
+- **`line_spacing` on `format_paragraph` / `set_style`.** Sets the leading
+  *within* a paragraph (distinct from `space_before`/`space_after`, which space
+  paragraphs apart): a number is a multiple of single spacing (`1`, `1.5`, `2`),
+  the keywords `"single"`/`"1.5"`/`"double"` map to Word's named rules, and a
+  length string (`"14pt"`, `"1.5cm"`) sets an exact line height. Wired through
+  the Python API, the `format_paragraph` / `set_style` exec ops, the CLI
+  (`format-paragraph --line-spacing` / `style set --line-spacing`), and MCP.
+- **A dedicated `Equation` paragraph style.** Display equations now land on a
+  centred, `Normal`-based `Equation` paragraph style (created on first use), so
+  an equation is styled consistently regardless of where it was inserted — and
+  there's a stable, named hook for future equation numbering / cross-references.
+
+### Fixed
+- **Equations no longer inherit a neighbouring heading's style.** An equation
+  inserted before a `Heading 2` was written at the paragraph boundary and
+  adopted the *following* paragraph's style — coming out styled `Heading 2` and
+  polluting the navigation outline / TOC (it appeared as a heading entry). The
+  equation's paragraph style is now pinned after insertion: `display=True` gets
+  the centred `Equation` style; `display=False` is reset to `Normal` and
+  left-aligned (it remains its own paragraph but reads as body text). The
+  returned `equation:N` is documented as a positional id (Word's `OMaths` order)
+  that renumbers when an earlier equation is inserted — re-list, don't cache it.
+- **Composing at the end of a document no longer merges into the last
+  paragraph.** `insert_block` (and so `insert_section` / `insert_markdown`)
+  targeting `doc.end` wrote the block *before* the final paragraph mark, so when
+  the last paragraph already had text the first inserted paragraph fused into it
+  — `…last line.` + `## Heading` became one `…last line.Heading` paragraph,
+  stealing the heading's style. The end-of-document case now detects the
+  terminal mark correctly (`doc.end`'s range ends one short of it) and either
+  fills an empty final paragraph (no stray trailing empty) or opens a fresh one
+  after a non-empty one (no merge, no style theft).
+- **A pure read no longer dirties the document.** `doc.stats()` and
+  `anchor.location()` repaginate first (for print-layout-truth `pages`/`lines`),
+  which flips Word's dirty bit — so a read of a freshly-saved document used to
+  report (and leave) a spurious unsaved-changes star. Both now snapshot and
+  restore `Document.Saved` around the repaginate, honouring their "nothing is
+  mutated" contract.
+
+### Changed
+- **`set_borders` reconciles its line-style field name across surfaces.** The
+  MCP `set_borders` command and its `word_write` schema name the line style
+  `line_style` (to avoid colliding with the paragraph-`style` param), but a
+  hand-built `word_exec`/`exec` batch reusing that name had it warned-and-ignored
+  — the op only read `style`. The exec op now accepts `line_style` as an alias
+  for `style`, so the same name works on every surface. (CLI `--style` and the
+  Python `set_borders(style=…)` keyword are unchanged.)
+
 ## [0.14.0] — 2026-06-11
 
 ### Added

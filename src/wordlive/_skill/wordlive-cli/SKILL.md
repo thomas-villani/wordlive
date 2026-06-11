@@ -68,9 +68,10 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive replace --find "old" --text "new" [--all | --occurrence N] [--in ID]` — fuzzy find + replace. To edit **inside a table**, scope it to the cell (`--in table:N:R:C`); an unverifiable whole-document match fails (exit 1, `replace_verification`) rather than risk overwriting the wrong cell.
 - `wordlive style apply --anchor-id ID --name "Heading 2"` (names: `style list`).
 - `wordlive style add NAME [--type paragraph|character] [--based-on NAME] [--next-style NAME]` then `wordlive style set NAME [--bold] [--color "#1F3864"] [--size 16pt] [--alignment center] [--space-before 12] …` — define and configure a style, then `style apply` it everywhere (the brand/template workflow).
-- `wordlive format-paragraph --anchor-id ID [--alignment center] [--left-indent 36] [--space-before 6] [--page-break-before] [--keep-together] [--keep-with-next] [--widow-control] …` — `--page-break-before` is the clean, reflow-safe way to make a paragraph (e.g. a `Heading 1`) start a new page, leaving no stray break character. The three pagination flags keep a paragraph's lines together, keep it with the next paragraph, and suppress widows/orphans.
+- `wordlive format-paragraph --anchor-id ID [--alignment center] [--left-indent 36] [--space-before 6] [--line-spacing 1.5] [--page-break-before] [--keep-together] [--keep-with-next] [--widow-control] …` — `--line-spacing` sets the leading within the paragraph (a multiple `1`/`1.5`/`2`, `single`/`1.5`/`double`, or an exact length like `14pt`). `--page-break-before` is the clean, reflow-safe way to make a paragraph (e.g. a `Heading 1`) start a new page, leaving no stray break character. The three pagination flags keep a paragraph's lines together, keep it with the next paragraph, and suppress widows/orphans.
 - `wordlive format-run --anchor-id ID [--bold] [--italic] [--underline] [--font NAME] [--size 12pt] [--color "#FF0000"] [--highlight yellow] …` — **character** formatting; pair with a `range:` id (from `find`) to style a phrase. Colours take a name/hex/`r,g,b`; sizes take points or a unit string.
 - `wordlive shading --anchor-id ID --fill "#FFF2CC"` · `wordlive borders --anchor-id ID [--sides all|top|…] [--style single|double|dot|dash] [--weight 0.5] [--color black]` · `wordlive tab-stop --anchor-id ID --position 3in [--align right] [--leader dots]` — range/cell fill, borders, and tab stops (a cell is an anchor, so these shade/border table cells too).
+- `wordlive drop-cap --anchor-id ID [--position dropped|margin|none] [--lines 3] [--distance 2pt] [--font Georgia]` — the editorial oversized initial letter on a paragraph (a real Word DropCap, so the body text wraps around it natively). `--position none` removes it.
 - `wordlive insert-break --anchor-id ID [--kind page|column|section_next|section_continuous] [--before | --after]` — an **explicit** one-off page/column/section break (the discoverable replacement for a literal form-feed paragraph). `--kind` defaults to `page`. Section breaks start a new section that can carry its own headers/footers + page setup. For a break that follows a *style*, prefer `format-paragraph --page-break-before`.
 - `wordlive insert-field --anchor-id ID --kind page|numpages|date|time|filename|author|title|field [--text "RAW CODE"] [--before | --after]` — a **self-updating** field; put page numbers in a footer (`--anchor-id footer:1:primary --kind page`). `--kind field` takes a raw field code via `--text`. Refresh stale fields with `wordlive update-fields`.
 - `wordlive insert-footnote --anchor-id ID --text "…"` · `wordlive insert-endnote --anchor-id ID --text "…"` — attach a footnote/endnote to a range; reports the new `footnote:N`/`endnote:N`. List them with `wordlive footnotes` / `wordlive endnotes`.
@@ -118,8 +119,14 @@ wordlive equations          # list equation:N ids, type, linear preview, para:N
   extra), or `--mathml` (`--mathml -` reads from stdin; uses Office's own
   transform, no extra). As an `exec`/`insert_equation` op the fields are
   `{anchor_id, unicodemath|latex|mathml, [display, before]}`.
-- The equation lands on its own paragraph; `--display` centres it, `--inline`
-  left-aligns it. The result carries the new `equation:N` id.
+- The equation lands on its own paragraph with a pinned style (so it never
+  inherits a neighbouring heading's style): `--display` gives it the centred
+  `Equation` paragraph style (auto-created, based on `Normal`); `--inline` makes
+  it `Normal` and left-aligned (still its own paragraph, not mid-sentence).
+- `equation:N` is **positional** (Word's `OMaths` document order), not a durable
+  handle: inserting another equation *before* an existing one renumbers it.
+  Re-list with `equations` (or re-resolve right before you reference it) rather
+  than caching an id across further inserts. The result carries the new id.
 
 ## Snapshot — render page(s) to PNG so you can *see* the layout
 ```
@@ -187,7 +194,7 @@ Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `insert_markdown`, `replace_section`, `delete_paragraph`, `append`,
 `append_inline`, `prepend`, `prepend_inline`, `insert_image`, `insert_equation`, `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`,
-`set_borders`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,
+`set_borders`, `drop_cap`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,
 `set_page_setup`, `update_fields`, `insert_footnote`, `insert_endnote`,
 `insert_toc`, `add_bookmark`, `add_hyperlink`, `insert_cross_reference`,
 `insert_caption`, `set_cell`, `add_row`, `append_record`, `update_row`,

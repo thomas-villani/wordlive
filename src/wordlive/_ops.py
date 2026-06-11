@@ -58,6 +58,7 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "format_run": ("anchor_id",),
     "set_shading": ("anchor_id",),
     "set_borders": ("anchor_id",),
+    "drop_cap": ("anchor_id",),
     "add_tab_stop": ("anchor_id", "position"),
     "add_style": ("name",),
     "set_style": ("name",),
@@ -121,6 +122,7 @@ _PARA_FIELDS = (
     "first_line_indent",
     "space_before",
     "space_after",
+    "line_spacing",
     "page_break_before",
     "keep_together",
     "keep_with_next",
@@ -184,7 +186,12 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "format_paragraph": _PARA_FIELDS,
     "format_run": _RUN_FIELDS,
     "set_shading": ("fill", "pattern"),
-    "set_borders": ("sides", "style", "weight", "color"),
+    # `line_style` is an accepted alias for `style` (the line style) — it is the
+    # name the MCP `set_borders` command and its `word_write` schema use, so a
+    # batch author who learned it there gets it honoured here instead of warned-
+    # and-ignored. See the alias handling in `apply_op`.
+    "set_borders": ("sides", "style", "line_style", "weight", "color"),
+    "drop_cap": ("lines", "position", "distance", "font"),
     "add_tab_stop": ("align", "leader"),
     "add_style": ("type", "based_on", "next_style"),
     "set_style": _SET_STYLE_FIELDS,
@@ -375,8 +382,19 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         kwargs = {k: op[k] for k in ("fill", "pattern") if k in op}
         doc.anchor_by_id(op["anchor_id"]).set_shading(**kwargs)
     elif kind == "set_borders":
-        kwargs = {k: op[k] for k in ("sides", "style", "weight", "color") if k in op}
+        kwargs = {k: op[k] for k in ("sides", "weight", "color") if k in op}
+        # Accept `line_style` as an alias for `style` (the MCP / word_write name);
+        # an explicit `style` wins if somehow both are present.
+        if "style" in op:
+            kwargs["style"] = op["style"]
+        elif "line_style" in op:
+            kwargs["style"] = op["line_style"]
         doc.anchor_by_id(op["anchor_id"]).set_borders(**kwargs)
+    elif kind == "drop_cap":
+        kwargs = {k: op[k] for k in ("position", "distance", "font") if k in op}
+        if "lines" in op:
+            kwargs["lines"] = int(op["lines"])
+        doc.anchor_by_id(op["anchor_id"]).drop_cap(**kwargs)
     elif kind == "add_tab_stop":
         kwargs = {k: op[k] for k in ("align", "leader") if k in op}
         doc.anchor_by_id(op["anchor_id"]).add_tab_stop(op["position"], **kwargs)

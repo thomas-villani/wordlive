@@ -102,11 +102,12 @@ a.insert_section("Results", ["Body para.", "Another."], level=2)  # heading + bo
 a.insert_markdown("# Title\n\nIntro.\n\n- bullet one\n- bullet two\n\n1. step")  # constrained MD → Word structure
 doc.headings["Results"].replace_section_body("New body.", markdown=True)  # rewrite a section, keep its heading
 a.apply_style("Heading 2")
-a.format_paragraph(alignment="center", space_before=6, page_break_before=True,
-                   keep_with_next=True, keep_together=True, widow_control=True)  # pagination
+a.format_paragraph(alignment="center", space_before=6, line_spacing=1.5,  # leading: 1.5/"double"/"14pt"
+                   page_break_before=True, keep_with_next=True, keep_together=True, widow_control=True)
 a.format_run(bold=True, color="#FF0000", highlight="yellow", size="12pt")  # character formatting
 a.set_shading(fill="navy")              # range/cell background fill
 a.set_borders(sides="all", style="single", weight=0.5, color="black")
+a.drop_cap(3, position="dropped", font="Georgia")  # oversized initial letter; position="none" removes
 a.add_tab_stop("3in", align="right", leader="dots")
 a.insert_break(kind="page")             # page | column | section_next | section_continuous
 a.insert_field("page")                   # self-updating field: page|numpages|date|… (or "field" + raw code)
@@ -118,7 +119,8 @@ a.insert_caption("Figure", text="System overview")       # own-paragraph caption
 a.insert_image("diagram.png", wrap="auto")
 a.read_image()                          # → (bytes, mime) — extract the one image in the range
 a.insert_equation(unicodemath="x=(-b±√(b^2-4ac))/(2a)")   # native; or latex= (needs the `latex` extra) / mathml=
-a.insert_equation(latex=r"\frac{-b}{2a}", display=False)  # → EquationAnchor (equation:N); display=False = inline
+a.insert_equation(latex=r"\frac{-b}{2a}", display=False)  # → EquationAnchor; display=True→centred "Equation" style, False→Normal+left
+# equation:N is positional (OMaths order) — inserting one before another renumbers it; re-list, don't cache the id
 a.insert_table(data=[["Item", "Cost"], ["Travel", "$400"]], header=True)  # rows/cols inferred from data
 a.insert_table(data=[{"Item": "Travel", "Cost": "$400"}])  # records → keys become a bolded header row
 a.apply_list("numbered")                # + remove_list/list_info/restart_numbering/indent_list/outdent_list

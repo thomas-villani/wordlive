@@ -106,6 +106,24 @@ class TestInsertMarkdownApi:
                 doc.headings["Introduction"].insert_markdown("   \n\n")
 
 
+class TestInsertBlockEndBoundary:
+    def test_end_anchor_writes_block_at_the_terminal_mark(self, fake_word: Any) -> None:
+        # WL-A: at doc.end the block is written *at* the terminal paragraph mark
+        # and never with a trailing break that would merge into / strand the
+        # last paragraph. (The merge itself is position-dependent and only
+        # observable against real Word — see the smoke suite; the fake can't
+        # model paragraph text, so here we just pin that the op targets the
+        # final mark and returns a span anchored there.)
+        with wordlive.attach() as word:
+            doc = word.documents.active
+            content_end = int(doc.com.Content.End)  # 35 in the fixture
+            with doc.edit("end"):
+                rng = doc.end.insert_block(["alpha", "beta"])
+            written = doc.com.Range(content_end - 1, content_end - 1).Text
+            assert not written.endswith("\r")  # no trailing break (no old merge form)
+            assert rng.start >= content_end - 1
+
+
 class TestReplaceSectionBodyApi:
     def test_items_body_returns_range(self, fake_word: Any) -> None:
         with wordlive.attach() as word:

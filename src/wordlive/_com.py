@@ -67,6 +67,32 @@ def launch_word(visible: bool = True) -> Any:
 
 
 @contextmanager
+def preserve_saved(doc_com: Any) -> Iterator[None]:
+    """Snapshot and restore a document's dirty bit around a content-neutral op.
+
+    Word's `Repaginate()` (and similar layout-only calls) flip `Document.Saved`
+    to `False` even though nothing the user cares about changed. A *read* that
+    repaginates — `stats`, `location` — would then leave a spurious unsaved-
+    changes star on a document the user had just saved. Wrap the repaginate in
+    this and the flag is put back exactly as it was. Best-effort: if reading or
+    restoring `Saved` raises, the read still proceeds (a stale star beats a
+    crash on a pure read).
+    """
+    try:
+        was_saved = bool(doc_com.Saved)
+    except Exception:  # noqa: BLE001 — never let dirty-bit bookkeeping break a read
+        was_saved = None
+    try:
+        yield
+    finally:
+        if was_saved:
+            try:
+                doc_com.Saved = True
+            except Exception:  # noqa: BLE001
+                pass
+
+
+@contextmanager
 def translate_com_errors() -> Iterator[None]:
     """Translate pywintypes.com_error into wordlive's typed exceptions."""
     try:
