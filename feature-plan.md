@@ -781,6 +781,9 @@ mostly validation. Wishlist triage:
 - **Table-as-records read + update-by-key** — ✅ **shipped v0.14.0** as
   `Table.records()` / `append_record()` / `update_row()` (completes the v0.13.0
   tables-from-records write side; now in Part I).
+- **Higher-level compose helpers** — its #10 ask; ✅ **shipped v0.14.0** as
+  `insert_section` / `insert_markdown` / `replace_section_body` (a thin layer over
+  `insert_block`; now in Part I).
 - **Stable paragraph IDs** — its top ask. Investigated with a live probe
   (2026-06-09); Word's native `w14:paraId` proved unusable (lazy + COM-invisible),
   so the answer is the minted bookmark-backed handle already in Part II
