@@ -179,6 +179,8 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.endnotes.list()
             if command == "images":
                 return doc.images.list()
+            if command == "equations":
+                return doc.equations.list()
             if command == "read_image":
                 anchor_id = _need(p, "anchor_id", command)
                 data, mime = doc.anchor_by_id(anchor_id).read_image()
@@ -541,6 +543,21 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command == "insert_equation":
+        given = [k for k in ("unicodemath", "latex", "mathml") if p.get(k) is not None]
+        if len(given) != 1:
+            raise OpError(
+                "insert_equation requires exactly one of 'unicodemath', 'latex', or 'mathml'"
+            )
+        op = {
+            "op": "insert_equation",
+            "anchor_id": need("anchor_id"),
+            "before": bool(p.get("before", False)),
+        }
+        op[given[0]] = p[given[0]]
+        if p.get("display") is not None:
+            op["display"] = bool(p["display"])
+        return op
     raise OpError(f"unknown write command: {command!r}")
 
 
@@ -708,6 +725,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "endnotes",
             "images",
             "read_image",
+            "equations",
             "location",
             "stats",
         ],
@@ -737,11 +755,13 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         images (embedded pictures: image:N id, mime, size, alt, para) ·
         read_image {anchor_id} (an embedded picture's bytes as base64 + mime — pass
         an image:N id or any single-image anchor) ·
+        equations (math zones: equation:N id, type, linear preview, para) ·
         location {anchor_id} (where an anchor sits in the laid-out document:
         page/end_page span, line, column, in_table — "what page is this on"
         without a snapshot) ·
         stats (one-shot document summary: page/word/character/paragraph/line
-        counts plus section/heading/table/image/comment/revision counts and saved).
+        counts plus section/heading/table/image/equation/comment/revision counts
+        and saved).
         `doc` targets a document by name (default: active).
         """
         params = {
@@ -790,6 +810,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "footer",
             "track",
             "insert_image",
+            "insert_equation",
             "insert_break",
             "insert_field",
             "update_fields",
@@ -883,6 +904,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         height: float | None = None,
         alt_text: str | None = None,
         lock_aspect: bool | None = None,
+        unicodemath: str | None = None,
+        latex: str | None = None,
+        mathml: str | None = None,
+        display: bool | None = None,
         margins: str | float | None = None,
         top_margin: str | float | None = None,
         bottom_margin: str | float | None = None,
@@ -971,6 +996,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         insert_image {anchor_id,wrap, image_base64|path,
             [before,block,width,height,alt_text,lock_aspect]} — block puts the image on its
             own new line instead of in the anchor's text run ·
+        insert_equation {anchor_id, unicodemath|latex|mathml, [display=true,before]} — a math
+            equation on its own paragraph; unicodemath is native, latex needs the server's
+            latex extra, mathml uses Office's transform; display centres it, else inline ·
         save {} — save to the document's existing file (must already be saved) ·
         save_as {path,[overwrite]} — save a .docx to path ·
         export_pdf {path,[from_page,to_page]} — export a PDF (the deliverable path).
@@ -1059,6 +1087,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "height": height,
             "alt_text": alt_text,
             "lock_aspect": lock_aspect,
+            "unicodemath": unicodemath,
+            "latex": latex,
+            "mathml": mathml,
+            "display": display,
             "margins": margins,
             "top_margin": top_margin,
             "bottom_margin": bottom_margin,
@@ -1131,6 +1163,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           replace {anchor_id,text} · find_replace {find,text,[all,occurrence,in]} ·
           apply_style {anchor_id,name} · format_paragraph {anchor_id,[alignment,*_indent,space_*,page_break_before,keep_together,keep_with_next,widow_control]} ·
           insert_image {anchor_id,wrap, path|base64, [before,block,width,height,alt_text,lock_aspect]} ·
+          insert_equation {anchor_id, unicodemath|latex|mathml, [display=true,before]} — own-paragraph
+            math; unicodemath native, latex needs the latex extra, mathml via Office; returns equation:N in outputs ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
           insert_footnote/insert_endnote {anchor_id,text,[before]} — returns the new footnote:N/endnote:N in outputs ·

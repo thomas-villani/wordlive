@@ -269,6 +269,65 @@ class _FakeDocInlineShapes:
         return iter(self._items)
 
 
+class _FakeOMath:
+    """A single equation zone, as `Document.OMaths(n)` returns.
+
+    `Type` is wdOMathType (1=display, 0=inline). `Range.Text` carries the
+    built-up form (with the internal `\\r` structure markers the reader strips for
+    its linear preview). `BuildUp`/`Linearize` are recorded but don't restructure
+    the fake text. `Range.WordOpenXML` is left as a plain Flat OPC skeleton — the
+    OMML→MathML read goes through MSXML, so `mathml` is exercised only by the
+    smoke suite, not here.
+    """
+
+    def __init__(self, *, rng: Any, type_: int, text: str) -> None:
+        rng.Text = text
+        self.Range = rng
+        self.Type = int(type_)
+        self.built = True
+
+    def BuildUp(self) -> None:
+        self.built = True
+
+    def Linearize(self) -> None:
+        self.built = False
+
+
+class _FakeDocOMaths:
+    """Mimics `Document.OMaths`: Count, 1-based Item()/call lookup, iteration.
+
+    Equations are kept in document order (sorted by range Start) so `equation:N`
+    and `EquationCollection.list()` see Word's own ordering.
+    """
+
+    def __init__(self, equations: list[dict[str, Any]] | None, range_factory: Any) -> None:
+        self._items: list[_FakeOMath] = []
+        for spec in equations or []:
+            start = int(spec.get("start", 0))
+            end = int(spec.get("end", start + 1))
+            self._items.append(
+                _FakeOMath(
+                    rng=range_factory(start, end),
+                    type_=spec.get("type", 1),
+                    text=spec.get("text", ""),
+                )
+            )
+        self._items.sort(key=lambda o: int(o.Range.Start))
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def Item(self, index: int) -> _FakeOMath:
+        return self._items[index - 1]
+
+    def __call__(self, index: int) -> _FakeOMath:
+        return self._items[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._items))
+
+
 class _FakeBorders:
     """Mimics `Range.Borders` — a callable vending one stable child per edge index.
 
@@ -827,6 +886,7 @@ def _make_document(
     endnotes: list[dict[str, Any]] | None = None,
     revisions: list[dict[str, Any]] | None = None,
     images: list[dict[str, Any]] | None = None,
+    equations: list[dict[str, Any]] | None = None,
 ) -> MagicMock:
     doc = MagicMock(name=f"Document[{name}]")
     doc.Name = name
@@ -925,6 +985,10 @@ def _make_document(
     doc.Endnotes = _seed_notes(endnotes)
     doc.TablesOfContents = _FakeTOCs()
 
+    # Equations: document-level OMaths, each range built through the cached
+    # factory so its Start maps back to a paragraph for list()'s `para`.
+    doc.OMaths = _FakeDocOMaths(equations, _range_factory)
+
     return doc
 
 
@@ -986,6 +1050,10 @@ def fake_word(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
                 "start": 20,
             }
         ],
+        # One display equation whose range sits in the body paragraph (13–29),
+        # so equations.list() maps it back to para:2. Text is the built-up form
+        # (with the internal CR markers the linear preview strips).
+        equations=[{"start": 21, "end": 27, "type": 1, "text": "𝐸\r=\r𝑚\r𝑐\r2\r"}],
     )
     app = _make_application([doc])
 

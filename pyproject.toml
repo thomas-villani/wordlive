@@ -67,6 +67,11 @@ docs = [
 mcp = [
     "mcp>=1.2",
 ]
+# LaTeX equations (`insert_equation(latex=…)`): latex2mathml does the LaTeX→MathML
+# hop; Office's own transform handles MathML→OMML, so this is the only extra dep.
+latex = [
+    "latex2mathml>=3.77",
+]
 
 [project.scripts]
 wordlive = "wordlive.cli.main:main"

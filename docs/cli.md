@@ -771,6 +771,45 @@ Failures: `1` the image is missing, unreadable, or not a recognised raster
 format (PNG/JPEG/GIF/BMP/TIFF) — an `ImageSourceError`; `2` anchor not found
 or an invalid `--wrap` value; `3` Word busy.
 
+## `insert-equation --anchor-id ID (--unicodemath … | --latex … | --mathml …)` / `equations`
+
+```
+wordlive insert-equation --anchor-id ID (--unicodemath "…" | --latex "…" | --mathml "…") \
+    [--display | --inline] [--before | --after] [--doc DOC_NAME]
+wordlive equations [--doc DOC_NAME]
+```
+
+Insert a mathematical equation at **any** anchor. Exactly one input dialect is
+required:
+
+| Input          | Needs            | Example |
+| -------------- | ---------------- | ------- |
+| `--unicodemath`| nothing (native) | `"x=(-b±√(b^2-4ac))/(2a)"`, `"a^2+b^2=c^2"` |
+| `--latex`      | the `latex` extra | `"\frac{-b\pm\sqrt{b^2-4ac}}{2a}"` |
+| `--mathml`     | nothing          | `"<math>…</math>"` (or `--mathml -` from **stdin**) |
+
+UnicodeMath is typed into a math zone and *built up* by Word itself; LaTeX and
+MathML travel LaTeX→MathML→OMML→Word through Office's own shipped transform, so
+only the LaTeX→MathML hop needs a third party (`pip install "wordlive[latex]"`).
+The equation lands on its own paragraph — `--display` (default) centres it,
+`--inline` left-aligns it. `--after` (default) places it below the anchor;
+`--before` above (including a clean prepend at the document start).
+
+`equations` is the read side: every equation's `equation:N` id, `type`
+(display/inline), a linear preview, and the `para:N` it sits in.
+
+```bash
+$ wordlive insert-equation --anchor-id heading:2 --unicodemath "a^2+b^2=c^2"
+{"ok": true, "anchor_id": "heading:2", "equation": 1, "equation_anchor_id": "equation:1", "display": true, "where": "after"}
+
+$ wordlive equations
+[{"index": 1, "anchor_id": "equation:1", "type": "display", "linear": "𝑎2+𝑏2=𝑐2", "para": "para:1"}]
+```
+
+Failures: `1` malformed input (no dialect, or more than one; unparseable
+MathML/LaTeX; the `latex` extra not installed) — an `EquationError`; `2` anchor
+not found; `3` Word busy.
+
 ## `snapshot [--anchor-id ID | --page N | --pages A-B]`
 
 ```

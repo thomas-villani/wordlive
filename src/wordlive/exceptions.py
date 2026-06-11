@@ -102,6 +102,22 @@ class ImageSourceError(WordliveError):
         super().__init__(message)
 
 
+class EquationError(WordliveError):
+    """An equation given to `insert_equation` couldn't be built into Word math.
+
+    Raised for malformed input (no input dialect given, or more than one of
+    `unicodemath`/`latex`/`mathml`), unparseable MathML, a LaTeX source the
+    optional converter rejects, or a missing LaTeX→MathML backend
+    (`pip install "wordlive[latex]"`). It's a bad-input / dependency problem —
+    not a "named thing is missing" — so it maps to the generic exit code (1),
+    like its sibling `ImageSourceError`. Not retryable: fix the input (or install
+    the extra).
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class PathNotAllowedError(WordliveError):
     """A filesystem path was refused by the gated CLI / MCP surface's policy.
 

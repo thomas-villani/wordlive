@@ -150,6 +150,32 @@ it needs no `doc.edit(...)`.
 
 ::: wordlive.ImageCollection
 
+## Equations
+
+Mathematical equations as first-class anchors. The write side is
+[`Anchor.insert_equation`](#wordlive.Anchor): it takes exactly one of three input
+dialects — `unicodemath=` (Word's native linear form, e.g. `"a^2+b^2=c^2"`,
+zero-dependency), `latex=` (the optional `latex` extra does the LaTeX→MathML
+hop), or `mathml=` (a `<math>` string) — converts it to Office Math, and places
+it on its own paragraph (`display=True` centres it, `display=False` marks it
+inline). It returns an [`EquationAnchor`](#wordlive.EquationAnchor) addressed
+`equation:N`. LaTeX and MathML travel LaTeX→MathML→OMML→Word through Office's own
+shipped XSLT (`MML2OMML.XSL`), so only the LaTeX→MathML step needs a third-party
+library; malformed input or a missing backend raises
+[`EquationError`](#wordlive.EquationError).
+
+`doc.equations` is the read side: a discovery collection whose `list()` reports
+each equation's `equation:N` id, `type` (`display`/`inline`), a linear preview,
+and the `para:N` it sits in. Index it (`doc.equations[2]`) for an
+[`EquationAnchor`](#wordlive.EquationAnchor), then read `equation.mathml` (a
+non-mutating round-trip back to MathML via Office's `OMML2MML.XSL`) or
+`equation.linear`. An equation has no plain text, so `set_text` raises — delete
+and re-insert to change it.
+
+::: wordlive.EquationAnchor
+
+::: wordlive.EquationCollection
+
 ## Footnotes, endnotes & TOC
 
 Notes and the table of contents are reference structures built from anchors.

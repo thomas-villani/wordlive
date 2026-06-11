@@ -72,6 +72,7 @@ from its id with `doc.anchor_by_id(...)`, or use the typed accessors:
 | `cc:NAME` | `doc.content_controls["NAME"]` | a content control (by Title, then Tag) |
 | `footnote:N` / `endnote:N` | `doc.footnotes[N]` / `doc.endnotes[N]` | the Nth note's body (1-based) |
 | `image:N` | `doc.images[N]` | the Nth embedded picture (1-based, Word's `InlineShapes` order) |
+| `equation:N` | `doc.equations[N]` | the Nth equation (1-based, Word's `OMaths` order) |
 | `table:N:R:C` | `doc.tables[N].cell(R, C)` | a table cell |
 | `range:START-END` | `doc.anchor_by_id("range:412-429")` | a raw character span (what `find()` emits) |
 | `header:S:WHICH` / `footer:S:WHICH` | `doc.sections[S].header(WHICH)` | header/footer (`primary`/`first`/`even`) |
@@ -116,6 +117,8 @@ a.insert_cross_reference("bookmark:Intro", kind="page")  # ref a bookmark/headin
 a.insert_caption("Figure", text="System overview")       # own-paragraph caption (Table→above, else below; position= to override)
 a.insert_image("diagram.png", wrap="auto")
 a.read_image()                          # → (bytes, mime) — extract the one image in the range
+a.insert_equation(unicodemath="x=(-b±√(b^2-4ac))/(2a)")   # native; or latex= (needs the `latex` extra) / mathml=
+a.insert_equation(latex=r"\frac{-b}{2a}", display=False)  # → EquationAnchor (equation:N); display=False = inline
 a.insert_table(data=[["Item", "Cost"], ["Travel", "$400"]], header=True)  # rows/cols inferred from data
 a.insert_table(data=[{"Item": "Travel", "Cost": "$400"}])  # records → keys become a bolded header row
 a.apply_list("numbered")                # + remove_list/list_info/restart_numbering/indent_list/outdent_list
@@ -256,6 +259,15 @@ data, mime = doc.anchor_by_id("para:7").read_image()  # the single image in a pa
 `read_image()` needs the range to hold exactly one picture (an `image:N` anchor
 always does); zero or several raise `ImageSourceError`. Reading is non-mutating —
 no `doc.edit()` needed.
+
+**Reading equations back out**: `doc.equations` lists every equation, and
+`EquationAnchor.mathml` round-trips one back to MathML (non-mutating).
+
+```python
+for eq in doc.equations.list():   # [{index, anchor_id, type, linear, para}]
+    print(eq["anchor_id"], eq["type"], eq["linear"])
+doc.equations[1].mathml           # → "<math …>…</math>"  (via Office's OMML→MathML transform)
+```
 
 ### Tables
 
