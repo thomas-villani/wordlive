@@ -3639,15 +3639,20 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     accepted as shorthand for `{"ops": [...]}`. Set `"tracked": true` at the top
     level to record the whole batch as Word revisions (Track Changes is restored
     to its prior state afterwards).
-    Supported ops: write_bookmark, write_cc, insert_paragraph, append,
-    append_inline, prepend, prepend_inline, insert_image, replace, find_replace,
-    apply_style, format_paragraph, set_cell, add_row, delete_row, create_table,
-    delete_table, insert_break, add_comment, resolve_comment, delete_comment, apply_list,
-    remove_list, restart_numbering, indent_list, outdent_list, write_header,
-    write_footer. (append/prepend add a new paragraph + optional style;
-    append_inline/prepend_inline continue the adjacent paragraph, text only.
-    append_paragraph/prepend_paragraph remain as synonyms.) A field an op doesn't
-    use is reported in the result's `warnings`, not silently dropped.
+    Supported ops: write_bookmark, write_cc, insert_paragraph, insert_block,
+    delete_paragraph, append, append_inline, prepend, prepend_inline,
+    insert_image, replace, find_replace, apply_style, format_paragraph,
+    format_run, set_shading, set_borders, add_tab_stop, add_style, set_style,
+    insert_field, set_page_setup, update_fields, insert_footnote, insert_endnote,
+    insert_toc, add_bookmark, add_hyperlink, insert_cross_reference,
+    insert_caption, set_cell, add_row, append_record, update_row, delete_row,
+    set_heading_row, create_table, delete_table, insert_break, add_comment,
+    resolve_comment, delete_comment,
+    apply_list, remove_list, restart_numbering, indent_list, outdent_list,
+    write_header, write_footer. (append/prepend add a new paragraph + optional
+    style; append_inline/prepend_inline continue the adjacent paragraph, text
+    only. append_paragraph/prepend_paragraph remain as synonyms.) A field an op
+    doesn't use is reported in the result's `warnings`, not silently dropped.
     See docs/cli.md for each op's required and optional fields.
     """
     if (script is None) == (ops_inline is None):

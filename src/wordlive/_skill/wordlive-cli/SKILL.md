@@ -76,11 +76,11 @@ are name-based and survive edits — reach for them when you need a durable hand
 - `wordlive cross-ref --anchor-id ID --target TARGET [--kind text|page|number|above_below] [--no-hyperlink]` — reference another anchor; `--target` is `bookmark:NAME` / `heading:N` / `footnote:N` / `endnote:N`. Refresh with `update-fields`.
 - `wordlive caption --anchor-id ID [--label Figure] [--text "…"] [--position above|below]` — insert an auto-numbered caption (Figure/Table/…) as its own `Caption` paragraph (on a `table:N:R:C` anchor it captions the whole table). Default placement is above for a `Table`, below otherwise; `--position` overrides. Pairs with `cross-ref`.
 - `wordlive page-setup [--section N] [--margins 1in] [--top-margin … --bottom-margin … --left-margin … --right-margin …] [--gutter …] [--orientation portrait|landscape] [--paper-size letter|legal|tabloid|a3|a4|a5] [--columns N] [--column-spacing …]` — set a section's page geometry. `--margins` sets all four (per-side flags override); lengths take points or a unit string; `--columns N` makes N equal columns. `--section` defaults to `1`.
-- `wordlive list apply --anchor-id ID --type bulleted|numbered|outline` (+ `list remove|restart|indent|outdent`). **To number N paragraphs 1..N, scope one apply to a `range:` that spans them all** (offsets from `paragraphs`/`find`) — applying `numbered` per-paragraph makes N separate "1." lists.
+- `wordlive list apply --anchor-id ID --type bulleted|numbered|outline` (+ `list remove|restart|indent|outdent`; `list show` enumerates every list in the doc, `list info --anchor-id ID` reports a paragraph's list type/level/number). **To number N paragraphs 1..N, scope one apply to a `range:` that spans them all** (offsets from `paragraphs`/`find`) — applying `numbered` per-paragraph makes N separate "1." lists.
 - `wordlive table create --anchor-id ID --rows R --cols C [--style NAME] [--header] [--before | --after] [--data '[["…"],…]' | --data -]` — **build a new table** at a *position* anchor (`heading:`/`para:`/`start`/`end`); reports its 1-based `index`. Fill cells row-major with `--data` (use `--data -` for stdin to dodge Windows quoting); `--style` defaults to `Table Grid` (visible borders); `--header` bolds row 1. New cells default to the `Normal` paragraph style regardless of the anchor, so a table dropped under a heading doesn't inherit that heading style. Edit existing tables with `table add-row`/`delete-row`/`set-heading-row` and `table delete N`; `table set-heading-row --table N [--row R]` marks a row as a repeating header across pages. `table append-record --table N --record '{"Header":"val",…}'` appends a row by header name (the dict-keyed companion to positional `add-row`); `table update-row --table N --key VALUE --values '{"Header":"new",…}' [--column HEADER]` updates the first row whose key-column equals `--key`, addressing a row by content not index. Cells are anchors (`table:N:R:C`) you can `replace`/`style apply`/`format-paragraph`.
 - `wordlive comment add --anchor-id ID --text "…"` (+ `comment list` · `comment resolve --index N` · `comment delete --index N`).
 - `wordlive track on|off|status` — toggle / inspect Track Changes. Read the recorded edits structurally with `wordlive revisions`, or see them with `snapshot --markup all`.
-- `wordlive header write --section S --text "…"` · `footer write --section S --text "…"` (`--which primary|first|even`).
+- `wordlive header write --section S --text "…"` · `footer write --section S --text "…"` (`--which primary|first|even`); `header read` / `footer read --section S [--which …]` read them back.
 - `wordlive sections` — list sections with their page setup (orientation, margins, page size).
 
 ## Saving — gated, hand back a deliverable
@@ -165,10 +165,15 @@ several paragraphs after one fixed anchor, either insert in reverse order or
 anchor each to the previous insert; name-based ids (`bookmark:` / `cc:`) are
 stable across the batch.
 
-Ops: `write_bookmark`, `write_cc`, `insert_paragraph`, `insert_block`, `delete_paragraph`,
-`append`, `append_inline`, `prepend`, `prepend_inline`, `insert_image`,
-`replace`, `find_replace`, `apply_style`, `format_paragraph`, `set_cell`,
-`add_row`, `append_record`, `update_row`, `delete_row`, `set_heading_row`, `create_table`, `delete_table`, `insert_break`,
+Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
+`write_cc`, `insert_paragraph`, `insert_block`, `delete_paragraph`, `append`,
+`append_inline`, `prepend`, `prepend_inline`, `insert_image`, `replace`,
+`find_replace`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`,
+`set_borders`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,
+`set_page_setup`, `update_fields`, `insert_footnote`, `insert_endnote`,
+`insert_toc`, `add_bookmark`, `add_hyperlink`, `insert_cross_reference`,
+`insert_caption`, `set_cell`, `add_row`, `append_record`, `update_row`,
+`delete_row`, `set_heading_row`, `create_table`, `delete_table`, `insert_break`,
 `add_comment`, `resolve_comment`, `delete_comment`, `apply_list`, `remove_list`,
 `restart_numbering`, `indent_list`, `outdent_list`, `write_header`,
 `write_footer`.
