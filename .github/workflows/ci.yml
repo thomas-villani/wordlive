@@ -73,6 +73,8 @@ jobs:
             python-version: '3.12'
           - os: windows-latest
             python-version: '3.13'
+          - os: windows-latest
+            python-version: '3.14'
     steps:
       - uses: actions/checkout@v6
 
