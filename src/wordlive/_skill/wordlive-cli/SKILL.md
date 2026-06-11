@@ -107,6 +107,20 @@ wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP 
   in the anchor's text run — use with `--before` at a heading to land it above
   the heading rather than mid-line.
 
+## Equations
+```
+wordlive insert-equation --anchor-id ID (--unicodemath "…" | --latex "…" | --mathml "…") \
+    [--display | --inline] [--before | --after]
+wordlive equations          # list equation:N ids, type, linear preview, para:N
+```
+- Exactly one input dialect: `--unicodemath` (Word's native linear form, e.g.
+  `"x=(-b±√(b^2-4ac))/(2a)"`, zero-dependency), `--latex` (needs the `latex`
+  extra), or `--mathml` (`--mathml -` reads from stdin; uses Office's own
+  transform, no extra). As an `exec`/`insert_equation` op the fields are
+  `{anchor_id, unicodemath|latex|mathml, [display, before]}`.
+- The equation lands on its own paragraph; `--display` centres it, `--inline`
+  left-aligns it. The result carries the new `equation:N` id.
+
 ## Snapshot — render page(s) to PNG so you can *see* the layout
 ```
 wordlive snapshot [--anchor-id ID | --page N | --pages A-B] [--out FILE] [--dpi 150] [--max-dim N] [--markup none|all]
@@ -171,7 +185,7 @@ stable across the batch.
 Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `write_cc`, `insert_paragraph`, `insert_block`, `insert_section`,
 `insert_markdown`, `replace_section`, `delete_paragraph`, `append`,
-`append_inline`, `prepend`, `prepend_inline`, `insert_image`, `replace`,
+`append_inline`, `prepend`, `prepend_inline`, `insert_image`, `insert_equation`, `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`,
 `set_borders`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,
 `set_page_setup`, `update_fields`, `insert_footnote`, `insert_endnote`,

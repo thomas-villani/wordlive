@@ -112,6 +112,7 @@ def test_stats_text_counts_and_structure(fake_word):
         "headings": 2,
         "tables": 1,
         "images": 1,
+        "equations": 1,
         "comments": 0,
         "revisions": 1,
         "saved": False,

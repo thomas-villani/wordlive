@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from . import _com, _images, _lists
+from . import _com, _equations, _images, _lists
 from ._format import to_bgr, to_points
 from .constants import (
     MsoTriState,
@@ -33,7 +33,7 @@ from .constants import (
     WdUnderline,
     WdWrapType,
 )
-from .exceptions import AnchorNotFoundError, OpError
+from .exceptions import AnchorNotFoundError, EquationError, OpError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -453,6 +453,27 @@ def _within_table(doc_com: Any, start: int, end: int) -> bool:
         return bool(doc_com.Range(start, end).Information(int(WdInformation.WITH_IN_TABLE)))
     except Exception:
         return False
+
+
+def _equation_index_at(doc_com: Any, pos: int) -> int:
+    """1-based document index of the OMath at `pos` — the just-inserted equation.
+
+    Equations are addressed `equation:N` in document order, matching Word's own
+    `OMaths(n)`. The native path probes a position *inside* the new zone, so a
+    containing-zone match wins; the OMML path probes the insertion boundary, so
+    we fall back to the first zone starting at or after `pos`. A document with no
+    equations (shouldn't happen right after an insert) reports index 1.
+    """
+    omaths = doc_com.OMaths
+    count = int(omaths.Count)
+    for i in range(1, count + 1):
+        rng = omaths.Item(i).Range
+        if int(rng.Start) <= pos < int(rng.End):
+            return i
+    for i in range(1, count + 1):
+        if int(omaths.Item(i).Range.Start) >= pos:
+            return i
+    return max(1, count)
 
 
 # Bookmark names: must start with a letter, then letters/digits/underscores, and
@@ -992,6 +1013,160 @@ class Anchor(ABC):
                 if alt_text is not None:
                     # AlternativeText doesn't always survive the conversion.
                     shape.AlternativeText = alt_text
+
+    def insert_equation(
+        self,
+        *,
+        unicodemath: str | None = None,
+        latex: str | None = None,
+        mathml: str | None = None,
+        where: str = "after",
+        display: bool = True,
+    ) -> EquationAnchor:
+        """Insert a mathematical equation at this anchor and return it.
+
+        The equation is given in exactly one of three input dialects:
+
+        - ``unicodemath=`` — Word's native **UnicodeMath** linear form, e.g.
+          ``"x=(-b±√(b^2-4ac))/(2a)"`` or ``"a^2+b^2=c^2"``. Zero-dependency: the
+          string is typed into a math zone and *built up* into the 2-D form by
+          Word itself.
+        - ``latex=`` — a **LaTeX** math string, e.g.
+          ``r"\\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}"``. Converted LaTeX→MathML→OMML;
+          the LaTeX→MathML hop needs the optional ``latex`` extra
+          (`pip install "wordlive[latex]"`) and raises `EquationError` without it.
+        - ``mathml=`` — a **MathML** (``<math>…</math>``) string. Converted
+          MathML→OMML through Office's own transform (no extra needed).
+
+        The equation lands on its **own paragraph**. `display` (default ``True``)
+        makes it a centred display equation; ``display=False`` marks it inline
+        (left-aligned). `where` is ``"after"`` (default) or ``"before"`` this
+        anchor's range — so ``doc.headings["Derivation"].insert_equation(...)``
+        drops an equation under a heading and ``doc.end.insert_equation(...)``
+        appends one.
+
+        Returns an [`EquationAnchor`][wordlive.EquationAnchor] (`equation:N`);
+        read it back as MathML with `equation.mathml`, or discover every equation
+        via [`doc.equations`][wordlive.Document.equations]. Wrap in
+        `doc.edit(...)` for atomic undo. Raises `EquationError` for malformed
+        input (none, or more than one, of the three dialects; unparseable
+        MathML/LaTeX; a missing LaTeX backend) and `ValueError` for a bad `where`.
+        """
+        given = [
+            name
+            for name, value in (
+                ("unicodemath", unicodemath),
+                ("latex", latex),
+                ("mathml", mathml),
+            )
+            if value is not None
+        ]
+        if len(given) != 1:
+            raise EquationError(
+                "insert_equation needs exactly one of unicodemath=, latex=, or mathml="
+                + (f"; got {', '.join(given)}" if given else "")
+            )
+        if where not in ("before", "after"):
+            raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+        if unicodemath is not None:
+            return self._insert_equation_native(unicodemath, where=where, display=display)
+        mathml_src = _equations.latex_to_mathml(latex) if latex is not None else (mathml or "")
+        omml_inner = _equations.mathml_to_omml(mathml_src)
+        return self._insert_equation_omml(omml_inner, where=where, display=display)
+
+    def _equation_paragraph_span(self, where: str) -> tuple[int, int]:
+        """Return the `(start, end)` of the document paragraph the equation attaches to.
+
+        An equation always lands on its own paragraph, so insertion targets a
+        *paragraph mark*, never a mid-paragraph offset — addressing off the
+        anchor's raw range would land inside a math zone (`equation:N`) or
+        mid-sentence (a bookmark). We resolve the paragraph containing the
+        relevant edge of the anchor: its **start** for ``"before"``, its last real
+        character (``End - 1``, clamped off the terminal mark) for ``"after"``.
+        """
+        rng = self._range()
+        doc_com = self._doc.com
+        doc_end = int(doc_com.Content.End)
+        if where == "before":
+            probe = max(0, int(rng.Start))
+        else:
+            probe = min(max(int(rng.Start), int(rng.End) - 1), max(0, doc_end - 1))
+        para = doc_com.Range(probe, probe).Paragraphs(1).Range
+        return int(para.Start), int(para.End)
+
+    def _insert_equation_native(
+        self, unicodemath: str, *, where: str, display: bool
+    ) -> EquationAnchor:
+        """Native UnicodeMath path: type the linear string, wrap it, BuildUp.
+
+        Opens a fresh paragraph at the containing paragraph's boundary, writes the
+        linear string into it, wraps the run in an `OMaths.Add` zone, and asks
+        Word to build it up into the 2-D form. No XML, no extra dependency.
+        """
+        with _com.translate_com_errors():
+            doc_com = self._doc.com
+            pstart, pend = self._equation_paragraph_span(where)
+            doc_end = int(doc_com.Content.End)
+            if where == "before":
+                # Write "<text>\r" at the paragraph start: the string becomes a new
+                # paragraph and pushes the anchor's paragraph down. Clean for any
+                # position, including the very start of the document (prepend).
+                doc_com.Range(pstart, pstart).Text = unicodemath + "\r"
+                ms = pstart
+            elif pend >= doc_end:
+                # The anchor's paragraph is the last; there's no position past the
+                # undeletable terminal mark, so split "\r<text>" in just before it.
+                pos = max(0, doc_end - 1)
+                doc_com.Range(pos, pos).Text = "\r" + unicodemath
+                ms = pos + 1
+            else:
+                # Open a new paragraph after the containing one and write into it.
+                doc_com.Range(pend, pend).Text = unicodemath + "\r"
+                ms = pend
+            me = ms + _utf16_len(unicodemath)
+            zone_rng = doc_com.Range(ms, me)
+            zone_rng.OMaths.Add(zone_rng)
+            zone = _equations.omath_in_range(doc_com, ms)
+            if zone is not None:
+                zone.BuildUp()
+                zone.Type = 1 if display else 0
+            index = _equation_index_at(doc_com, ms)
+        return EquationAnchor(self._doc, index)
+
+    def _insert_equation_omml(
+        self, omml_inner: str, *, where: str, display: bool
+    ) -> EquationAnchor:
+        """OMML path (latex/mathml): splice into a live template and InsertXML.
+
+        `Range.InsertXML` only accepts a full, valid WordprocessingML package, so
+        we take a live `Range.WordOpenXML` at a paragraph mark as the template and
+        inject one math paragraph there. ``"after"`` targets the containing
+        paragraph's mark; ``"before"`` targets the *preceding* paragraph's mark.
+        Prepending before the first paragraph has no preceding mark to split
+        against, so we open a leading paragraph first and trim the stray empty
+        paragraph afterwards.
+        """
+        with _com.translate_com_errors():
+            doc_com = self._doc.com
+            doc_end = int(doc_com.Content.End)
+            pstart, pend = self._equation_paragraph_span(where)
+            prepend = where == "before" and pstart <= 0
+            if prepend:
+                doc_com.Range(0, 0).Text = "\r"
+                t = 0
+            elif where == "before":
+                t = pstart - 1
+            else:
+                t = min(pend - 1, max(0, doc_end - 1))
+            package = _equations.equation_package(
+                str(doc_com.Range(t, t).WordOpenXML), omml_inner, display=display
+            )
+            doc_com.Range(t, t).InsertXML(package)
+            if prepend and str(doc_com.Content.Text).startswith("\r"):
+                # Trim the leading empty paragraph opened to anchor the prepend.
+                doc_com.Range(0, 1).Delete()
+            index = _equation_index_at(doc_com, t if prepend else t + 1)
+        return EquationAnchor(self._doc, index)
 
     def insert_table(
         self,
@@ -2248,6 +2423,147 @@ class ImageCollection:
                         "width": _safe_float(shape, "Width"),
                         "height": _safe_float(shape, "Height"),
                         "alt_text": _safe_str(shape, "AlternativeText"),
+                        "para": para_id,
+                    }
+                )
+        return out
+
+
+class EquationAnchor(Anchor):
+    """A mathematical equation located by 1-based index — `equation:N`.
+
+    Mirrors Word's own `OMaths(N)` ordering (document order). The anchor resolves
+    to the equation's range, so `mathml` round-trips it back to MathML (via
+    Office's own transform, without mutating the document) and `linear` reads its
+    UnicodeMath form. `type` is ``"display"`` or ``"inline"``. Create equations
+    with [`Anchor.insert_equation`][wordlive.Anchor.insert_equation]; discover
+    them via [`doc.equations`][wordlive.Document.equations]. An equation isn't
+    plain text, so `set_text` raises — delete and re-insert to change it.
+    """
+
+    kind = "equation"
+
+    def __init__(self, doc: Document, index: int) -> None:
+        super().__init__(doc, name=f"equation:{index}")
+        self._index = index
+
+    @property
+    def index(self) -> int:
+        return self._index
+
+    @property
+    def anchor_id(self) -> str:
+        return f"equation:{self._index}"
+
+    def _omath(self) -> Any:
+        omaths = self._doc.com.OMaths
+        n = int(omaths.Count)
+        if not (1 <= self._index <= n):
+            raise AnchorNotFoundError("equation", f"equation:{self._index}")
+        return omaths.Item(self._index)
+
+    def _range(self) -> Any:
+        return self._omath().Range
+
+    @property
+    def type(self) -> str:
+        """``"display"`` (its own centred line) or ``"inline"`` (in the text flow)."""
+        with _com.translate_com_errors():
+            # WdOMathType: wdOMathDisplay == 1, wdOMathInline == 0.
+            return "display" if int(self._omath().Type) == 1 else "inline"
+
+    @property
+    def mathml(self) -> str:
+        """The equation as MathML — a non-mutating read via Office's OMML→MathML transform."""
+        with _com.translate_com_errors():
+            package = str(self._omath().Range.WordOpenXML)
+        return _equations.omml_to_mathml(package)
+
+    @property
+    def linear(self) -> str:
+        """The equation's text in Word's built-up linear form (a compact preview).
+
+        Reads the zone's text with the internal structure markers collapsed — a
+        readable approximation of the math, not a precise round-trip. For
+        fidelity use [`mathml`][wordlive.EquationAnchor.mathml].
+        """
+        with _com.translate_com_errors():
+            raw = str(self._omath().Range.Text or "")
+        return raw.replace("\r", "").replace("\x0b", "").strip()
+
+    def set_text(self, text: str) -> None:
+        raise OpError(
+            "an equation anchor has no plain text to set; delete it and "
+            "insert_equation(...) again to change it"
+        )
+
+
+class EquationCollection:
+    """Read-only, iterable view over the document's equations (`doc.equations`).
+
+    Index an equation by 1-based position (`doc.equations[2]`) to get an
+    [`EquationAnchor`][wordlive.EquationAnchor] (`equation:N`), then `mathml` /
+    `linear` to read it. `list()` summarises every equation — id, type, a linear
+    preview, and the `para:N` it sits in. Positions match Word's own `OMaths(n)`
+    ordering. The write mirror is any anchor's
+    [`insert_equation`][wordlive.Anchor.insert_equation].
+    """
+
+    def __init__(self, doc: Document) -> None:
+        self._doc = doc
+
+    def __len__(self) -> int:
+        with _com.translate_com_errors():
+            return int(self._doc.com.OMaths.Count)
+
+    def __getitem__(self, index: int) -> EquationAnchor:
+        if isinstance(index, bool) or not isinstance(index, int):
+            raise TypeError(f"equation index must be int, got {type(index).__name__}")
+        n = len(self)
+        if not (1 <= index <= n):
+            raise AnchorNotFoundError("equation", str(index))
+        return EquationAnchor(self._doc, index)
+
+    def __iter__(self) -> Iterator[EquationAnchor]:
+        with _com.translate_com_errors():
+            count = int(self._doc.com.OMaths.Count)
+        for i in range(1, count + 1):
+            yield EquationAnchor(self._doc, i)
+
+    def list(self) -> list[dict[str, Any]]:
+        """Every equation as `{index, anchor_id, type, linear, para}`.
+
+        `type` is ``"display"`` / ``"inline"``; `linear` is the built-up text as
+        a compact preview (read [`EquationAnchor.mathml`][wordlive.EquationAnchor]
+        for fidelity); `para` is the `para:N` the equation sits in (or ``None``).
+        Reads no XML, so this is cheap to call over a whole document.
+        """
+        out: list[dict[str, Any]] = []
+        with _com.translate_com_errors():
+            omaths = self._doc.com.OMaths
+            count = int(omaths.Count)
+            for i in range(1, count + 1):
+                zone = omaths.Item(i)
+                rng = zone.Range
+                try:
+                    start = int(rng.Start)
+                except Exception:
+                    start = None
+                try:
+                    eq_type = "display" if int(zone.Type) == 1 else "inline"
+                except Exception:
+                    eq_type = "inline"
+                linear = str(rng.Text or "").replace("\r", "").replace("\x0b", "").strip()
+                para_id: str | None = None
+                if start is not None:
+                    para = self._doc.paragraphs.at(start)
+                    para_id = para.anchor_id if para is not None else None
+                out.append(
+                    {
+                        "index": i,
+                        "anchor_id": f"equation:{i}",
+                        "type": eq_type,
+                        "linear": linear,
                         "para": para_id,
                     }
                 )

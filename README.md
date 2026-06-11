@@ -147,6 +147,11 @@ base64 logo.png | wordlive insert-image --anchor-id bookmark:Logo --base64 - --w
 wordlive images                                            # list every embedded picture
 wordlive read-image --anchor-id image:1 --out logo.png     # extract bytes + mime
 
+# Equations — UnicodeMath (native), LaTeX (needs the `latex` extra), or MathML:
+wordlive insert-equation --anchor-id heading:3 --unicodemath "x=(-b±√(b^2-4ac))/(2a)"
+wordlive insert-equation --anchor-id heading:3 --latex "\frac{-b}{2a}"   # pip install "wordlive[latex]"
+wordlive equations                                         # list equation:N ids, type, preview
+
 # Snapshot — render page(s) to PNG so a vision model can SEE the layout
 # (needs the `snapshot` extra: pip install "wordlive[snapshot]"):
 wordlive snapshot --anchor-id heading:3 --out section.png   # the section's page(s)

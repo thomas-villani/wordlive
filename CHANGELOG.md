@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Equations — insert math from UnicodeMath, LaTeX, or MathML; read it back.**
+  `anchor.insert_equation(*, unicodemath= | latex= | mathml=, where="after",
+  display=True)` places a built-up Office Math equation on its own paragraph and
+  returns an `EquationAnchor` (`equation:N`). Three input dialects, exactly one
+  per call:
+  - `unicodemath=` — Word's native linear form (`"a^2+b^2=c^2"`); typed into a
+    math zone and *built up* by Word. Zero dependencies.
+  - `mathml=` — a `<math>…</math>` string, converted to OMML through Office's own
+    shipped `MML2OMML.XSL` (via MSXML). Zero dependencies.
+  - `latex=` — a LaTeX math string; the LaTeX→MathML hop uses the **optional
+    `latex` extra** (`pip install "wordlive[latex]"`, `latex2mathml`), then the
+    same MathML→OMML→Word path. A missing backend raises a clear `EquationError`.
+
+  `display=True` centres the equation; `display=False` marks it inline. The read
+  side is `doc.equations` (a discovery collection: `equation:N` id, type, linear
+  preview, `para:N`) and `EquationAnchor.mathml` — a **non-mutating** round-trip
+  back to MathML via Office's `OMML2MML.XSL`. New `equation:N` anchor id (in
+  `anchor_by_id` and `doc.stats()`); the `insert_equation` exec op; CLI
+  `insert-equation` + `equations`; MCP `word_write` `insert_equation` and
+  `word_read` `equations`. New `EquationError` (exit `1`, like `ImageSourceError`).
 - **Compose helpers — add a whole section, or a chunk of Markdown, in one op.**
   A thin layer over `insert_block` (and the `**bold**`/`*italic*` run parser) so
   an agent composes structure instead of issuing a storm of single inserts:

@@ -764,3 +764,81 @@ def test_replace_section_body_keeps_heading(scratch_doc):
     assert "fresh alpha body" in texts
     assert "old alpha body" not in texts  # the old body is gone
     assert "beta body" in texts  # the next section is untouched
+
+
+# ---------------------------------------------------------------------------
+# Equations (insert_equation + doc.equations) — real OMaths / InsertXML / MSXML
+# ---------------------------------------------------------------------------
+
+
+def test_insert_equation_unicodemath_builds_up(scratch_doc):
+    """Native UnicodeMath: a linear string becomes a built-up display equation."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Derivation")
+    with doc.edit("eq"):
+        eq = doc.paragraphs[1].insert_equation(unicodemath="a^2+b^2=c^2", where="after")
+    assert eq.anchor_id == "equation:1"
+    assert eq.type == "display"
+    assert len(doc.equations) == 1
+    # The built-up text carries the operands (structure markers stripped).
+    assert "𝑎" in eq.linear and "𝑐" in eq.linear
+
+
+def test_insert_equation_mathml_round_trips_to_mathml(scratch_doc):
+    """MathML in → Office OMML → and back out to MathML via the read transform."""
+    doc = scratch_doc
+    mathml = (
+        '<math xmlns="http://www.w3.org/1998/Math/MathML">'
+        "<mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></math>"
+    )
+    with doc.edit("eq"):
+        eq = doc.end.insert_equation(mathml=mathml, display=False)
+    assert eq.type == "inline"
+    out = eq.mathml
+    assert "<math" in out and "msup" in out  # the superscript survives the round-trip
+
+
+def test_insert_equation_display_and_inline_types(scratch_doc):
+    """display=True/False set the equation's OMath type."""
+    doc = scratch_doc
+    with doc.edit("eqs"):
+        disp = doc.end.insert_equation(unicodemath="x+1", display=True)
+        inl = doc.end.insert_equation(unicodemath="y+1", display=False)
+    assert disp.type == "display"
+    assert inl.type == "inline"
+
+
+def test_insert_equation_before_and_prepend(scratch_doc):
+    """`where="before"` inserts ahead of the anchor, including at document start."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Body paragraph.")
+    with doc.edit("prepend"):
+        eq = doc.paragraphs[1].insert_equation(unicodemath="z=1", where="before")
+    # The equation now precedes the body paragraph it was anchored before.
+    assert eq.anchor_id == "equation:1"
+    texts = [r["text"] for r in doc.paragraphs.list()]
+    assert "Body paragraph." in texts
+
+
+def test_equations_list_reports_each(scratch_doc):
+    """doc.equations.list() summarises every equation in document order."""
+    doc = scratch_doc
+    with doc.edit("eqs"):
+        doc.end.insert_equation(unicodemath="a=1")
+        doc.end.insert_equation(unicodemath="b=2", display=False)
+    rows = doc.equations.list()
+    assert [r["anchor_id"] for r in rows] == ["equation:1", "equation:2"]
+    assert rows[0]["type"] == "display"
+    assert rows[1]["type"] == "inline"
+
+
+def test_insert_equation_latex_when_backend_present(scratch_doc):
+    """LaTeX path, end to end — skipped when the optional backend isn't installed."""
+    pytest.importorskip("latex2mathml")
+    doc = scratch_doc
+    with doc.edit("eq"):
+        eq = doc.end.insert_equation(latex=r"\frac{-b}{2a}")
+    assert len(doc.equations) == 1
+    assert "<math" in eq.mathml
