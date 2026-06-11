@@ -49,7 +49,7 @@ Quick index (capability → real release):
 | Non-visual layout introspection (`anchor.location()`, `doc.stats()`) | v0.14.0 |
 | Table-as-records read/update (`records`/`append_record`/`update_row`) | v0.14.0 |
 | Compose helpers: `insert_section`, `insert_markdown`, `replace_section_body` | v0.14.0 |
-| Equations (`insert_equation` UnicodeMath/LaTeX/MathML; `doc.equations`, `equation:N`, `.mathml`) | Unreleased |
+| Equations (`insert_equation` UnicodeMath/LaTeX/MathML; `doc.equations`, `equation:N`, `.mathml`) | v0.14.0 |
 
 The detail below preserves the **load-bearing reference facts** (addressing
 schemes, gotchas a future change must respect). Deeper deliberation lives in git
@@ -557,7 +557,7 @@ shipped in v0.12.0 (Part I). Still open:
 - **Document themes** — `Document.DocumentTheme` / `ApplyTheme`, theme color/font
   schemes. Brand-consistency play; the natural next step now that style creation
   has shipped.
-- ~~**Equations** — `Range.OMaths.Add` / build.~~ **Shipped** (Unreleased):
+- ~~**Equations** — `Range.OMaths.Add` / build.~~ **Shipped** (v0.14.0):
   `insert_equation(unicodemath= | latex= | mathml=)` builds Office Math, with
   `doc.equations` / `equation:N` reads (`.mathml` round-trips via Office's own
   XSLT). LaTeX is the optional `latex` extra. See Part I.
