@@ -1069,12 +1069,18 @@ class Anchor(ABC):
         - ``mathml=`` — a **MathML** (``<math>…</math>``) string. Converted
           MathML→OMML through Office's own transform (no extra needed).
 
-        The equation lands on its **own paragraph**. `display` (default ``True``)
-        makes it a centred display equation; ``display=False`` marks it inline
-        (left-aligned). `where` is ``"after"`` (default) or ``"before"`` this
-        anchor's range — so ``doc.headings["Derivation"].insert_equation(...)``
-        drops an equation under a heading and ``doc.end.insert_equation(...)``
-        appends one.
+        The equation always lands on its **own paragraph**, and that paragraph's
+        style is pinned so it never inherits the style of whatever it was
+        inserted next to (an equation dropped before a `Heading 2` used to come
+        out *styled* `Heading 2` and land in the outline/TOC). `display` (default
+        ``True``) gives it the dedicated centred ``Equation`` paragraph style
+        (created on first use, based on ``Normal`` — a stable hook for later
+        equation numbering); ``display=False`` resets the paragraph to ``Normal``
+        and left-aligns it (it is still its own paragraph — wordlive does not
+        place math mid-sentence — but reads as body text, not centred display
+        math). `where` is ``"after"`` (default) or ``"before"`` this anchor's
+        range — so ``doc.headings["Derivation"].insert_equation(...)`` drops an
+        equation under a heading and ``doc.end.insert_equation(...)`` appends one.
 
         Returns an [`EquationAnchor`][wordlive.EquationAnchor] (`equation:N`);
         read it back as MathML with `equation.mathml`, or discover every equation
@@ -1162,6 +1168,7 @@ class Anchor(ABC):
                 zone.BuildUp()
                 zone.Type = 1 if display else 0
             index = _equation_index_at(doc_com, ms)
+            self._style_equation_paragraph(ms, display=display)
         return EquationAnchor(self._doc, index)
 
     def _insert_equation_omml(
@@ -1196,8 +1203,58 @@ class Anchor(ABC):
             if prepend and str(doc_com.Content.Text).startswith("\r"):
                 # Trim the leading empty paragraph opened to anchor the prepend.
                 doc_com.Range(0, 1).Delete()
-            index = _equation_index_at(doc_com, t if prepend else t + 1)
+            eq_pos = t if prepend else t + 1
+            index = _equation_index_at(doc_com, eq_pos)
+            self._style_equation_paragraph(eq_pos, display=display)
         return EquationAnchor(self._doc, index)
+
+    def _ensure_equation_style(self) -> Any | None:
+        """Return the COM ``Equation`` paragraph style, creating it if absent.
+
+        A centred, ``Normal``-based paragraph style dedicated to display
+        equations. Applying it to every display equation means an inserted
+        equation can never inherit a heading style from its insertion point
+        (which would drop the equation into the navigation outline / TOC), and
+        gives a stable, named hook for future equation numbering and
+        cross-references. Returns ``None`` for a degenerate document with no
+        ``Normal`` to base it on — the caller then falls back to ``Normal``.
+        """
+        styles = self._doc.styles
+        if "Equation" in styles:
+            return styles["Equation"].com
+        if "Normal" not in styles:
+            return None
+        style = styles.add("Equation", based_on="Normal", next_style="Normal")
+        style.format_paragraph(alignment="center")
+        return style.com
+
+    def _style_equation_paragraph(self, pos: int, *, display: bool) -> None:
+        """Pin the style/alignment of the paragraph an equation just landed on.
+
+        Without this, an equation written at a paragraph boundary inherits the
+        *following* paragraph's style — so an equation inserted before a
+        ``Heading 2`` came out styled ``Heading 2`` and polluted the outline/TOC.
+        A **display** equation gets the dedicated centred ``Equation`` style; an
+        **inline** (``display=False``) equation is reset to ``Normal`` and
+        left-aligned (it still lands on its own paragraph, but reads as body
+        text, not centred display math). Best-effort — a COM hiccup here must not
+        sink an otherwise-successful insert.
+        """
+        doc_com = self._doc.com
+        try:
+            para = doc_com.Range(pos, pos).Paragraphs(1).Range
+            if display:
+                eq_style = self._ensure_equation_style()
+                if eq_style is not None:
+                    para.Style = eq_style
+                # Centring comes from the Equation style, so a redefined style
+                # still drives it — no competing direct alignment.
+            else:
+                if "Normal" in self._doc.styles:
+                    para.Style = self._doc.styles["Normal"].com
+                para.ParagraphFormat.Alignment = int(WdParagraphAlignment.LEFT)
+        except Exception:  # noqa: BLE001 — styling is a finishing touch, not the insert
+            pass
 
     def insert_table(
         self,

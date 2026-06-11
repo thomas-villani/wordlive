@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A dedicated `Equation` paragraph style.** Display equations now land on a
+  centred, `Normal`-based `Equation` paragraph style (created on first use), so
+  an equation is styled consistently regardless of where it was inserted — and
+  there's a stable, named hook for future equation numbering / cross-references.
+
 ### Fixed
+- **Equations no longer inherit a neighbouring heading's style.** An equation
+  inserted before a `Heading 2` was written at the paragraph boundary and
+  adopted the *following* paragraph's style — coming out styled `Heading 2` and
+  polluting the navigation outline / TOC (it appeared as a heading entry). The
+  equation's paragraph style is now pinned after insertion: `display=True` gets
+  the centred `Equation` style; `display=False` is reset to `Normal` and
+  left-aligned (it remains its own paragraph but reads as body text). The
+  returned `equation:N` is documented as a positional id (Word's `OMaths` order)
+  that renumbers when an earlier equation is inserted — re-list, don't cache it.
 - **Composing at the end of a document no longer merges into the last
   paragraph.** `insert_block` (and so `insert_section` / `insert_markdown`)
   targeting `doc.end` wrote the block *before* the final paragraph mark, so when

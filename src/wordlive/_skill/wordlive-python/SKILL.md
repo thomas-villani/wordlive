@@ -118,7 +118,8 @@ a.insert_caption("Figure", text="System overview")       # own-paragraph caption
 a.insert_image("diagram.png", wrap="auto")
 a.read_image()                          # → (bytes, mime) — extract the one image in the range
 a.insert_equation(unicodemath="x=(-b±√(b^2-4ac))/(2a)")   # native; or latex= (needs the `latex` extra) / mathml=
-a.insert_equation(latex=r"\frac{-b}{2a}", display=False)  # → EquationAnchor (equation:N); display=False = inline
+a.insert_equation(latex=r"\frac{-b}{2a}", display=False)  # → EquationAnchor; display=True→centred "Equation" style, False→Normal+left
+# equation:N is positional (OMaths order) — inserting one before another renumbers it; re-list, don't cache the id
 a.insert_table(data=[["Item", "Cost"], ["Travel", "$400"]], header=True)  # rows/cols inferred from data
 a.insert_table(data=[{"Item": "Travel", "Cost": "$400"}])  # records → keys become a bolded header row
 a.apply_list("numbered")                # + remove_list/list_info/restart_numbering/indent_list/outdent_list

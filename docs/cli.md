@@ -791,12 +791,17 @@ required:
 UnicodeMath is typed into a math zone and *built up* by Word itself; LaTeX and
 MathML travel LaTeX→MathML→OMML→Word through Office's own shipped transform, so
 only the LaTeX→MathML hop needs a third party (`pip install "wordlive[latex]"`).
-The equation lands on its own paragraph — `--display` (default) centres it,
-`--inline` left-aligns it. `--after` (default) places it below the anchor;
-`--before` above (including a clean prepend at the document start).
+The equation lands on its own paragraph with a pinned style (so it never
+inherits a neighbouring heading's style and pollutes the outline/TOC):
+`--display` (default) gives it the centred `Equation` paragraph style
+(auto-created, based on `Normal`); `--inline` makes it `Normal` and left-aligned
+(still its own paragraph, not mid-sentence). `--after` (default) places it below
+the anchor; `--before` above (including a clean prepend at the document start).
 
 `equations` is the read side: every equation's `equation:N` id, `type`
-(display/inline), a linear preview, and the `para:N` it sits in.
+(display/inline), a linear preview, and the `para:N` it sits in. `equation:N` is
+positional (Word's `OMaths` order) — inserting another equation before an
+existing one renumbers it, so re-list rather than caching an id across inserts.
 
 ```bash
 $ wordlive insert-equation --anchor-id heading:2 --unicodemath "a^2+b^2=c^2"

@@ -862,6 +862,43 @@ def test_equations_list_reports_each(scratch_doc):
     assert rows[1]["type"] == "inline"
 
 
+def _seed_body_then_heading(doc):
+    """Body paragraph (para:1) immediately followed by a Heading 2 (para:2)."""
+    with doc.edit("seed"):
+        doc.append_paragraph("Body paragraph before the equation.", style="Normal")
+        doc.append_paragraph("A Heading 2 right after", style="Heading 2")
+
+
+def test_display_equation_uses_equation_style_not_following_heading(scratch_doc):
+    """WL-B: a display equation inserted before a Heading 2 must not adopt the
+    heading's style (outline/TOC pollution) — it gets the centred `Equation`
+    style instead."""
+    doc = scratch_doc
+    _seed_body_then_heading(doc)
+    with doc.edit("display eq"):
+        eq = doc.paragraphs[1].insert_equation(unicodemath="a^2+b^2=c^2", display=True)
+    para = doc.paragraphs.at(int(eq.com.Start))
+    assert para is not None
+    assert not para.is_heading  # not styled Heading 2
+    assert para.com.Style.NameLocal == "Equation"
+
+
+def test_inline_equation_is_normal_and_left_aligned(scratch_doc):
+    """WL-D: a display=False equation lands on its own paragraph but reads as
+    body text — Normal style, left-aligned — not centred, not a heading."""
+    from wordlive.constants import WdParagraphAlignment
+
+    doc = scratch_doc
+    _seed_body_then_heading(doc)
+    with doc.edit("inline eq"):
+        eq = doc.paragraphs[1].insert_equation(unicodemath="x=y", display=False)
+    para = doc.paragraphs.at(int(eq.com.Start))
+    assert para is not None
+    assert not para.is_heading
+    assert para.com.Style.NameLocal == "Normal"
+    assert int(para.com.ParagraphFormat.Alignment) == int(WdParagraphAlignment.LEFT)
+
+
 def test_insert_equation_latex_when_backend_present(scratch_doc):
     """LaTeX path, end to end — skipped when the optional backend isn't installed."""
     pytest.importorskip("latex2mathml")

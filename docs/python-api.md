@@ -157,9 +157,14 @@ Mathematical equations as first-class anchors. The write side is
 dialects — `unicodemath=` (Word's native linear form, e.g. `"a^2+b^2=c^2"`,
 zero-dependency), `latex=` (the optional `latex` extra does the LaTeX→MathML
 hop), or `mathml=` (a `<math>` string) — converts it to Office Math, and places
-it on its own paragraph (`display=True` centres it, `display=False` marks it
-inline). It returns an [`EquationAnchor`](#wordlive.EquationAnchor) addressed
-`equation:N`. LaTeX and MathML travel LaTeX→MathML→OMML→Word through Office's own
+it on its own paragraph with a pinned style so it never inherits a neighbouring
+heading's style: `display=True` gives it the dedicated centred `Equation`
+paragraph style (created on first use, based on `Normal`); `display=False`
+resets the paragraph to `Normal` and left-aligns it (still its own paragraph,
+not mid-sentence). It returns an [`EquationAnchor`](#wordlive.EquationAnchor)
+addressed `equation:N` — a *positional* id in Word's `OMaths` order, so
+inserting another equation before it renumbers it (re-list rather than caching
+the id across further inserts). LaTeX and MathML travel LaTeX→MathML→OMML→Word through Office's own
 shipped XSLT (`MML2OMML.XSL`), so only the LaTeX→MathML step needs a third-party
 library; malformed input or a missing backend raises
 [`EquationError`](#wordlive.EquationError).

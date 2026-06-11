@@ -118,8 +118,14 @@ wordlive equations          # list equation:N ids, type, linear preview, para:N
   extra), or `--mathml` (`--mathml -` reads from stdin; uses Office's own
   transform, no extra). As an `exec`/`insert_equation` op the fields are
   `{anchor_id, unicodemath|latex|mathml, [display, before]}`.
-- The equation lands on its own paragraph; `--display` centres it, `--inline`
-  left-aligns it. The result carries the new `equation:N` id.
+- The equation lands on its own paragraph with a pinned style (so it never
+  inherits a neighbouring heading's style): `--display` gives it the centred
+  `Equation` paragraph style (auto-created, based on `Normal`); `--inline` makes
+  it `Normal` and left-aligned (still its own paragraph, not mid-sentence).
+- `equation:N` is **positional** (Word's `OMaths` document order), not a durable
+  handle: inserting another equation *before* an existing one renumbers it.
+  Re-list with `equations` (or re-resolve right before you reference it) rather
+  than caching an id across further inserts. The result carries the new id.
 
 ## Snapshot — render page(s) to PNG so you can *see* the layout
 ```
