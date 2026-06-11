@@ -58,6 +58,7 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "format_run": ("anchor_id",),
     "set_shading": ("anchor_id",),
     "set_borders": ("anchor_id",),
+    "drop_cap": ("anchor_id",),
     "add_tab_stop": ("anchor_id", "position"),
     "add_style": ("name",),
     "set_style": ("name",),
@@ -190,6 +191,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     # batch author who learned it there gets it honoured here instead of warned-
     # and-ignored. See the alias handling in `apply_op`.
     "set_borders": ("sides", "style", "line_style", "weight", "color"),
+    "drop_cap": ("lines", "position", "distance", "font"),
     "add_tab_stop": ("align", "leader"),
     "add_style": ("type", "based_on", "next_style"),
     "set_style": _SET_STYLE_FIELDS,
@@ -388,6 +390,11 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         elif "line_style" in op:
             kwargs["style"] = op["line_style"]
         doc.anchor_by_id(op["anchor_id"]).set_borders(**kwargs)
+    elif kind == "drop_cap":
+        kwargs = {k: op[k] for k in ("position", "distance", "font") if k in op}
+        if "lines" in op:
+            kwargs["lines"] = int(op["lines"])
+        doc.anchor_by_id(op["anchor_id"]).drop_cap(**kwargs)
     elif kind == "add_tab_stop":
         kwargs = {k: op[k] for k in ("align", "leader") if k in op}
         doc.anchor_by_id(op["anchor_id"]).add_tab_stop(op["position"], **kwargs)

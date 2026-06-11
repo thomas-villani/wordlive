@@ -21,6 +21,7 @@ from .constants import (
     WdCaptionPosition,
     WdCollapseDirection,
     WdColorIndex,
+    WdDropPosition,
     WdFieldType,
     WdInformation,
     WdLineSpacing,
@@ -277,6 +278,14 @@ _LINE_STYLES: dict[str, WdLineStyle] = {
     "dash-dot-dot": WdLineStyle.DASH_DOT_DOT,
     "double": WdLineStyle.DOUBLE,
 }
+
+_DROP_POSITIONS: dict[str, WdDropPosition] = {
+    "none": WdDropPosition.NONE,
+    "normal": WdDropPosition.DROPPED,
+    "dropped": WdDropPosition.DROPPED,
+    "margin": WdDropPosition.MARGIN,
+}
+
 
 _TAB_ALIGN: dict[str, WdTabAlignment] = {
     "left": WdTabAlignment.LEFT,
@@ -1904,6 +1913,52 @@ class Anchor(ABC):
                     keep_with_next=keep_with_next,
                     widow_control=widow_control,
                 )
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def drop_cap(
+        self,
+        lines: int = 3,
+        *,
+        position: str = "dropped",
+        distance: Any = 0.0,
+        font: str | None = None,
+    ) -> None:
+        """Turn the first letter of this anchor's paragraph into a drop cap.
+
+        The editorial oversized initial — a real Word `DropCap`, not a faked
+        big-font run, so it reflows and re-wraps the body text around it
+        natively. Applies to the **first paragraph** of the anchor's range.
+
+        `position` is ``"dropped"`` (the default — the letter sits *into* the
+        text, the common magazine style), ``"margin"`` (it hangs out in the left
+        margin), or ``"none"`` (remove an existing drop cap; `lines`/`distance`/
+        `font` are then ignored). `lines` is how many lines tall the letter is
+        (Word's default is 3). `distance` is the gap between the letter and the
+        body text, in points (or a unit string like ``"2pt"``). `font` optionally
+        sets the dropped letter's font family.
+
+        Word rejects a drop cap on an **empty** paragraph (there's no letter to
+        drop) — that surfaces as a `ComError`. Wrap in `doc.edit(...)` for atomic
+        undo. Raises `OpError` for an unknown `position` or a bad `distance`.
+        """
+        try:
+            pos = _coerce_named(position, _DROP_POSITIONS, "drop-cap position")
+            dist = to_points(distance)
+            if not isinstance(lines, int) or isinstance(lines, bool) or lines < 1:
+                raise ValueError(f"lines must be a positive integer; got {lines!r}")
+            with _com.translate_com_errors():
+                dc = self._range().Paragraphs(1).DropCap
+                # Enable the cap first: Word resets LinesToDrop/DistanceFromText/
+                # FontName to its defaults when Position changes, so the geometry
+                # must be written *after* the position or it's silently dropped.
+                dc.Position = pos
+                if pos == int(WdDropPosition.NONE):
+                    return
+                dc.LinesToDrop = lines
+                dc.DistanceFromText = dist
+                if font is not None:
+                    dc.FontName = str(font)
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
 

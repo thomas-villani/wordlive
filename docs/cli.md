@@ -1203,6 +1203,24 @@ snapped to Word's discrete line-width set (0.25/0.5/0.75/1/1.5/2.25/3 pt).
 Page-wide and table-wide borders are out of scope (this sets per-range/per-cell
 borders). Atomic-undo.
 
+## `drop-cap --anchor-id ID [...]`
+
+```
+wordlive drop-cap --anchor-id ID
+    [--position dropped|margin|none] [--lines N]
+    [--distance POINTS|UNIT] [--font NAME] [--doc DOC_NAME]
+```
+
+Turn the first letter of the anchor's **paragraph** into a drop cap — the
+editorial oversized initial, a real Word `DropCap` so the body text wraps around
+it natively (not a faked big-font run). `--position` is `dropped` (default — the
+letter sits into the text), `margin` (it hangs in the left margin), or `none`
+(remove an existing drop cap; the other flags are then ignored). `--lines` is
+how many lines tall the letter is (default 3), `--distance` the gap from the body
+text, and `--font` an optional font for the dropped letter. Word rejects a drop
+cap on an **empty** paragraph (no letter to drop) — that surfaces as a `3`/COM
+error. Atomic-undo. Failures: `2` anchor not found, `1` bad value.
+
 ## `tab-stop --anchor-id ID --position POS [...]`
 
 ```
@@ -1777,6 +1795,7 @@ Script shape:
 | `format_run`           | `anchor_id`                                | `bold`, `italic`, `underline`, `strikethrough`, `font`, `size`, `color`, `highlight`, `subscript`, `superscript`, `small_caps`, `all_caps`, `spacing` |
 | `set_shading`          | `anchor_id`                                | `fill`, `pattern`                 |
 | `set_borders`          | `anchor_id`                                | `sides` (`all`/`box`/`top`/`bottom`/`left`/`right`/`horizontal`/`vertical`), `style` (a.k.a. `line_style`: `single`/`double`/`dot`/`dash`/`none`/…), `weight`, `color` |
+| `drop_cap`             | `anchor_id`                                | `position` (`dropped`/`margin`/`none`), `lines` (default 3), `distance`, `font` |
 | `add_tab_stop`         | `anchor_id`, `position`                    | `align`, `leader`                 |
 | `set_cell`             | `table`, `row`, `col`, `text`              | —                                 |
 | `add_row`              | `table`                                    | `values`                          |

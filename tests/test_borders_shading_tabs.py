@@ -15,7 +15,7 @@ import pytest
 import wordlive
 from wordlive._format import to_bgr
 from wordlive._ops import run_batch
-from wordlive.constants import WdLineStyle, WdTabAlignment, WdTabLeader
+from wordlive.constants import WdDropPosition, WdLineStyle, WdTabAlignment, WdTabLeader
 from wordlive.exceptions import OpError
 
 
@@ -225,3 +225,89 @@ def test_exec_add_tab_stop_missing_position_fails_cleanly(fake_word):
         )
     assert exc is not None and result["ok"] is False
     assert "position" in result["failure"]["error"]
+
+
+# --- drop cap ------------------------------------------------------------------
+
+
+def test_drop_cap_sets_position_and_geometry(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("dc"):
+            doc.bookmarks["Address"].drop_cap(4, position="dropped", distance="2pt", font="Georgia")
+    dc = _addr_range(fake_word).Paragraphs(1).DropCap
+    assert dc.Position == int(WdDropPosition.DROPPED)
+    assert dc.LinesToDrop == 4
+    assert dc.DistanceFromText == 2.0
+    assert dc.FontName == "Georgia"
+
+
+def test_drop_cap_margin_position(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("dc"):
+            doc.bookmarks["Address"].drop_cap(position="margin")
+    dc = _addr_range(fake_word).Paragraphs(1).DropCap
+    assert dc.Position == int(WdDropPosition.MARGIN)
+
+
+def test_drop_cap_none_removes_without_geometry(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("dc"):
+            doc.bookmarks["Address"].drop_cap(position="none")
+    dc = _addr_range(fake_word).Paragraphs(1).DropCap
+    assert dc.Position == int(WdDropPosition.NONE)
+    # position=none returns before writing geometry — LinesToDrop stays unset
+    # (its auto-mock default, never assigned a real int).
+    assert not isinstance(dc.LinesToDrop, int)
+
+
+def test_drop_cap_bad_position_raises(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(OpError, match="drop-cap position"):
+            doc.bookmarks["Address"].drop_cap(position="sideways")
+
+
+def test_drop_cap_bad_lines_raises(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(OpError, match="lines"):
+            doc.bookmarks["Address"].drop_cap(0)
+
+
+def test_exec_drop_cap(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [
+                {
+                    "op": "drop_cap",
+                    "anchor_id": "bookmark:Address",
+                    "lines": 2,
+                    "position": "dropped",
+                }
+            ],
+            label="test",
+        )
+    assert exc is None and result["ok"] is True and "warnings" not in result
+    dc = _addr_range(fake_word).Paragraphs(1).DropCap
+    assert dc.Position == int(WdDropPosition.DROPPED)
+    assert dc.LinesToDrop == 2
+
+
+def test_mcp_build_drop_cap_op():
+    from wordlive.mcp.server import _build_write_op
+
+    op = _build_write_op(
+        "drop_cap", {"anchor_id": "para:2", "position": "margin", "lines": 3, "font": "Georgia"}
+    )
+    assert op == {
+        "op": "drop_cap",
+        "anchor_id": "para:2",
+        "position": "margin",
+        "lines": 3,
+        "font": "Georgia",
+    }

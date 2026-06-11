@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`drop_cap` — the editorial oversized initial letter.** `anchor.drop_cap(lines=3,
+  position="dropped"|"margin"|"none", distance=…, font=…)` turns the first letter
+  of the anchor's paragraph into a real Word `DropCap` (the body text wraps around
+  it natively, not a faked big-font run); `position="none"` removes one. Across
+  the Python API, the `drop_cap` exec op, the CLI (`drop-cap`), and MCP.
 - **`line_spacing` on `format_paragraph` / `set_style`.** Sets the leading
   *within* a paragraph (distinct from `space_before`/`space_after`, which space
   paragraphs apart): a number is a multiple of single spacing (`1`, `1.5`, `2`),

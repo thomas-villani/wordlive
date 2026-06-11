@@ -430,6 +430,28 @@ def test_format_paragraph_line_spacing(scratch_doc):
     assert abs(float(exact_pf.LineSpacing) - 20.0) < 0.01
 
 
+def test_drop_cap_roundtrip(scratch_doc):
+    """drop_cap sets a real Word DropCap (position + geometry stick), and
+    position='none' removes it."""
+    from wordlive.constants import WdDropPosition
+
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Once upon a time a paragraph wanted a fancy initial.", style="Normal")
+    pid = _para_id_by_text(doc, "Once upon a time a paragraph wanted a fancy initial.")
+    with doc.edit("drop cap"):
+        doc.anchor_by_id(pid).drop_cap(4, position="dropped", distance="2pt", font="Georgia")
+    dc = doc.anchor_by_id(pid).com.Paragraphs(1).DropCap
+    assert int(dc.Position) == int(WdDropPosition.DROPPED)
+    assert int(dc.LinesToDrop) == 4
+    assert abs(float(dc.DistanceFromText) - 2.0) < 0.01
+    assert str(dc.FontName) == "Georgia"
+    with doc.edit("remove drop cap"):
+        doc.anchor_by_id(pid).drop_cap(position="none")
+    dc = doc.anchor_by_id(pid).com.Paragraphs(1).DropCap
+    assert int(dc.Position) == int(WdDropPosition.NONE)
+
+
 def test_set_heading_row_repeats(scratch_doc):
     doc = scratch_doc
     with doc.edit("seed"):

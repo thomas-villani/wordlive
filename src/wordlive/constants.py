@@ -318,6 +318,18 @@ class WdLineSpacing(IntEnum):
     MULTIPLE = 5
 
 
+class WdDropPosition(IntEnum):
+    """`DropCap.Position` — where `drop_cap(position=...)` puts the dropped letter.
+
+    `NONE` removes an existing drop cap; `DROPPED` sets it into the body text;
+    `MARGIN` hangs it out in the left margin.
+    """
+
+    NONE = 0
+    DROPPED = 1
+    MARGIN = 2
+
+
 class WdTabAlignment(IntEnum):
     """`TabStop.Alignment` — `add_tab_stop(align=...)` maps its keys onto these."""
 

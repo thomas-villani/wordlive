@@ -126,6 +126,7 @@ def register(group: click.Group) -> None:
     group.add_command(format_run_cmd)
     group.add_command(shading_cmd)
     group.add_command(borders_cmd)
+    group.add_command(drop_cap_cmd)
     group.add_command(tab_stop_cmd)
     group.add_command(table)
     group.add_command(comment)
@@ -2885,6 +2886,53 @@ def borders_cmd(
     _run(ctx, go)
 
 
+@click.command(name="drop-cap")
+@click.option(
+    "--anchor-id", "anchor_id", required=True, help="Anchor whose paragraph's first letter to drop."
+)
+@click.option(
+    "--position",
+    "position",
+    default="dropped",
+    type=click.Choice(["dropped", "normal", "margin", "none"], case_sensitive=False),
+    help="dropped (into the text), margin (in the left margin), or none (remove).",
+)
+@click.option("--lines", "lines", type=int, default=3, help="How many lines tall the letter is.")
+@click.option(
+    "--distance", "distance", default="0", help="Gap from the body text in points or a unit string."
+)
+@click.option("--font", "font", default=None, help="Font family for the dropped letter.")
+@click.pass_context
+def drop_cap_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    position: str,
+    lines: int,
+    distance: str,
+    font: str | None,
+) -> None:
+    """Turn the first letter of the anchor's paragraph into a drop cap (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: drop cap {anchor_id}"):
+                anchor.drop_cap(lines, position=position, distance=distance, font=font)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "applied": {"position": position, "lines": lines},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"drop cap on {anchor_id}: {position}",
+            )
+
+    _run(ctx, go)
+
+
 @click.command(name="tab-stop")
 @click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose paragraph(s) to tab.")
 @click.option(
@@ -3970,7 +4018,7 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     insert_section, insert_markdown, replace_section,
     delete_paragraph, append, append_inline, prepend, prepend_inline,
     insert_image, insert_equation, replace, find_replace, apply_style, format_paragraph,
-    format_run, set_shading, set_borders, add_tab_stop, add_style, set_style,
+    format_run, set_shading, set_borders, drop_cap, add_tab_stop, add_style, set_style,
     insert_field, set_page_setup, update_fields, insert_footnote, insert_endnote,
     insert_toc, add_bookmark, add_hyperlink, insert_cross_reference,
     insert_caption, set_cell, add_row, append_record, update_row, delete_row,

@@ -107,6 +107,7 @@ a.format_paragraph(alignment="center", space_before=6, line_spacing=1.5,  # lead
 a.format_run(bold=True, color="#FF0000", highlight="yellow", size="12pt")  # character formatting
 a.set_shading(fill="navy")              # range/cell background fill
 a.set_borders(sides="all", style="single", weight=0.5, color="black")
+a.drop_cap(3, position="dropped", font="Georgia")  # oversized initial letter; position="none" removes
 a.add_tab_stop("3in", align="right", leader="dots")
 a.insert_break(kind="page")             # page | column | section_next | section_continuous
 a.insert_field("page")                   # self-updating field: page|numpages|date|… (or "field" + raw code)

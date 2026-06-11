@@ -334,6 +334,12 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command == "drop_cap":
+        op = {"op": "drop_cap", "anchor_id": need("anchor_id")}
+        for k in ("lines", "position", "distance", "font"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
     if command == "add_tab_stop":
         op = {"op": "add_tab_stop", "anchor_id": need("anchor_id"), "position": need("position")}
         for k in ("align", "leader"):
@@ -803,6 +809,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "format_run",
             "set_shading",
             "set_borders",
+            "drop_cap",
             "add_tab_stop",
             "add_style",
             "set_style",
@@ -894,6 +901,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         sides: str | None = None,
         line_style: str | None = None,
         weight: float | None = None,
+        lines: int | None = None,
+        distance: str | float | None = None,
         position: str | float | None = None,
         align: str | None = None,
         leader: str | None = None,
@@ -962,6 +971,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         set_shading {anchor_id,fill} — fill colour of a range/cell ·
         set_borders {anchor_id,[sides=all|box|top|bottom|left|right|horizontal|vertical,
             line_style=single|double|dot|dash|none,weight,color]} ·
+        drop_cap {anchor_id,[position=dropped|margin|none,lines=3,distance,font]} —
+            an oversized initial letter on the anchor's paragraph (a real Word DropCap) ·
         add_tab_stop {anchor_id,position,[align=left|center|right|decimal|bar,
             leader=dots|dashes|lines|none]} ·
         add_style {name,[type=paragraph|character|table|list,based_on,next_style]} —
@@ -1078,6 +1089,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "sides": sides,
             "line_style": line_style,
             "weight": weight,
+            "lines": lines,
+            "distance": distance,
             "position": position,
             "align": align,
             "leader": leader,

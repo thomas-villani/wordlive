@@ -94,7 +94,9 @@ layout.
 layer, ideal with a `range:START-END` anchor to style a phrase. `set_shading`,
 `set_borders`, and `add_tab_stop` add range/cell fill, borders, and tab stops;
 colours accept a name, hex, or `(r, g, b)` and sizes/positions accept points or
-a unit string (`"12pt"`, `"1in"`). `insert_field(kind, ...)` drops a
+a unit string (`"12pt"`, `"1in"`). `drop_cap(lines=3, position="dropped"|"margin"|"none", …)`
+turns the first letter of the anchor's paragraph into a real Word drop cap (the
+editorial oversized initial; `position="none"` removes one). `insert_field(kind, ...)` drops a
 self-updating field (`"page"`, `"numpages"`, `"date"`, …, or `"field"` + a raw
 code) — pair it with a footer for page numbers and refresh with
 [`Document.update_fields()`](#wordlive.Document). `insert_footnote(text)` /
