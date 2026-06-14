@@ -344,6 +344,317 @@ class _FakeBorders:
         return self._edges.setdefault(int(index), MagicMock(name=f"Border[{index}]"))
 
 
+class _FakeVariable:
+    """A single document variable with a settable Value and a Delete()."""
+
+    def __init__(self, registry: _FakeVariables, name: str, value: str) -> None:
+        self._registry = registry
+        self.Name = name
+        self.Value = value
+
+    def Delete(self) -> None:
+        self._registry._remove(self.Name)
+
+
+class _FakeVariables:
+    """Mimics doc.Variables: Count, by-name call lookup, iteration, Add(Name, Value)."""
+
+    def __init__(self, variables: dict[str, str] | None) -> None:
+        self._items: dict[str, _FakeVariable] = {
+            k: _FakeVariable(self, k, str(v)) for k, v in (variables or {}).items()
+        }
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, name: str) -> _FakeVariable:
+        return self._items[name]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._items.values()))
+
+    def Add(self, Name: str | None = None, Value: str = "") -> _FakeVariable:
+        v = _FakeVariable(self, str(Name), str(Value))
+        self._items[str(Name)] = v
+        return v
+
+    def _remove(self, name: str) -> None:
+        self._items.pop(name, None)
+
+
+class _FakeHyperlink:
+    """A single hyperlink: Address / SubAddress / TextToDisplay / ScreenTip / Range."""
+
+    def __init__(self, spec: dict[str, Any]) -> None:
+        self.Address = spec.get("address", "")
+        self.SubAddress = spec.get("sub_address", "")
+        self.TextToDisplay = spec.get("text", "")
+        self.ScreenTip = spec.get("screen_tip", "")
+        self.Range = _make_range(spec.get("start", 0), spec.get("end", 0))
+
+
+class _FakeHyperlinks:
+    """Mimics doc.Hyperlinks: Count, 1-based call lookup, iteration, Add.
+
+    `Add` is a MagicMock (side-effect appends a `_FakeHyperlink`) so `link_to`'s
+    positional call args stay assertable while the reader still sees the new link.
+    """
+
+    def __init__(self, links: list[dict[str, Any]] | None) -> None:
+        self._items = [_FakeHyperlink(spec) for spec in (links or [])]
+        self.Add = MagicMock(name="HyperlinksAdd", side_effect=self._add)
+
+    def _add(
+        self,
+        Anchor: Any = None,
+        Address: str = "",
+        SubAddress: str = "",
+        ScreenTip: str = "",
+        TextToDisplay: str = "",
+        *args: Any,
+    ) -> _FakeHyperlink:
+        start = int(getattr(Anchor, "Start", 0)) if Anchor is not None else 0
+        end = int(getattr(Anchor, "End", start)) if Anchor is not None else start
+        h = _FakeHyperlink(
+            {
+                "address": str(Address or ""),
+                "sub_address": str(SubAddress or ""),
+                "screen_tip": str(ScreenTip or ""),
+                "text": str(TextToDisplay or ""),
+                "start": start,
+                "end": end,
+            }
+        )
+        self._items.append(h)
+        return h
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, index: int) -> _FakeHyperlink:
+        return self._items[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._items))
+
+
+class _FakeField:
+    """A single field: Code (range w/ Text), Result (w/ Text), Type, Locked."""
+
+    def __init__(self, spec: dict[str, Any]) -> None:
+        start = int(spec.get("start", 0))
+        code = _make_range(start, int(spec.get("end", start + 1)))
+        code.Text = spec.get("code", "")
+        self.Code = code
+        result = MagicMock(name="FieldResult")
+        result.Text = spec.get("result", "")
+        self.Result = result
+        self.Type = int(spec.get("type", 33))  # wdFieldPage
+        self.Locked = bool(spec.get("locked", False))
+
+
+class _FakeFields:
+    """Mimics doc.Fields: Count, 1-based call lookup, iteration, Update().
+
+    `Update` is a MagicMock so `Document.update_fields` (which calls
+    `Fields.Update()`) stays assertable.
+    """
+
+    def __init__(self, fields: list[dict[str, Any]] | None) -> None:
+        self._items = [_FakeField(spec) for spec in (fields or [])]
+        self.Update = MagicMock(name="FieldsUpdate")
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, index: int) -> _FakeField:
+        return self._items[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._items))
+
+
+class _FakeDocProperty:
+    """A built-in / custom document property with name + (maybe read-only) value.
+
+    `unreadable=True` makes `.Value` raise on read (an unset built-in, e.g. a
+    date), which the reader skips. `readonly=True` makes `.Value` raise on write
+    (a computed stat), which `set` surfaces as an OpError.
+    """
+
+    def __init__(
+        self,
+        registry: _FakeDocProperties,
+        name: str,
+        value: Any,
+        *,
+        readonly: bool = False,
+        unreadable: bool = False,
+    ) -> None:
+        self._registry = registry
+        self.Name = name
+        self._value = value
+        self._readonly = readonly
+        self._unreadable = unreadable
+
+    @property
+    def Value(self) -> Any:
+        if self._unreadable:
+            raise RuntimeError(f"property {self.Name!r} has no value")
+        return self._value
+
+    @Value.setter
+    def Value(self, new: Any) -> None:
+        if self._readonly:
+            raise RuntimeError(f"property {self.Name!r} is read-only")
+        self._value = new
+
+    def Delete(self) -> None:
+        self._registry._remove(self.Name)
+
+
+# The standard built-in property names real Word always exposes (a representative
+# slice). The fake auto-vivifies any of these with an empty value on first access,
+# so setting an unset-but-standard built-in (e.g. "Subject") works as in real Word;
+# a name outside this set raises, mirroring Word's com_error for an unknown one.
+_BUILTIN_PROP_NAMES = frozenset(
+    {
+        "Title",
+        "Subject",
+        "Author",
+        "Keywords",
+        "Comments",
+        "Template",
+        "Last author",
+        "Revision number",
+        "Application name",
+        "Last print date",
+        "Creation date",
+        "Last save time",
+        "Total editing time",
+        "Number of pages",
+        "Number of words",
+        "Number of characters",
+        "Security",
+        "Category",
+        "Format",
+        "Manager",
+        "Company",
+        "Hyperlink base",
+        "Content status",
+        "Word count",
+    }
+)
+
+
+class _FakeDocProperties:
+    """Mimics BuiltIn/CustomDocumentProperties: Count, by-name lookup, iter, Add.
+
+    `known` (the built-in bag's standard names) makes `__call__` auto-vivify an
+    unset-but-standard property; `None` (the custom bag) raises for any name not
+    already present, matching Word's com_error.
+    """
+
+    def __init__(
+        self,
+        props: dict[str, Any] | None,
+        *,
+        readonly: set[str] | None = None,
+        unreadable: set[str] | None = None,
+        known: frozenset[str] | None = None,
+    ) -> None:
+        ro, ur = readonly or set(), unreadable or set()
+        self._known = known
+        self._items: dict[str, _FakeDocProperty] = {
+            name: _FakeDocProperty(self, name, value, readonly=name in ro, unreadable=name in ur)
+            for name, value in (props or {}).items()
+        }
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, name: str) -> _FakeDocProperty:
+        if name not in self._items:
+            if self._known is not None and name in self._known:
+                self._items[name] = _FakeDocProperty(self, name, "")
+            else:
+                # Real Word raises a com_error for an unknown name; KeyError is
+                # close enough for the wrapper's catch-and-reraise-as-OpError path.
+                raise KeyError(name)
+        return self._items[name]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._items.values()))
+
+    def Add(
+        self,
+        Name: str | None = None,
+        LinkToContent: bool = False,
+        Type: int = 4,
+        Value: Any = "",
+        *args: Any,
+    ) -> _FakeDocProperty:
+        p = _FakeDocProperty(self, str(Name), Value)
+        self._items[str(Name)] = p
+        return p
+
+    def _remove(self, name: str) -> None:
+        self._items.pop(name, None)
+
+
+class _FakeProofErrors:
+    """Mimics doc.SpellingErrors / doc.GrammaticalErrors: a ProofreadingErrors collection.
+
+    Each item is a Range over the flagged run (Start/End/Text). `raises=True`
+    simulates a checker that's unavailable (proofing off / protected document),
+    so `Count` access raises and the reader reports `count: None`.
+    """
+
+    def __init__(self, errors: list[dict[str, Any]] | None, *, raises: bool = False) -> None:
+        self._raises = raises
+        self._items: list[Any] = []
+        for spec in errors or []:
+            start = int(spec.get("start", 0))
+            rng = _make_range(start, int(spec.get("end", start + 1)))
+            rng.Text = spec.get("text", "")
+            self._items.append(rng)
+
+    @property
+    def Count(self) -> int:
+        if self._raises:
+            raise RuntimeError("proofing tools unavailable")
+        return len(self._items)
+
+    def Item(self, index: int) -> Any:
+        return self._items[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._items))
+
+
+class _FakeReadabilityStat:
+    def __init__(self, name: str, value: float) -> None:
+        self.Name = name
+        self.Value = value
+
+
+class _FakeReadability:
+    """Mimics doc.ReadabilityStatistics: iterable of {Name, Value} stats."""
+
+    def __init__(self, stats: dict[str, float] | None, *, raises: bool = False) -> None:
+        self._raises = raises
+        self._items = [_FakeReadabilityStat(k, float(v)) for k, v in (stats or {}).items()]
+
+    def __iter__(self) -> Iterable[Any]:
+        if self._raises:
+            raise RuntimeError("readability unavailable")
+        return iter(list(self._items))
+
+
 def _flat_opc(parts: list[tuple[str, bytes]]) -> str:
     """Build a minimal Flat OPC package string, as `Range.WordOpenXML` returns.
 
@@ -481,6 +792,12 @@ class _FakeTable:
         self._rows = [[self._mk_cell_range(text) for text in row] for row in grid]
         self._range_mock: Any | None = None
         self._rows_view: _FakeRows | None = None
+        # Autofit state: AllowAutoFit is settable; AutoFitBehavior records its arg.
+        self.AllowAutoFit = True
+        self.autofit_behavior: int | None = None
+
+    def AutoFitBehavior(self, behavior: int) -> None:
+        self.autofit_behavior = int(behavior)
 
     @staticmethod
     def _mk_cell_range(text: str) -> MagicMock:
@@ -887,11 +1204,36 @@ def _make_document(
     revisions: list[dict[str, Any]] | None = None,
     images: list[dict[str, Any]] | None = None,
     equations: list[dict[str, Any]] | None = None,
+    variables: dict[str, str] | None = None,
+    hyperlinks: list[dict[str, Any]] | None = None,
+    fields: list[dict[str, Any]] | None = None,
+    builtin_properties: dict[str, Any] | None = None,
+    custom_properties: dict[str, Any] | None = None,
+    readonly_properties: set[str] | None = None,
+    unreadable_properties: set[str] | None = None,
+    spelling: list[dict[str, Any]] | None = None,
+    grammar: list[dict[str, Any]] | None = None,
+    readability: dict[str, float] | None = None,
 ) -> MagicMock:
     doc = MagicMock(name=f"Document[{name}]")
     doc.Name = name
     doc.FullName = full_name
     doc.InlineShapes = _FakeDocInlineShapes(images)
+    # Document-info collections (always present so .Count is a real int, never a
+    # MagicMock): variables, hyperlinks, fields, properties, and proofing.
+    doc.Variables = _FakeVariables(variables)
+    doc.Hyperlinks = _FakeHyperlinks(hyperlinks)
+    doc.Fields = _FakeFields(fields)
+    doc.BuiltInDocumentProperties = _FakeDocProperties(
+        builtin_properties,
+        readonly=readonly_properties,
+        unreadable=unreadable_properties,
+        known=_BUILTIN_PROP_NAMES,
+    )
+    doc.CustomDocumentProperties = _FakeDocProperties(custom_properties)
+    doc.SpellingErrors = _FakeProofErrors(spelling)
+    doc.GrammaticalErrors = _FakeProofErrors(grammar)
+    doc.ReadabilityStatistics = _FakeReadability(readability)
 
     bm_registry = _FakeBookmarkRegistry()
     for bm_name, (s, e) in (bookmarks or {}).items():
@@ -1054,6 +1396,32 @@ def fake_word(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
         # so equations.list() maps it back to para:2. Text is the built-up form
         # (with the internal CR markers the linear preview strips).
         equations=[{"start": 21, "end": 27, "type": 1, "text": "𝐸\r=\r𝑚\r𝑐\r2\r"}],
+        # One document variable for the variables read/write tests.
+        variables={"ClientName": "Acme"},
+        # One hyperlink in the body paragraph (13–29) -> external URL.
+        hyperlinks=[{"text": "Acme", "address": "https://acme.example", "start": 15, "end": 19}],
+        # One PAGE field whose code range sits in the body paragraph (13–29).
+        fields=[{"code": "PAGE", "result": "1", "type": 33, "start": 16, "end": 17}],
+        # Built-in + custom document properties; "Word count" is a read-only stat
+        # and "Last print date" is unset (its value access raises and is skipped).
+        builtin_properties={
+            "Title": "Quarterly Report",
+            "Author": "Jane Doe",
+            "Word count": 1234,
+            "Last print date": None,
+        },
+        readonly_properties={"Word count"},
+        unreadable_properties={"Last print date"},
+        custom_properties={"Project": "Apollo"},
+        # Proofing: one spelling error, one grammar error, and a readability stat.
+        spelling=[{"text": "teh", "start": 14, "end": 17}],
+        grammar=[{"text": "is are", "start": 20, "end": 26}],
+        readability={
+            "Flesch Reading Ease": 65.5,
+            "Flesch-Kincaid Grade Level": 7.2,
+            "Passive Sentences": 12.0,
+            "Words per Sentence": 15.3,
+        },
     )
     app = _make_application([doc])
 

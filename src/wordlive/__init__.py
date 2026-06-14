@@ -34,8 +34,11 @@ from ._app import Word, attach, connect
 from ._comments import Comment, CommentCollection
 from ._document import Document, DocumentCollection
 from ._edit import EditScope
+from ._fields import Field, FieldCollection
+from ._hyperlinks import Hyperlink, HyperlinkCollection
 from ._lists import ListCollection
 from ._notes import Endnote, EndnoteCollection, Footnote, FootnoteCollection
+from ._properties import PropertyCollection
 from ._revisions import Revision, RevisionCollection
 from ._sections import HeaderFooter, Section, SectionCollection
 from ._selection import Selection, SelectionSnapshot
@@ -43,6 +46,7 @@ from ._snapshot import Snapshot
 from ._styles import Style, StyleCollection
 from ._tables import Cell, Table, TableCollection
 from ._toc import Toc
+from ._variables import VariableCollection
 from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
@@ -81,11 +85,15 @@ __all__ = [
     "EquationAnchor",
     "EquationCollection",
     "EquationError",
+    "Field",
+    "FieldCollection",
     "Footnote",
     "FootnoteCollection",
     "Heading",
     "HeadingCollection",
     "HeaderFooter",
+    "Hyperlink",
+    "HyperlinkCollection",
     "ImageAnchor",
     "ImageCollection",
     "ImageSourceError",
@@ -94,6 +102,7 @@ __all__ = [
     "Paragraph",
     "ParagraphCollection",
     "PathNotAllowedError",
+    "PropertyCollection",
     "RangeAnchor",
     "ReplaceVerificationError",
     "Revision",
@@ -111,6 +120,7 @@ __all__ = [
     "Table",
     "TableCollection",
     "Toc",
+    "VariableCollection",
     "Word",
     "WordBusyError",
     "WordNotRunningError",

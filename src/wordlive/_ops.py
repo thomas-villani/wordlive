@@ -72,7 +72,12 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "add_hyperlink": ("anchor_id",),
     "insert_cross_reference": ("anchor_id", "target"),
     "insert_caption": ("anchor_id",),
+    "set_property": ("name", "value"),
+    "delete_property": ("name",),
+    "set_variable": ("name", "value"),
+    "delete_variable": ("name",),
     "set_cell": ("table", "row", "col", "text"),
+    "autofit_table": ("table",),
     "add_row": ("table",),
     "append_record": ("table", "record"),
     "update_row": ("table", "key", "values"),
@@ -205,7 +210,12 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "add_hyperlink": ("url", "bookmark", "text", "screen_tip"),
     "insert_cross_reference": ("kind", "hyperlink", *_WHERE_FIELDS),
     "insert_caption": ("label", "text", "position", *_WHERE_FIELDS),
+    "set_property": ("custom",),
+    "delete_property": (),
+    "set_variable": (),
+    "delete_variable": (),
     "set_cell": (),
+    "autofit_table": ("mode",),
     "add_row": ("values",),
     "append_record": (),
     "update_row": ("column",),
@@ -466,8 +476,18 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         else:
             position = None
         doc.anchor_by_id(op["anchor_id"]).insert_caption(position=position, **kwargs)
+    elif kind == "set_property":
+        doc.properties.set(op["name"], op["value"], custom=bool(op.get("custom", False)))
+    elif kind == "delete_property":
+        doc.properties.delete(op["name"])
+    elif kind == "set_variable":
+        doc.variables.set(op["name"], op["value"])
+    elif kind == "delete_variable":
+        doc.variables.delete(op["name"])
     elif kind == "set_cell":
         doc.tables[op["table"]].cell(op["row"], op["col"]).set_text(op["text"])
+    elif kind == "autofit_table":
+        doc.tables[op["table"]].autofit(op.get("mode", "content"))
     elif kind == "add_row":
         doc.tables[op["table"]].add_row(op.get("values"))
     elif kind == "append_record":

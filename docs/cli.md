@@ -583,6 +583,109 @@ is this 2 pages" structurally, no image pass.
 
 Failures: `3` Word busy, `4` Word not running.
 
+## `proofing`
+
+```
+wordlive proofing [--doc DOC_NAME]
+```
+
+Run Word's proofing tools over the document. Returns `spelling` and `grammar`,
+each `{count, errors}` — the exact error count plus a (capped) list of flagged
+runs as `{text, anchor_id, para}`, so a `range:START-END` can be fed back into
+`read` / `comment add` — and `readability`, Word's readability statistics
+(`flesch_reading_ease`, `flesch_kincaid_grade_level`, `passive_sentences`,
+`words_per_sentence`, …). Heavier than `stats` (it asks Word to (re)check the
+document) but still a pure read; if proofing is disabled or the document is
+protected, the affected section reports a `null` count / empty readability.
+
+```bash
+$ wordlive proofing
+{"spelling": {"count": 1, "errors": [{"text": "teh", "anchor_id": "range:14-17", "para": "para:2"}]},
+ "grammar": {"count": 0, "errors": []},
+ "readability": {"flesch_reading_ease": 65.5, "flesch_kincaid_grade_level": 7.2}}
+```
+
+Failures: `3` Word busy, `4` Word not running.
+
+## `hyperlinks`
+
+```
+wordlive hyperlinks [--doc DOC_NAME]
+```
+
+List the document's hyperlinks — the read mirror of `link`. Each reports its
+visible `text`, external `address` or internal `sub_address` bookmark,
+`screen_tip`, and a `range:START-END` / `para:N`. Non-mutating.
+
+```bash
+$ wordlive hyperlinks
+[{"index": 1, "text": "Acme", "address": "https://acme.example", "sub_address": "",
+  "screen_tip": "", "anchor_id": "range:15-19", "para": "para:2"}]
+```
+
+Failures: `3` Word busy, `4` Word not running.
+
+## `fields`
+
+```
+wordlive fields [--doc DOC_NAME]
+```
+
+List the document's fields — the read mirror of `insert-field`. Each reports its
+`kind` (the code's leading keyword — `PAGE` / `REF` / `TOC` / …), raw `code`,
+last-rendered `result`, `locked`, and a `range:START-END` / `para:N`. Run
+`update-fields` first to refresh stale results. Non-mutating.
+
+```bash
+$ wordlive fields
+[{"index": 1, "kind": "PAGE", "type": 33, "code": "PAGE", "result": "1",
+  "locked": false, "anchor_id": "range:16-17", "para": "para:2"}]
+```
+
+Failures: `3` Word busy, `4` Word not running.
+
+## `properties list | set | delete`
+
+```
+wordlive properties list [--doc DOC_NAME]
+wordlive properties set --name NAME --value VALUE [--custom] [--doc DOC_NAME]
+wordlive properties delete --name NAME [--doc DOC_NAME]
+```
+
+Read and edit the document's metadata. `list` returns `{builtin, custom}` —
+the built-in bag (Title, Author, Subject, Keywords, …, plus read-only stats like
+the word count) and any custom name/value pairs. `set` writes a built-in
+property by name, or a custom one with `--custom` (created if absent); `delete`
+removes a custom property (built-ins can't be removed). Writes are atomic-undo.
+
+```bash
+$ wordlive properties set --name Title --value "Q3 Report"
+{"ok": true, "name": "Title", "value": "Q3 Report", "custom": false}
+```
+
+Failures: `1` read-only/unknown built-in (set) or missing custom (delete),
+`3` Word busy, `4` Word not running.
+
+## `variables list | set | delete`
+
+```
+wordlive variables list [--doc DOC_NAME]
+wordlive variables set --name NAME --value VALUE [--doc DOC_NAME]
+wordlive variables delete --name NAME [--doc DOC_NAME]
+```
+
+Read and edit the document's variables — invisible named string storage (the
+backing store for `{ DOCVARIABLE name }` fields). `list` returns a `{name: value}`
+map; `set` creates or updates a variable; `delete` removes one. Writes are
+atomic-undo.
+
+```bash
+$ wordlive variables list
+{"ClientName": "Acme"}
+```
+
+Failures: `2` missing variable (delete), `3` Word busy, `4` Word not running.
+
 ## `images` / `read-image --anchor-id ID [--out FILE]`
 
 ```
@@ -1492,6 +1595,24 @@ shift down by one afterwards.
 ```bash
 $ wordlive table delete 2
 {"ok": true, "deleted": 2}
+```
+
+Failures: `2` table index out of range, `3` Word busy.
+
+## `table autofit`
+
+```
+wordlive table autofit --table INDEX [--mode content|window|fixed] [--doc DOC_NAME]
+```
+
+Resize a table's columns. `--mode content` (the default) shrinks/grows each
+column to fit its cell contents, `window` stretches the table to the page width,
+and `fixed` pins the current widths so Word stops auto-sizing. Atomic-undo —
+a clean way to tidy a table whose columns drifted after edits.
+
+```bash
+$ wordlive table autofit --table 1 --mode content
+{"ok": true, "table": 1, "mode": "content"}
 ```
 
 Failures: `2` table index out of range, `3` Word busy.

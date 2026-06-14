@@ -112,6 +112,7 @@ wordlive table create --anchor-id end --data '[["Item","Cost"],["Travel","$400"]
 wordlive table create --anchor-id end \
     --data '[{"Item":"Travel","Cost":"$400"}]'             # records → keys are a header row
 #   --rows/--cols are inferred from --data (give them only to pad larger)
+wordlive table autofit --table 1 --mode content            # fit columns to cells (or window/fixed)
 wordlive table delete 2
 
 # Page / column / section breaks (explicit one-off mark; for a style use --page-break-before):
@@ -129,6 +130,14 @@ wordlive revisions           # read the tracked changes back (type/author/text/r
 # Non-visual layout introspection (reason about pages without a snapshot):
 wordlive stats               # pages/words/…/tables/images/comments + saved, one read
 wordlive locate --anchor-id heading:8   # {page, end_page, line, column, in_table}
+wordlive proofing            # spelling/grammar errors + readability (Flesch, …)
+
+# Document metadata, variables, and the read mirrors of link / insert-field:
+wordlive properties list                         # built-in + custom document properties
+wordlive properties set --name Title --value "Q3 Report"
+wordlive variables set --name ClientName --value "Acme"   # invisible DOCVARIABLE storage
+wordlive hyperlinks          # every link: text, destination, range:START-END id
+wordlive fields              # every field: kind (PAGE/REF/TOC), code, rendered result
 
 # Lists & numbering (any anchor's paragraphs):
 wordlive list apply --anchor-id heading:6 --type numbered

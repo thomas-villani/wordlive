@@ -23,7 +23,16 @@ from typing import TYPE_CHECKING, Any
 
 from . import _com
 from ._anchors import Anchor, range_text
+from .constants import WdAutoFitBehavior
 from .exceptions import AnchorNotFoundError, OpError
+
+# `autofit` mode keys -> WdAutoFitBehavior. "fixed" pins current widths,
+# "content" sizes columns to their cell contents, "window" stretches to the page.
+_AUTOFIT_MODES: dict[str, WdAutoFitBehavior] = {
+    "fixed": WdAutoFitBehavior.FIXED,
+    "content": WdAutoFitBehavior.CONTENT,
+    "window": WdAutoFitBehavior.WINDOW,
+}
 
 if TYPE_CHECKING:
     from ._document import Document
@@ -322,6 +331,30 @@ class Table:
             r = self._com.Rows(row)
             r.HeadingFormat = bool(heading)
             r.AllowBreakAcrossPages = keep_intact
+
+    def autofit(self, mode: str = "content") -> None:
+        """Resize the table's columns — fit to content, the window, or pin them.
+
+        `mode` is one of:
+
+        - ``"content"`` (default) — shrink/grow each column to fit its cells.
+        - ``"window"`` — stretch the table to the page (container) width.
+        - ``"fixed"`` — pin the current column widths so Word stops auto-sizing
+          (sets `AllowAutoFit = False`).
+
+        A clean way to tidy a table whose columns drifted after edits. An unknown
+        `mode` raises `OpError`. Wrap in `doc.edit(...)` for atomic undo.
+        """
+        key = str(mode).lower()
+        behavior = _AUTOFIT_MODES.get(key)
+        if behavior is None:
+            allowed = ", ".join(sorted(_AUTOFIT_MODES))
+            raise OpError(f"autofit mode must be one of {allowed}; got {mode!r}")
+        with _com.translate_com_errors():
+            # "fixed" means "stop auto-sizing": AllowAutoFit off, then pin widths.
+            # "content"/"window" need AllowAutoFit on for the behavior to take.
+            self._com.AllowAutoFit = behavior != WdAutoFitBehavior.FIXED
+            self._com.AutoFitBehavior(int(behavior))
 
     def delete(self) -> None:
         """Delete this entire table — the structural mirror of `add_row`.

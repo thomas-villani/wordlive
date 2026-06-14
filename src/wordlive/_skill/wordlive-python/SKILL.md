@@ -286,6 +286,7 @@ with doc.edit("Build + edit tables"):
     doc.heading("Budget").insert_table(2, 2)                   # at any position anchor
     doc.tables[1].delete_row(3)
     doc.tables[1].set_heading_row(1)                          # row 1 repeats on every page
+    doc.tables[1].autofit("content")                          # fit columns to cells (or "window"/"fixed")
     doc.tables[2].delete()
 
 records = doc.tables[1].records()   # body rows as [{header: value}, …] — read, no edit scope
@@ -327,6 +328,27 @@ structurally — `doc.revisions.list()` → `[{index, type, author, text, anchor
 `doc.snapshot(markup="all")`, which renders the marks and balloons. (One caveat:
 a tracked `find_replace` on the **same** paragraph as a previous one can drift,
 because both runs are still present — re-read between tracked edits.)
+
+### Document info — metadata, variables, links, fields, proofing
+
+```python
+doc.properties.read()                # {"builtin": {Title, Author, …}, "custom": {…}}
+with doc.edit("Set metadata"):
+    doc.properties.set("Title", "Q3 Report")        # a built-in property
+    doc.properties.set("Project", "Apollo", custom=True)  # a custom one (created if absent)
+    doc.variables.set("ClientName", "Acme")         # invisible { DOCVARIABLE } storage
+doc.variables.list()                 # {"ClientName": "Acme"}
+doc.hyperlinks.list()                # read mirror of link_to: [{text, address, sub_address, anchor_id, …}]
+doc.fields.list()                    # read mirror of insert_field: [{kind, code, result, anchor_id, …}]
+doc.proofing()                       # {spelling:{count,errors}, grammar:{…}, readability:{flesch_reading_ease,…}}
+```
+
+`doc.properties` (read/write) and `doc.variables` (read/write) manage the file's
+metadata and named storage; `doc.hyperlinks` and `doc.fields` are read-only
+discovery collections — the read mirrors of `link_to` / `insert_field`.
+`doc.proofing()` runs Word's spelling/grammar/readability tools (a pure read, but
+heavier than `stats()` — it (re)checks the document). Wrap the writes in
+`doc.edit(...)` for atomic undo.
 
 ### The explicit cursor surface
 

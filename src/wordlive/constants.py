@@ -476,6 +476,38 @@ class WdCaptionPosition(IntEnum):
     BELOW = 1
 
 
+class WdAutoFitBehavior(IntEnum):
+    """`Table.AutoFitBehavior(Behavior=...)` values — how a table sizes itself.
+
+    `Table.autofit(mode=...)` maps its string keys onto these: ``"fixed"`` pins
+    the current column widths (no auto-resize), ``"content"`` shrinks/grows each
+    column to fit its cell contents, and ``"window"`` stretches the table to the
+    page/container width. `FIXED` also requires `Table.AllowAutoFit = False`,
+    which `autofit` sets for that mode.
+    """
+
+    FIXED = 0
+    CONTENT = 1
+    WINDOW = 2
+
+
+class MsoDocProperty(IntEnum):
+    """`Office.DocumentProperty.Type` values — used when adding a custom property.
+
+    `PropertyCollection.set(..., custom=True)` infers the type from the Python
+    value: `bool` -> `BOOLEAN`, `int` -> `NUMBER`, `float` -> `FLOAT`, and
+    everything else -> `STRING` (the safe default Word accepts for arbitrary
+    text). `DATE` exists for completeness but isn't inferred (wordlive has no
+    first-class date value to map onto it).
+    """
+
+    NUMBER = 1
+    BOOLEAN = 2
+    DATE = 3
+    STRING = 4
+    FLOAT = 5
+
+
 class WdFieldType(IntEnum):
     """`Fields.Add(Type=...)` values — the field kinds `insert_field(kind=...)` exposes.
 

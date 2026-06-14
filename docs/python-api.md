@@ -315,6 +315,48 @@ runs). `revisions.list()` reports each change as
 
 ::: wordlive.Revision
 
+## Hyperlinks & fields
+
+`Document.hyperlinks` and `Document.fields` are read-only discovery collections —
+the read mirrors of [`Anchor.link_to`](#wordlive.Anchor) /
+[`Anchor.insert_field`](#wordlive.Anchor). `doc.hyperlinks.list()` reports each
+link's visible text, external `address` or internal `sub_address` bookmark,
+screen tip, and a `range:START-END` / `para:N`; `doc.fields.list()` reports each
+field's `kind` (the code's leading keyword — `PAGE` / `REF` / `TOC` / …), raw
+`code`, rendered `result`, `locked`, and a `range:START-END` / `para:N`. Index
+either (`doc.hyperlinks[2]`, `doc.fields[2]`) for the single-item wrapper.
+
+::: wordlive.HyperlinkCollection
+
+::: wordlive.Hyperlink
+
+::: wordlive.FieldCollection
+
+::: wordlive.Field
+
+## Document metadata, variables & proofing
+
+`Document.properties` is a read/write [`PropertyCollection`](#wordlive.PropertyCollection)
+over the document's metadata: `read()` returns `{builtin, custom}` (the Title /
+Author / Subject / Keywords / … bag plus any custom name/value pairs), `set(name,
+value)` writes a built-in property, `set(name, value, custom=True)` a custom one,
+and `delete(name)` removes a custom one. `Document.variables` is a
+[`VariableCollection`](#wordlive.VariableCollection) over the invisible named
+string storage that backs `{ DOCVARIABLE }` fields — `list()` returns
+`{name: value}`; `set` / `get` / `delete` manage them. Wrap writes in
+[`doc.edit(...)`](#wordlive.Document) for atomic undo.
+
+`Document.proofing()` runs Word's proofing tools and returns
+`{spelling, grammar, readability}`: spelling/grammar each give a `count` plus a
+(capped) list of `{text, anchor_id, para}` for the flagged runs, and readability
+gives the Flesch Reading Ease, Flesch-Kincaid Grade Level, passive-sentence %, and
+averages. It's a pure read but heavier than [`stats()`](#wordlive.Document) — it
+asks Word to (re)check the document. Documented on [`Document`](#wordlive.Document).
+
+::: wordlive.PropertyCollection
+
+::: wordlive.VariableCollection
+
 ## Lists & numbering
 
 List operations apply to a *range's paragraphs*, so the verbs live on
