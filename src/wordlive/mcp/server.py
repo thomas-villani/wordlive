@@ -445,6 +445,42 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command == "create_content_control":
+        op = {"op": "create_content_control", "anchor_id": need("anchor_id")}
+        if p.get("kind") is not None:
+            op["kind"] = p["kind"]
+        if p.get("where") is not None:
+            op["where"] = p["where"]
+        for k in ("title", "tag", "items", "lock_contents", "lock_control"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "mark_index_entry":
+        op = {"op": "mark_index_entry", "anchor_id": need("anchor_id"), "entry": need("entry")}
+        for k in ("cross_reference", "bold", "italic"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "insert_index":
+        op = {
+            "op": "insert_index",
+            "anchor_id": p.get("anchor_id") or "end",
+            "before": bool(p.get("before", False)),
+        }
+        for k in ("columns", "run_in", "right_align_page_numbers"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "insert_table_of_figures":
+        op = {
+            "op": "insert_table_of_figures",
+            "anchor_id": p.get("anchor_id") or "start",
+            "before": bool(p.get("before", False)),
+        }
+        for k in ("label", "include_label", "hyperlinks", "right_align_page_numbers"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
     if command == "page_setup":
         op = {"op": "set_page_setup", "section": need("section")}
         for k in _PAGE_SETUP_FIELDS:
@@ -873,6 +909,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "add_hyperlink",
             "insert_cross_reference",
             "insert_caption",
+            "create_content_control",
+            "mark_index_entry",
+            "insert_index",
+            "insert_table_of_figures",
             "page_setup",
             "save",
             "save_as",
@@ -985,6 +1025,16 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         target: str | None = None,
         hyperlink: bool | None = None,
         label: str | None = None,
+        title: str | None = None,
+        tag: str | None = None,
+        lock_contents: bool | None = None,
+        lock_control: bool | None = None,
+        entry: str | None = None,
+        cross_reference: str | None = None,
+        run_in: bool | None = None,
+        right_align_page_numbers: bool | None = None,
+        include_label: bool | None = None,
+        where: str | None = None,
         overwrite: bool = False,
         from_page: int | None = None,
         to_page: int | None = None,
@@ -1055,6 +1105,17 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             target is a bookmark:/heading:/footnote:/endnote: id ·
         insert_caption {anchor_id,[label=Figure,text,position=above|below]} — a numbered
             caption in its own paragraph (Table defaults above, else below) ·
+        create_content_control {anchor_id,[kind=rich_text|text|picture|combo_box|dropdown|date|
+            checkbox|building_block|group|repeating_section, title, tag, items, where=wrap|before|after,
+            lock_contents, lock_control]} — a form control; where=wrap surrounds the anchor's range
+            (else insert an empty one); title makes it addressable as cc:TITLE; items=[..] fills a
+            combo_box/dropdown (each a string or {text,value}) ·
+        mark_index_entry {anchor_id, entry, [cross_reference, bold, italic]} — mark a range as a
+            back-of-book index entry (use "main:sub" for a subentry); build the list with insert_index ·
+        insert_index {[anchor_id=end], columns=2, [run_in, right_align_page_numbers, before]} —
+            gather marked entries into an index; run update_fields after to populate page numbers ·
+        insert_table_of_figures {[anchor_id=start], label=Figure, [include_label, hyperlinks,
+            right_align_page_numbers, before]} — a table of captions of one label; run update_fields after ·
         page_setup {[section=1],margins|top_margin|bottom_margin|left_margin|right_margin|gutter,
             orientation=portrait|landscape,paper_size=letter|legal|tabloid|a3|a4|a5,columns,column_spacing} —
             section page geometry; lengths accept unit strings ·
@@ -1182,6 +1243,16 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "target": target,
             "hyperlink": hyperlink,
             "label": label,
+            "title": title,
+            "tag": tag,
+            "lock_contents": lock_contents,
+            "lock_control": lock_control,
+            "entry": entry,
+            "cross_reference": cross_reference,
+            "run_in": run_in,
+            "right_align_page_numbers": right_align_page_numbers,
+            "include_label": include_label,
+            "where": where,
             "overwrite": overwrite,
             "from_page": from_page,
             "to_page": to_page,
@@ -1244,6 +1315,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           add_bookmark {name,anchor_id} · add_hyperlink {anchor_id, url|bookmark, [text,screen_tip]} ·
           insert_cross_reference {anchor_id,target,[kind,hyperlink,before]} — target is a bookmark:/heading:/footnote:/endnote: id ·
           insert_caption {anchor_id,[label,text,position=above|below]} — own-paragraph caption ·
+          create_content_control {anchor_id,[kind=rich_text|text|picture|combo_box|dropdown|date|checkbox|
+            building_block|group|repeating_section,title,tag,items,where=wrap|before|after,lock_contents,lock_control]} —
+            a form control; where=wrap surrounds the anchor's range; title makes it cc:TITLE; items fills a list; returns the cc: id in outputs ·
+          mark_index_entry {anchor_id,entry,[cross_reference,bold,italic]} — mark a range as a back-of-book index entry ("main:sub" for a subentry) ·
+          insert_index {[anchor_id=end],[columns=2,run_in,right_align_page_numbers,before]} — gather marked entries; update_fields after to fill page numbers ·
+          insert_table_of_figures {[anchor_id=start],[label=Figure,include_label,hyperlinks,right_align_page_numbers,before]} — a table of captions of one label; update_fields after ·
           create_table {anchor_id, [rows,cols] (optional when data given — inferred),[style,data,header,before]} —
             data is a 2-D array OR records (objects whose keys become a header row); cells default to Normal; returns the new index in outputs ·
           set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} ·

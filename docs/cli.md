@@ -493,6 +493,96 @@ Page numbers populate only after repagination — run `update-fields` (or
 `snapshot`) before reading them. Failures: `1` bad input (e.g. malformed
 `--levels`); `2` anchor not found; `3` Word busy.
 
+## `table-of-figures [--anchor-id ID] [--label L] [--no-label] [--no-hyperlinks]`
+
+```
+wordlive table-of-figures [--anchor-id ID] [--label Figure] [--label | --no-label]
+    [--hyperlinks | --no-hyperlinks] [--before | --after] [--doc DOC_NAME]
+```
+
+Insert a table of figures built from the document's captions — every caption of
+one `--label` (`Figure`/`Table`/`Equation`/a custom string) with its page number.
+`--anchor-id` defaults to `start`; `--no-label` drops the "Figure"/"Table" prefix
+from each entry, and entries link to their captions unless `--no-hyperlinks`.
+
+```bash
+$ wordlive table-of-figures --label Figure
+{"ok": true, "anchor_id": "start",
+ "applied": {"label": "Figure", "include_label": true, "hyperlinks": true, "where": "after"}}
+```
+
+Page numbers populate only after repagination — run `update-fields` (or
+`snapshot`) before reading them. Failures: `1` bad input; `2` anchor not found;
+`3` Word busy.
+
+## `mark-index-entry --anchor-id ID --entry 'topic'`
+
+```
+wordlive mark-index-entry --anchor-id ID --entry "topic"
+    [--cross-reference X] [--bold] [--italic] [--doc DOC_NAME]
+```
+
+Mark the anchor's range as a back-of-book index entry (an `XE` field) — the first
+of the index's two steps (build it with `insert-index`). `--entry` is the headword;
+use `"main:sub"` to nest a subentry. `--cross-reference X` makes the entry a "see
+X" pointer instead of a page number, and `--bold`/`--italic` style the page number.
+
+```bash
+$ wordlive mark-index-entry --anchor-id range:120-140 --entry "risk:market"
+{"ok": true, "anchor_id": "range:120-140", "entry": "risk:market"}
+```
+
+Failures: `1` bad input; `2` anchor not found; `3` Word busy.
+
+## `insert-index [--anchor-id ID] [--columns N] [--run-in] [--right-align-page-numbers]`
+
+```
+wordlive insert-index [--anchor-id ID] [--columns 2] [--run-in]
+    [--right-align-page-numbers] [--before | --after] [--doc DOC_NAME]
+```
+
+Build a back-of-book index from the entries marked with `mark-index-entry`.
+`--anchor-id` defaults to `end` (the back of the document); `--columns` is the
+column count (default `2`), `--run-in` lays subentries inline rather than each on
+its own line, and `--right-align-page-numbers` flushes the page numbers right with
+a tab leader.
+
+```bash
+$ wordlive insert-index --columns 2
+{"ok": true, "anchor_id": "end",
+ "applied": {"columns": 2, "run_in": false, "right_align_page_numbers": false, "where": "after"}}
+```
+
+Page numbers populate only after repagination — run `update-fields` (or
+`snapshot`) before reading them. Failures: `1` bad input; `2` anchor not found;
+`3` Word busy.
+
+## `create-content-control --anchor-id ID [--kind K] [--title T] [--tag T] [--item ...]`
+
+```
+wordlive create-content-control --anchor-id ID [--kind rich_text]
+    [--title T] [--tag T] [--item 'Text' --item 'Label=Value' ...]
+    [--where wrap|before|after] [--lock-contents] [--lock-control] [--doc DOC_NAME]
+```
+
+Create a content control — the structured-document fill-in field (the read/write
+side is `read cc` / `write cc`). `--where wrap` (the default) surrounds the
+anchor's existing range — e.g. a `range:START-END` from `find` — while `before` /
+`after` insert a fresh empty control. `--kind` is one of `rich_text` (default),
+`text`, `picture`, `combo_box`, `dropdown`, `date`, `checkbox`, `building_block`,
+`group`, `repeating_section`. A `--title` (falling back to `--tag`) names the
+control so it's addressable later as `cc:TITLE`. `--item` (repeatable, combo_box /
+dropdown only) adds a choice — `'Text'` or `'Label=Value'`. `--lock-contents`
+stops edits to the value; `--lock-control` stops deletion.
+
+```bash
+$ wordlive create-content-control --anchor-id range:120-140 --kind dropdown \
+    --title Status --item "Open" --item "Done=closed"
+{"ok": true, "content_control": "Status", "cc_anchor_id": "cc:Status"}
+```
+
+Failures: `1` bad input; `2` anchor not found; `3` Word busy.
+
 ## `footnotes` / `endnotes`
 
 ```

@@ -5,7 +5,45 @@ All notable changes to **wordlive** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.14.0] — 2026-06-13
+## [Unreleased]
+
+### Added
+- **Content-control creation — `anchor.insert_content_control(...)`.** Closes the
+  read/write-but-couldn't-*create* gap: wordlive could read (`read_cc`) and write
+  (`write_cc`) an existing content control, but not make one. `anchor.insert_content_control(
+  kind="rich_text", title=…, tag=…, items=…, where="wrap", lock_contents=…,
+  lock_control=…)` wraps the anchor's existing range in a new control (or inserts a
+  fresh empty one with `where="before"`/`"after"`) and returns the
+  `ContentControl`. `kind` is `rich_text` (default) / `text` / `picture` /
+  `combo_box` / `dropdown` / `date` / `checkbox` / `building_block` / `group` /
+  `repeating_section`; `items` populates a combo_box/dropdown (strings or
+  `{text, value}`); a `title` (falling back to `tag`) names it, so it's addressable
+  later as `cc:TITLE`. `doc.content_controls.add(anchor, kind=…, **kwargs)` takes an
+  `Anchor` or an anchor-id string. Across the `create_content_control` exec op, the
+  CLI (`create-content-control`), and MCP (`word_write command="create_content_control"`).
+  New `WdContentControlType` constant in `wordlive.constants`.
+- **Back-of-book index — `mark_index_entry` + `insert_index`.** Two steps, like
+  Word's own: `anchor.mark_index_entry(entry, cross_reference=…, bold=…, italic=…)`
+  marks the anchor's range as an `XE` index field (`entry` uses `"main:sub"` for a
+  subentry), then `anchor.insert_index(columns=2, run_in=…, right_align_page_numbers=…,
+  where="after")` builds the index from those marks and returns a new
+  `Index` — a field block like the TOC, so `index.update()` repopulates it and
+  page numbers fill only after repagination (`update_fields` / `snapshot`).
+  `doc.add_index(...)` is the sugar for one at the document end. Across the
+  `mark_index_entry` / `insert_index` exec ops, the CLI (`mark-index-entry` /
+  `insert-index`), and MCP (`word_write command="mark_index_entry"` /
+  `command="insert_index"`). New public `Index` class and `WdIndexType` constant.
+- **Table of figures — `anchor.insert_table_of_figures(...)`.** Consumes the
+  captions wordlive already ships: `anchor.insert_table_of_figures(label="Figure",
+  include_label=True, hyperlinks=True, right_align_page_numbers=True, where="after")`
+  lists every caption of one `label` (`Figure`/`Table`/`Equation`/custom) with page
+  numbers, and returns a `TableOfFigures`. It's a field block reusing the TOC
+  pattern — `.update()` / `.update_page_numbers()`. Across the
+  `insert_table_of_figures` exec op, the CLI (`table-of-figures`), and MCP
+  (`word_write command="insert_table_of_figures"`). New public
+  `TableOfFigures` class.
+
+## [0.15.0] — 2026-06-13
 
 ### Added
 - **Document metadata — `doc.properties`.** Read and write the file's built-in

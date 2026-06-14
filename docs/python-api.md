@@ -41,7 +41,9 @@ Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
 `format_run(...)`, `set_shading(...)`, `set_borders(...)`, `add_tab_stop(...)`,
 `insert_paragraph_before/after(...)`, `insert_block(...)`, `insert_image(...)`, `insert_table(...)`,
 `insert_break(...)`, `insert_field(...)`, `insert_footnote(...)`,
-`insert_endnote(...)`, `insert_toc(...)`, `link_to(...)`,
+`insert_endnote(...)`, `insert_toc(...)`, `insert_table_of_figures(...)`,
+`mark_index_entry(...)`, `insert_index(...)`, `insert_content_control(...)`,
+`link_to(...)`,
 `insert_cross_reference(...)`, `insert_caption(...)`, and the list verbs (`apply_list`, `remove_list`,
 `list_info`, `restart_numbering`, `indent_list`, `outdent_list`) from
 [`Anchor`](#wordlive.Anchor), so the same calls work uniformly on bookmarks,
@@ -103,8 +105,13 @@ code) — pair it with a footer for page numbers and refresh with
 `insert_endnote(text)` attach a note to the anchor's range and return a
 [`Footnote`](#wordlive.Footnote) / [`Endnote`](#wordlive.Endnote) (addressed
 `footnote:N` / `endnote:N`); `insert_toc(levels=(1, 3), …)` inserts a table of
-contents and returns a [`Toc`](#wordlive.Toc) — see
-[Footnotes, endnotes & TOC](#footnotes-endnotes-toc). `link_to(address=… |
+contents and returns a [`Toc`](#wordlive.Toc), `insert_table_of_figures(label=
+"Figure", …)` lists the captions of one label as a [`TableOfFigures`](#wordlive.TableOfFigures),
+and `mark_index_entry(entry, …)` + `insert_index(…)` mark and build a back-of-book
+[`Index`](#wordlive.Index) — see
+[Footnotes, endnotes & TOC](#footnotes-endnotes-toc).
+`insert_content_control(kind="rich_text", …)` wraps the anchor's range in a new
+content control (see [Anchoring & linking](#anchoring-linking)). `link_to(address=… |
 bookmark=…)` makes the anchor a hyperlink, `insert_cross_reference(target, …)`
 references another anchor, and `insert_caption(label, …)` adds a numbered
 caption — see [Anchoring & linking](#anchoring-linking). Every anchor also has `snapshot(...)`, which
@@ -203,6 +210,21 @@ document start. A TOC's page numbers only populate after repagination — call
 `toc.update()`, [`Document.update_fields()`](#wordlive.Document), or take a
 `snapshot` (which forces print layout) before reading them.
 
+`anchor.insert_table_of_figures(label="Figure", include_label=True, hyperlinks=True,
+right_align_page_numbers=True)` is the same field-block pattern over the captions
+wordlive inserts: it lists every caption of one `label` (`"Figure"`/`"Table"`/
+`"Equation"`/custom) with its page number and returns a
+[`TableOfFigures`](#wordlive.TableOfFigures) with `update()` / `update_page_numbers()`.
+
+A back-of-book index is two steps. `anchor.mark_index_entry(entry,
+cross_reference=…, bold=…, italic=…)` marks the anchor's range as an `XE` index
+field — `entry` uses `"main:sub"` to nest a subentry — then
+`anchor.insert_index(columns=2, run_in=False, right_align_page_numbers=False)`
+builds the index from those marks and returns an [`Index`](#wordlive.Index);
+`doc.add_index(...)` is the sugar for one at the document end. Like the TOC, the
+`TableOfFigures` and `Index` are field blocks: their page numbers populate only
+after repagination (`update()`, `update_fields()`, or a `snapshot`).
+
 ::: wordlive.Footnote
 
 ::: wordlive.Endnote
@@ -212,6 +234,10 @@ document start. A TOC's page numbers only populate after repagination — call
 ::: wordlive.EndnoteCollection
 
 ::: wordlive.Toc
+
+::: wordlive.TableOfFigures
+
+::: wordlive.Index
 
 ## Anchoring & linking
 
@@ -232,6 +258,21 @@ on a table cell the caption attaches to the whole table. Pair it with a
 cross-reference for "see Figure 2". Cross-references and TOC/page-number fields
 go stale when the document shifts — refresh them with
 [`Document.update_fields()`](#wordlive.Document).
+
+Content controls are the structured-document fill-in fields (the
+read/write side is `doc.content_controls["NAME"]`). `anchor.insert_content_control(
+kind="rich_text", title=…, tag=…, items=…, where="wrap", lock_contents=False,
+lock_control=False)` creates one and returns the
+[`ContentControl`](#wordlive.ContentControl): `where="wrap"` (default) surrounds the
+anchor's existing range — e.g. a `range:START-END` from `find` — and `"before"` /
+`"after"` insert a fresh empty control. `kind` is `rich_text` (default) / `text` /
+`picture` / `combo_box` / `dropdown` / `date` / `checkbox` / `building_block` /
+`group` / `repeating_section`; `items` (combo_box/dropdown only) is a list of
+strings or `{"text": …, "value": …}` dicts; `lock_contents` stops edits to the
+value and `lock_control` stops deletion. A `title` (or, failing that, a `tag`)
+names the control so it's addressable later as `cc:TITLE`; the returned wrapper
+works even unnamed. `doc.content_controls.add(anchor, kind=…, **kwargs)` takes an
+`Anchor` or an anchor-id string.
 
 ::: wordlive.BookmarkCollection
 

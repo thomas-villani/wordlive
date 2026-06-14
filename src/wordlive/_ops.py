@@ -72,6 +72,10 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "add_hyperlink": ("anchor_id",),
     "insert_cross_reference": ("anchor_id", "target"),
     "insert_caption": ("anchor_id",),
+    "create_content_control": ("anchor_id",),
+    "mark_index_entry": ("anchor_id", "entry"),
+    "insert_index": ("anchor_id",),
+    "insert_table_of_figures": ("anchor_id",),
     "set_property": ("name", "value"),
     "delete_property": ("name",),
     "set_variable": ("name", "value"),
@@ -210,6 +214,24 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "add_hyperlink": ("url", "bookmark", "text", "screen_tip"),
     "insert_cross_reference": ("kind", "hyperlink", *_WHERE_FIELDS),
     "insert_caption": ("label", "text", "position", *_WHERE_FIELDS),
+    "create_content_control": (
+        "kind",
+        "title",
+        "tag",
+        "items",
+        "where",
+        "lock_contents",
+        "lock_control",
+    ),
+    "mark_index_entry": ("cross_reference", "bold", "italic"),
+    "insert_index": ("columns", "run_in", "right_align_page_numbers", *_WHERE_FIELDS),
+    "insert_table_of_figures": (
+        "label",
+        "include_label",
+        "hyperlinks",
+        "right_align_page_numbers",
+        *_WHERE_FIELDS,
+    ),
     "set_property": ("custom",),
     "delete_property": (),
     "set_variable": (),
@@ -476,6 +498,36 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         else:
             position = None
         doc.anchor_by_id(op["anchor_id"]).insert_caption(position=position, **kwargs)
+    elif kind == "create_content_control":
+        cc_kwargs = {
+            k: op[k] for k in ("title", "tag", "items", "lock_contents", "lock_control") if k in op
+        }
+        cc = doc.anchor_by_id(op["anchor_id"]).insert_content_control(
+            op.get("kind", "rich_text"), where=op.get("where", "wrap"), **cc_kwargs
+        )
+        return {
+            "content_control": cc.name or None,
+            "anchor_id": cc.anchor_id if cc.name else None,
+        }
+    elif kind == "mark_index_entry":
+        mk = {k: op[k] for k in ("cross_reference", "bold", "italic") if k in op}
+        doc.anchor_by_id(op["anchor_id"]).mark_index_entry(op["entry"], **mk)
+    elif kind == "insert_index":
+        ik = {k: op[k] for k in ("columns", "run_in", "right_align_page_numbers") if k in op}
+        doc.anchor_by_id(op["anchor_id"]).insert_index(
+            where=("before" if op_before(op) else "after"), **ik
+        )
+        return {"index": True}
+    elif kind == "insert_table_of_figures":
+        tk = {
+            k: op[k]
+            for k in ("label", "include_label", "hyperlinks", "right_align_page_numbers")
+            if k in op
+        }
+        doc.anchor_by_id(op["anchor_id"]).insert_table_of_figures(
+            where=("before" if op_before(op) else "after"), **tk
+        )
+        return {"table_of_figures": True}
     elif kind == "set_property":
         doc.properties.set(op["name"], op["value"], custom=bool(op.get("custom", False)))
     elif kind == "delete_property":

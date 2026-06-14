@@ -455,6 +455,27 @@ class Document:
             levels=levels, use_heading_styles=use_heading_styles, hyperlinks=hyperlinks
         )
 
+    def add_index(
+        self,
+        *,
+        columns: int = 2,
+        run_in: bool = False,
+        right_align_page_numbers: bool = False,
+    ) -> Any:
+        """Insert a back-of-book index at the very end of the document.
+
+        The "indexes live at the back" helper — sugar for
+        `self.end.insert_index(...)`. See
+        [`Anchor.insert_index`][wordlive.Anchor.insert_index] for the full
+        semantics of `columns`, `run_in`, and `right_align_page_numbers`, and for
+        the page-number-repagination caveat. Mark entries first with
+        [`Anchor.mark_index_entry`][wordlive.Anchor.mark_index_entry]. Returns the
+        new [`Index`][wordlive.Index]. Wrap in `doc.edit(...)` for atomic undo.
+        """
+        return self.end.insert_index(
+            columns=columns, run_in=run_in, right_align_page_numbers=right_align_page_numbers
+        )
+
     def heading(self, name: str) -> Heading:
         # Lazy lookup — Heading.__init__ doesn't hit COM. _range() validates.
         return Heading(self, name)
