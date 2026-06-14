@@ -605,9 +605,11 @@ need a louder opt-in than an ordinary edit, or should stay reads.
   (Title/Author/Subject/Keywords/Company/Category), `CustomDocumentProperties`.
   Read for situational awareness; write to stamp a generated deliverable.
   *Weight: medium, cheap.*
-- **Document variables** — `Document.Variables` (`{ DOCVARIABLE }` backing).
-  Data-driven templates: set a variable, refresh fields. *Pairs with the field
-  primitive.*
+- **Document variables** — ✅ **shipped v0.15.0** as `doc.variables`
+  (`get`/`set`/`list`/`delete` over `Document.Variables`, the `{ DOCVARIABLE }`
+  backing). Pair with an `insert_field` of `DOCVARIABLE name` to surface one.
+  *(Landed in the document-info batch alongside `doc.properties` /
+  `doc.hyperlinks` / `doc.fields` / `doc.proofing()`.)*
 - **Statistics** — page/word/char/line counts via `ComputeStatistics`. *Cheap
   read; useful before/after an edit.* ✅ **shipped v0.14.0** as `doc.stats()`.
 
@@ -634,10 +636,15 @@ need a louder opt-in than an ordinary edit, or should stay reads.
 
 ### E. Structured & data-bound content
 
-- **Content-control *creation*** — today wordlive reads/writes existing CCs;
-  `ContentControls.Add(type, range)` would let an agent *build* form-like docs
-  (rich-text / dropdown / date / checkbox / repeating-section types), optionally
-  XML-mapped. *Weight: medium-high for template generation.*
+- **Content-control *creation*** — ✅ **shipped** (next release, branch
+  `feat/content-controls-index-tof`). `anchor.insert_content_control(kind=…,
+  title=…, tag=…, items=…, where="wrap"|"before"|"after", lock_contents=…,
+  lock_control=…)` + `doc.content_controls.add(...)`; rich-text / text / picture /
+  combo-box / dropdown / date / checkbox / building-block / group /
+  repeating-section. exec op `create_content_control`, CLI
+  `create-content-control`, MCP `word_write command="create_content_control"`,
+  new `WdContentControlType`. **Deferred:** placeholder text
+  (`SetPlaceholderText`), XML-mapped binding (the §E custom-XML item below).
 - **Custom XML parts / data binding** — `Document.CustomXMLParts`, binding CCs to
   XML nodes. Powerful for structured generation; heavier and niche. *Defer below
   CC creation.*
@@ -646,12 +653,27 @@ need a louder opt-in than an ordinary edit, or should stay reads.
 
 ### F. Reference apparatus — extensions (after the Part-II footnotes/TOC/captions)
 
-- **Index** — `Document.Indexes.Add`, `Range.MarkIndexEntry`. Back-of-book index.
-- **Table of figures / authorities** — `TablesOfFigures`, `TablesOfAuthorities`.
-  Consume the Part-II captions.
+- **Index** — ✅ **shipped** (next release, same branch). Two steps mirroring
+  Word: `anchor.mark_index_entry(entry, cross_reference=…, bold=…, italic=…)`
+  (`Indexes.MarkEntry`; `"main:sub"` subentries) then `anchor.insert_index(
+  columns=…, run_in=…, right_align_page_numbers=…)` (`Indexes.Add`) returning a
+  field-block `Index`; `doc.add_index(...)` puts one at the end. exec ops
+  `mark_index_entry` / `insert_index`, CLI `mark-index-entry` / `insert-index`,
+  MCP commands, new `WdIndexType`. **Gotcha:** `Indexes.Add` `HeadingSeparator`
+  must be the enum (`0`), not `""`, on a makepy-typed Word build.
+- **Table of figures** — ✅ **shipped** (next release, same branch).
+  `anchor.insert_table_of_figures(label="Figure", include_label=…, hyperlinks=…,
+  right_align_page_numbers=…)` over `TablesOfFigures.Add`, consuming the shipped
+  captions; returns a field-block `TableOfFigures`. exec op
+  `insert_table_of_figures`, CLI `table-of-figures`, MCP command. **Gotcha:**
+  `TablesOfFigures.Add` needs **keyword** args for the flags — its optional
+  string Variants (TableID/Caption2/AddedStyles) reject positional `""`.
+  **Table of authorities** (`TablesOfAuthorities` + `MarkCitation`) still open —
+  legal-citation niche, lower leverage.
 - **Citations & bibliography** — `Document.Bibliography`, `Sources`,
-  `Range.InsertCitation`. Academic-writing workflow. *Weight: medium; cohesive
-  once footnotes ship.*
+  `Range.InsertCitation`. Academic-writing workflow. *Weight: medium; its own
+  design pass (a `Sources` data model + citation style), so deliberately left
+  out of the index/ToF branch.*
 
 ### G. Drawing layer (floating shapes & embedded objects)
 

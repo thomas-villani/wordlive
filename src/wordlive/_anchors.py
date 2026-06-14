@@ -21,8 +21,10 @@ from .constants import (
     WdCaptionPosition,
     WdCollapseDirection,
     WdColorIndex,
+    WdContentControlType,
     WdDropPosition,
     WdFieldType,
+    WdIndexType,
     WdInformation,
     WdLineSpacing,
     WdLineStyle,
@@ -134,6 +136,29 @@ _HIGHLIGHT_NAMES: dict[str, WdColorIndex] = {
     "gray-50": WdColorIndex.GRAY_50,
     "gray-25": WdColorIndex.GRAY_25,
 }
+
+
+# Content-control kind keyword -> WdContentControlType. Canonical keys plus a
+# few forgiving aliases (the names an agent is likely to reach for).
+_CC_TYPE_NAMES: dict[str, WdContentControlType] = {
+    "rich_text": WdContentControlType.RICH_TEXT,
+    "richtext": WdContentControlType.RICH_TEXT,
+    "text": WdContentControlType.TEXT,
+    "plain_text": WdContentControlType.TEXT,
+    "picture": WdContentControlType.PICTURE,
+    "combo_box": WdContentControlType.COMBO_BOX,
+    "combobox": WdContentControlType.COMBO_BOX,
+    "dropdown": WdContentControlType.DROPDOWN_LIST,
+    "dropdown_list": WdContentControlType.DROPDOWN_LIST,
+    "date": WdContentControlType.DATE,
+    "building_block": WdContentControlType.BUILDING_BLOCK_GALLERY,
+    "group": WdContentControlType.GROUP,
+    "checkbox": WdContentControlType.CHECKBOX,
+    "check_box": WdContentControlType.CHECKBOX,
+    "repeating_section": WdContentControlType.REPEATING_SECTION,
+}
+
+_CC_LIST_TYPES = (WdContentControlType.COMBO_BOX, WdContentControlType.DROPDOWN_LIST)
 
 
 def _coerce_highlight(value: Any) -> int:
@@ -1806,6 +1831,231 @@ class Anchor(ABC):
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
 
+    def insert_content_control(
+        self,
+        kind: str = "rich_text",
+        *,
+        title: str | None = None,
+        tag: str | None = None,
+        items: list[Any] | None = None,
+        where: str = "wrap",
+        lock_contents: bool = False,
+        lock_control: bool = False,
+    ) -> ContentControl:
+        """Wrap (or insert) a content control at this anchor and return it.
+
+        Content controls are the building blocks of form-like documents — a
+        labelled region the user fills in. `kind` selects the type:
+        ``"rich_text"`` (the default — formatted text), ``"text"`` (plain text),
+        ``"picture"``, ``"combo_box"`` / ``"dropdown"`` (a pick list — pass
+        `items`), ``"date"``, ``"checkbox"`` (Word 2013+), ``"building_block"``,
+        ``"group"``, or ``"repeating_section"`` (Word 2013+).
+
+        `where` is ``"wrap"`` (default — the control surrounds this anchor's
+        existing range, so a `range:START-END` from `find` wraps that phrase) or
+        ``"before"`` / ``"after"`` (insert a fresh empty control at the anchor's
+        start / end). Set `title` and/or `tag` to give the control a name: a
+        titled control is addressable later as `cc:TITLE` (falling back to the
+        tag) and shows a label in Word's UI. `items` populates a combo box or
+        dropdown — each is a string, or a `{"text": ..., "value": ...}` dict.
+        `lock_contents` stops the user editing the value; `lock_control` stops
+        them deleting the control.
+
+        Returns the new [`ContentControl`][wordlive.ContentControl] (usable even
+        when unnamed — it caches the live control). Wrap in `doc.edit(...)` for
+        atomic undo. Bad input raises `OpError`.
+        """
+        try:
+            if where not in ("wrap", "before", "after"):
+                raise ValueError(f"where must be 'wrap', 'before', or 'after'; got {where!r}")
+            try:
+                cc_type = _CC_TYPE_NAMES[str(kind).lower()]
+            except (KeyError, AttributeError) as e:
+                raise ValueError(
+                    f"unknown content control kind {kind!r}; "
+                    f"expected one of {sorted(_CC_TYPE_NAMES)}"
+                ) from e
+            if items is not None and cc_type not in _CC_LIST_TYPES:
+                raise ValueError("items is only valid for a 'combo_box' or 'dropdown' control")
+            with _com.translate_com_errors():
+                target = self._range().Duplicate
+                if where != "wrap":
+                    target.Collapse(
+                        int(
+                            WdCollapseDirection.START
+                            if where == "before"
+                            else WdCollapseDirection.END
+                        )
+                    )
+                # Positional args (Type, Range) for late-binding safety.
+                cc = self._doc.com.ContentControls.Add(int(cc_type), target)
+                if title is not None:
+                    cc.Title = str(title)
+                if tag is not None:
+                    cc.Tag = str(tag)
+                if lock_contents:
+                    cc.LockContents = True
+                if lock_control:
+                    cc.LockContentControl = True
+                if items:
+                    entries = cc.DropdownListEntries
+                    for item in items:
+                        if isinstance(item, dict):
+                            entry_text = str(item.get("text", ""))
+                            raw_value = item.get("value")
+                            value = str(raw_value) if raw_value is not None else entry_text
+                        else:
+                            entry_text = value = str(item)
+                        entries.Add(entry_text, value)  # positional (Text, Value)
+            name = title or tag or ""
+            return ContentControl(self._doc, name, com=cc)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def mark_index_entry(
+        self,
+        entry: str,
+        *,
+        cross_reference: str | None = None,
+        bold: bool = False,
+        italic: bool = False,
+    ) -> None:
+        """Mark this anchor's range as a back-of-book index entry (an `XE` field).
+
+        `entry` is the text that appears in the index; use ``"main:sub"`` to file
+        it as a subentry under ``main`` (Word's colon convention). `bold` /
+        `italic` style the entry's *page number* in the built index.
+        `cross_reference` replaces the page number with a "see …" pointer (e.g.
+        ``cross_reference="Widgets"`` → *"see Widgets"*).
+
+        This is the per-term half of indexing; once entries are marked, build the
+        list with [`insert_index`][wordlive.Anchor.insert_index] /
+        [`Document.add_index`][wordlive.Document.add_index]. The `XE` field is
+        hidden text and doesn't disturb the visible flow. Wrap in `doc.edit(...)`
+        for atomic undo. Bad input raises `OpError`.
+        """
+        try:
+            if not str(entry).strip():
+                raise ValueError("entry must be a non-empty string")
+            with _com.translate_com_errors():
+                rng = self._range()
+                # Indexes.MarkEntry(Range, Entry, EntryAutoText, CrossReference,
+                # CrossReferenceAutoText, BookmarkName, Bold, Italic) — positional
+                # for late-binding safety.
+                self._doc.com.Indexes.MarkEntry(
+                    rng,
+                    str(entry),
+                    "",
+                    str(cross_reference) if cross_reference is not None else "",
+                    "",
+                    "",
+                    bool(bold),
+                    bool(italic),
+                )
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def insert_index(
+        self,
+        *,
+        columns: int = 2,
+        run_in: bool = False,
+        right_align_page_numbers: bool = False,
+        where: str = "after",
+    ) -> Any:
+        """Insert a back-of-book index at this anchor and return it as an `Index`.
+
+        Gathers every `XE` entry marked with
+        [`mark_index_entry`][wordlive.Anchor.mark_index_entry] into an
+        alphabetised, page-numbered list. `columns` is the number of newspaper
+        columns the index is laid out in (2 is the book default). `run_in=True`
+        packs subentries into a single paragraph instead of one per line;
+        `right_align_page_numbers=True` flushes page numbers to the right margin.
+
+        Returns an [`Index`][wordlive.Index]; like a TOC it's a field block whose
+        page numbers populate only after repagination — call `index.update()`,
+        [`Document.update_fields`][wordlive.Document.update_fields], or take a
+        `snapshot`. Most documents want the index at the end:
+        `doc.add_index(...)` is the sugar for `doc.end.insert_index(...)`.
+
+        `where` is ``"after"`` (default) or ``"before"`` this anchor's range.
+        Wrap in `doc.edit(...)` for atomic undo. Bad input raises `OpError`.
+        """
+        from ._index import Index
+
+        try:
+            if where not in ("before", "after"):
+                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            cols = int(columns)
+            if cols < 1:
+                raise ValueError(f"columns must be >= 1; got {columns!r}")
+            idx_type = int(WdIndexType.RUNIN if run_in else WdIndexType.INDENT)
+            with _com.translate_com_errors():
+                rng = self._range()
+                pos = int(rng.Start) if where == "before" else int(rng.End)
+                insert_rng = self._doc.com.Range(pos, pos)
+                # Indexes.Add(Range, HeadingSeparator, RightAlignPageNumbers, Type,
+                # NumberOfColumns, AccentedLetters, SortBy, IndexLanguage). Positional;
+                # HeadingSeparator must be a WdHeadingSeparator value (0 = none) — an
+                # empty string raises a type-mismatch on a makepy-typed Word wrapper.
+                idx_com = self._doc.com.Indexes.Add(
+                    insert_rng, 0, bool(right_align_page_numbers), idx_type, cols
+                )
+            return Index(self._doc, idx_com)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def insert_table_of_figures(
+        self,
+        *,
+        label: str = "Figure",
+        include_label: bool = True,
+        hyperlinks: bool = True,
+        right_align_page_numbers: bool = True,
+        where: str = "after",
+    ) -> Any:
+        """Insert a table of figures at this anchor and return it.
+
+        The caption-driven sibling of [`insert_toc`][wordlive.Anchor.insert_toc]:
+        it lists every caption of one `label` — ``"Figure"`` (the default),
+        ``"Table"``, ``"Equation"``, or any custom label you passed to
+        [`insert_caption`][wordlive.Anchor.insert_caption] — with its page number.
+        `include_label=True` keeps the "Figure 1" prefix in each entry;
+        `hyperlinks=True` makes entries clickable jumps;
+        `right_align_page_numbers=True` flushes page numbers right.
+
+        Returns a [`TableOfFigures`][wordlive.TableOfFigures]; like a TOC its page
+        numbers populate only after repagination — call `tof.update()`,
+        [`Document.update_fields`][wordlive.Document.update_fields], or take a
+        `snapshot`. `where` is ``"after"`` (default) or ``"before"`` this anchor's
+        range. Wrap in `doc.edit(...)` for atomic undo. Bad input raises `OpError`.
+        """
+        from ._toc import TableOfFigures
+
+        try:
+            if where not in ("before", "after"):
+                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            with _com.translate_com_errors():
+                rng = self._range()
+                pos = int(rng.Start) if where == "before" else int(rng.End)
+                insert_rng = self._doc.com.Range(pos, pos)
+                # Keyword args here: the optional string Variants (TableID,
+                # Caption2, AddedStyles) raise a type-mismatch when passed
+                # positionally as "" on a makepy-typed Word wrapper, so we name
+                # only the flags we set and let the rest default (Range + Caption
+                # stay positional, matching the Word signature).
+                tof_com = self._doc.com.TablesOfFigures.Add(
+                    insert_rng,
+                    str(label),
+                    IncludeLabel=bool(include_label),
+                    UseHeadingStyles=False,
+                    RightAlignPageNumbers=bool(right_align_page_numbers),
+                    UseHyperlinks=bool(hyperlinks),
+                )
+            return TableOfFigures(self._doc, tof_com)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
     def snapshot(
         self, out: str | Path | None = None, *, dpi: int = 150, max_dim: int | None = None
     ) -> list[Snapshot]:
@@ -2915,11 +3165,20 @@ def _cc_by_name(doc_com: Any, name: str) -> Any | None:
 class ContentControl(Anchor):
     kind = "content_control"
 
+    def __init__(self, doc: Document, name: str, *, com: Any | None = None) -> None:
+        super().__init__(doc, name)
+        # A freshly created control caches its live COM object, so the returned
+        # wrapper resolves even when unnamed (and survives edits — Word maintains
+        # the control's identity). Named lookups still go through `_cc_by_name`.
+        self._cc_com = com
+
     @property
     def anchor_id(self) -> str:
         return f"cc:{self.name}"
 
     def _cc(self) -> Any:
+        if self._cc_com is not None:
+            return self._cc_com
         cc = _cc_by_name(self._doc.com, self.name)
         if cc is None:
             raise AnchorNotFoundError("content_control", self.name)
@@ -2967,6 +3226,21 @@ class ContentControlCollection:
         for name in self.list():
             if name:
                 yield ContentControl(self._doc, name)
+
+    def add(self, anchor: Anchor | str, kind: str = "rich_text", **kwargs: Any) -> ContentControl:
+        """Create a content control over an anchor and return it.
+
+        Symmetric with [`bookmarks.add`][wordlive.BookmarkCollection.add]: a
+        document-level entry point for the per-anchor
+        [`insert_content_control`][wordlive.Anchor.insert_content_control].
+        `anchor` is an [`Anchor`][wordlive.Anchor] or an anchor-id string
+        (`range:START-END`, `cc:NAME`, `heading:N`, …); `kind` and the keyword
+        options (`title`, `tag`, `items`, `where`, `lock_contents`,
+        `lock_control`) pass straight through. Wrap in `doc.edit(...)` for atomic
+        undo.
+        """
+        target = self._doc.anchor_by_id(anchor) if isinstance(anchor, str) else anchor
+        return target.insert_content_control(kind, **kwargs)
 
 
 # ---------------------------------------------------------------------------

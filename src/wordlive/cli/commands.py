@@ -114,6 +114,10 @@ def register(group: click.Group) -> None:
     group.add_command(link_cmd)
     group.add_command(cross_ref_cmd)
     group.add_command(caption_cmd)
+    group.add_command(create_content_control_cmd)
+    group.add_command(mark_index_entry_cmd)
+    group.add_command(insert_index_cmd)
+    group.add_command(table_of_figures_cmd)
     group.add_command(page_setup_cmd)
     group.add_command(prepend_cmd)
     group.add_command(append_cmd)
@@ -1807,6 +1811,325 @@ def caption_cmd(
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted {label} caption at {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# create-content-control / mark-index-entry / insert-index / table-of-figures
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="create-content-control")
+@click.option(
+    "--anchor-id", "anchor_id", required=True, help="Anchor to wrap (or insert the control at)."
+)
+@click.option(
+    "--kind",
+    "kind",
+    type=click.Choice(
+        [
+            "rich_text",
+            "text",
+            "picture",
+            "combo_box",
+            "dropdown",
+            "date",
+            "checkbox",
+            "building_block",
+            "group",
+            "repeating_section",
+        ],
+        case_sensitive=False,
+    ),
+    default="rich_text",
+    show_default=True,
+    help="Content control type.",
+)
+@click.option(
+    "--title", "title", default=None, help="Control title (addressable later as cc:TITLE)."
+)
+@click.option(
+    "--tag", "tag", default=None, help="Control tag (a hidden name; cc: falls back to it)."
+)
+@click.option(
+    "--item",
+    "items",
+    multiple=True,
+    help="A combo_box/dropdown choice (repeatable). 'Text' or 'Text=Value'.",
+)
+@click.option(
+    "--where",
+    "where",
+    type=click.Choice(["wrap", "before", "after"], case_sensitive=False),
+    default="wrap",
+    show_default=True,
+    help="Wrap the anchor's range, or insert an empty control before/after it.",
+)
+@click.option("--lock-contents", "lock_contents", is_flag=True, help="Stop edits to the value.")
+@click.option("--lock-control", "lock_control", is_flag=True, help="Stop deletion of the control.")
+@click.pass_context
+def create_content_control_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    kind: str,
+    title: str | None,
+    tag: str | None,
+    items: tuple[str, ...],
+    where: str,
+    lock_contents: bool,
+    lock_control: bool,
+) -> None:
+    """Create a content control over an anchor (atomic-undo).
+
+    The form-building primitive: wrap a range (or insert an empty control) of the
+    given --kind. Give it a --title to address it later as cc:TITLE. For a
+    combo_box/dropdown, pass --item once per choice ('Text' or 'Text=Value').
+    """
+    parsed_items: list[Any] | None = None
+    if items:
+        parsed_items = []
+        for raw in items:
+            label, sep, value = raw.partition("=")
+            parsed_items.append({"text": label, "value": value} if sep else label)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: content control {kind} {where} {anchor_id}"):
+                cc = anchor.insert_content_control(
+                    kind,
+                    title=title,
+                    tag=tag,
+                    items=parsed_items,
+                    where=where,
+                    lock_contents=lock_contents,
+                    lock_control=lock_control,
+                )
+            name = cc.name or None
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "content_control": name,
+                    "cc_anchor_id": cc.anchor_id if name else None,
+                    "applied": {
+                        "kind": kind,
+                        "title": title,
+                        "tag": tag,
+                        "items": parsed_items,
+                        "where": where,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"created {kind} content control at {anchor_id}"
+                + (f" (cc:{name})" if name else ""),
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="mark-index-entry")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose range to index.")
+@click.option(
+    "--entry",
+    "entry",
+    required=True,
+    help="Index text; use 'main:sub' for a subentry.",
+)
+@click.option(
+    "--cross-reference",
+    "cross_reference",
+    default=None,
+    help="Replace the page number with a 'see …' pointer.",
+)
+@click.option("--bold", "bold", is_flag=True, help="Bold the entry's page number.")
+@click.option("--italic", "italic", is_flag=True, help="Italicise the entry's page number.")
+@click.pass_context
+def mark_index_entry_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    entry: str,
+    cross_reference: str | None,
+    bold: bool,
+    italic: bool,
+) -> None:
+    """Mark an anchor's range as a back-of-book index entry (atomic-undo).
+
+    The per-term step; build the index itself with `insert-index`.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: mark index entry {anchor_id}"):
+                anchor.mark_index_entry(
+                    entry, cross_reference=cross_reference, bold=bold, italic=italic
+                )
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "applied": {
+                        "entry": entry,
+                        "cross_reference": cross_reference,
+                        "bold": bold,
+                        "italic": italic,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"marked index entry {entry!r} at {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="insert-index")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    default="end",
+    show_default=True,
+    help="Where to insert the index (default: the document end).",
+)
+@click.option("--columns", "columns", type=int, default=2, show_default=True, help="Column count.")
+@click.option("--run-in", "run_in", is_flag=True, help="Pack subentries into one paragraph.")
+@click.option(
+    "--right-align-page-numbers",
+    "right_align",
+    is_flag=True,
+    help="Flush page numbers to the right margin.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_index_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    columns: int,
+    run_in: bool,
+    right_align: bool,
+    before: bool,
+) -> None:
+    """Insert a back-of-book index from the marked entries (atomic-undo).
+
+    Mark entries first with `mark-index-entry`. Page numbers populate after
+    repagination — run `update-fields` (or take a `snapshot`) before reading them.
+    """
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert index {where} {anchor_id}"):
+                anchor.insert_index(
+                    columns=columns,
+                    run_in=run_in,
+                    right_align_page_numbers=right_align,
+                    where=where,
+                )
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "applied": {
+                        "columns": columns,
+                        "run_in": run_in,
+                        "right_align_page_numbers": right_align,
+                        "where": where,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted index {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="table-of-figures")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    default="start",
+    show_default=True,
+    help="Where to insert the table of figures (default: the document start).",
+)
+@click.option(
+    "--label",
+    "label",
+    default="Figure",
+    show_default=True,
+    help="Caption label to gather (Figure/Table/Equation/…).",
+)
+@click.option(
+    "--no-label",
+    "no_label",
+    is_flag=True,
+    help="Drop the 'Figure 1' label prefix from each entry.",
+)
+@click.option(
+    "--hyperlinks/--no-hyperlinks",
+    "hyperlinks",
+    default=True,
+    show_default=True,
+    help="Make each entry a clickable link.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
+@click.pass_context
+def table_of_figures_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    label: str,
+    no_label: bool,
+    hyperlinks: bool,
+    before: bool,
+) -> None:
+    """Insert a table of figures built from captions of one label (atomic-undo).
+
+    Page numbers populate after repagination — run `update-fields` (or take a
+    `snapshot`) before reading them.
+    """
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: table of figures {label} {where} {anchor_id}"):
+                anchor.insert_table_of_figures(
+                    label=label,
+                    include_label=not no_label,
+                    hyperlinks=hyperlinks,
+                    where=where,
+                )
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "applied": {
+                        "label": label,
+                        "include_label": not no_label,
+                        "hyperlinks": hyperlinks,
+                        "where": where,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted table of figures ({label}) {where} {anchor_id}",
             )
 
     _run(ctx, go)
@@ -4308,7 +4631,8 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     format_run, set_shading, set_borders, drop_cap, add_tab_stop, add_style, set_style,
     insert_field, set_page_setup, update_fields, insert_footnote, insert_endnote,
     insert_toc, add_bookmark, add_hyperlink, insert_cross_reference,
-    insert_caption, set_cell, add_row, append_record, update_row, delete_row,
+    insert_caption, create_content_control, mark_index_entry, insert_index,
+    insert_table_of_figures, set_cell, add_row, append_record, update_row, delete_row,
     set_heading_row, autofit_table, create_table, delete_table,
     set_property, delete_property, set_variable, delete_variable,
     insert_break, add_comment,

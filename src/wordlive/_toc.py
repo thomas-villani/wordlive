@@ -63,3 +63,49 @@ class Toc:
 
     def __repr__(self) -> str:
         return "<Toc>"
+
+
+class TableOfFigures:
+    """A table of figures created by `insert_table_of_figures`.
+
+    The caption-driven sibling of [`Toc`][wordlive.Toc]: it lists every caption
+    of one label (``"Figure"`` / ``"Table"`` / ``"Equation"`` / a custom label)
+    with its page number, built over Word's `TablesOfFigures`. Like a TOC it is a
+    *field block*, not a single addressable range — refresh it with `update()` /
+    `update_page_numbers()`, or with `Document.update_fields()`. Page numbers
+    populate only after repagination.
+    """
+
+    def __init__(self, doc: Document, com: Any) -> None:
+        self._doc = doc
+        self._com = com
+
+    @property
+    def com(self) -> Any:
+        """Raw COM `TableOfFigures` object — the escape hatch."""
+        return self._com
+
+    @property
+    def range(self) -> Any:
+        """The COM `Range` the table of figures occupies."""
+        with _com.translate_com_errors():
+            return self._com.Range
+
+    @property
+    def text(self) -> str:
+        """The rendered text (entries + page numbers, once updated)."""
+        with _com.translate_com_errors():
+            return range_text(self._com.Range)
+
+    def update(self) -> None:
+        """Rebuild entries and page numbers from the current document's captions."""
+        with _com.translate_com_errors():
+            self._com.Update()
+
+    def update_page_numbers(self) -> None:
+        """Refresh only the page numbers (cheaper than a full `update()`)."""
+        with _com.translate_com_errors():
+            self._com.UpdatePageNumbers()
+
+    def __repr__(self) -> str:
+        return "<TableOfFigures>"

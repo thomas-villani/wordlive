@@ -72,6 +72,23 @@ class _FakeContentControls:
             mock.Range = _make_range(cc.get("start", 0), cc.get("end", 0))
             mock.Range.Text = cc.get("text", "")
             self._items.append(mock)
+        # Add(Type, Range) is a recording MagicMock so tests can assert the
+        # control type; it appends a settable control (Title/Tag default to "" so
+        # an unnamed new control doesn't shadow an existing one in `_cc_by_name`).
+        self.Add = MagicMock(name="CCAdd", side_effect=self._add)
+
+    def _add(self, Type: int = 0, Range: Any = None) -> Any:
+        mock = MagicMock(name=f"CC[new:{Type}]")
+        mock.Type = Type
+        mock.Title = ""
+        mock.Tag = ""
+        mock.LockContents = False
+        mock.LockContentControl = False
+        rng = _make_range(0, 0)
+        rng.Text = ""
+        mock.Range = rng
+        self._items.append(mock)
+        return mock
 
     def __iter__(self) -> Iterable[Any]:
         return iter(self._items)
@@ -1076,6 +1093,57 @@ class _FakeTOCs:
         return self._items[index - 1]
 
 
+class _FakeFieldBlock:
+    """A field block (Index / TableOfFigures) with a Range and refresh methods."""
+
+    def __init__(self) -> None:
+        self.Range = _make_range(0, 0)
+        self.Range.Text = ""
+        self.Update = MagicMock(name="FieldBlockUpdate")
+        self.UpdatePageNumbers = MagicMock(name="FieldBlockUpdatePageNumbers")
+
+
+class _FakeIndexes:
+    """Mimics doc.Indexes: MarkEntry records its args; Add(...) records + vends an Index."""
+
+    def __init__(self) -> None:
+        self._items: list[_FakeFieldBlock] = []
+        self.MarkEntry = MagicMock(name="MarkEntry")
+        self.Add = MagicMock(name="IndexAdd", side_effect=self._add)
+
+    def _add(self, *args: Any, **kwargs: Any) -> _FakeFieldBlock:
+        idx = _FakeFieldBlock()
+        self._items.append(idx)
+        return idx
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, index: int) -> _FakeFieldBlock:
+        return self._items[index - 1]
+
+
+class _FakeTablesOfFigures:
+    """Mimics doc.TablesOfFigures: Add(...) records its args (positional + keyword)."""
+
+    def __init__(self) -> None:
+        self._items: list[_FakeFieldBlock] = []
+        self.Add = MagicMock(name="TOFAdd", side_effect=self._add)
+
+    def _add(self, *args: Any, **kwargs: Any) -> _FakeFieldBlock:
+        tof = _FakeFieldBlock()
+        self._items.append(tof)
+        return tof
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, index: int) -> _FakeFieldBlock:
+        return self._items[index - 1]
+
+
 class _FakeWordList:
     """Mimics a Word List COM object: a Range plus a ListParagraphs count."""
 
@@ -1326,6 +1394,8 @@ def _make_document(
     doc.Footnotes = _seed_notes(footnotes)
     doc.Endnotes = _seed_notes(endnotes)
     doc.TablesOfContents = _FakeTOCs()
+    doc.Indexes = _FakeIndexes()
+    doc.TablesOfFigures = _FakeTablesOfFigures()
 
     # Equations: document-level OMaths, each range built through the cached
     # factory so its Start maps back to a paragraph for list()'s `para`.

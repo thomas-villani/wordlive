@@ -36,6 +36,7 @@ from ._document import Document, DocumentCollection
 from ._edit import EditScope
 from ._fields import Field, FieldCollection
 from ._hyperlinks import Hyperlink, HyperlinkCollection
+from ._index import Index
 from ._lists import ListCollection
 from ._notes import Endnote, EndnoteCollection, Footnote, FootnoteCollection
 from ._properties import PropertyCollection
@@ -45,7 +46,7 @@ from ._selection import Selection, SelectionSnapshot
 from ._snapshot import Snapshot
 from ._styles import Style, StyleCollection
 from ._tables import Cell, Table, TableCollection
-from ._toc import Toc
+from ._toc import TableOfFigures, Toc
 from ._variables import VariableCollection
 from .exceptions import (
     AmbiguousMatchError,
@@ -97,6 +98,7 @@ __all__ = [
     "ImageAnchor",
     "ImageCollection",
     "ImageSourceError",
+    "Index",
     "ListCollection",
     "OpError",
     "Paragraph",
@@ -119,6 +121,7 @@ __all__ = [
     "StyleNotFoundError",
     "Table",
     "TableCollection",
+    "TableOfFigures",
     "Toc",
     "VariableCollection",
     "Word",

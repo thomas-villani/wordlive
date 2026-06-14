@@ -113,9 +113,13 @@ a.insert_break(kind="page")             # page | column | section_next | section
 a.insert_field("page")                   # self-updating field: page|numpages|date|… (or "field" + raw code)
 a.insert_footnote("See appendix B.")     # → Footnote (footnote:N); insert_endnote(...) mirrors
 a.insert_toc(levels=(1, 3))              # table of contents → Toc; doc.add_toc() puts one at the top
+a.insert_table_of_figures(label="Figure")  # lists captions of one label → TableOfFigures (field block, like the TOC)
+a.mark_index_entry("risk:market")        # mark range as XE index entry ("main:sub" nests); then build the index:
+a.insert_index(columns=2)                # back-of-book index from the marks → Index; doc.add_index() puts one at the end
 a.link_to(address="https://x")          # hyperlink; or link_to(bookmark="Intro"); text= inserts new linked text
 a.insert_cross_reference("bookmark:Intro", kind="page")  # ref a bookmark/heading/footnote/endnote
 a.insert_caption("Figure", text="System overview")       # own-paragraph caption (Table→above, else below; position= to override)
+a.insert_content_control(kind="dropdown", title="Status", items=["Open", "Done"])  # wrap the range in a CC; cc:Status addresses it
 a.insert_image("diagram.png", wrap="auto")
 a.read_image()                          # → (bytes, mime) — extract the one image in the range
 a.insert_equation(unicodemath="x=(-b±√(b^2-4ac))/(2a)")   # native; or latex= (needs the `latex` extra) / mathml=

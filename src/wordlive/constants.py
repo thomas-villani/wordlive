@@ -526,3 +526,42 @@ class WdFieldType(IntEnum):
     TIME = 32
     PAGE = 33
     TITLE = 49
+
+
+class WdContentControlType(IntEnum):
+    """`ContentControls.Add(Type=...)` values — the control kinds `insert_content_control` exposes.
+
+    `insert_content_control(kind=...)` maps its string keys onto these:
+    ``"rich_text"`` → `RICH_TEXT` (the default — formatted text), ``"text"`` →
+    `TEXT` (plain text), ``"picture"`` → `PICTURE`, ``"combo_box"`` →
+    `COMBO_BOX` (a dropdown that also accepts typed text), ``"dropdown"`` →
+    `DROPDOWN_LIST`, ``"date"`` → `DATE`, ``"building_block"`` →
+    `BUILDING_BLOCK_GALLERY`, ``"group"`` → `GROUP`, ``"checkbox"`` →
+    `CHECKBOX` (Word 2013+), and ``"repeating_section"`` → `REPEATING_SECTION`
+    (Word 2013+). The form-building primitive — pair `combo_box`/`dropdown`
+    with a list of items.
+    """
+
+    RICH_TEXT = 0
+    TEXT = 1
+    PICTURE = 2
+    COMBO_BOX = 3
+    DROPDOWN_LIST = 4
+    BUILDING_BLOCK_GALLERY = 5
+    DATE = 6
+    GROUP = 7
+    CHECKBOX = 8
+    REPEATING_SECTION = 9
+
+
+class WdIndexType(IntEnum):
+    """`Indexes.Add(Type=...)` values — how index subentries are laid out.
+
+    `insert_index(run_in=...)` maps onto these: ``False`` → `INDENT`
+    (subentries indented under the main entry, one per line — the common book
+    style) and ``True`` → `RUNIN` (subentries run together in a single
+    paragraph).
+    """
+
+    INDENT = 0
+    RUNIN = 1
