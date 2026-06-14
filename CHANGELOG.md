@@ -5,7 +5,7 @@ All notable changes to **wordlive** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.0] — 2026-06-13
 
 ### Added
 - **Document metadata — `doc.properties`.** Read and write the file's built-in
@@ -671,6 +671,8 @@ v0–v0.8 development line bundled here:
   `wordlive install-skill`, an mkdocs Material docs site, and PyPI
   trusted-publishing on tag push.
 
+[0.15.0]: https://github.com/thomas-villani/wordlive/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/thomas-villani/wordlive/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/thomas-villani/wordlive/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/thomas-villani/wordlive/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/thomas-villani/wordlive/compare/v0.11.0...v0.11.1
