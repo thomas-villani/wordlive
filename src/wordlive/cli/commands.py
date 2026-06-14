@@ -101,6 +101,11 @@ def register(group: click.Group) -> None:
     group.add_command(revisions_cmd)
     group.add_command(locate_cmd)
     group.add_command(stats_cmd)
+    group.add_command(proofing_cmd)
+    group.add_command(hyperlinks_cmd)
+    group.add_command(fields_cmd)
+    group.add_command(properties)
+    group.add_command(variables)
     group.add_command(images_cmd)
     group.add_command(read_image_cmd)
     group.add_command(equations_cmd)
@@ -1263,6 +1268,260 @@ def stats_cmd(ctx: click.Context) -> None:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             s = doc.stats()
             emit(s, as_text=not ctx.obj["as_json"], text=_fmt_stats(s))
+
+    _run(ctx, go)
+
+
+def _fmt_proofing(data: dict[str, Any]) -> str:
+    sp, gr = data.get("spelling", {}), data.get("grammar", {})
+    read = data.get("readability", {})
+    lines = [
+        f"spelling errors: {sp.get('count')}",
+        f"grammar errors: {gr.get('count')}",
+    ]
+    for key in (
+        "flesch_reading_ease",
+        "flesch_kincaid_grade_level",
+        "passive_sentences",
+        "words_per_sentence",
+    ):
+        if key in read:
+            lines.append(f"{key}: {read[key]}")
+    return "\n".join(lines)
+
+
+@click.command(name="proofing")
+@click.pass_context
+def proofing_cmd(ctx: click.Context) -> None:
+    """Spelling/grammar errors and readability statistics for the document.
+
+    Runs Word's proofing tools: `spelling`/`grammar` report a count plus a
+    (capped) list of flagged runs with `range:START-END` ids, and `readability`
+    reports Flesch Reading Ease, Flesch-Kincaid Grade Level, passive-sentence %,
+    and averages. Heavier than `stats` (it (re)checks the document) but still a
+    pure read.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            data = doc.proofing()
+            emit(data, as_text=not ctx.obj["as_json"], text=_fmt_proofing(data))
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# hyperlinks / fields  (read-only discovery mirrors of link_to / insert_field)
+# ---------------------------------------------------------------------------
+
+
+def _fmt_hyperlinks(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "(no hyperlinks)"
+    lines: list[str] = []
+    for r in rows:
+        dest = r.get("address") or (f"#{r['sub_address']}" if r.get("sub_address") else "?")
+        text = r.get("text") or ""
+        para = r.get("para") or ""
+        lines.append(f"[{r['anchor_id']}] {text!r} -> {dest}  {para}".rstrip())
+    return "\n".join(lines)
+
+
+@click.command(name="hyperlinks")
+@click.pass_context
+def hyperlinks_cmd(ctx: click.Context) -> None:
+    """List the document's hyperlinks (text, destination, range:START-END id).
+
+    The read mirror of `link`: each link's visible text, external `address` or
+    internal `sub_address` bookmark, screen tip, and the range/para it sits in.
+    Non-mutating.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.hyperlinks.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_hyperlinks(rows))
+
+    _run(ctx, go)
+
+
+def _fmt_fields(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "(no fields)"
+    lines: list[str] = []
+    for r in rows:
+        result = r.get("result") or ""
+        suffix = f" = {result!r}" if result else ""
+        lines.append(f"[{r['anchor_id']}] {r['kind']}: {r['code']}{suffix}")
+    return "\n".join(lines)
+
+
+@click.command(name="fields")
+@click.pass_context
+def fields_cmd(ctx: click.Context) -> None:
+    """List the document's fields (kind, code, rendered result, range:START-END id).
+
+    The read mirror of `insert-field`: each field's `kind` (the code's leading
+    keyword — PAGE, REF, TOC, …), raw `code`, and last-rendered `result`. Run
+    `update-fields` first to refresh stale results. Non-mutating.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.fields.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_fields(rows))
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# properties / variables  (document metadata + invisible named storage)
+# ---------------------------------------------------------------------------
+
+
+def _fmt_properties(data: dict[str, Any]) -> str:
+    lines: list[str] = []
+    for bag in ("builtin", "custom"):
+        items = data.get(bag, {})
+        if items:
+            lines.append(f"[{bag}]")
+            lines.extend(f"  {k}: {v}" for k, v in items.items())
+    return "\n".join(lines) if lines else "(no properties)"
+
+
+@click.group(name="properties")
+def properties() -> None:
+    """Read and edit document properties (metadata): built-in + custom."""
+
+
+@properties.command(name="list")
+@click.pass_context
+def properties_list(ctx: click.Context) -> None:
+    """List the document's built-in and custom properties."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            data = doc.properties.read()
+            emit(data, as_text=not ctx.obj["as_json"], text=_fmt_properties(data))
+
+    _run(ctx, go)
+
+
+@properties.command(name="set")
+@click.option("--name", "name", required=True, help="Property name (e.g. 'Title', 'Author').")
+@click.option("--value", "value", required=True, help="New value.")
+@click.option(
+    "--custom/--builtin",
+    "custom",
+    default=False,
+    show_default=True,
+    help="Set a custom property (created if absent) instead of a built-in one.",
+)
+@click.pass_context
+def properties_set(ctx: click.Context, name: str, value: str, custom: bool) -> None:
+    """Set a built-in (default) or custom document property (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: set property {name}"):
+                doc.properties.set(name, value, custom=custom)
+            label = "custom property" if custom else "property"
+            emit(
+                {"ok": True, "name": name, "value": value, "custom": custom},
+                as_text=not ctx.obj["as_json"],
+                text=f"set {label} {name!r} = {value!r}",
+            )
+
+    _run(ctx, go)
+
+
+@properties.command(name="delete")
+@click.option("--name", "name", required=True, help="Custom property name to delete.")
+@click.pass_context
+def properties_delete(ctx: click.Context, name: str) -> None:
+    """Delete a custom document property (atomic-undo). Built-ins can't be removed."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: delete property {name}"):
+                doc.properties.delete(name)
+            emit(
+                {"ok": True, "name": name},
+                as_text=not ctx.obj["as_json"],
+                text=f"deleted custom property {name!r}",
+            )
+
+    _run(ctx, go)
+
+
+def _fmt_variables(data: dict[str, str]) -> str:
+    if not data:
+        return "(no variables)"
+    return "\n".join(f"{k}: {v}" for k, v in data.items())
+
+
+@click.group(name="variables")
+def variables() -> None:
+    """Read and edit document variables (invisible named string storage)."""
+
+
+@variables.command(name="list")
+@click.pass_context
+def variables_list(ctx: click.Context) -> None:
+    """List the document's variables as name: value pairs."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            data = doc.variables.list()
+            emit(data, as_text=not ctx.obj["as_json"], text=_fmt_variables(data))
+
+    _run(ctx, go)
+
+
+@variables.command(name="set")
+@click.option("--name", "name", required=True, help="Variable name.")
+@click.option("--value", "value", required=True, help="Value (stored as a string).")
+@click.pass_context
+def variables_set(ctx: click.Context, name: str, value: str) -> None:
+    """Create or update a document variable (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: set variable {name}"):
+                doc.variables.set(name, value)
+            emit(
+                {"ok": True, "name": name, "value": value},
+                as_text=not ctx.obj["as_json"],
+                text=f"set variable {name!r} = {value!r}",
+            )
+
+    _run(ctx, go)
+
+
+@variables.command(name="delete")
+@click.option("--name", "name", required=True, help="Variable name to delete.")
+@click.pass_context
+def variables_delete(ctx: click.Context, name: str) -> None:
+    """Delete a document variable (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: delete variable {name}"):
+                doc.variables.delete(name)
+            emit(
+                {"ok": True, "name": name},
+                as_text=not ctx.obj["as_json"],
+                text=f"deleted variable {name!r}",
+            )
 
     _run(ctx, go)
 
@@ -3352,6 +3611,34 @@ def table_delete(ctx: click.Context, index: int) -> None:
     _run(ctx, go)
 
 
+@table.command(name="autofit")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option(
+    "--mode",
+    type=click.Choice(["content", "window", "fixed"]),
+    default="content",
+    show_default=True,
+    help="content: fit columns to cells · window: stretch to page · fixed: pin widths.",
+)
+@click.pass_context
+def table_autofit(ctx: click.Context, table_index: int, mode: str) -> None:
+    """Resize a table's columns — fit to content/window, or pin them (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: autofit table {table_index}"):
+                t.autofit(mode)
+            emit(
+                {"ok": True, "table": table_index, "mode": mode},
+                as_text=not ctx.obj["as_json"],
+                text=f"autofit table:{table_index} ({mode})",
+            )
+
+    _run(ctx, go)
+
+
 # ---------------------------------------------------------------------------
 # comment list | add | resolve | delete
 # ---------------------------------------------------------------------------
@@ -4022,7 +4309,9 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     insert_field, set_page_setup, update_fields, insert_footnote, insert_endnote,
     insert_toc, add_bookmark, add_hyperlink, insert_cross_reference,
     insert_caption, set_cell, add_row, append_record, update_row, delete_row,
-    set_heading_row, create_table, delete_table, insert_break, add_comment,
+    set_heading_row, autofit_table, create_table, delete_table,
+    set_property, delete_property, set_variable, delete_variable,
+    insert_break, add_comment,
     resolve_comment, delete_comment,
     apply_list, remove_list, restart_numbering, indent_list, outdent_list,
     write_header, write_footer. (append/prepend add a new paragraph + optional

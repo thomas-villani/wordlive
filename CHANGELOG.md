@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Document metadata — `doc.properties`.** Read and write the file's built-in
+  properties (Title, Author, Subject, Keywords, Comments, Category, Manager,
+  Company, …) and free-form custom properties. `doc.properties.read()` returns
+  `{builtin, custom}`; `set(name, value)` writes a built-in, `set(name, value,
+  custom=True)` a custom one (created if absent); `delete(name)` removes a custom
+  one. Across the Python API, the `set_property` / `delete_property` exec ops, the
+  CLI (`properties list|set|delete`), and MCP (`word_read command=properties`,
+  `word_write command=set_property|delete_property`).
+- **Document variables — `doc.variables`.** Invisible named string storage (the
+  backing store for `{ DOCVARIABLE }` fields). `doc.variables.list()` returns
+  `{name: value}`; `set` / `get` / `delete` manage them. Across the Python API,
+  the `set_variable` / `delete_variable` exec ops, the CLI (`variables
+  list|set|delete`), and MCP.
+- **`doc.hyperlinks` — the read mirror of `link_to`/`add_hyperlink`.** A
+  read-only, indexable collection reporting each link's visible text, external
+  `address` or internal `sub_address` bookmark, screen tip, and a
+  `range:START-END` / `para:N`. CLI `hyperlinks`, MCP `word_read
+  command=hyperlinks`.
+- **`doc.fields` — the read mirror of `insert_field`.** A read-only collection
+  reporting each field's `kind` (the code's leading keyword — PAGE/REF/TOC/…),
+  raw `code`, rendered `result`, `locked`, and a `range:START-END` / `para:N`.
+  CLI `fields`, MCP `word_read command=fields`.
+- **`doc.proofing()` — spelling, grammar, and readability.** Runs Word's proofing
+  tools and returns `{spelling, grammar, readability}`: spelling/grammar give a
+  count plus a (capped) list of flagged runs with `range:START-END` ids, and
+  readability gives Flesch Reading Ease, Flesch-Kincaid Grade Level,
+  passive-sentence %, and averages. A heavier read than `stats` (it (re)checks the
+  document). CLI `proofing`, MCP `word_read command=proofing`.
+- **Table autofit — `Table.autofit(mode)`.** Resize a table's columns to fit
+  their contents (`"content"`), stretch to the page (`"window"`), or pin the
+  current widths (`"fixed"`). Across the Python API, the `autofit_table` exec op,
+  the CLI (`table autofit`), and MCP (`word_write command=table action=autofit`).
 - **`drop_cap` — the editorial oversized initial letter.** `anchor.drop_cap(lines=3,
   position="dropped"|"margin"|"none", distance=…, font=…)` turns the first letter
   of the anchor's paragraph into a real Word `DropCap` (the body text wraps around

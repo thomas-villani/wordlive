@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import _com, _findreplace, _snapshot
+from . import _com, _findreplace, _proofing, _snapshot
 from ._anchors import (
     BookmarkCollection,
     ContentControlCollection,
@@ -27,14 +27,18 @@ from ._anchors import (
 )
 from ._comments import CommentCollection
 from ._edit import EditScope
+from ._fields import FieldCollection
+from ._hyperlinks import HyperlinkCollection
 from ._lists import ListCollection
 from ._notes import EndnoteCollection, FootnoteCollection
+from ._properties import PropertyCollection
 from ._revisions import RevisionCollection
 from ._sections import SectionCollection
 from ._selection import Selection
 from ._snapshot import Snapshot
 from ._styles import StyleCollection
 from ._tables import Table, TableCollection
+from ._variables import VariableCollection
 from .constants import WdInformation, WdSaveFormat, WdStatistic
 from .exceptions import (
     AmbiguousMatchError,
@@ -288,6 +292,54 @@ class Document:
         [`Anchor.insert_endnote`][wordlive.Anchor.insert_endnote].
         """
         return EndnoteCollection(self)
+
+    @property
+    def hyperlinks(self) -> HyperlinkCollection:
+        """Read-only, iterable view over the document's hyperlinks (`doc.hyperlinks`).
+
+        The read mirror of [`Anchor.link_to`][wordlive.Anchor.link_to]: index a
+        link by 1-based position (`doc.hyperlinks[2]`) to get a
+        [`Hyperlink`][wordlive.Hyperlink], or `list()` to summarise each —
+        visible text, external `address` or internal `sub_address` bookmark,
+        screen tip, and the `range:START-END` / `para:N` it sits in.
+        """
+        return HyperlinkCollection(self)
+
+    @property
+    def fields(self) -> FieldCollection:
+        """Read-only, iterable view over the document's fields (`doc.fields`).
+
+        The read mirror of [`Anchor.insert_field`][wordlive.Anchor.insert_field]:
+        index a field by 1-based position (`doc.fields[2]`) to get a
+        [`Field`][wordlive.Field], or `list()` to summarise each — its `kind`
+        (the code's leading keyword, `PAGE` / `REF` / `TOC` / …), raw `code`,
+        rendered `result`, and the `range:START-END` / `para:N` it sits in.
+        Refresh stale results with [`update_fields`][wordlive.Document.update_fields].
+        """
+        return FieldCollection(self)
+
+    @property
+    def properties(self) -> PropertyCollection:
+        """Read/write view over the document's built-in and custom properties (metadata).
+
+        `doc.properties.read()` returns `{"builtin": {…}, "custom": {…}}` — the
+        Title / Author / Keywords / … bag plus any custom name/value pairs.
+        `doc.properties.set("Title", "…")` writes a built-in property;
+        `set(name, value, custom=True)` writes (creating if needed) a custom one.
+        Wrap writes in `doc.edit(...)` for atomic undo.
+        """
+        return PropertyCollection(self)
+
+    @property
+    def variables(self) -> VariableCollection:
+        """Read/write view over the document's variables (`doc.variables`).
+
+        Document variables are invisible named string storage — the backing store
+        for `{ DOCVARIABLE name }` fields. `doc.variables.list()` returns
+        `{name: value}`; `set(name, value)` / `delete(name)` manage them. Wrap
+        writes in `doc.edit(...)` for atomic undo.
+        """
+        return VariableCollection(self)
 
     @property
     def selection(self) -> Selection:
@@ -931,6 +983,23 @@ class Document:
             "revisions": len(self.revisions),
             "saved": self.saved,
         }
+
+    def proofing(self) -> dict[str, Any]:
+        """Run Word's proofing tools and report spelling, grammar, and readability.
+
+        Returns `{spelling, grammar, readability}`. `spelling` and `grammar` are
+        each `{count, errors}` — the exact error count plus a (capped) list of
+        `{text, anchor_id, para}` for the flagged runs, so a `range:START-END`
+        can be fed back into `read` or `comments.add`. `readability` is Word's
+        readability statistics (Flesch Reading Ease, Flesch-Kincaid Grade Level,
+        passive-sentence %, word/sentence averages), snake_cased.
+
+        Heavier than [`stats`][wordlive.Document.stats]: it asks Word to (re)check
+        the document. Still a pure read — nothing is mutated. If proofing is
+        disabled or the document is protected, the affected section reports a
+        `None` count / empty readability rather than failing.
+        """
+        return _proofing.read_proofing(self)
 
     def _page_of(self, position: int) -> int:
         """1-based page number that document offset `position` falls on."""

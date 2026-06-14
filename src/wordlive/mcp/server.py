@@ -181,6 +181,16 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.images.list()
             if command == "equations":
                 return doc.equations.list()
+            if command == "hyperlinks":
+                return doc.hyperlinks.list()
+            if command == "fields":
+                return doc.fields.list()
+            if command == "properties":
+                return doc.properties.read()
+            if command == "variables":
+                return doc.variables.list()
+            if command == "proofing":
+                return doc.proofing()
             if command == "read_image":
                 anchor_id = _need(p, "anchor_id", command)
                 data, mime = doc.anchor_by_id(anchor_id).read_image()
@@ -377,6 +387,17 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         return op
     if command == "update_fields":
         return {"op": "update_fields"}
+    if command == "set_property":
+        op = {"op": "set_property", "name": need("name"), "value": need("value")}
+        if p.get("custom") is not None:
+            op["custom"] = bool(p["custom"])
+        return op
+    if command == "delete_property":
+        return {"op": "delete_property", "name": need("name")}
+    if command == "set_variable":
+        return {"op": "set_variable", "name": need("name"), "value": need("value")}
+    if command == "delete_variable":
+        return {"op": "delete_variable", "name": need("name")}
     if command in ("insert_footnote", "insert_endnote"):
         return {
             "op": command,
@@ -515,6 +536,11 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
                 op["header"] = bool(p["header"])
             if p.get("data") is not None:
                 op["data"] = p["data"]
+            return op
+        if action == "autofit":
+            op = {"op": "autofit_table", "table": need("table")}
+            if p.get("mode") is not None:
+                op["mode"] = p["mode"]
             return op
         if action == "delete":
             return {"op": "delete_table", "table": need("table")}
@@ -735,6 +761,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "images",
             "read_image",
             "equations",
+            "hyperlinks",
+            "fields",
+            "properties",
+            "variables",
+            "proofing",
             "location",
             "stats",
         ],
@@ -765,6 +796,13 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         read_image {anchor_id} (an embedded picture's bytes as base64 + mime — pass
         an image:N id or any single-image anchor) ·
         equations (math zones: equation:N id, type, linear preview, para) ·
+        hyperlinks (links: text, address/sub_address, range:START-END id — the read
+        mirror of add_hyperlink) · fields (PAGE/REF/TOC/…: kind, code, rendered
+        result, range id — the read mirror of insert_field) ·
+        properties (document metadata: {builtin, custom} name→value bags) ·
+        variables (invisible named storage: {name: value}) ·
+        proofing (spelling/grammar errors with counts + flagged runs, and readability
+        statistics — heavier than stats; it (re)checks the document) ·
         location {anchor_id} (where an anchor sits in the laid-out document:
         page/end_page span, line, column, in_table — "what page is this on"
         without a snapshot) ·
@@ -824,6 +862,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "insert_break",
             "insert_field",
             "update_fields",
+            "set_property",
+            "delete_property",
+            "set_variable",
+            "delete_variable",
             "insert_footnote",
             "insert_endnote",
             "insert_toc",
@@ -869,6 +911,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         record: dict[str, Any] | None = None,
         key: str | None = None,
         column: str | None = None,
+        value: str | int | float | bool | None = None,
+        custom: bool | None = None,
+        mode: str | None = None,
         section: int | None = None,
         which: str = "primary",
         on: bool | None = None,
@@ -981,18 +1026,24 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             based_on,next_style]} — set an existing style's font/paragraph defaults ·
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
         comment {action=add|resolve|delete,...} ·
-        table {action=set_cell|add_row|append_record|update_row|delete_row|set_heading_row|create|delete,
+        table {action=set_cell|add_row|append_record|update_row|delete_row|set_heading_row|autofit|create|delete,
                create needs anchor_id and [rows,cols] (optional when data is given —
                inferred from it),[style,header,data,before]; data is a 2-D array OR
                records (a list of objects whose keys become a header row);
                append_record {table,record} — append a row from a {header: value} object;
                update_row {table,key,values,[column]} — set cells (values={header: value})
                on the first row whose key-column (column=, default first) equals key;
-               set_heading_row {table,[row=1,heading=true,allow_break]} — repeating header row} ·
+               set_heading_row {table,[row=1,heading=true,allow_break]} — repeating header row;
+               autofit {table,[mode=content|window|fixed]} — resize columns to content/window or pin them} ·
         insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
         insert_field {anchor_id,kind=page|numpages|date|time|filename|author|title|field,[text,before]} —
             a self-updating field; put page numbers in a footer; kind=field takes a raw code in text ·
         update_fields {} — recompute the document's fields (page numbers, refs, dates) ·
+        set_property {name,value,[custom]} — set a built-in document property (Title/Author/
+            Subject/Keywords/…) or, with custom=true, a custom one (created if absent) ·
+        delete_property {name} — delete a custom property (built-ins can't be removed) ·
+        set_variable {name,value} — create/update a document variable (DOCVARIABLE storage) ·
+        delete_variable {name} — delete a document variable ·
         insert_footnote {anchor_id,text,[before]} / insert_endnote {anchor_id,text,[before]} —
             a note anchored to a range; the new footnote:N/endnote:N is in result ·
         insert_toc {[anchor_id=start],levels=[upper,lower],use_heading_styles,hyperlinks,[before]} —
@@ -1057,6 +1108,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "record": record,
             "key": key,
             "column": column,
+            "value": value,
+            "custom": custom,
+            "mode": mode,
             "section": section,
             "which": which,
             "on": on,
@@ -1195,7 +1249,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} ·
           append_record {table,record} — append a row from a {header: value} object ·
           update_row {table,key,values,[column]} — set cells (values={header: value}) on the first row whose key-column equals key ·
-          set_heading_row {table,[row=1,heading,allow_break]} — repeating header row on a multi-page table · delete_table {table} ·
+          set_heading_row {table,[row=1,heading,allow_break]} — repeating header row on a multi-page table ·
+          autofit_table {table,[mode=content|window|fixed]} — resize a table's columns · delete_table {table} ·
+          set_property {name,value,[custom]} / delete_property {name} — document metadata (built-in or custom) ·
+          set_variable {name,value} / delete_variable {name} — invisible DOCVARIABLE storage ·
           add_comment {anchor_id,text,[author]} · resolve_comment {index} · delete_comment {index} ·
           apply_list {anchor_id,[type=bulleted|numbered|outline,continue_previous]} · remove_list/restart_numbering/indent_list/outdent_list {anchor_id} ·
           write_header/write_footer {section,text,[which=primary|first|even]}.
