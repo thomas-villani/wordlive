@@ -202,6 +202,23 @@ unregistered tag still inserts but renders "Invalid source specified.". The
 `Bibliography` and `TableOfAuthorities` are field blocks like the TOC, so their
 page numbers populate only after `doc.update_fields()` (or a `snapshot`).
 
+Document theme / branding — the document-wide brand primitive (`doc.theme`):
+
+```python
+with doc.edit("brand"):
+    doc.theme.apply("Facet")                        # a whole theme (built-in name or .thmx path)
+    doc.theme.set_colors(scheme="Blue", accent1="#1A73E8")  # named scheme + per-colour overrides
+    doc.theme.set_fonts(major="Arial", minor="Calibri")     # heading / body fonts
+doc.theme.colors          # {"accent1": "#1A73E8", "text1": "#000000", …} (12 brand colours)
+doc.theme.to_dict()       # {"colors": {...}, "major_font": "Arial", "minor_font": "Calibri"}
+doc.theme.list_available()  # {"themes": [...], "color_schemes": [...], "font_schemes": [...]}
+```
+
+`set_colors` keys are `text1`/`background1`/`text2`/`background2`/`accent1`–
+`accent6`/`hyperlink`/`followed_hyperlink` and take a colour name, hex string, or
+`(r, g, b)` tuple; `scheme`/`theme` accept a built-in name (see `list_available`)
+or a file path.
+
 Anchoring & linking — name a target, then point at it:
 
 ```python

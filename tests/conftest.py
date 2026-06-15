@@ -1207,6 +1207,71 @@ class _FakeBibliography:
         self.BibliographyStyle = "APA"
 
 
+class _FakeThemeColor:
+    """One theme colour: a settable BGR .RGB plus its 1-based scheme index."""
+
+    def __init__(self, index: int, rgb: int) -> None:
+        self.ThemeColorSchemeIndex = index
+        self.RGB = rgb
+
+
+class _FakeColorScheme:
+    """Mimics ThemeColorScheme: 12 Colors(i), a Count, and recording Load/Save."""
+
+    def __init__(self) -> None:
+        # Distinct, in-range BGR defaults so colours read back as unique hexes.
+        self._colors = [_FakeThemeColor(i, i * 0x010101) for i in range(1, 13)]
+        self.Load = MagicMock(name="ColorSchemeLoad")
+        self.Save = MagicMock(name="ColorSchemeSave")
+
+    @property
+    def Count(self) -> int:
+        return len(self._colors)
+
+    def Colors(self, index: int) -> _FakeThemeColor:
+        return self._colors[index - 1]
+
+
+class _FakeThemeFont:
+    """One theme font with a settable .Name (one per script slot)."""
+
+    def __init__(self, name: str) -> None:
+        self.Name = name
+
+
+class _FakeThemeFontCollection:
+    """Mimics MajorFont/MinorFont: Item(i) over three script slots."""
+
+    def __init__(self, name: str) -> None:
+        self._fonts = [_FakeThemeFont(name) for _ in range(3)]
+
+    @property
+    def Count(self) -> int:
+        return len(self._fonts)
+
+    def Item(self, index: int) -> _FakeThemeFont:
+        return self._fonts[index - 1]
+
+
+class _FakeThemeFontScheme:
+    """Mimics ThemeFontScheme: MajorFont/MinorFont collections + recording Load."""
+
+    def __init__(self) -> None:
+        self.MajorFont = _FakeThemeFontCollection("Aptos Display")
+        self.MinorFont = _FakeThemeFontCollection("Aptos")
+        self.Load = MagicMock(name="FontSchemeLoad")
+        self.Save = MagicMock(name="FontSchemeSave")
+
+
+class _FakeOfficeTheme:
+    """Mimics doc.DocumentTheme: the colour, font, and effect schemes."""
+
+    def __init__(self) -> None:
+        self.ThemeColorScheme = _FakeColorScheme()
+        self.ThemeFontScheme = _FakeThemeFontScheme()
+        self.ThemeEffectScheme = MagicMock(name="ThemeEffectScheme")
+
+
 class _FakeWordList:
     """Mimics a Word List COM object: a Range plus a ListParagraphs count."""
 
@@ -1461,6 +1526,13 @@ def _make_document(
     doc.TablesOfFigures = _FakeTablesOfFigures()
     doc.TablesOfAuthorities = _FakeTablesOfAuthorities()
     doc.Bibliography = _FakeBibliography()
+    doc.DocumentTheme = _FakeOfficeTheme()
+    doc.ApplyDocumentTheme = MagicMock(name="ApplyDocumentTheme")
+    # The theme code derives the built-in library dir from app.Path/Version;
+    # give them real strings (the derived dir won't exist — built-in name
+    # resolution tests monkeypatch wordlive._themes._themes_dir).
+    doc.Application.Path = r"C:\Office\root\Office16"
+    doc.Application.Version = "16.0"
 
     # Equations: document-level OMaths, each range built through the cached
     # factory so its Start maps back to a paragraph for list()'s `para`.

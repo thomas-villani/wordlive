@@ -189,6 +189,10 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.properties.read()
             if command == "variables":
                 return doc.variables.list()
+            if command == "theme":
+                return doc.theme.to_dict()
+            if command == "themes":
+                return doc.theme.list_available()
             if command == "proofing":
                 return doc.proofing()
             if command == "read_image":
@@ -553,6 +557,21 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command == "apply_theme":
+        return {"op": "apply_theme", "theme": need("theme")}
+    if command == "set_theme_colors":
+        op = {"op": "set_theme_colors"}
+        if p.get("scheme") is not None:
+            op["scheme"] = p["scheme"]
+        if p.get("colors") is not None:
+            op["colors"] = p["colors"]
+        return op
+    if command == "set_theme_fonts":
+        op = {"op": "set_theme_fonts"}
+        for k in ("scheme", "major", "minor"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
     if command == "page_setup":
         op = {"op": "set_page_setup", "section": need("section")}
         for k in _PAGE_SETUP_FIELDS:
@@ -876,6 +895,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "proofing",
             "location",
             "stats",
+            "theme",
+            "themes",
         ],
         doc: str | None = None,
         name: str | None = None,
@@ -916,7 +937,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         without a snapshot) ·
         stats (one-shot document summary: page/word/character/paragraph/line
         counts plus section/heading/table/image/equation/comment/revision counts
-        and saved).
+        and saved) ·
+        theme (the document theme: 12 brand colours as #RRGGBB + major/minor fonts —
+        the read mirror of apply_theme/set_theme_*) ·
+        themes (the built-in themes, colour schemes, and font schemes Office ships —
+        the names apply_theme/set_theme_* accept).
         `doc` targets a document by name (default: active).
         """
         params = {
@@ -991,6 +1016,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "insert_bibliography",
             "mark_citation",
             "insert_table_of_authorities",
+            "apply_theme",
+            "set_theme_colors",
+            "set_theme_fonts",
             "page_setup",
             "save",
             "save_as",
@@ -1137,6 +1165,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         keep_entry_formatting: bool | None = None,
         entry_separator: str | None = None,
         page_range_separator: str | None = None,
+        theme: str | None = None,
+        scheme: str | None = None,
+        major: str | None = None,
+        minor: str | None = None,
+        colors: dict[str, str] | None = None,
         overwrite: bool = False,
         from_page: int | None = None,
         to_page: int | None = None,
@@ -1234,6 +1267,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         insert_table_of_authorities {[anchor_id=end], category=all|cases|…|1-16, [passim,
             keep_entry_formatting, entry_separator, page_range_separator, before]} — gather marked
             citations into a table; run update_fields after to populate page numbers ·
+        apply_theme {theme} — apply a whole document theme (colours+fonts+effects); theme is a
+            built-in name (read 'themes') or a .thmx path ·
+        set_theme_colors {[scheme, colors]} — scheme is a built-in colour-scheme name or .xml path;
+            colors is {accent1|text1|background1|…: name/hex} to override individual brand colours ·
+        set_theme_fonts {[scheme, major, minor]} — scheme is a built-in font-scheme name or .xml
+            path; major/minor override the heading/body font names ·
         page_setup {[section=1],margins|top_margin|bottom_margin|left_margin|right_margin|gutter,
             orientation=portrait|landscape,paper_size=letter|legal|tabloid|a3|a4|a5,columns,column_spacing} —
             section page geometry; lengths accept unit strings ·
@@ -1395,6 +1434,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "keep_entry_formatting": keep_entry_formatting,
             "entry_separator": entry_separator,
             "page_range_separator": page_range_separator,
+            "theme": theme,
+            "scheme": scheme,
+            "major": major,
+            "minor": minor,
+            "colors": colors,
             "overwrite": overwrite,
             "from_page": from_page,
             "to_page": to_page,

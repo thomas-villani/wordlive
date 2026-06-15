@@ -693,6 +693,76 @@ Page numbers populate only after repagination — run `update-fields` (or
 `snapshot`) before reading them. Failures: `1` bad input; `2` anchor not found;
 `3` Word busy.
 
+## `theme` · `list-themes`
+
+```
+wordlive theme [--doc DOC_NAME]
+wordlive list-themes [--doc DOC_NAME]
+```
+
+Read the document's theme — the document-wide brand primitive. `theme` reports the
+12 theme colours (as `#RRGGBB`) and the major/minor fonts; `list-themes` reports the
+built-in themes, colour schemes, and font schemes Office ships (the names the
+`apply-theme` / `set-theme-*` commands accept). Both are non-mutating.
+
+```bash
+$ wordlive --json theme
+{"colors": {"text1": "#000000", "accent1": "#156082", ...}, "major_font": "Aptos Display", "minor_font": "Aptos"}
+```
+
+## `apply-theme --theme NAME`
+
+```
+wordlive apply-theme --theme NAME [--doc DOC_NAME]
+```
+
+Apply a whole document theme — colours, fonts, and effects in one step. `--theme`
+is a built-in name (e.g. `Facet`, `Ion` — see `list-themes`) or a `.thmx` file path
+(a brand file). Wrap-free atomic undo. Override individual brand colours/fonts
+afterwards with `set-theme-colors` / `set-theme-fonts`.
+
+```bash
+$ wordlive apply-theme --theme Facet
+{"ok": true, "applied": {"theme": "Facet"}}
+```
+
+Failures: `1` bad input (incl. an unknown theme name); `3` Word busy.
+
+## `set-theme-colors [--scheme S] [--accent1 C] ...`
+
+```
+wordlive set-theme-colors [--scheme NAME] [--text1 C] [--background1 C]
+    [--text2 C] [--background2 C] [--accent1 C] ... [--accent6 C]
+    [--hyperlink C] [--followed-hyperlink C] [--doc DOC_NAME]
+```
+
+Set the theme's colour scheme and/or individual brand colours. `--scheme` loads a
+named built-in colour scheme (e.g. `Blue`) or a Theme-Colors `.xml` path; the
+per-colour flags override individual slots. A colour value is a name (`navy`) or a
+hex string (`#1A73E8`).
+
+```bash
+$ wordlive set-theme-colors --accent1 "#1A73E8" --accent2 "#34A853"
+{"ok": true, "colors": {"accent1": "#1A73E8", "accent2": "#34A853", ...}, "applied": {...}}
+```
+
+## `set-theme-fonts [--scheme S] [--major F] [--minor F]`
+
+```
+wordlive set-theme-fonts [--scheme NAME] [--major FONT] [--minor FONT] [--doc DOC_NAME]
+```
+
+Set the theme's fonts. `--scheme` loads a named built-in font scheme (e.g.
+`Garamond`) or a Theme-Fonts `.xml` path; `--major` / `--minor` override the heading
+/ body font names.
+
+```bash
+$ wordlive set-theme-fonts --major Arial --minor Calibri
+{"ok": true, "major_font": "Arial", "minor_font": "Calibri", "applied": {...}}
+```
+
+Failures for `set-theme-*`: `1` bad input (incl. an unknown scheme/colour); `3` Word busy.
+
 ## `create-content-control --anchor-id ID [--kind K] [--title T] [--tag T] [--item ...]`
 
 ```
