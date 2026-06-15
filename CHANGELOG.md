@@ -5,6 +5,17 @@ All notable changes to **wordlive** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`wordlive --version`/`-v` and `wordlive --about`/`-A`.** `--version` prints
+  `wordlive <version>` (sourced from the package metadata via the new
+  `wordlive.__version__`); `--about` renders a colourful banner with the version,
+  author (Tom Villani, Ph.D.), license (MIT), and repo URL — the "word" half in
+  blue and the "live" half in cyan on a terminal, clean ASCII when piped. Both
+  are eager top-level flags: no
+  subcommand needed and Word is never touched.
+
 ## [0.16.0] — 2026-06-15
 
 ### Added

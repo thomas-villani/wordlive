@@ -17,6 +17,9 @@ The public surface is small on purpose. Three rough layers:
   [`EditScope`](#wordlive.EditScope) for atomic undo and Selection
   preservation.
 
+The package version is available as `wordlive.__version__` (resolved from the
+installed package metadata).
+
 See [Concepts](concepts.md) for the *why* behind these shapes.
 
 ---
