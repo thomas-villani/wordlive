@@ -569,6 +569,8 @@ constants.WdParagraphAlignment.CENTER   # 1
 
 ::: wordlive.OpError
 
+::: wordlive.EquationError
+
 ::: wordlive.PathNotAllowedError
 
 ::: wordlive.SnapshotError
