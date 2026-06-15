@@ -2200,24 +2200,35 @@ Script shape:
 | `write_bookmark`       | `name`, `text`                             | —                                 |
 | `write_cc`             | `name`, `text`                             | —                                 |
 | `insert_paragraph`     | `anchor_id`, `text`                        | `where` (`after`/`before`) or `before: true`, `style` |
+| `insert_block`         | `anchor_id`, `items`                       | `where` or `before: true` |
+| `insert_section`       | `anchor_id`, `heading`, `body`             | `level`, `where` or `before: true` |
+| `insert_markdown`      | `anchor_id`, `markdown`                    | `where` or `before: true` |
+| `replace_section`      | `anchor_id`, one of `body` / `markdown`    | — |
+| `delete_paragraph`     | `anchor_id`                                | — |
 | `append`               | `text`                                     | `style`                           |
 | `append_inline`        | `text`                                     | —                                 |
 | `prepend`              | `text`                                     | `style`                           |
 | `prepend_inline`       | `text`                                     | —                                 |
 | `insert_image`         | `anchor_id`, `wrap`, and one of `path` / `base64` | `where` or `before: true`, `block`, `width`, `height`, `alt_text`, `lock_aspect` |
+| `insert_equation`      | `anchor_id`, one of `unicodemath` / `latex` / `mathml` | `display`, `where` or `before: true` |
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
+| `add_style`            | `name`                                     | `type`, `based_on`, `next_style`  |
+| `set_style`            | `name`                                     | `based_on`, `next_style`, plus the `format_paragraph` / `format_run` formatting fields |
 | `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after`, `line_spacing` (a multiple `1`/`1.5`/`2`, `single`/`1.5`/`double`, or an exact length like `14pt`), `page_break_before`, `keep_together`, `keep_with_next`, `widow_control` |
 | `format_run`           | `anchor_id`                                | `bold`, `italic`, `underline`, `strikethrough`, `font`, `size`, `color`, `highlight`, `subscript`, `superscript`, `small_caps`, `all_caps`, `spacing` |
 | `set_shading`          | `anchor_id`                                | `fill`, `pattern`                 |
 | `set_borders`          | `anchor_id`                                | `sides` (`all`/`box`/`top`/`bottom`/`left`/`right`/`horizontal`/`vertical`), `style` (a.k.a. `line_style`: `single`/`double`/`dot`/`dash`/`none`/…), `weight`, `color` |
-| `drop_cap`             | `anchor_id`                                | `position` (`dropped`/`margin`/`none`), `lines` (default 3), `distance`, `font` |
+| `drop_cap`             | `anchor_id`                                | `position` (`dropped`/`normal`/`margin`/`none`), `lines` (default 3), `distance`, `font` |
 | `add_tab_stop`         | `anchor_id`, `position`                    | `align`, `leader`                 |
 | `set_cell`             | `table`, `row`, `col`, `text`              | —                                 |
 | `add_row`              | `table`                                    | `values`                          |
 | `delete_row`           | `table`, `row`                             | —                                 |
 | `set_heading_row`      | `table`                                    | `row` (default 1), `heading` (default true), `allow_break` |
+| `autofit_table`        | `table`                                    | `mode` (`content`/`window`/`fixed`) |
+| `append_record`        | `table`, `record`                          | —                                 |
+| `update_row`           | `table`, `key`, `values`                   | `column`                          |
 | `create_table`         | `anchor_id`, `rows`, `cols`                | `style`, `data` (row-major 2-D), `header`, `where` or `before: true` (new cells default to the `Normal` paragraph style) |
 | `delete_table`         | `table`                                    | —                                 |
 | `insert_break`         | `anchor_id`                                | `kind` (`page`/`column`/`section_next`/`section_continuous`), `where` or `before: true` |
@@ -2227,10 +2238,27 @@ Script shape:
 | `insert_footnote`      | `anchor_id`, `text`                        | `where` or `before: true`         |
 | `insert_endnote`       | `anchor_id`, `text`                        | `where` or `before: true`         |
 | `insert_toc`           | `anchor_id`                                | `levels` (`[upper, lower]`), `use_heading_styles`, `hyperlinks`, `where` or `before: true` |
+| `mark_index_entry`     | `anchor_id`, `entry`                       | `cross_reference`, `bold`, `italic` |
+| `insert_index`         | `anchor_id`                                | `columns`, `run_in`, `right_align_page_numbers`, `where` or `before: true` |
+| `insert_table_of_figures` | `anchor_id`                             | `label`, `include_label`, `hyperlinks`, `right_align_page_numbers`, `where` or `before: true` |
+| `set_bibliography_style` | `style`                                  | —                                 |
+| `add_source`           | `source_type`                              | `tag`, `author`, `title`, `year`, `publisher`, `city`, `journal_name`, `volume`, `issue`, `pages`, `url`, `edition`, `doi`, or raw `xml` |
+| `insert_citation`      | `anchor_id`, `tag`                         | `pages`, `prefix`, `suffix`, `volume`, `suppress_author`, `suppress_year`, `suppress_title`, `locale`, `where` or `before: true` |
+| `insert_bibliography`  | `anchor_id`                                | `where` or `before: true` |
+| `mark_citation`        | `anchor_id`, `long_citation`               | `short_citation`, `category`, `where` or `before: true` |
+| `insert_table_of_authorities` | `anchor_id`                         | `category`, `passim`, `keep_entry_formatting`, `entry_separator`, `page_range_separator`, `where` or `before: true` |
 | `add_bookmark`         | `name`, `anchor_id`                        | —                                 |
 | `add_hyperlink`        | `anchor_id`, and one of `url` / `bookmark` | `text`, `screen_tip`              |
 | `insert_cross_reference` | `anchor_id`, `target`                    | `kind` (`text`/`page`/`number`/`above_below`), `hyperlink`, `where` or `before: true` |
 | `insert_caption`       | `anchor_id`                                | `label`, `text`, `position` (`above`/`below`; default above for `Table`, else below) |
+| `create_content_control` | `anchor_id`                              | `kind`, `title`, `tag`, `items`, `where` (`wrap`/`before`/`after`), `lock_contents`, `lock_control` |
+| `apply_theme`          | `theme`                                    | —                                 |
+| `set_theme_colors`     | —                                          | `scheme`, `colors`                |
+| `set_theme_fonts`      | —                                          | `scheme`, `major`, `minor`        |
+| `set_property`         | `name`, `value`                            | `custom`                          |
+| `delete_property`      | `name`                                     | —                                 |
+| `set_variable`         | `name`, `value`                            | —                                 |
+| `delete_variable`      | `name`                                     | —                                 |
 | `add_comment`          | `anchor_id`, `text`                        | `author`                          |
 | `resolve_comment`      | `index`                                    | —                                 |
 | `delete_comment`       | `index`                                    | —                                 |
