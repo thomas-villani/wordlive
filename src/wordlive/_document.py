@@ -515,7 +515,7 @@ class Document:
         `self.end.insert_bibliography()`. See
         [`Anchor.insert_bibliography`][wordlive.Anchor.insert_bibliography] for the
         field-block / repagination caveat. Add sources with
-        [`doc.sources.add`][wordlive.SourceCollection.add] and cite them with
+        `doc.sources.add` and cite them with
         [`Anchor.insert_citation`][wordlive.Anchor.insert_citation] first. Returns
         the new [`Bibliography`][wordlive.Bibliography]. Wrap in `doc.edit(...)`.
         """

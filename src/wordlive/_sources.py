@@ -56,6 +56,7 @@ _SOURCE_TYPES: dict[str, str] = {
     "misc": "Misc",
 }
 
+
 def _parse_author(name: str) -> tuple[str, str]:
     """Split one author name into (last, first). Accepts "Last, First" or "First Last"."""
     name = name.strip()

@@ -2073,7 +2073,7 @@ class Anchor(ABC):
         """Insert an in-text citation at this anchor and return it as a `Citation`.
 
         References a source in the document's store (add one with
-        [`doc.sources.add`][wordlive.SourceCollection.add]) by its `tag` and
+        `doc.sources.add`) by its `tag` and
         renders it in the current [`bibliography_style`][wordlive.Document.bibliography_style]
         — e.g. *(Smith 2020)*. `pages` adds a page locator (*(Smith 2020, 15)*);
         `prefix` / `suffix` wrap the citation (*"see "* / *", at 12"*); `volume`
