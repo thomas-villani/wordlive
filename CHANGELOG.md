@@ -5,7 +5,7 @@ All notable changes to **wordlive** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.16.0] — 2026-06-15
 
 ### Added
 - **Content-control creation — `anchor.insert_content_control(...)`.** Closes the
@@ -754,6 +754,7 @@ v0–v0.8 development line bundled here:
   `wordlive install-skill`, an mkdocs Material docs site, and PyPI
   trusted-publishing on tag push.
 
+[0.16.0]: https://github.com/thomas-villani/wordlive/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/thomas-villani/wordlive/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/thomas-villani/wordlive/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/thomas-villani/wordlive/compare/v0.12.0...v0.13.0
