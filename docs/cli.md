@@ -18,6 +18,8 @@ wordlive [--json|--text] [--doc DOC_NAME] [--save-dir DIR]... [--image-dir DIR].
 | `--save-dir DIR` | none (deny) | Allow `save`/`save-as`/`export-pdf` to write under `DIR` (repeatable; merges with `WORDLIVE_SAVE_DIRS`). **Default-deny:** with no directory configured, saving is off. |
 | `--image-dir DIR`| none        | Restrict `insert-image --path` to files under `DIR` (repeatable; merges with `WORDLIVE_IMAGE_DIRS`). Non-local paths (UNC, URLs) are *always* rejected regardless. |
 | `-h`, `--help`   | —           | Show help for the command or subgroup.                  |
+| `-v`, `--version`| —           | Print `wordlive <version>` and exit.                    |
+| `-A`, `--about`  | —           | Print the [about screen](#about) — banner, version, author, license, repo — and exit. |
 
 ## Exit codes
 
@@ -2420,6 +2422,38 @@ The exit code reflects the **first** failed op: `2` for anchor-not-found,
 ```bash
 $ wordlive exec --script ops.json
 {"ok": true, "ops_run": 4, "label": "Update report"}
+```
+
+## `about`
+
+```
+wordlive --about      # or -A
+wordlive --version    # or -v
+```
+
+`--about`/`-A` prints a colourful banner with the package **version**, author
+(**Tom Villani, Ph.D.**), **license** (MIT), and the repository URL, then exits.
+On a terminal the "word" half is blue and the "live" half a lighter cyan; piped
+or redirected, the ANSI is stripped to clean ASCII. `--version`/`-v` prints just
+`wordlive <version>`.
+Both are eager top-level flags — no subcommand needed and Word is never touched.
+
+```bash
+$ wordlive --about
+
+                       _ _ _
+                      | | (_)
+__      _____  _ __ __| | |___   _____
+\ \ /\ / / _ \| '__/ _` | | \ \ / / _ \
+ \ V  V / (_) | | | (_| | | |\ V /  __/
+  \_/\_/ \___/|_|  \__,_|_|_| \_/ \___|
+
+  Drive a running Microsoft Word instance with LLM agents
+
+  version 0.16.0
+  author  Tom Villani, Ph.D.
+  license MIT
+  repo    https://github.com/thomas-villani/wordlive
 ```
 
 ## `llm-help`

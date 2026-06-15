@@ -1737,6 +1737,37 @@ def test_exec_insert_image_without_source_fails(fake_word, tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# --version / --about (offline — no Word needed)
+# ---------------------------------------------------------------------------
+
+
+def test_version_flag_prints_version():
+    """`--version`/`-v` prints the package version and exits cleanly."""
+    from wordlive import __version__
+
+    for flag in ("--version", "-v"):
+        code, out, _ = _invoke([flag])
+        assert code == EXIT_OK
+        assert out.strip() == f"wordlive {__version__}"
+
+
+def test_about_flag_shows_banner_and_metadata():
+    """`--about`/`-A` renders the banner plus version, author, license, and repo."""
+    from wordlive import __version__
+
+    for flag in ("--about", "-A"):
+        code, out, _ = _invoke([flag])
+        assert code == EXIT_OK
+        # CliRunner is not a tty, so the ANSI colour is stripped to clean ASCII.
+        assert "\x1b[" not in out
+        assert r"\_/\_/ \___/" in out  # a recognisable banner row
+        assert __version__ in out
+        assert "Tom Villani, Ph.D." in out
+        assert "MIT" in out
+        assert "github.com/thomas-villani/wordlive" in out
+
+
+# ---------------------------------------------------------------------------
 # llm-help (offline — no Word needed)
 # ---------------------------------------------------------------------------
 

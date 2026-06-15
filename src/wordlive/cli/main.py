@@ -8,6 +8,7 @@ from typing import Any
 
 import click
 
+from .. import __version__
 from .._paths import PathPolicy
 from ..exceptions import (
     AmbiguousMatchError,
@@ -59,7 +60,70 @@ def _exit_for(exc: WordliveError) -> int:
     return EXIT_OTHER
 
 
+# --about screen ------------------------------------------------------------
+# The banner is one figlet glyph block; colour is applied per-*column* so the
+# "word" half renders in blue and the "live" half in a lighter cyan.
+# Pipes/redirects get clean ASCII (click.echo strips the ANSI off a non-tty).
+
+_BANNER = r"""                       _ _ _
+                      | | (_)
+__      _____  _ __ __| | |___   _____
+\ \ /\ / / _ \| '__/ _` | | \ \ / / _ \
+ \ V  V / (_) | | | (_| | | |\ V /  __/
+  \_/\_/ \___/|_|  \__,_|_|_| \_/ \___|"""
+
+# Column where the "word" glyphs end and the "live" glyphs begin (the `d`/`l`
+# boundary), with the darker/lighter blue applied on either side.
+_BANNER_SPLIT = 24
+_WORD_COLOR = "blue"  # darker — the "word" half
+_LIVE_COLOR = "bright_cyan"  # lighter — the "live" half
+
+_TAGLINE = "Drive a running Microsoft Word instance with LLM agents"
+_AUTHOR = "Tom Villani, Ph.D."
+_LICENSE = "MIT"
+_REPO = "https://github.com/thomas-villani/wordlive"
+
+
+def _about_text() -> str:
+    """Build the colourful `--about` screen (banner + version/author/license/repo)."""
+    banner = "\n".join(
+        click.style(line[:_BANNER_SPLIT], fg=_WORD_COLOR, bold=True)
+        + click.style(line[_BANNER_SPLIT:], fg=_LIVE_COLOR, bold=True)
+        for line in _BANNER.splitlines()
+    )
+    fields = [
+        ("version", __version__),
+        ("author", _AUTHOR),
+        ("license", _LICENSE),
+        ("repo", _REPO),
+    ]
+    body = "\n".join(
+        f"  {click.style(f'{label:<8}', fg='bright_black')}{click.style(value, fg='white', bold=True)}"
+        for label, value in fields
+    )
+    tagline = click.style(_TAGLINE, fg=_LIVE_COLOR, italic=True)
+    return f"\n{banner}\n\n  {tagline}\n\n{body}\n"
+
+
+def _print_about(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    """Eager callback for `--about`/`-A`: print the about screen and exit."""
+    if not value or ctx.resilient_parsing:
+        return
+    click.echo(_about_text())
+    ctx.exit()
+
+
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.version_option(__version__, "-v", "--version", message="wordlive %(version)s")
+@click.option(
+    "-A",
+    "--about",
+    is_flag=True,
+    is_eager=True,
+    expose_value=False,
+    callback=_print_about,
+    help="Show the about screen — banner, version, author, license, and repo.",
+)
 @click.option("--json/--text", "as_json", default=True, help="Output format (default JSON).")
 @click.option("--doc", "doc_name", default=None, help="Target document by name (default: active).")
 @click.option(
