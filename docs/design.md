@@ -130,6 +130,31 @@ Excel-backed charts; after that, event sinks (`WindowSelectionChange`,
 `DocumentBeforeSave`), an async wrapper around the sync core, and the deeper
 style cuts (character styles, theme-aware fonts).
 
+## How it's tested
+
+Because wordlive drives a real, stateful application over COM, the test suite is
+layered so that most of it still runs on a Linux CI box while the parts that can
+only be trusted against live Word are exercised on demand:
+
+- **Unit tests** (the default `uv run pytest`) run against a `fake_word`
+  COM fixture that quacks like `Word.Application`. They cover everything that
+  doesn't need real Word — anchor resolution, fuzzy find/replace math, the
+  `exec` op vocabulary, CLI argument parsing, and exit-code mapping — and run
+  anywhere, including CI across Python 3.10–3.15.
+- **Smoke tests** (`uv run pytest -m smoke`) attach to a running Word and assert
+  *real* behaviour per feature — the gate that catches a wrong `Wd*` constant or
+  a COM boundary crash a mock can't model. Windows + Word only.
+- **End-to-end tests** (`uv run pytest -m e2e`) shell out to the actual CLI
+  (`python -m wordlive …`) as a subprocess against live Word and walk one
+  continuous document lifecycle — build via `exec` and individual verbs, read it
+  back, save and export under the path gate, then close, reopen from disk, and
+  verify the content survived the round-trip. This is the only layer that
+  exercises the *whole* stack a user or LLM actually hits: argument parsing →
+  COM → live Word → JSON on stdout → process exit code.
+
+The `smoke` and `e2e` tiers are excluded from the default run (`addopts =
+-m 'not smoke'`), so a plain `uv run pytest` stays fast and Word-free.
+
 ## Full design document
 
 For the unabridged version — including the original motivation, the error

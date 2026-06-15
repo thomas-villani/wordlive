@@ -92,6 +92,7 @@ required-version = ">=0.11.17"
 testpaths = ["tests"]
 markers = [
     "smoke: requires a running Microsoft Word installation",
+    "e2e: full CLI-subprocess lifecycle against live Word (implies smoke)",
 ]
 addopts = "-m 'not smoke'"
 

@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`find_replace` no longer eats a trailing paragraph/cell mark at a segment
+  boundary.** Replacing a *whole paragraph* that sat immediately before a table
+  (or any segment edge) matched the trailing `\r` too, so the replacement
+  deleted the paragraph break and fused the paragraph into the following table's
+  first cell (e.g. a header cell read back as `"Costs decreased.Item"`). The
+  normalization sentinel now maps to the offset one past the last *contributing*
+  character rather than `len(s)`, so a folded-away trailing mark (`\r`, the
+  `\x07` cell marker, a stripped space) is left intact. The earlier terminal-mark
+  clamp only guarded the document's final mark; this fixes interior boundaries.
+
 ### Added
+- **`python -m wordlive`.** The CLI is now runnable as a module (a thin
+  `__main__` aliasing the `wordlive` console script), so tooling can drive it
+  through the current interpreter without depending on the script being on PATH.
+- **End-to-end CLI test suite (`tests/test_e2e_cli.py`, marker `e2e`).** Shells
+  out to `python -m wordlive` against a live Word instance and walks a full
+  document lifecycle — build via `exec` + verbs, read back, save/export (gated),
+  then close, reopen from disk, and verify. Excluded from the default run and CI
+  (needs Word); run with `uv run pytest -m e2e`.
 - **`wordlive --version`/`-v` and `wordlive --about`/`-A`.** `--version` prints
   `wordlive <version>` (sourced from the package metadata via the new
   `wordlive.__version__`); `--about` renders a colourful banner with the version,

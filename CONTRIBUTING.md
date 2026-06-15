@@ -89,14 +89,37 @@ all this.
 ```bash
 uv run pytest                # unit tests — fake-COM fixture, run anywhere
 uv run pytest -m smoke       # integration — needs a real Word install on Windows
+uv run pytest -m e2e         # full CLI lifecycle vs live Word (implies smoke)
 ```
 
-- Unit tests use the `fake_word` COM fixture (`tests/conftest.py`), so they run
-  off-Windows and in CI on Linux. Add unit coverage for any logic that can be
+The suite is layered (see [Design → How it's tested](docs/design.md) for the why):
+
+- **Unit** tests use the `fake_word` COM fixture (`tests/conftest.py`), so they
+  run off-Windows and in CI on Linux. Add unit coverage for any logic that can be
   exercised without Word (parsing, validation, op dispatch, exit-code mapping).
-- `smoke` tests attach to a live Word and assert real behaviour. If your change
-  touches COM interaction, add a smoke test and run it on Windows before opening
-  the PR.
+- **`smoke`** tests attach to a live Word and assert real behaviour. If your
+  change touches COM interaction, add a smoke test and run it on Windows before
+  opening the PR.
+- **`e2e`** tests (`tests/test_e2e_cli.py`) shell out to `python -m wordlive`
+  against live Word and walk a build → save → reopen lifecycle, checking JSON
+  output and exit codes across the subprocess boundary. Run them when you touch
+  the CLI, the `exec` batch path, persistence/path-gating, or anything that
+  changes the shape of CLI output. Needs Word open with a document.
+
+### Before you open a PR
+
+On a Windows box with Word running, run the full gate — the same checks CI runs,
+plus the Word-only tiers CI can't:
+
+```bash
+uv run ruff format --check . && uv run ruff check . && uv run mypy   # CI runs these
+uv run pytest                                                        # unit (CI runs this)
+uv run pytest -m smoke                                               # live Word
+uv run pytest -m e2e                                                 # live CLI lifecycle
+```
+
+CI (Linux) can only run the first two lines, so the `smoke`/`e2e` tiers are your
+responsibility — note in the PR whether you ran them.
 
 ## Lint, format, types
 
