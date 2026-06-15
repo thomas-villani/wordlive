@@ -36,6 +36,7 @@ from ._revisions import RevisionCollection
 from ._sections import SectionCollection
 from ._selection import Selection
 from ._snapshot import Snapshot
+from ._sources import SourceCollection
 from ._styles import StyleCollection
 from ._tables import Table, TableCollection
 from ._variables import VariableCollection
@@ -159,6 +160,37 @@ class Document:
     @property
     def content_controls(self) -> ContentControlCollection:
         return ContentControlCollection(self)
+
+    @property
+    def sources(self) -> SourceCollection:
+        """The document's bibliography sources — add and look up by tag.
+
+        See `SourceCollection`: `doc.sources.add(...)`
+        registers a source, `doc.sources["Smith2020"]` looks one up, and the
+        collection is iterable and `in`-testable by tag. Cite a source with
+        [`Anchor.insert_citation`][wordlive.Anchor.insert_citation] and list the
+        cited ones with [`Document.add_bibliography`][wordlive.Document.add_bibliography].
+        """
+        return SourceCollection(self)
+
+    @property
+    def bibliography_style(self) -> str:
+        """The citation/bibliography style (e.g. ``"APA"``, ``"MLA"``, ``"Chicago"``).
+
+        Read/write. Setting it changes how every citation and the bibliography
+        render (refresh them with [`update_fields`][wordlive.Document.update_fields]).
+        Word accepts a build-dependent set of identifiers; an unsupported value
+        raises [`OpError`][wordlive.OpError].
+        """
+        with _com.translate_com_errors():
+            return str(self._doc.Bibliography.BibliographyStyle)
+
+    @bibliography_style.setter
+    def bibliography_style(self, style: str) -> None:
+        if not str(style).strip():
+            raise OpError("bibliography_style must be a non-empty string")
+        with _com.translate_com_errors():
+            self._doc.Bibliography.BibliographyStyle = str(style)
 
     @property
     def styles(self) -> StyleCollection:
@@ -474,6 +506,46 @@ class Document:
         """
         return self.end.insert_index(
             columns=columns, run_in=run_in, right_align_page_numbers=right_align_page_numbers
+        )
+
+    def add_bibliography(self) -> Any:
+        """Insert a bibliography at the very end of the document.
+
+        The "references live at the back" helper — sugar for
+        `self.end.insert_bibliography()`. See
+        [`Anchor.insert_bibliography`][wordlive.Anchor.insert_bibliography] for the
+        field-block / repagination caveat. Add sources with
+        [`doc.sources.add`][wordlive.SourceCollection.add] and cite them with
+        [`Anchor.insert_citation`][wordlive.Anchor.insert_citation] first. Returns
+        the new [`Bibliography`][wordlive.Bibliography]. Wrap in `doc.edit(...)`.
+        """
+        return self.end.insert_bibliography()
+
+    def add_table_of_authorities(
+        self,
+        *,
+        category: str | int = "all",
+        passim: bool = True,
+        keep_entry_formatting: bool = True,
+        entry_separator: str | None = None,
+        page_range_separator: str | None = None,
+    ) -> Any:
+        """Insert a table of authorities at the very end of the document.
+
+        Sugar for `self.end.insert_table_of_authorities(...)`. See
+        [`Anchor.insert_table_of_authorities`][wordlive.Anchor.insert_table_of_authorities]
+        for the full semantics of `category`, `passim`, `keep_entry_formatting`,
+        and the separators, and for the page-number-repagination caveat. Mark
+        citations first with [`Anchor.mark_citation`][wordlive.Anchor.mark_citation].
+        Returns the new [`TableOfAuthorities`][wordlive.TableOfAuthorities]. Wrap in
+        `doc.edit(...)` for atomic undo.
+        """
+        return self.end.insert_table_of_authorities(
+            category=category,
+            passim=passim,
+            keep_entry_formatting=keep_entry_formatting,
+            entry_separator=entry_separator,
+            page_range_separator=page_range_separator,
         )
 
     def heading(self, name: str) -> Heading:

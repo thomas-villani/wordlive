@@ -557,6 +557,142 @@ Page numbers populate only after repagination — run `update-fields` (or
 `snapshot`) before reading them. Failures: `1` bad input; `2` anchor not found;
 `3` Word busy.
 
+## `bibliography-style --style STYLE`
+
+```
+wordlive bibliography-style --style STYLE [--doc DOC_NAME]
+```
+
+Set the document's bibliography style — the citation scheme Word renders citations
+and the bibliography in (`APA`, `MLA`, `Chicago`, `IEEE`, `Turabian`, …). Which
+names are accepted is **build-dependent** (Word ships a fixed set of style XSLTs);
+an unsupported value fails. Atomic-undo.
+
+```bash
+$ wordlive bibliography-style --style APA
+{"ok": true, "style": "APA"}
+```
+
+Failures: `1` unsupported style (an `OpError`), `3` Word busy.
+
+## `add-source --type TYPE [...]`
+
+```
+wordlive add-source --type book
+    [--tag T --author "Last, First" (repeatable) --title "..." --year YYYY
+     --publisher "..." --city "..." --journal-name "..." --volume V --issue I
+     --pages P --url URL --edition E --doi D | --xml RAW] [--doc DOC_NAME]
+```
+
+Register a citation **source** in the document's master/source list — the first of
+the citation workflow's two steps (cite it with `insert-citation`, then build the
+list with `insert-bibliography`). `--type` is one of `book`, `book_section`,
+`journal_article`, `article_in_periodical`, `conference_proceedings`, `report`,
+`web_site`, `document_from_site`, `electronic_source`, `art`, `sound_recording`,
+`performance`, `film`, `interview`, `patent`, `case`, `misc` (plus aliases).
+`--author` is `"Last, First"` (or `"First Last"`, and repeatable for several
+authors); `--tag` is the short handle later passed to `insert-citation` and
+**auto-derives** from the first author's surname + year when omitted. `--xml`
+is the escape hatch: a raw `<b:Source>` OOXML element (which must carry its own
+`<b:Tag>`), bypassing the typed flags.
+
+```bash
+$ wordlive add-source --type book --author "Smith, Jane" --title "On Risk" --year 2020
+{"ok": true, "source": "Smith2020"}
+```
+
+Failures: `1` bad input (e.g. `--xml` without a `<b:Tag>`); `3` Word busy.
+
+## `insert-citation --anchor-id ID --tag TAG [...]`
+
+```
+wordlive insert-citation --anchor-id ID --tag TAG
+    [--pages P] [--prefix "..."] [--suffix "..."] [--volume V]
+    [--suppress-author] [--suppress-year] [--suppress-title]
+    [--locale 1033] [--before | --after] [--doc DOC_NAME]
+```
+
+Insert an in-text citation to a registered source at the anchor — a Word `CITATION`
+field that renders per the active `bibliography-style` (e.g. `(Smith 2020, 15)`).
+`--tag` is the source's tag (from `add-source`); `--pages` adds a page locator,
+and the `--suppress-*` flags hide the author / year / title in this one citation.
+A citation to a tag with no matching source still inserts, but renders
+**"Invalid source specified."** — so register the source first.
+
+```bash
+$ wordlive insert-citation --anchor-id range:120-140 --tag Smith2020 --pages 15
+{"ok": true, "citation": "Smith2020"}
+```
+
+Failures: `1` bad input; `2` anchor not found; `3` Word busy.
+
+## `insert-bibliography [--anchor-id end] [--before | --after]`
+
+```
+wordlive insert-bibliography [--anchor-id end] [--before | --after] [--doc DOC_NAME]
+```
+
+Insert the bibliography / works-cited block — a Word `BIBLIOGRAPHY` field listing
+every cited source, formatted per the active `bibliography-style`. `--anchor-id`
+defaults to `end` (the back of the document). Its entries and page-dependent
+formatting populate only after repagination — run `update-fields` (or `snapshot`)
+before reading them.
+
+```bash
+$ wordlive insert-bibliography
+{"ok": true, "bibliography": true}
+```
+
+Failures: `1` bad input; `2` anchor not found; `3` Word busy.
+
+## `mark-citation --anchor-id ID --long "full citation" [...]`
+
+```
+wordlive mark-citation --anchor-id ID --long "FULL CITATION"
+    [--short ABBREV] [--category cases] [--before | --after] [--doc DOC_NAME]
+```
+
+Mark the anchor's range as a **table-of-authorities** entry (a Word `TA` field) —
+the first of the table-of-authorities' two steps (build it with
+`table-of-authorities`). `--long` is the full citation as it appears in the table;
+`--short` is the abbreviated form for later same-authority references (defaults to
+`--long`). `--category` groups the entry — `cases` / `statutes` / `other` /
+`rules` / `treatises` / `regulations` / `constitutional`, or an int `1`–`16`.
+
+```bash
+$ wordlive mark-citation --anchor-id range:120-140 \
+    --long "Brown v. Board, 347 U.S. 483 (1954)" --short "Brown" --category cases
+{"ok": true, "anchor_id": "range:120-140"}
+```
+
+Failures: `1` bad input; `2` anchor not found; `3` Word busy.
+
+## `table-of-authorities [--anchor-id end] [--category C] [--no-passim] [--no-keep-formatting]`
+
+```
+wordlive table-of-authorities [--anchor-id end] [--category all]
+    [--passim | --no-passim] [--keep-formatting | --no-keep-formatting]
+    [--entry-separator "..."] [--page-range-separator "..."]
+    [--before | --after] [--doc DOC_NAME]
+```
+
+Build a table of authorities from the entries marked with `mark-citation`.
+`--anchor-id` defaults to `end`. `--category` is `all` (every category) or a single
+named category / int (as in `mark-citation`). `--no-passim` lists every page even
+when an authority is cited on five or more (the default `passim` collapses those to
+"passim"); `--no-keep-formatting` drops the marked entries' own character
+formatting. `--entry-separator` / `--page-range-separator` override the punctuation
+between an entry and its pages, and within a page range.
+
+```bash
+$ wordlive table-of-authorities --category cases
+{"ok": true, "table_of_authorities": true}
+```
+
+Page numbers populate only after repagination — run `update-fields` (or
+`snapshot`) before reading them. Failures: `1` bad input; `2` anchor not found;
+`3` Word busy.
+
 ## `create-content-control --anchor-id ID [--kind K] [--title T] [--tag T] [--item ...]`
 
 ```

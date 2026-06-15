@@ -118,6 +118,12 @@ def register(group: click.Group) -> None:
     group.add_command(mark_index_entry_cmd)
     group.add_command(insert_index_cmd)
     group.add_command(table_of_figures_cmd)
+    group.add_command(bibliography_style_cmd)
+    group.add_command(add_source_cmd)
+    group.add_command(insert_citation_cmd)
+    group.add_command(insert_bibliography_cmd)
+    group.add_command(mark_citation_cmd)
+    group.add_command(table_of_authorities_cmd)
     group.add_command(page_setup_cmd)
     group.add_command(prepend_cmd)
     group.add_command(append_cmd)
@@ -2130,6 +2136,389 @@ def table_of_figures_cmd(
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted table of figures ({label}) {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="bibliography-style")
+@click.option(
+    "--style",
+    "style",
+    required=True,
+    help="Citation style, e.g. APA/MLA/Chicago/IEEE (build-dependent).",
+)
+@click.pass_context
+def bibliography_style_cmd(ctx: click.Context, style: str) -> None:
+    """Set the document's citation/bibliography style (atomic-undo).
+
+    Refresh existing citations/bibliography with `update-fields` afterwards.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: bibliography style {style}"):
+                doc.bibliography_style = style
+            emit(
+                {"ok": True, "applied": {"style": style}},
+                as_text=not ctx.obj["as_json"],
+                text=f"set bibliography style to {style!r}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="add-source")
+@click.option(
+    "--type",
+    "source_type",
+    default="book",
+    show_default=True,
+    help="Source type (book/journal_article/conference_proceedings/case/…).",
+)
+@click.option(
+    "--tag",
+    "tag",
+    default=None,
+    help="Citation tag; auto-derived from first author + year if omitted.",
+)
+@click.option("--author", "authors", multiple=True, help="Author 'Last, First' (repeatable).")
+@click.option("--title", "title", default=None, help="Source title.")
+@click.option("--year", "year", default=None, help="Publication year.")
+@click.option("--publisher", "publisher", default=None, help="Publisher.")
+@click.option("--city", "city", default=None, help="City of publication.")
+@click.option("--journal-name", "journal_name", default=None, help="Journal/periodical name.")
+@click.option("--volume", "volume", default=None, help="Volume.")
+@click.option("--issue", "issue", default=None, help="Issue.")
+@click.option("--pages", "pages", default=None, help="Page range.")
+@click.option("--url", "url", default=None, help="URL.")
+@click.option("--edition", "edition", default=None, help="Edition.")
+@click.option("--doi", "doi", default=None, help="DOI.")
+@click.option(
+    "--xml",
+    "xml",
+    default=None,
+    help="Raw <b:Source> XML (escape hatch; supersedes the typed fields).",
+)
+@click.pass_context
+def add_source_cmd(
+    ctx: click.Context,
+    source_type: str,
+    tag: str | None,
+    authors: tuple[str, ...],
+    title: str | None,
+    year: str | None,
+    publisher: str | None,
+    city: str | None,
+    journal_name: str | None,
+    volume: str | None,
+    issue: str | None,
+    pages: str | None,
+    url: str | None,
+    edition: str | None,
+    doi: str | None,
+    xml: str | None,
+) -> None:
+    """Add a bibliography source to the document's store (atomic-undo).
+
+    Cite it with `insert-citation --tag TAG`, then list cited sources with
+    `insert-bibliography`.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit("CLI: add source"):
+                if xml:
+                    src = doc.sources.add_xml(xml)
+                else:
+                    src = doc.sources.add(
+                        source_type,
+                        tag=tag,
+                        author=list(authors) or None,
+                        title=title,
+                        year=year,
+                        publisher=publisher,
+                        city=city,
+                        journal_name=journal_name,
+                        volume=volume,
+                        issue=issue,
+                        pages=pages,
+                        url=url,
+                        edition=edition,
+                        doi=doi,
+                    )
+            emit(
+                {
+                    "ok": True,
+                    "source": src.tag,
+                    "applied": {"source_type": source_type, "tag": src.tag},
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"added source {src.tag!r}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="insert-citation")
+@click.option("--anchor-id", "anchor_id", required=True, help="Where to insert the citation.")
+@click.option("--tag", "tag", required=True, help="Source tag to cite.")
+@click.option("--pages", "pages", default=None, help="Page locator, e.g. '15'.")
+@click.option("--prefix", "prefix", default=None, help="Text before the citation, e.g. 'see '.")
+@click.option("--suffix", "suffix", default=None, help="Text after the citation, e.g. ', at 12'.")
+@click.option("--volume", "volume", default=None, help="Volume.")
+@click.option("--suppress-author", "suppress_author", is_flag=True, help="Drop the author.")
+@click.option("--suppress-year", "suppress_year", is_flag=True, help="Drop the year.")
+@click.option("--suppress-title", "suppress_title", is_flag=True, help="Drop the title.")
+@click.option("--locale", "locale", type=int, default=1033, show_default=True, help="Format LCID.")
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_citation_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    tag: str,
+    pages: str | None,
+    prefix: str | None,
+    suffix: str | None,
+    volume: str | None,
+    suppress_author: bool,
+    suppress_year: bool,
+    suppress_title: bool,
+    locale: int,
+    before: bool,
+) -> None:
+    """Insert an in-text citation referencing a source by tag (atomic-undo)."""
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: citation {tag} {where} {anchor_id}"):
+                anchor.insert_citation(
+                    tag,
+                    pages=pages,
+                    prefix=prefix,
+                    suffix=suffix,
+                    volume=volume,
+                    suppress_author=suppress_author,
+                    suppress_year=suppress_year,
+                    suppress_title=suppress_title,
+                    locale=locale,
+                    where=where,
+                )
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "citation": tag,
+                    "applied": {
+                        "tag": tag,
+                        "pages": pages,
+                        "prefix": prefix,
+                        "suffix": suffix,
+                        "volume": volume,
+                        "suppress_author": suppress_author,
+                        "suppress_year": suppress_year,
+                        "suppress_title": suppress_title,
+                        "locale": locale,
+                        "where": where,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted citation {tag!r} {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="insert-bibliography")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    default="end",
+    show_default=True,
+    help="Where to insert the bibliography (default: the document end).",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_bibliography_cmd(ctx: click.Context, anchor_id: str, before: bool) -> None:
+    """Insert a bibliography of the cited sources (atomic-undo).
+
+    Page numbers/entries populate after repagination — run `update-fields` (or take
+    a `snapshot`) before reading them.
+    """
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert bibliography {where} {anchor_id}"):
+                anchor.insert_bibliography(where=where)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": {"where": where}},
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted bibliography {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="mark-citation")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose range to mark.")
+@click.option(
+    "--long",
+    "long_citation",
+    required=True,
+    help="Full citation as it appears in the table.",
+)
+@click.option(
+    "--short",
+    "short_citation",
+    default=None,
+    help="Abbreviated form Word matches elsewhere (defaults to --long).",
+)
+@click.option(
+    "--category",
+    "category",
+    default="cases",
+    show_default=True,
+    help="cases/statutes/other/rules/treatises/regulations/constitutional, or 1-16.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
+@click.pass_context
+def mark_citation_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    long_citation: str,
+    short_citation: str | None,
+    category: str,
+    before: bool,
+) -> None:
+    """Mark an anchor's range as a table-of-authorities citation (atomic-undo).
+
+    The per-authority step; build the table with `table-of-authorities`.
+    """
+    where = "before" if before else "after"
+    cat: str | int = int(category) if category.isdigit() else category
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: mark citation {anchor_id}"):
+                anchor.mark_citation(
+                    long_citation, short_citation=short_citation, category=cat, where=where
+                )
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "applied": {
+                        "long_citation": long_citation,
+                        "short_citation": short_citation,
+                        "category": category,
+                        "where": where,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"marked citation {long_citation!r} at {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="table-of-authorities")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    default="end",
+    show_default=True,
+    help="Where to insert the table (default: the document end).",
+)
+@click.option(
+    "--category",
+    "category",
+    default="all",
+    show_default=True,
+    help="all/cases/statutes/other/rules/treatises/regulations/constitutional, or 1-16.",
+)
+@click.option("--no-passim", "no_passim", is_flag=True, help="Don't collapse 5+ refs to 'passim'.")
+@click.option(
+    "--no-keep-formatting",
+    "no_keep_formatting",
+    is_flag=True,
+    help="Don't preserve each entry's character formatting.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
+@click.pass_context
+def table_of_authorities_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    category: str,
+    no_passim: bool,
+    no_keep_formatting: bool,
+    before: bool,
+) -> None:
+    """Insert a table of authorities from the marked citations (atomic-undo).
+
+    Mark citations first with `mark-citation`. Page numbers populate after
+    repagination — run `update-fields` (or take a `snapshot`) before reading them.
+    """
+    where = "before" if before else "after"
+    cat: str | int = int(category) if category.isdigit() else category
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: table of authorities {where} {anchor_id}"):
+                anchor.insert_table_of_authorities(
+                    category=cat,
+                    passim=not no_passim,
+                    keep_entry_formatting=not no_keep_formatting,
+                    where=where,
+                )
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "applied": {
+                        "category": category,
+                        "passim": not no_passim,
+                        "keep_entry_formatting": not no_keep_formatting,
+                        "where": where,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted table of authorities {where} {anchor_id}",
             )
 
     _run(ctx, go)
@@ -4632,7 +5021,9 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     insert_field, set_page_setup, update_fields, insert_footnote, insert_endnote,
     insert_toc, add_bookmark, add_hyperlink, insert_cross_reference,
     insert_caption, create_content_control, mark_index_entry, insert_index,
-    insert_table_of_figures, set_cell, add_row, append_record, update_row, delete_row,
+    insert_table_of_figures, set_bibliography_style, add_source, insert_citation,
+    insert_bibliography, mark_citation, insert_table_of_authorities,
+    set_cell, add_row, append_record, update_row, delete_row,
     set_heading_row, autofit_table, create_table, delete_table,
     set_property, delete_property, set_variable, delete_variable,
     insert_break, add_comment,

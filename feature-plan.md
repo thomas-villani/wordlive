@@ -668,12 +668,28 @@ need a louder opt-in than an ordinary edit, or should stay reads.
   `insert_table_of_figures`, CLI `table-of-figures`, MCP command. **Gotcha:**
   `TablesOfFigures.Add` needs **keyword** args for the flags — its optional
   string Variants (TableID/Caption2/AddedStyles) reject positional `""`.
-  **Table of authorities** (`TablesOfAuthorities` + `MarkCitation`) still open —
-  legal-citation niche, lower leverage.
-- **Citations & bibliography** — `Document.Bibliography`, `Sources`,
-  `Range.InsertCitation`. Academic-writing workflow. *Weight: medium; its own
-  design pass (a `Sources` data model + citation style), so deliberately left
-  out of the index/ToF branch.*
+- **Table of authorities** — ✅ **shipped** (`feat/citations-bibliography-toa`).
+  `anchor.mark_citation(long, short=…, category="cases")` plants a `TA` field;
+  `anchor.insert_table_of_authorities(category="all", passim=…,
+  keep_entry_formatting=…)` / `doc.add_table_of_authorities(...)` builds it over
+  `TablesOfAuthorities.Add`, returning a field-block `TableOfAuthorities`
+  (`.update()` only — Word's TOA has **no** `UpdatePageNumbers`). exec ops
+  `mark_citation` / `insert_table_of_authorities`, CLI, MCP. **Gotchas (live-Word
+  confirmed):** there is **no** `Range.MarkCitation` — mark via a raw `TA` field;
+  `TA`=field type 74, `TOA`=73 (the table field). `TablesOfAuthorities.Add` takes
+  `Range, Category(int)` positional + keyword for the string separators.
+- **Citations & bibliography** — ✅ **shipped** (`feat/citations-bibliography-toa`).
+  `doc.sources.add(type, author=…, title=…, year=…, …)` (friendly typed API over
+  `<b:Source>` XML) / `doc.sources.add_xml(...)` (raw escape hatch) populate the
+  store; `doc.bibliography_style` sets the style; `anchor.insert_citation(tag, …)`
+  inserts a `CITATION` field (returns `Citation`); `anchor.insert_bibliography()` /
+  `doc.add_bibliography()` inserts the reference list (returns `Bibliography`).
+  exec ops `set_bibliography_style` / `add_source` / `insert_citation` /
+  `insert_bibliography`, CLI, MCP; new `Source`/`Citation`/`Bibliography` classes.
+  **Gotchas (live-Word confirmed):** `CITATION`=field type 96, `BIBLIOGRAPHY`=97
+  (not 119/34 — those are out-of-range / `wdFieldExpression`); insert via the EMPTY
+  raw-code path. `Sources.Add` ingests a single `<b:Source>`; `BibliographyStyle`
+  is a plain string (APA/MLA/Chicago/IEEE/Turabian ok; GOST/ISO690 build-dependent).
 
 ### G. Drawing layer (floating shapes & embedded objects)
 

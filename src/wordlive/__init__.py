@@ -31,6 +31,7 @@ from ._anchors import (
     StartAnchor,
 )
 from ._app import Word, attach, connect
+from ._citations import Bibliography, Citation
 from ._comments import Comment, CommentCollection
 from ._document import Document, DocumentCollection
 from ._edit import EditScope
@@ -44,8 +45,10 @@ from ._revisions import Revision, RevisionCollection
 from ._sections import HeaderFooter, Section, SectionCollection
 from ._selection import Selection, SelectionSnapshot
 from ._snapshot import Snapshot
+from ._sources import Source
 from ._styles import Style, StyleCollection
 from ._tables import Cell, Table, TableCollection
+from ._toa import TableOfAuthorities
 from ._toc import TableOfFigures, Toc
 from ._variables import VariableCollection
 from .exceptions import (
@@ -69,9 +72,11 @@ __all__ = [
     "AmbiguousMatchError",
     "Anchor",
     "AnchorNotFoundError",
+    "Bibliography",
     "Bookmark",
     "BookmarkCollection",
     "Cell",
+    "Citation",
     "ComError",
     "Comment",
     "CommentCollection",
@@ -115,12 +120,14 @@ __all__ = [
     "SelectionSnapshot",
     "Snapshot",
     "SnapshotError",
+    "Source",
     "StartAnchor",
     "Style",
     "StyleCollection",
     "StyleNotFoundError",
     "Table",
     "TableCollection",
+    "TableOfAuthorities",
     "TableOfFigures",
     "Toc",
     "VariableCollection",
