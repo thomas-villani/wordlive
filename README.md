@@ -139,6 +139,14 @@ wordlive variables set --name ClientName --value "Acme"   # invisible DOCVARIABL
 wordlive hyperlinks          # every link: text, destination, range:START-END id
 wordlive fields              # every field: kind (PAGE/REF/TOC), code, rendered result
 
+# Citations & bibliography (source → cite → build), and a legal table of authorities:
+wordlive bibliography-style --style APA
+wordlive add-source --type book --author "Smith, Jane" --title "On Risk" --year 2020   # → tag
+wordlive insert-citation --anchor-id range:120-140 --tag Smith2020 --pages 15
+wordlive insert-bibliography                       # works-cited block (update-fields to fill it)
+wordlive mark-citation --anchor-id range:200-240 --long "Brown v. Board, 347 U.S. 483 (1954)" --category cases
+wordlive table-of-authorities --category cases     # build TOA from the marks (update-fields for pages)
+
 # Lists & numbering (any anchor's paragraphs):
 wordlive list apply --anchor-id heading:6 --type numbered
 wordlive list restart --anchor-id heading:6

@@ -515,7 +515,11 @@ class WdFieldType(IntEnum):
     raw-code escape hatch: `insert_field("field", text="REF foo \\\\h")` inserts an
     arbitrary field whose code is carried in the text, so REF/TOC/etc. are
     reachable without a member each. The named members cover the publishing
-    staples — page numbers, counts, date/time, and document metadata.
+    staples — page numbers, counts, date/time, document metadata — plus the
+    citation/authority field kinds (`CITATION`, `BIBLIOGRAPHY`, `TOA`,
+    `TOA_ENTRY`) that wordlive inserts via the `EMPTY` raw-code path and reads
+    back to identify (these four numerics were confirmed against live Word — the
+    "obvious" guesses 119/34/73-for-the-entry were all wrong).
     """
 
     EMPTY = -1
@@ -526,6 +530,10 @@ class WdFieldType(IntEnum):
     TIME = 32
     PAGE = 33
     TITLE = 49
+    TOA = 73  # table of authorities (the field the table itself renders as)
+    TOA_ENTRY = 74  # a TA mark — one entry feeding the table of authorities
+    CITATION = 96
+    BIBLIOGRAPHY = 97
 
 
 class WdContentControlType(IntEnum):

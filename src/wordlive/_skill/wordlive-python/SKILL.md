@@ -116,6 +116,10 @@ a.insert_toc(levels=(1, 3))              # table of contents → Toc; doc.add_to
 a.insert_table_of_figures(label="Figure")  # lists captions of one label → TableOfFigures (field block, like the TOC)
 a.mark_index_entry("risk:market")        # mark range as XE index entry ("main:sub" nests); then build the index:
 a.insert_index(columns=2)                # back-of-book index from the marks → Index; doc.add_index() puts one at the end
+a.insert_citation("Smith2020", pages="15")  # in-text CITATION field → Citation (renders per doc.bibliography_style)
+a.insert_bibliography()                  # works-cited block → Bibliography; doc.add_bibliography() puts one at the end
+a.mark_citation("Brown v. Board, 347 U.S. 483 (1954)", category="cases")  # mark a TA entry; then build the table:
+a.insert_table_of_authorities(category="all")  # → TableOfAuthorities; doc.add_table_of_authorities() at the end
 a.link_to(address="https://x")          # hyperlink; or link_to(bookmark="Intro"); text= inserts new linked text
 a.insert_cross_reference("bookmark:Intro", kind="page")  # ref a bookmark/heading/footnote/endnote
 a.insert_caption("Figure", text="System overview")       # own-paragraph caption (Table→above, else below; position= to override)
@@ -175,6 +179,28 @@ for f in doc.footnotes.list():          # [{index, anchor_id, marker, text, para
 toc = doc.add_toc(levels=(1, 3))        # TOC at the document start
 doc.update_fields()                     # populate its page numbers (or snapshot)
 ```
+
+Citations, bibliography & a table of authorities — source → cite → build:
+
+```python
+doc.bibliography_style = "APA"                      # the citation scheme (MLA/Chicago/IEEE/… — build-dependent)
+doc.sources.add("book", author="Smith, Jane", title="On Risk", year=2020)  # tag auto-derives → "Smith2020"
+doc.anchor_by_id("range:120-140").insert_citation("Smith2020", pages="15")  # (Smith 2020, 15)
+bib = doc.add_bibliography()                         # works-cited block at the document end
+doc.update_fields()                                 # fill its entries/page numbers (or snapshot)
+
+# A table of authorities is the same mark-then-build pattern as the index:
+doc.anchor_by_id("range:200-240").mark_citation("Brown v. Board, 347 U.S. 483 (1954)", category="cases")
+toa = doc.add_table_of_authorities(category="all")  # build from the TA marks (toa.update() refreshes — no update_page_numbers())
+doc.update_fields()
+```
+
+`doc.sources` is a `SourceCollection` (list/index by tag, `in`, `len`); each
+`Source` has `.tag`/`.cited`/`.xml`/`.to_dict()`/`.delete()`. `doc.sources.add_xml(
+"<b:Source>…</b:Source>")` is the raw-OOXML escape hatch. A citation to an
+unregistered tag still inserts but renders "Invalid source specified.". The
+`Bibliography` and `TableOfAuthorities` are field blocks like the TOC, so their
+page numbers populate only after `doc.update_fields()` (or a `snapshot`).
 
 Anchoring & linking — name a target, then point at it:
 

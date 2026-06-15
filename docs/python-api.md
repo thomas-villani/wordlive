@@ -42,7 +42,9 @@ Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
 `insert_paragraph_before/after(...)`, `insert_block(...)`, `insert_image(...)`, `insert_table(...)`,
 `insert_break(...)`, `insert_field(...)`, `insert_footnote(...)`,
 `insert_endnote(...)`, `insert_toc(...)`, `insert_table_of_figures(...)`,
-`mark_index_entry(...)`, `insert_index(...)`, `insert_content_control(...)`,
+`mark_index_entry(...)`, `insert_index(...)`, `insert_citation(...)`,
+`insert_bibliography(...)`, `mark_citation(...)`,
+`insert_table_of_authorities(...)`, `insert_content_control(...)`,
 `link_to(...)`,
 `insert_cross_reference(...)`, `insert_caption(...)`, and the list verbs (`apply_list`, `remove_list`,
 `list_info`, `restart_numbering`, `indent_list`, `outdent_list`) from
@@ -108,7 +110,10 @@ code) — pair it with a footer for page numbers and refresh with
 contents and returns a [`Toc`](#wordlive.Toc), `insert_table_of_figures(label=
 "Figure", …)` lists the captions of one label as a [`TableOfFigures`](#wordlive.TableOfFigures),
 and `mark_index_entry(entry, …)` + `insert_index(…)` mark and build a back-of-book
-[`Index`](#wordlive.Index) — see
+[`Index`](#wordlive.Index). `insert_citation(tag, …)` cites a registered source and
+`insert_bibliography(…)` builds the works-cited block, while `mark_citation(
+long_citation, …)` + `insert_table_of_authorities(…)` mark and build a
+[`TableOfAuthorities`](#wordlive.TableOfAuthorities) — see
 [Footnotes, endnotes & TOC](#footnotes-endnotes-toc).
 `insert_content_control(kind="rich_text", …)` wraps the anchor's range in a new
 content control (see [Anchoring & linking](#anchoring-linking)). `link_to(address=… |
@@ -225,6 +230,38 @@ builds the index from those marks and returns an [`Index`](#wordlive.Index);
 `TableOfFigures` and `Index` are field blocks: their page numbers populate only
 after repagination (`update()`, `update_fields()`, or a `snapshot`).
 
+Citations and a bibliography are a source-then-cite-then-build workflow.
+`doc.sources` is a `SourceCollection` over the
+document's master source list: `doc.sources.add(source_type="book", author=…,
+title=…, year=…, …)` registers a [`Source`](#wordlive.Source) (`source_type` is
+`"book"` / `"journal_article"` / `"web_site"` / `"case"` / … — `author` is
+`"Last, First"` or a list, and `tag` auto-derives from the first author's surname +
+year when omitted), `doc.sources.add_xml("<b:Source>…")` is the raw-OOXML escape
+hatch, and the collection is list/index/`in`/`len`-able by tag. `doc.bibliography_style`
+is the read/write style property (`"APA"` / `"MLA"` / `"Chicago"` / `"IEEE"` /
+`"Turabian"`, build-dependent — an unsupported value raises
+[`OpError`](#wordlive.OpError)). `anchor.insert_citation(tag, pages=…,
+suppress_author=…, …)` inserts an in-text `CITATION` field rendering per that
+style (e.g. `(Smith 2020, 15)`) and returns a [`Citation`](#wordlive.Citation) — a
+tag with no registered source still inserts but renders *"Invalid source
+specified."*. `anchor.insert_bibliography()` inserts the works-cited block and
+returns a [`Bibliography`](#wordlive.Bibliography); `doc.add_bibliography()` is the
+sugar for one at the document end.
+
+A table of authorities (the legal-citation index) is the same two-step,
+mark-then-build pattern as the back-of-book index.
+`anchor.mark_citation(long_citation, short_citation=…, category="cases")` marks the
+anchor's range as a `TA` field (`category` is `"cases"` / `"statutes"` / `"other"`
+/ … or an int 1–16; `short_citation` defaults to `long_citation`), then
+`anchor.insert_table_of_authorities(category="all", passim=True,
+keep_entry_formatting=True)` builds the table from those marks and returns a
+[`TableOfAuthorities`](#wordlive.TableOfAuthorities); `doc.add_table_of_authorities(...)`
+is the sugar for one at the document end. Like the TOC, the `Bibliography` and
+`TableOfAuthorities` are field blocks: their entries and page numbers populate only
+after repagination (`update()`, `update_fields()`, or a `snapshot`). (Word's
+table of authorities has no per-field page-number refresh, so unlike the TOC and
+`TableOfFigures` there's no `update_page_numbers()` — use a full `update()`.)
+
 ::: wordlive.Footnote
 
 ::: wordlive.Endnote
@@ -238,6 +275,14 @@ after repagination (`update()`, `update_fields()`, or a `snapshot`).
 ::: wordlive.TableOfFigures
 
 ::: wordlive.Index
+
+::: wordlive.Source
+
+::: wordlive.Citation
+
+::: wordlive.Bibliography
+
+::: wordlive.TableOfAuthorities
 
 ## Anchoring & linking
 

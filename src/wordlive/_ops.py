@@ -76,6 +76,12 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "mark_index_entry": ("anchor_id", "entry"),
     "insert_index": ("anchor_id",),
     "insert_table_of_figures": ("anchor_id",),
+    "set_bibliography_style": ("style",),
+    "add_source": ("source_type",),
+    "insert_citation": ("anchor_id", "tag"),
+    "insert_bibliography": ("anchor_id",),
+    "mark_citation": ("anchor_id", "long_citation"),
+    "insert_table_of_authorities": ("anchor_id",),
     "set_property": ("name", "value"),
     "delete_property": ("name",),
     "set_variable": ("name", "value"),
@@ -230,6 +236,44 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         "include_label",
         "hyperlinks",
         "right_align_page_numbers",
+        *_WHERE_FIELDS,
+    ),
+    "set_bibliography_style": (),
+    "add_source": (
+        "tag",
+        "author",
+        "title",
+        "year",
+        "publisher",
+        "city",
+        "journal_name",
+        "volume",
+        "issue",
+        "pages",
+        "url",
+        "edition",
+        "doi",
+        "xml",
+    ),
+    "insert_citation": (
+        "pages",
+        "prefix",
+        "suffix",
+        "volume",
+        "suppress_author",
+        "suppress_year",
+        "suppress_title",
+        "locale",
+        *_WHERE_FIELDS,
+    ),
+    "insert_bibliography": _WHERE_FIELDS,
+    "mark_citation": ("short_citation", "category", *_WHERE_FIELDS),
+    "insert_table_of_authorities": (
+        "category",
+        "passim",
+        "keep_entry_formatting",
+        "entry_separator",
+        "page_range_separator",
         *_WHERE_FIELDS,
     ),
     "set_property": ("custom",),
@@ -528,6 +572,78 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             where=("before" if op_before(op) else "after"), **tk
         )
         return {"table_of_figures": True}
+    elif kind == "set_bibliography_style":
+        doc.bibliography_style = op["style"]
+    elif kind == "add_source":
+        if "xml" in op:
+            src = doc.sources.add_xml(op["xml"])
+        else:
+            sk = {
+                k: op[k]
+                for k in (
+                    "tag",
+                    "author",
+                    "title",
+                    "year",
+                    "publisher",
+                    "city",
+                    "journal_name",
+                    "volume",
+                    "issue",
+                    "pages",
+                    "url",
+                    "edition",
+                    "doi",
+                )
+                if k in op
+            }
+            src = doc.sources.add(op["source_type"], **sk)
+        return {"source": src.tag}
+    elif kind == "insert_citation":
+        ck = {
+            k: op[k]
+            for k in (
+                "pages",
+                "prefix",
+                "suffix",
+                "volume",
+                "suppress_author",
+                "suppress_year",
+                "suppress_title",
+                "locale",
+            )
+            if k in op
+        }
+        doc.anchor_by_id(op["anchor_id"]).insert_citation(
+            op["tag"], where=("before" if op_before(op) else "after"), **ck
+        )
+        return {"citation": op["tag"]}
+    elif kind == "insert_bibliography":
+        doc.anchor_by_id(op["anchor_id"]).insert_bibliography(
+            where=("before" if op_before(op) else "after")
+        )
+        return {"bibliography": True}
+    elif kind == "mark_citation":
+        mc = {k: op[k] for k in ("short_citation", "category") if k in op}
+        doc.anchor_by_id(op["anchor_id"]).mark_citation(
+            op["long_citation"], where=("before" if op_before(op) else "after"), **mc
+        )
+    elif kind == "insert_table_of_authorities":
+        ak = {
+            k: op[k]
+            for k in (
+                "category",
+                "passim",
+                "keep_entry_formatting",
+                "entry_separator",
+                "page_range_separator",
+            )
+            if k in op
+        }
+        doc.anchor_by_id(op["anchor_id"]).insert_table_of_authorities(
+            where=("before" if op_before(op) else "after"), **ak
+        )
+        return {"table_of_authorities": True}
     elif kind == "set_property":
         doc.properties.set(op["name"], op["value"], custom=bool(op.get("custom", False)))
     elif kind == "delete_property":

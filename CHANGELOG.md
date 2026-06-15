@@ -42,6 +42,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `insert_table_of_figures` exec op, the CLI (`table-of-figures`), and MCP
   (`word_write command="insert_table_of_figures"`). New public
   `TableOfFigures` class.
+- **Citations & bibliography — `doc.sources` + `anchor.insert_citation` +
+  `anchor.insert_bibliography`.** The academic-writing workflow end to end.
+  `doc.sources.add("book", author="Smith, John", title=…, year=2020, …)` registers
+  a source in the document's store (a friendly typed API over Word's `<b:Source>`
+  XML — `book` / `journal_article` / `conference_proceedings` / `report` /
+  `web_site` / `case` / …; `author` is `"Last, First"` or a list; `tag`
+  auto-derives from author + year), with `doc.sources.add_xml(...)` as the raw
+  escape hatch and the collection subscriptable/iterable by tag.
+  `anchor.insert_citation(tag, pages=…, prefix=…, suffix=…, volume=…,
+  suppress_author=…, suppress_year=…, suppress_title=…, locale=1033)` inserts an
+  in-text citation (returns a `Citation`); `anchor.insert_bibliography()` /
+  `doc.add_bibliography()` inserts the reference list of cited sources (returns a
+  `Bibliography`). `doc.bibliography_style` (read/write — APA/MLA/Chicago/IEEE/…)
+  sets the rendering style. Across the `set_bibliography_style` / `add_source` /
+  `insert_citation` / `insert_bibliography` exec ops, the CLI (`bibliography-style`
+  / `add-source` / `insert-citation` / `insert-bibliography`), and MCP. New public
+  `Source`, `Citation`, and `Bibliography` classes.
+- **Table of authorities — `mark_citation` + `insert_table_of_authorities`.** The
+  legal mark-then-build workflow, mirroring the index: `anchor.mark_citation(
+  long_citation, short_citation=…, category="cases")` marks the anchor's range as
+  a `TA` field (`category` is `cases`/`statutes`/`other`/`rules`/`treatises`/
+  `regulations`/`constitutional`, or `1`-`16`), then
+  `anchor.insert_table_of_authorities(category="all", passim=…,
+  keep_entry_formatting=…, entry_separator=…, page_range_separator=…)` builds the
+  table from those marks and returns a `TableOfAuthorities` (a field block;
+  `.update()`). `doc.add_table_of_authorities(...)` is the sugar for one at the
+  document end. Across the `mark_citation` / `insert_table_of_authorities` exec
+  ops, the CLI (`mark-citation` / `table-of-authorities`), and MCP. New public
+  `TableOfAuthorities` class; new `CITATION`/`BIBLIOGRAPHY`/`TOA`/`TOA_ENTRY`
+  members on `WdFieldType`.
 
 ## [0.15.0] — 2026-06-13
 

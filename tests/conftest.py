@@ -10,6 +10,7 @@ be reached.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from typing import Any
 from unittest.mock import MagicMock
@@ -1144,6 +1145,68 @@ class _FakeTablesOfFigures:
         return self._items[index - 1]
 
 
+class _FakeTablesOfAuthorities:
+    """Mimics doc.TablesOfAuthorities: Add(...) records its args, vends a field block."""
+
+    def __init__(self) -> None:
+        self._items: list[_FakeFieldBlock] = []
+        self.Add = MagicMock(name="TOAAdd", side_effect=self._add)
+
+    def _add(self, *args: Any, **kwargs: Any) -> _FakeFieldBlock:
+        toa = _FakeFieldBlock()
+        self._items.append(toa)
+        return toa
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, index: int) -> _FakeFieldBlock:
+        return self._items[index - 1]
+
+
+class _FakeSource:
+    """A bibliography source: Tag/Cited/XML plus a recording Delete()."""
+
+    def __init__(self, tag: str, xml: str, *, cited: bool = True) -> None:
+        self.Tag = tag
+        self.XML = xml
+        self.Cited = cited
+        self.Delete = MagicMock(name="SourceDelete")
+
+
+class _FakeSources:
+    """Mimics doc.Bibliography.Sources: Add(xml) records + parses the tag, lookup."""
+
+    def __init__(self) -> None:
+        self._items: list[_FakeSource] = []
+        self.Add = MagicMock(name="SourcesAdd", side_effect=self._add)
+
+    def _add(self, xml: str) -> _FakeSource:
+        m = re.search(r"<b:Tag>(.*?)</b:Tag>", xml)
+        src = _FakeSource(m.group(1) if m else "", xml)
+        self._items.append(src)
+        return src
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, index: int) -> _FakeSource:
+        return self._items[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._items))
+
+
+class _FakeBibliography:
+    """Mimics doc.Bibliography: a settable BibliographyStyle and a Sources store."""
+
+    def __init__(self) -> None:
+        self.Sources = _FakeSources()
+        self.BibliographyStyle = "APA"
+
+
 class _FakeWordList:
     """Mimics a Word List COM object: a Range plus a ListParagraphs count."""
 
@@ -1396,6 +1459,8 @@ def _make_document(
     doc.TablesOfContents = _FakeTOCs()
     doc.Indexes = _FakeIndexes()
     doc.TablesOfFigures = _FakeTablesOfFigures()
+    doc.TablesOfAuthorities = _FakeTablesOfAuthorities()
+    doc.Bibliography = _FakeBibliography()
 
     # Equations: document-level OMaths, each range built through the cached
     # factory so its Start maps back to a paragraph for list()'s `para`.

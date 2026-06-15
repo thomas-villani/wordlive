@@ -2056,6 +2056,206 @@ class Anchor(ABC):
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
 
+    def insert_citation(
+        self,
+        tag: str,
+        *,
+        pages: str | None = None,
+        prefix: str | None = None,
+        suffix: str | None = None,
+        volume: str | None = None,
+        suppress_author: bool = False,
+        suppress_year: bool = False,
+        suppress_title: bool = False,
+        locale: int = 1033,
+        where: str = "after",
+    ) -> Any:
+        """Insert an in-text citation at this anchor and return it as a `Citation`.
+
+        References a source in the document's store (add one with
+        `doc.sources.add`) by its `tag` and
+        renders it in the current [`bibliography_style`][wordlive.Document.bibliography_style]
+        — e.g. *(Smith 2020)*. `pages` adds a page locator (*(Smith 2020, 15)*);
+        `prefix` / `suffix` wrap the citation (*"see "* / *", at 12"*); `volume`
+        adds a volume. `suppress_author` / `suppress_year` / `suppress_title` drop
+        those parts. `locale` is the LCID the style formats under (1033 = en-US).
+
+        Returns a [`Citation`][wordlive.Citation]; a citation to an unknown tag
+        renders *"Invalid source specified."* rather than failing. `where` is
+        ``"after"`` (default) or ``"before"`` this anchor's range. Wrap in
+        `doc.edit(...)` for atomic undo. Bad input raises `OpError`.
+        """
+        from ._citations import Citation
+
+        try:
+            if where not in ("before", "after"):
+                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            if not str(tag).strip():
+                raise ValueError("tag must be a non-empty string")
+            # CITATION field code (switches confirmed against live Word): \p page,
+            # \v volume, \f prefix, \s suffix, \n/\y/\t suppress author/year/title.
+            parts = [f"CITATION {tag} \\l {int(locale)}"]
+            if pages:
+                parts.append(f'\\p "{pages}"')
+            if volume:
+                parts.append(f"\\v {volume}")
+            if prefix:
+                parts.append(f'\\f "{prefix}"')
+            if suffix:
+                parts.append(f'\\s "{suffix}"')
+            if suppress_author:
+                parts.append("\\n")
+            if suppress_year:
+                parts.append("\\y")
+            if suppress_title:
+                parts.append("\\t")
+            code = " ".join(parts)
+            with _com.translate_com_errors():
+                # Collapse a *duplicate* of the anchor's own range so the field
+                # lands in the same story (header/footer-safe — see insert_field).
+                insert_rng = self._range().Duplicate
+                insert_rng.Collapse(
+                    int(WdCollapseDirection.START if where == "before" else WdCollapseDirection.END)
+                )
+                # EMPTY (-1) raw-code insert — positional, the proven path Word
+                # parses into a typed CITATION field (its numeric, 96, is fragile
+                # to pass directly).
+                field = insert_rng.Fields.Add(insert_rng, int(WdFieldType.EMPTY), code, False)
+            return Citation(self._doc, field)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def insert_bibliography(self, *, where: str = "after") -> Any:
+        """Insert a bibliography at this anchor and return it as a `Bibliography`.
+
+        Inserts a ``BIBLIOGRAPHY`` field — the reference list of every source
+        *cited* in the document, formatted in the current
+        [`bibliography_style`][wordlive.Document.bibliography_style]. Most
+        documents want it at the end: `doc.add_bibliography()` is the sugar for
+        `doc.end.insert_bibliography()`.
+
+        Returns a [`Bibliography`][wordlive.Bibliography]; like a TOC it's a field
+        block — call `bibliography.update()`,
+        [`Document.update_fields`][wordlive.Document.update_fields], or take a
+        `snapshot` after adding citations. `where` is ``"after"`` (default) or
+        ``"before"`` this anchor's range. Wrap in `doc.edit(...)` for atomic undo.
+        Bad input raises `OpError`.
+        """
+        from ._citations import Bibliography
+
+        try:
+            if where not in ("before", "after"):
+                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            with _com.translate_com_errors():
+                insert_rng = self._range().Duplicate
+                insert_rng.Collapse(
+                    int(WdCollapseDirection.START if where == "before" else WdCollapseDirection.END)
+                )
+                field = insert_rng.Fields.Add(
+                    insert_rng, int(WdFieldType.EMPTY), "BIBLIOGRAPHY", False
+                )
+            return Bibliography(self._doc, field)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def mark_citation(
+        self,
+        long_citation: str,
+        *,
+        short_citation: str | None = None,
+        category: str | int = "cases",
+        where: str = "after",
+    ) -> None:
+        """Mark this anchor's range as a table-of-authorities citation (a `TA` field).
+
+        The legal analog of [`mark_index_entry`][wordlive.Anchor.mark_index_entry]:
+        `long_citation` is the full citation as it appears in the table (e.g.
+        *"Smith v. Jones, 1 U.S. 1 (2020)"*), `short_citation` the abbreviated
+        form Word matches elsewhere in the text (defaults to `long_citation`), and
+        `category` the section it files under — ``"cases"`` (the default),
+        ``"statutes"``, ``"other"``, ``"rules"``, ``"treatises"``,
+        ``"regulations"``, ``"constitutional"``, or a category number (1-16).
+
+        This is the per-authority half; build the table with
+        [`insert_table_of_authorities`][wordlive.Anchor.insert_table_of_authorities]
+        / [`Document.add_table_of_authorities`][wordlive.Document.add_table_of_authorities].
+        The `TA` field is hidden and doesn't disturb the visible flow. Wrap in
+        `doc.edit(...)` for atomic undo. Bad input raises `OpError`.
+        """
+        from ._toa import _TOA_CATEGORIES
+
+        try:
+            if where not in ("before", "after"):
+                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            if not str(long_citation).strip():
+                raise ValueError("long_citation must be a non-empty string")
+            cat = _coerce_named(category, _TOA_CATEGORIES, "TOA category")
+            short = short_citation if short_citation is not None else long_citation
+            code = f'TA \\l "{long_citation}" \\s "{short}" \\c {cat}'
+            with _com.translate_com_errors():
+                insert_rng = self._range().Duplicate
+                insert_rng.Collapse(
+                    int(WdCollapseDirection.START if where == "before" else WdCollapseDirection.END)
+                )
+                insert_rng.Fields.Add(insert_rng, int(WdFieldType.EMPTY), code, False)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def insert_table_of_authorities(
+        self,
+        *,
+        category: str | int = "all",
+        passim: bool = True,
+        keep_entry_formatting: bool = True,
+        entry_separator: str | None = None,
+        page_range_separator: str | None = None,
+        where: str = "after",
+    ) -> Any:
+        """Insert a table of authorities at this anchor and return it.
+
+        Gathers the `TA` citations marked with
+        [`mark_citation`][wordlive.Anchor.mark_citation] into a page-numbered
+        table. `category` selects which authorities to include — ``"all"`` (the
+        default), ``"cases"``, ``"statutes"``, … or a number (1-16). `passim=True`
+        replaces five-or-more page references for one authority with *"passim"*;
+        `keep_entry_formatting=True` preserves each citation's character
+        formatting. `entry_separator` / `page_range_separator` override the
+        defaults between a citation and its first page / between page ranges.
+
+        Returns a [`TableOfAuthorities`][wordlive.TableOfAuthorities]; like a TOC
+        it's a field block whose page numbers populate only after repagination —
+        call `toa.update()`, [`Document.update_fields`][wordlive.Document.update_fields],
+        or take a `snapshot`. `doc.add_table_of_authorities(...)` is the sugar for
+        `doc.end.insert_table_of_authorities(...)`. `where` is ``"after"``
+        (default) or ``"before"`` this anchor's range. Wrap in `doc.edit(...)` for
+        atomic undo. Bad input raises `OpError`.
+        """
+        from ._toa import _TOA_CATEGORIES, TableOfAuthorities
+
+        try:
+            if where not in ("before", "after"):
+                raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+            cat = _coerce_named(category, _TOA_CATEGORIES, "TOA category")
+            with _com.translate_com_errors():
+                rng = self._range()
+                pos = int(rng.Start) if where == "before" else int(rng.End)
+                insert_rng = self._doc.com.Range(pos, pos)
+                # TablesOfAuthorities.Add(Range, Category, ...): Range + int
+                # Category positional; the string-Variant optionals need keyword
+                # form (same gotcha as TablesOfFigures).
+                kwargs: dict[str, Any] = {
+                    "Passim": bool(passim),
+                    "KeepEntryFormatting": bool(keep_entry_formatting),
+                }
+                if entry_separator is not None:
+                    kwargs["EntrySeparator"] = str(entry_separator)
+                if page_range_separator is not None:
+                    kwargs["PageRangeSeparator"] = str(page_range_separator)
+                toa_com = self._doc.com.TablesOfAuthorities.Add(insert_rng, cat, **kwargs)
+            return TableOfAuthorities(self._doc, toa_com)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
     def snapshot(
         self, out: str | Path | None = None, *, dpi: int = 150, max_dim: int | None = None
     ) -> list[Snapshot]:

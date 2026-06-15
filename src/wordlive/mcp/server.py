@@ -481,6 +481,78 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command == "set_bibliography_style":
+        return {"op": "set_bibliography_style", "style": need("style")}
+    if command == "add_source":
+        op = {"op": "add_source", "source_type": p.get("source_type") or "book"}
+        for k in (
+            "tag",
+            "author",
+            "title",
+            "year",
+            "publisher",
+            "city",
+            "journal_name",
+            "volume",
+            "issue",
+            "pages",
+            "url",
+            "edition",
+            "doi",
+            "xml",
+        ):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "insert_citation":
+        op = {"op": "insert_citation", "anchor_id": need("anchor_id"), "tag": need("tag")}
+        op["before"] = bool(p.get("before", False))
+        for k in (
+            "pages",
+            "prefix",
+            "suffix",
+            "volume",
+            "suppress_author",
+            "suppress_year",
+            "suppress_title",
+            "locale",
+        ):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "insert_bibliography":
+        return {
+            "op": "insert_bibliography",
+            "anchor_id": p.get("anchor_id") or "end",
+            "before": bool(p.get("before", False)),
+        }
+    if command == "mark_citation":
+        op = {
+            "op": "mark_citation",
+            "anchor_id": need("anchor_id"),
+            "long_citation": need("long_citation"),
+            "before": bool(p.get("before", False)),
+        }
+        for k in ("short_citation", "category"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "insert_table_of_authorities":
+        op = {
+            "op": "insert_table_of_authorities",
+            "anchor_id": p.get("anchor_id") or "end",
+            "before": bool(p.get("before", False)),
+        }
+        for k in (
+            "category",
+            "passim",
+            "keep_entry_formatting",
+            "entry_separator",
+            "page_range_separator",
+        ):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
     if command == "page_setup":
         op = {"op": "set_page_setup", "section": need("section")}
         for k in _PAGE_SETUP_FIELDS:
@@ -913,6 +985,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "mark_index_entry",
             "insert_index",
             "insert_table_of_figures",
+            "set_bibliography_style",
+            "add_source",
+            "insert_citation",
+            "insert_bibliography",
+            "mark_citation",
+            "insert_table_of_authorities",
             "page_setup",
             "save",
             "save_as",
@@ -933,7 +1011,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         in_anchor: str | None = None,
         action: str | None = None,
         type: str | None = None,
-        author: str | None = None,
+        author: str | list[str] | None = None,
         index: int | None = None,
         table: int | None = None,
         row: int | None = None,
@@ -1035,6 +1113,30 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         right_align_page_numbers: bool | None = None,
         include_label: bool | None = None,
         where: str | None = None,
+        source_type: str | None = None,
+        year: str | None = None,
+        publisher: str | None = None,
+        city: str | None = None,
+        journal_name: str | None = None,
+        volume: str | None = None,
+        issue: str | None = None,
+        pages: str | None = None,
+        edition: str | None = None,
+        doi: str | None = None,
+        xml: str | None = None,
+        prefix: str | None = None,
+        suffix: str | None = None,
+        suppress_author: bool | None = None,
+        suppress_year: bool | None = None,
+        suppress_title: bool | None = None,
+        locale: int | None = None,
+        long_citation: str | None = None,
+        short_citation: str | None = None,
+        category: str | int | None = None,
+        passim: bool | None = None,
+        keep_entry_formatting: bool | None = None,
+        entry_separator: str | None = None,
+        page_range_separator: str | None = None,
         overwrite: bool = False,
         from_page: int | None = None,
         to_page: int | None = None,
@@ -1116,6 +1218,22 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             gather marked entries into an index; run update_fields after to populate page numbers ·
         insert_table_of_figures {[anchor_id=start], label=Figure, [include_label, hyperlinks,
             right_align_page_numbers, before]} — a table of captions of one label; run update_fields after ·
+        set_bibliography_style {style} — set the citation style (APA/MLA/Chicago/IEEE/…;
+            build-dependent); run update_fields after to re-render citations/bibliography ·
+        add_source {source_type=book|journal_article|conference_proceedings|report|web_site|case|…,
+            [tag, author, title, year, publisher, city, journal_name, volume, issue, pages, url,
+            edition, doi] | xml} — register a bibliography source; author is "Last, First" (or a
+            list); tag auto-derives from author+year; xml is a raw <b:Source> escape hatch ·
+        insert_citation {anchor_id, tag, [pages, prefix, suffix, volume, suppress_author,
+            suppress_year, suppress_title, locale=1033, before]} — an in-text citation of a source ·
+        insert_bibliography {[anchor_id=end], [before]} — the reference list of cited sources;
+            run update_fields after to populate it ·
+        mark_citation {anchor_id, long_citation, [short_citation, category=cases|statutes|other|
+            rules|treatises|regulations|constitutional|1-16, before]} — mark a range as a
+            table-of-authorities citation; build the table with insert_table_of_authorities ·
+        insert_table_of_authorities {[anchor_id=end], category=all|cases|…|1-16, [passim,
+            keep_entry_formatting, entry_separator, page_range_separator, before]} — gather marked
+            citations into a table; run update_fields after to populate page numbers ·
         page_setup {[section=1],margins|top_margin|bottom_margin|left_margin|right_margin|gutter,
             orientation=portrait|landscape,paper_size=letter|legal|tabloid|a3|a4|a5,columns,column_spacing} —
             section page geometry; lengths accept unit strings ·
@@ -1253,6 +1371,30 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "right_align_page_numbers": right_align_page_numbers,
             "include_label": include_label,
             "where": where,
+            "source_type": source_type,
+            "year": year,
+            "publisher": publisher,
+            "city": city,
+            "journal_name": journal_name,
+            "volume": volume,
+            "issue": issue,
+            "pages": pages,
+            "edition": edition,
+            "doi": doi,
+            "xml": xml,
+            "prefix": prefix,
+            "suffix": suffix,
+            "suppress_author": suppress_author,
+            "suppress_year": suppress_year,
+            "suppress_title": suppress_title,
+            "locale": locale,
+            "long_citation": long_citation,
+            "short_citation": short_citation,
+            "category": category,
+            "passim": passim,
+            "keep_entry_formatting": keep_entry_formatting,
+            "entry_separator": entry_separator,
+            "page_range_separator": page_range_separator,
             "overwrite": overwrite,
             "from_page": from_page,
             "to_page": to_page,
