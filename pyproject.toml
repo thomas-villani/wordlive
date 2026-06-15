@@ -1,6 +1,6 @@
 [project]
 name = "wordlive"
-version = "0.16.0"
+version = "0.16.1"
 description = "Drive a running Microsoft Word instance from Python — xlwings, but for Word, and LLM-friendly."
 readme = "README.md"
 license = "MIT"
@@ -97,7 +97,7 @@ markers = [
 addopts = "-m 'not smoke'"
 
 [tool.bumpversion]
-current_version = "0.16.0"
+current_version = "0.16.1"
 allow_dirty = false
 commit = true
 message = "chore: release v{new_version}"
