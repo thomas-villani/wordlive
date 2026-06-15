@@ -39,6 +39,7 @@ from ._snapshot import Snapshot
 from ._sources import SourceCollection
 from ._styles import StyleCollection
 from ._tables import Table, TableCollection
+from ._themes import DocumentTheme
 from ._variables import VariableCollection
 from .constants import WdInformation, WdSaveFormat, WdStatistic
 from .exceptions import (
@@ -195,6 +196,18 @@ class Document:
     @property
     def styles(self) -> StyleCollection:
         return StyleCollection(self)
+
+    @property
+    def theme(self) -> DocumentTheme:
+        """The document's theme — the document-wide brand primitive.
+
+        See [`DocumentTheme`][wordlive.DocumentTheme]: `doc.theme.apply("Facet")`
+        swaps the whole theme, `doc.theme.set_colors(accent1="#1A73E8")` /
+        `doc.theme.set_fonts(major="Arial")` set brand colours/fonts, and
+        `doc.theme.colors` / `doc.theme.to_dict()` read it back. Wrap mutations in
+        `doc.edit(...)` for atomic undo.
+        """
+        return DocumentTheme(self)
 
     @property
     def tables(self) -> TableCollection:

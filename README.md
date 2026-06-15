@@ -147,6 +147,12 @@ wordlive insert-bibliography                       # works-cited block (update-f
 wordlive mark-citation --anchor-id range:200-240 --long "Brown v. Board, 347 U.S. 483 (1954)" --category cases
 wordlive table-of-authorities --category cases     # build TOA from the marks (update-fields for pages)
 
+# Document themes / branding (apply a theme, then set brand colours & fonts):
+wordlive apply-theme --theme Facet                 # a built-in theme or a .thmx path (list-themes for names)
+wordlive set-theme-colors --accent1 "#1A73E8" --accent2 "#34A853"
+wordlive set-theme-fonts --major Arial --minor Calibri
+wordlive theme                                      # read back the 12 brand colours + major/minor fonts
+
 # Lists & numbering (any anchor's paragraphs):
 wordlive list apply --anchor-id heading:6 --type numbered
 wordlive list restart --anchor-id heading:6

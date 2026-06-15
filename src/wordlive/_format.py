@@ -104,6 +104,26 @@ def to_bgr(value: str | tuple[int, int, int] | list[int]) -> int:
     )
 
 
+def bgr_to_hex(value: int) -> str:
+    """Render Word's **BGR long** integer back as an ``"#RRGGBB"`` hex string.
+
+    The inverse of [`to_bgr`][wordlive._format.to_bgr]. Word stores colours
+    byte-swapped (red is `0x0000FF`, not `0xFF0000`), so the low byte is red and
+    the high byte is blue — e.g. `255` -> `"#FF0000"`, `16711680` -> `"#0000FF"`.
+
+    Raises `TypeError` for a non-int (a `bool` is rejected); `ValueError` for an
+    out-of-range value (outside `0x000000`-`0xFFFFFF`).
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"colour must be an int; got {type(value).__name__}")
+    if not 0 <= value <= 0xFFFFFF:
+        raise ValueError(f"colour out of range 0x000000-0xFFFFFF: {value}")
+    r = value & 0xFF
+    g = (value >> 8) & 0xFF
+    b = (value >> 16) & 0xFF
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
 def to_points(value: int | float | str) -> float:
     """Coerce a length to points (Word's native unit).
 

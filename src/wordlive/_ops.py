@@ -82,6 +82,9 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_bibliography": ("anchor_id",),
     "mark_citation": ("anchor_id", "long_citation"),
     "insert_table_of_authorities": ("anchor_id",),
+    "apply_theme": ("theme",),
+    "set_theme_colors": (),
+    "set_theme_fonts": (),
     "set_property": ("name", "value"),
     "delete_property": ("name",),
     "set_variable": ("name", "value"),
@@ -276,6 +279,9 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         "page_range_separator",
         *_WHERE_FIELDS,
     ),
+    "apply_theme": (),
+    "set_theme_colors": ("scheme", "colors"),
+    "set_theme_fonts": ("scheme", "major", "minor"),
     "set_property": ("custom",),
     "delete_property": (),
     "set_variable": (),
@@ -644,6 +650,15 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             where=("before" if op_before(op) else "after"), **ak
         )
         return {"table_of_authorities": True}
+    elif kind == "apply_theme":
+        return {"theme": doc.theme.apply(op["theme"])}
+    elif kind == "set_theme_colors":
+        colors = op.get("colors") or {}
+        return {"colors": doc.theme.set_colors(scheme=op.get("scheme"), **colors)}
+    elif kind == "set_theme_fonts":
+        return doc.theme.set_fonts(
+            scheme=op.get("scheme"), major=op.get("major"), minor=op.get("minor")
+        )
     elif kind == "set_property":
         doc.properties.set(op["name"], op["value"], custom=bool(op.get("custom", False)))
     elif kind == "delete_property":

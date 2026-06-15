@@ -72,6 +72,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ops, the CLI (`mark-citation` / `table-of-authorities`), and MCP. New public
   `TableOfAuthorities` class; new `CITATION`/`BIBLIOGRAPHY`/`TOA`/`TOA_ENTRY`
   members on `WdFieldType`.
+- **Document themes — `doc.theme`.** The document-wide brand primitive for
+  producing themed / branded documents. `doc.theme.apply("Facet")` applies a whole
+  theme (colours + fonts + effects) by built-in name or `.thmx` path;
+  `doc.theme.set_colors(scheme="Blue", accent1="#1A73E8", text1="navy", …)` sets the
+  colour scheme and/or overrides individual brand colours (keys `text1` /
+  `background1` / `text2` / `background2` / `accent1`–`accent6` / `hyperlink` /
+  `followed_hyperlink`; values take a colour name, hex, or `(r, g, b)`);
+  `doc.theme.set_fonts(scheme="Garamond", major="Arial", minor="Calibri")` sets the
+  heading/body fonts. `doc.theme.colors` / `.major_font` / `.minor_font` /
+  `.to_dict()` read the current theme, and `doc.theme.list_available()` lists the
+  built-in themes, colour schemes, and font schemes Office ships. Across the
+  `apply_theme` / `set_theme_colors` / `set_theme_fonts` exec ops, the CLI
+  (`theme` / `list-themes` / `apply-theme` / `set-theme-colors` / `set-theme-fonts`),
+  and MCP (`word_read command="theme"` / `"themes"`; `word_write` apply/set
+  commands). New public `DocumentTheme` class and a `bgr_to_hex` colour helper.
 
 ## [0.15.0] — 2026-06-13
 

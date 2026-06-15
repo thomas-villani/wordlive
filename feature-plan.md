@@ -554,9 +554,15 @@ shipped in v0.12.0 (Part I). Still open:
 - **Styles deep cuts** — character/list/linked styles, theme-aware fonts, style
   import from template, `UpdateStyles`. (Basic style *creation/modification*
   shipped in v0.12.0 — see Part I.)
-- **Document themes** — `Document.DocumentTheme` / `ApplyTheme`, theme color/font
-  schemes. Brand-consistency play; the natural next step now that style creation
-  has shipped.
+- ~~**Document themes** — `Document.DocumentTheme` / `ApplyTheme`, theme color/font
+  schemes.~~ **Shipped** (feat/document-themes): `doc.theme` — `.apply(name|.thmx)`,
+  `.set_colors(scheme=, accent1=…)` (12 friendly slots, BGR via `to_bgr`/`bgr_to_hex`),
+  `.set_fonts(scheme=, major=, minor=)`, `.colors`/`.major_font`/`.minor_font`/
+  `.to_dict()`/`.list_available()`. Built-ins resolved from Office's `Document Themes`
+  dir (or a path). Across exec (`apply_theme`/`set_theme_colors`/`set_theme_fonts`),
+  CLI (`theme`/`list-themes`/`apply-theme`/`set-theme-colors`/`set-theme-fonts`), and
+  MCP (`word_read theme`/`themes`; `word_write` apply/set). Live-Word gotcha: no
+  `RemoveDocumentTheme` on Office 16; `.RGB` is a BGR `OLE_COLOR` int.
 - ~~**Equations** — `Range.OMaths.Add` / build.~~ **Shipped** (v0.14.0):
   `insert_equation(unicodemath= | latex= | mathml=)` builds Office Math, with
   `doc.equations` / `equation:N` reads (`.mathml` round-trips via Office's own

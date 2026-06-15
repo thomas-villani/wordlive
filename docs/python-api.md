@@ -262,6 +262,18 @@ after repagination (`update()`, `update_fields()`, or a `snapshot`). (Word's
 table of authorities has no per-field page-number refresh, so unlike the TOC and
 `TableOfFigures` there's no `update_page_numbers()` — use a full `update()`.)
 
+The document **theme** is the document-wide brand primitive — the colour scheme,
+font scheme, and effects the Design tab drives. `doc.theme` is a
+[`DocumentTheme`](#wordlive.DocumentTheme): `doc.theme.apply("Facet")` applies a
+whole theme by built-in name (see `doc.theme.list_available()`) or `.thmx` path;
+`doc.theme.set_colors(scheme="Blue", accent1="#1A73E8", text1="navy")` loads a named
+colour scheme and/or overrides individual brand colours (keys `text1` /
+`background1` / `text2` / `background2` / `accent1`–`accent6` / `hyperlink` /
+`followed_hyperlink`, values a colour name / hex / `(r, g, b)`); and
+`doc.theme.set_fonts(scheme="Garamond", major="Arial", minor="Calibri")` sets the
+heading/body fonts. `doc.theme.colors` / `.major_font` / `.minor_font` /
+`.to_dict()` read the current theme back. Wrap theme mutations in `doc.edit(...)`.
+
 ::: wordlive.Footnote
 
 ::: wordlive.Endnote
@@ -283,6 +295,8 @@ table of authorities has no per-field page-number refresh, so unlike the TOC and
 ::: wordlive.Bibliography
 
 ::: wordlive.TableOfAuthorities
+
+::: wordlive.DocumentTheme
 
 ## Anchoring & linking
 

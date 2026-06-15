@@ -48,6 +48,7 @@ from ._snapshot import Snapshot
 from ._sources import Source
 from ._styles import Style, StyleCollection
 from ._tables import Cell, Table, TableCollection
+from ._themes import DocumentTheme
 from ._toa import TableOfAuthorities
 from ._toc import TableOfFigures, Toc
 from ._variables import VariableCollection
@@ -84,6 +85,7 @@ __all__ = [
     "Document",
     "DocumentCollection",
     "DocumentNotFoundError",
+    "DocumentTheme",
     "EditScope",
     "EndAnchor",
     "Endnote",
