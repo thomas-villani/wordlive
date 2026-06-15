@@ -116,9 +116,17 @@ def _normalize(s: str, *, collapse_whitespace: bool = True) -> _Normalized:
         out_chars.pop()
         out_offsets.pop()
 
-    # Sentinel: one-past-the-last so callers can use offsets[end] as a half-open
-    # right boundary even when the match runs to the end of the string.
-    out_offsets.append(len(s))
+    # Sentinel: the original offset one *past the last contributing character*,
+    # so a match that runs to the end maps to a half-open range that stops at the
+    # last real character — not `len(s)`, which would swallow any trailing chars
+    # that folded away to nothing (a paragraph mark `\r`, a cell mark `\x07`, a
+    # stripped trailing space). Eating such a mark at a segment boundary fuses
+    # the paragraph into whatever follows (e.g. the first cell of an adjacent
+    # table). `out_offsets[-1]` is the source index of the last retained
+    # character; +1 is the position immediately after it (== `len(s)` whenever
+    # the final source character was itself retained, so the common case is
+    # unchanged). Empty result → fall back to `len(s)` (unused: no matches).
+    out_offsets.append(out_offsets[-1] + 1 if out_offsets else len(s))
     return _Normalized(text="".join(out_chars), offsets=out_offsets)
 
 

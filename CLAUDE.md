@@ -73,8 +73,9 @@ The same capability is exposed three ways and they must agree:
 `uv`-managed; the `.venv` has no `pip`. Use `uv`, not `pip`/`python -m build`.
 
 ```bash
-uv run pytest            # unit tests (smoke tests are excluded by default)
+uv run pytest            # unit tests (smoke/e2e excluded by default)
 uv run pytest -m smoke   # requires a real Word install on Windows
+uv run pytest -m e2e     # CLI-subprocess lifecycle vs live Word (tests/test_e2e_cli.py)
 uv run ruff format .     # formatter
 uv run ruff check .      # lint (E/F/W/I/UP/B; E501 left to the formatter)
 uv run mypy              # type-check src/wordlive (py310 target)
@@ -91,8 +92,9 @@ The `uv-lock` hook keeps `uv.lock` in sync with `pyproject.toml`; skipping it is
 how a release once shipped a stale lockfile that failed `uv lock --locked` in CI.
 
 Tests use a `fake_word` COM fixture (`tests/conftest.py`), so most run
-off-Windows; anything marked `smoke` needs Word. CI (`.github/workflows/ci.yml`)
-runs lint + tests across Python 3.10–3.15. Optional extras: `snapshot` (PyMuPDF,
+off-Windows; anything marked `smoke` needs Word (`e2e` implies `smoke` — it
+shells out to `python -m wordlive` against a live instance). CI
+(`.github/workflows/ci.yml`) runs lint + tests across Python 3.10–3.15. Optional extras: `snapshot` (PyMuPDF,
 for rendering), `mcp` (the server), `docs` (mkdocs).
 
 ## Release / workflow

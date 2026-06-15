@@ -56,6 +56,29 @@ def test_find_matches_multiple_occurrences():
     assert [m.start for m in matches] == [0, 3, 6]
 
 
+def test_find_matches_end_anchored_excludes_trailing_paragraph_mark():
+    """A whole-paragraph match at a segment boundary must stop at the last real
+    character, not swallow the trailing paragraph mark.
+
+    Regression: the normalized sentinel used `len(s)`, so when a folded-away
+    trailing `\\r` was stripped, `offsets[end]` pointed past it. Replacing that
+    span deleted the paragraph break, fusing the paragraph into whatever followed
+    (e.g. the first cell of an adjacent table).
+    """
+    hay = "Revenue grew.\rCosts held flat.\r"
+    (m,) = find_matches(hay, "Costs held flat.")
+    assert m.text == "Costs held flat."  # no trailing \r
+    assert hay[m.start : m.end] == "Costs held flat."
+    assert hay[m.end] == "\r"  # the mark is left intact, just past the match
+
+
+def test_find_matches_end_anchored_excludes_trailing_cell_mark():
+    """The same boundary fix for Word's folded-away cell/end-of-row marker."""
+    hay = "Total\x07"  # \x07 folds to "" in normalization
+    (m,) = find_matches(hay, "Total")
+    assert (m.start, m.end, m.text) == (0, 5, "Total")
+
+
 def test_find_matches_no_match():
     assert find_matches("hello", "xyz") == []
 
