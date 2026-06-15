@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "wordlive",
   "display_name": "wordlive",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Read and edit the Microsoft Word document you have open right now, live, directly inside Claude.",
   "long_description": "wordlive's built-in MCP server, packaged for one-click install. Drives a running Microsoft Word instance over COM (Windows only): read structure (outline, paragraphs, tables, styles, sections, comments); make polite edits (text, styles, paragraph formatting, lists, tables, images, breaks, comments, headers/footers, track changes) that preserve the user's cursor, selection, and scroll and collapse into a single Ctrl-Z; and render page(s) or a section to an image a vision model can see. Four compact dispatch tools (word_read / word_write / word_exec / word_snapshot) addressed by stable anchors (heading:N, para:N, bookmark:NAME, cc:NAME, table:N:R:C, range:START-END, header:S:WHICH / footer:S:WHICH, start / end).",
   "author": {
