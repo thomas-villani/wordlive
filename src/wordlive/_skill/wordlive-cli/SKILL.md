@@ -31,6 +31,7 @@ short string you pass as `--anchor-id`:
 | `heading:N`          | the Nth *paragraph*, which must be a heading — same index space as `para:N`, so the first heading is rarely `heading:1` (copy the id from `outline`) |
 | `para:N`             | the Nth paragraph, any kind (see `paragraphs`) |
 | `bookmark:NAME`      | a bookmark |
+| `pin:CODE`           | a **durable handle** minted by `pin` / `pin-outline` — survives renumbering |
 | `cc:NAME`            | a content control (by title) |
 | `footnote:N` / `endnote:N` | the Nth note's body (1-based; see `footnotes` / `endnotes`) |
 | `image:N`            | the Nth embedded picture (1-based; see `images`) |
@@ -44,6 +45,11 @@ edit (a new paragraph, an inserted table) shifts the document, so re-read
 `outline` / `paragraphs` after one before reusing ids downstream (an exit `2`
 `anchor_not_found` is the signal you skipped that). `bookmark:NAME` and `cc:NAME`
 are name-based and survive edits — reach for them when you need a durable handle.
+For ad-hoc content with no name, `wordlive pin ANCHOR_ID` mints a `pin:CODE`
+handle that Word keeps pinned to the same content across later inserts/deletes
+(`wordlive pin-outline` pins every heading at once). When a stale `para:N` /
+`heading:N` misses, the exit-2 error carries a recovery hint (out-of-range vs
+not-a-heading, the nearest heading, and a nudge to pin).
 
 ## Reading
 - `wordlive read bookmark NAME` (or `read bookmark --list` for every bookmark name) · `read cc NAME` · `read section "Heading Text"`
@@ -59,6 +65,7 @@ are name-based and survive edits — reach for them when you need a durable hand
 
 ## Writing — each command is one atomic undo
 - `wordlive write bookmark NAME --text "…"` (set existing) · `write bookmark NAME --create --anchor-id ID` (create a new bookmark over a range — the prerequisite for internal links and cross-refs; NAME starts with a letter, letters/digits/underscores only) · `write cc NAME --text "…"`
+- `wordlive pin ANCHOR_ID [--name SLUG]` — plant a durable `pin:CODE` handle on any anchor (random code, or a readable `--name budget-intro`); resolve it later with `--anchor-id pin:CODE`. `wordlive pin-outline [--levels LO HI]` — pin every heading at once, printing the `{heading:N → pin:CODE}` map (idempotent). Durable handles are the fix for positional ids that renumber under edits.
 - `wordlive insert --anchor-id ID (--text "…" | --runs JSON) [--before | --after] [--style "Body Text"]` — new paragraph relative to any anchor (`--after` is the default; appending after the document's last paragraph works too, so you can build a doc top-down). `--text` is literal; `--runs '[{"text":"Bold","bold":true},{"text":" rest"}]'` gives inline-formatted spans in one op.
 - `wordlive insert-block --anchor-id ID --items JSON [--before | --after]` — insert a **contiguous run of styled paragraphs** in one op (a whole bulleted section, a heading + body) in reading order, instead of reverse-ordered `insert` calls. Each item is `"plain text"` or `{text|runs, style?}`; item `text` takes `**bold**`/`*italic*` markdown. Reports the block's `range:START-END` — feed it to `list apply --anchor-id range:… --type bulleted` to bullet the section you just inserted.
 - `wordlive insert-section --anchor-id ID --heading "…" --body JSON [--level N] [--before | --after]` — a `Heading {level}` paragraph plus its body (`--body` is the same items shape as `insert-block`) in one op. The "add a whole section" shortcut.
@@ -206,7 +213,7 @@ Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `find_replace`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`,
 `set_borders`, `drop_cap`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,
 `set_page_setup`, `update_fields`, `insert_footnote`, `insert_endnote`,
-`insert_toc`, `add_bookmark`, `add_hyperlink`, `insert_cross_reference`,
+`insert_toc`, `add_bookmark`, `pin`, `pin_outline`, `add_hyperlink`, `insert_cross_reference`,
 `insert_caption`, `create_content_control`, `mark_index_entry`, `insert_index`,
 `insert_table_of_figures`, `set_bibliography_style`, `add_source`, `insert_citation`,
 `insert_bibliography`, `mark_citation`, `insert_table_of_authorities`,
@@ -248,7 +255,16 @@ and optional `column` — it sets cells on the first row whose key-column equals
 `window` / `fixed`). `set_property` takes `name` + `value` + optional `custom`
 (a custom property when true, else a built-in like Title/Author); `delete_property`
 takes `name` (custom only). `set_variable` takes `name` + `value`;
-`delete_variable` takes `name`.)
+`delete_variable` takes `name`. `pin` takes `anchor_id` + optional `name` (slug)
+and returns its `pin:CODE`; `pin_outline` takes optional `levels` and returns the
+`{heading:N: pin:CODE}` map.)
+
+**Durable handles in a batch.** Add `bind: "slug"` (or `true` for a random code)
+to `insert` / `insert_block` / `insert_section` / `insert_markdown` / `create_table`
+to mint a `pin:` handle on the new content — it comes back in that op's `outputs`
+entry as `pin`. And any op field of the exact form `$ops[N].field` is replaced with
+an earlier op's recorded output before the op runs, so a batch can create then
+target without a round-trip: `[{"op":"create_table",...},{"op":"set_cell","table":"$ops[0].table",...}]`.
 
 ## Exit codes — branch on these
 | Code | Meaning | Retry? |

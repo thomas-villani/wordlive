@@ -8,6 +8,7 @@ they compose with `Document.edit()` for atomic-undo behaviour.
 from __future__ import annotations
 
 import re
+import secrets
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
@@ -595,6 +596,126 @@ def _validate_bookmark_name(name: Any) -> str:
             "letters, digits, and underscores (no spaces)"
         )
     return name
+
+
+# Durable handles ("pins") are minted as Word-hidden bookmarks named `_wl_<code>`.
+# The leading underscore makes Word treat them as internal (so they stay out of
+# `bookmarks.list()`), and Word maintains the bookmark<->range association across
+# inserts / deletes / edits natively — that native behaviour is what makes a
+# `pin:` anchor durable where a positional `para:N` is not.
+_WL_PREFIX = "_wl_"
+
+# A user-supplied pin slug: lowercase alphanumeric words joined by single
+# hyphens. No underscores — storage maps `-` -> `_`, so a slug carrying `_`
+# would round-trip ambiguously.
+_PIN_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def _new_pin_code() -> str:
+    """A fresh random pin code — six lowercase hex chars (e.g. ``a3f9c2``).
+
+    Random rather than sequential so codes don't leak document structure and
+    two pins never collide by construction. Tests monkeypatch this for
+    deterministic ids.
+    """
+    return secrets.token_hex(3)
+
+
+def _pin_name_for(code: str) -> str:
+    """Bookmark storage name for a pin display code (`pin:<code>` -> `_wl_…`)."""
+    return _WL_PREFIX + code.replace("-", "_")
+
+
+def _pin_id_for(name: str) -> str:
+    """Pin display code for a `_wl_` bookmark name (inverse of `_pin_name_for`)."""
+    return name[len(_WL_PREFIX) :].replace("_", "-")
+
+
+def _validate_pin_slug(slug: Any) -> str:
+    """Validate a user-supplied pin slug and return it. Raises `OpError`.
+
+    A slug is lowercase alphanumeric words joined by single hyphens
+    (``budget-intro``), and its stored bookmark name (`_wl_` + slug with hyphens
+    mapped to underscores) must fit Word's 40-character bookmark-name cap.
+    """
+    if not isinstance(slug, str) or not slug:
+        raise OpError("pin name must be a non-empty string")
+    if not _PIN_SLUG_RE.match(slug):
+        raise OpError(
+            f"invalid pin name {slug!r}: use lowercase letters, digits, and single "
+            "hyphens (e.g. 'budget-intro')"
+        )
+    storage = _pin_name_for(slug)
+    if len(storage) > 40:
+        raise OpError(
+            f"pin name {slug!r} is too long: the stored bookmark name {storage!r} "
+            "exceeds Word's 40-character limit"
+        )
+    return slug
+
+
+def _mint_wl_bookmark(doc_com: Any, rng: Any, code: str) -> str:
+    """Plant a hidden `_wl_<code>` bookmark over `rng`; return the bookmark name.
+
+    Bypasses `_validate_bookmark_name` (which forbids the leading underscore) on
+    purpose — these are wordlive-internal names, not user-chosen ones. Word still
+    enforces its own 40-char cap, which `_validate_pin_slug` checks up front.
+    """
+    name = _pin_name_for(code)
+    doc_com.Bookmarks.Add(Name=name, Range=rng)
+    return name
+
+
+def _stale_anchor_hint(doc_com: Any, kind: str, index: int) -> str | None:
+    """A recovery hint for a positional `para:N` / `heading:N` that missed.
+
+    Positional ids renumber under inserts / deletes, so a stale one is the
+    common failure. One cheap pass over `Paragraphs` reports whether the index
+    is out of range (renumbered / vanished) or — for `heading:N` — points at
+    body text, and names the nearest heading. Always recommends pinning a
+    durable handle. Returns `None` if the document can't be read (best-effort —
+    the hint must never mask the original miss).
+    """
+    try:
+        paras = list(doc_com.Paragraphs)
+    except Exception:
+        return None
+    count = len(paras)
+    pin_tip = "Pin a durable handle with `pin` to survive renumbering."
+
+    def _level(p: Any) -> int:
+        try:
+            return int(p.OutlineLevel)
+        except Exception:
+            return 10
+
+    def _nearest_heading() -> tuple[int, str] | None:
+        best: tuple[int, int, str] | None = None  # (distance, idx, text)
+        for i, p in enumerate(paras, start=1):
+            if i == index:
+                continue
+            if _level(p) < 10:
+                dist = abs(i - index)
+                if best is None or dist < best[0]:
+                    best = (dist, i, paragraph_text(p))
+        return (best[1], best[2]) if best is not None else None
+
+    nh = _nearest_heading()
+    if index < 1 or index > count:
+        base = f"{kind}:{index} out of range; document has {count} paragraph(s)"
+        base += (
+            f' (nearest heading is heading:{nh[0]} "{nh[1]}")'
+            if nh
+            else " (likely renumbered by an edit)"
+        )
+        return f"{base}. {pin_tip}"
+    if kind == "heading":
+        # In range but not a heading (body text at this index).
+        base = f"heading:{index} is not a heading (body text)"
+        if nh:
+            base += f'; nearest heading is heading:{nh[0]} "{nh[1]}"'
+        return f"{base}. Use a pin for a stable handle."
+    return pin_tip
 
 
 def _resolve_cross_ref_target(doc: Document, target: str) -> tuple[int, int | str]:
@@ -2844,7 +2965,11 @@ class Paragraph(Anchor):
                 # Keep .name informative for repr / error messages.
                 self.name = paragraph_text(para) or self.name
                 return para
-        raise AnchorNotFoundError("paragraph", f"para:{self._index}")
+        raise AnchorNotFoundError(
+            "paragraph",
+            f"para:{self._index}",
+            hint=_stale_anchor_hint(self._doc.com, "para", self._index),
+        )
 
     @property
     def level(self) -> int:
@@ -2898,7 +3023,11 @@ class ParagraphCollection:
         if isinstance(index, bool) or not isinstance(index, int):
             raise TypeError(f"paragraph index must be int, got {type(index).__name__}")
         if index < 1 or index > self._count():
-            raise AnchorNotFoundError("paragraph", f"para:{index}")
+            raise AnchorNotFoundError(
+                "paragraph",
+                f"para:{index}",
+                hint=_stale_anchor_hint(self._doc.com, "para", index),
+            )
         return Paragraph(self._doc, index)
 
     def __iter__(self) -> Iterator[Paragraph]:
@@ -3247,8 +3376,21 @@ def _safe_str(obj: Any, attr: str) -> str:
 class Bookmark(Anchor):
     kind = "bookmark"
 
+    # Set when this bookmark is a wordlive durable handle (`_wl_<code>`): the
+    # anchor then reports `pin:<code>` instead of `bookmark:_wl_<code>`.
+    _pin_code: str | None = None
+
+    @classmethod
+    def pin(cls, doc: Document, code: str) -> Bookmark:
+        """A `Bookmark` over the hidden `_wl_<code>` pin, reporting `pin:<code>`."""
+        bm = cls(doc, _pin_name_for(code))
+        bm._pin_code = code
+        return bm
+
     @property
     def anchor_id(self) -> str:
+        if self._pin_code is not None:
+            return f"pin:{self._pin_code}"
         return f"bookmark:{self.name}"
 
     def _range(self) -> Any:
@@ -3270,6 +3412,33 @@ class Bookmark(Anchor):
             new_end = start + _utf16_len(text)
             new_rng = doc_com.Range(start, new_end)
             doc_com.Bookmarks.Add(Name=self.name, Range=new_rng)
+
+
+def _bookmarks_including_hidden(doc_com: Any) -> list[Any]:
+    """Every bookmark, *including* Word's hidden (leading-underscore) ones.
+
+    Word omits underscore-prefixed bookmarks — its own `_Toc`/`_Ref` anchors and
+    wordlive's `_wl_` pins — from `Document.Bookmarks` iteration unless the
+    collection's `ShowHidden` flag is on (a real-Word behaviour the fake COM
+    fixture doesn't model). We flip it on for the read and restore it after, so
+    pin enumeration / idempotency see the `_wl_` handles. The fake has no
+    `ShowHidden`, so the toggle is best-effort.
+    """
+    bms = doc_com.Bookmarks
+    previous: bool | None
+    try:
+        previous = bool(bms.ShowHidden)
+        bms.ShowHidden = True
+    except Exception:
+        previous = None
+    try:
+        return list(bms)
+    finally:
+        if previous is not None:
+            try:
+                bms.ShowHidden = previous
+            except Exception:
+                pass
 
 
 def _is_user_bookmark(name: str) -> bool:
@@ -3332,9 +3501,9 @@ class BookmarkCollection:
         (TOC entries, cross-references, etc.) whose names start with `_`.
         """
         with _com.translate_com_errors():
+            if include_hidden:
+                return [str(bm.Name) for bm in _bookmarks_including_hidden(self._doc.com)]
             names = [str(bm.Name) for bm in self._doc.com.Bookmarks]
-        if include_hidden:
-            return names
         return [n for n in names if _is_user_bookmark(n)]
 
     def __iter__(self) -> Iterator[Bookmark]:
@@ -3703,7 +3872,11 @@ class _IndexedHeading(Heading):
                 break
             self.name = paragraph_text(para) or self.name
             return para
-        raise AnchorNotFoundError("heading", f"heading:{self._paragraph_index}")
+        raise AnchorNotFoundError(
+            "heading",
+            f"heading:{self._paragraph_index}",
+            hint=_stale_anchor_hint(self._doc.com, "heading", self._paragraph_index),
+        )
 
     def _paragraph_and_index(self) -> tuple[Any, int]:
         return self._paragraph(), self._paragraph_index

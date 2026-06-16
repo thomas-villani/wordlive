@@ -69,6 +69,7 @@ from its id with `doc.anchor_by_id(...)`, or use the typed accessors:
 | `heading:N` | `doc.heading("Text")` / `anchor_by_id` | the Nth *paragraph*, which must be a heading — same index space as `para:N` (so the first heading is rarely `heading:1`; copy from `outline()`) |
 | `para:N` | `doc.paragraphs[N]` | the Nth paragraph (any kind) |
 | `bookmark:NAME` | `doc.bookmarks["NAME"]` | a bookmark |
+| `pin:CODE` | `doc.anchor_by_id("pin:CODE")` | a **durable handle** from `doc.pin(...)` / `doc.pin_outline()` — survives renumbering |
 | `cc:NAME` | `doc.content_controls["NAME"]` | a content control (by Title, then Tag) |
 | `footnote:N` / `endnote:N` | `doc.footnotes[N]` / `doc.endnotes[N]` | the Nth note's body (1-based) |
 | `image:N` | `doc.images[N]` | the Nth embedded picture (1-based, Word's `InlineShapes` order) |
@@ -82,6 +83,19 @@ from its id with `doc.anchor_by_id(...)`, or use the typed accessors:
 `heading:5`); `heading:N` refuses to resolve a non-heading paragraph. The bare
 `table:N` and `section:N` are collections, not anchors — use `doc.tables[N]` /
 `doc.sections[N]`.
+
+`para:N` / `heading:N` are **positional** — they renumber under inserts/deletes,
+and a stale one raises `AnchorNotFoundError` whose `.hint` explains why
+(out-of-range vs not-a-heading, the nearest heading) and points to pinning. For a
+handle that survives structural edits, `doc.pin(anchor)` mints a hidden bookmark
+and returns a `pin:CODE` id (Word keeps it pinned to the same content);
+`doc.pin_outline()` does this for every heading at once (idempotent).
+
+```python
+pin = doc.pin("para:7")["pin"]          # -> "pin:a3f9c2" (or doc.pin(a, name="intro"))
+doc.pin_outline()                       # {"heading:1": "pin:…", …} — durable nav scaffold
+doc.anchor_by_id(pin).set_text("…")     # resolves even after later inserts shift para ids
+```
 
 Every anchor shares the same verbs (from `Anchor`):
 

@@ -91,6 +91,10 @@ wordlive prepend --text "DRAFT" --inline                    # join the first par
 wordlive replace --anchor-id heading:3 --text "Updated section text"
 wordlive go-to --anchor-id bookmark:Address
 
+# Durable handles — positional para:N/heading:N renumber under edits; pin for a stable id:
+wordlive pin heading:3 --name methods             # -> {"pin": "pin:methods", ...}
+wordlive replace --anchor-id pin:methods --text "Survives later inserts"
+
 # Explicit cursor surface (the non-preferred mode — deliberately moves the cursor):
 wordlive cursor read                              # where is the cursor? which para:N?
 wordlive cursor write --text "inserted here"      # type at the cursor

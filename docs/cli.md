@@ -203,6 +203,47 @@ hidden deprecated alias.)
 
 Failures: `2` anchor not found, `3` Word busy.
 
+## `pin ANCHOR_ID [--name SLUG]`
+
+```
+wordlive pin ANCHOR_ID [--name SLUG] [--doc DOC_NAME]
+```
+
+Plant a **durable handle** on any anchor and print its `pin:CODE` id. A pin is a
+Word-hidden bookmark (`_wl_<code>`) over the anchor's range; Word keeps it pinned
+to the same content across the inserts/deletes that renumber positional `para:N`
+/ `heading:N` ids, so it is the escape hatch when you need a stable address.
+Resolve it later with `--anchor-id pin:CODE`. Omit `--name` for a random code, or
+pass a readable slug (`--name budget-intro`, lowercase words joined by hyphens).
+If the pinned content is later deleted the handle vanishes (the next resolve is
+exit `2`). One atomic-undo scope.
+
+```bash
+$ wordlive pin heading:4 --name methods
+{"anchor_id": "pin:methods", "pin": "pin:methods", "target": "heading:4"}
+```
+
+Failures: `2` anchor not found, `3` Word busy.
+
+## `pin-outline [--levels LO HI]`
+
+```
+wordlive pin-outline [--levels LO HI] [--doc DOC_NAME]
+```
+
+Pin every heading at once and print the `{heading:N → pin:CODE}` map — a durable
+navigation scaffold to set up before a batch of structural edits. Idempotent: a
+heading already carrying a handle reuses it (keyed by range start), so re-running
+returns the same map. `--levels LO HI` restricts to an inclusive heading-level
+band (e.g. `--levels 1 2`). One atomic-undo scope.
+
+```bash
+$ wordlive pin-outline
+{"heading:1": "pin:a3f9c2", "heading:4": "pin:b6223a"}
+```
+
+Failures: `3` Word busy.
+
 ## `write cc NAME --text "…"`
 
 ```
@@ -2201,10 +2242,10 @@ Script shape:
 | ---------------------- | ------------------------------------------ | --------------------------------- |
 | `write_bookmark`       | `name`, `text`                             | —                                 |
 | `write_cc`             | `name`, `text`                             | —                                 |
-| `insert_paragraph`     | `anchor_id`, `text`                        | `where` (`after`/`before`) or `before: true`, `style` |
-| `insert_block`         | `anchor_id`, `items`                       | `where` or `before: true` |
-| `insert_section`       | `anchor_id`, `heading`, `body`             | `level`, `where` or `before: true` |
-| `insert_markdown`      | `anchor_id`, `markdown`                    | `where` or `before: true` |
+| `insert_paragraph`     | `anchor_id`, `text`                        | `where` (`after`/`before`) or `before: true`, `style`, `bind` |
+| `insert_block`         | `anchor_id`, `items`                       | `where` or `before: true`, `bind` |
+| `insert_section`       | `anchor_id`, `heading`, `body`             | `level`, `where` or `before: true`, `bind` |
+| `insert_markdown`      | `anchor_id`, `markdown`                    | `where` or `before: true`, `bind` |
 | `replace_section`      | `anchor_id`, one of `body` / `markdown`    | — |
 | `delete_paragraph`     | `anchor_id`                                | — |
 | `append`               | `text`                                     | `style`                           |
@@ -2231,7 +2272,7 @@ Script shape:
 | `autofit_table`        | `table`                                    | `mode` (`content`/`window`/`fixed`) |
 | `append_record`        | `table`, `record`                          | —                                 |
 | `update_row`           | `table`, `key`, `values`                   | `column`                          |
-| `create_table`         | `anchor_id`, `rows`, `cols`                | `style`, `data` (row-major 2-D), `header`, `where` or `before: true` (new cells default to the `Normal` paragraph style) |
+| `create_table`         | `anchor_id`, `rows`, `cols`                | `style`, `data` (row-major 2-D), `header`, `where` or `before: true`, `bind` (new cells default to the `Normal` paragraph style) |
 | `delete_table`         | `table`                                    | —                                 |
 | `insert_break`         | `anchor_id`                                | `kind` (`page`/`column`/`section_next`/`section_continuous`), `where` or `before: true` |
 | `insert_field`         | `anchor_id`, `kind`                        | `text` (raw code for `kind: field`), `where` or `before: true` |
@@ -2250,6 +2291,8 @@ Script shape:
 | `mark_citation`        | `anchor_id`, `long_citation`               | `short_citation`, `category`, `where` or `before: true` |
 | `insert_table_of_authorities` | `anchor_id`                         | `category`, `passim`, `keep_entry_formatting`, `entry_separator`, `page_range_separator`, `where` or `before: true` |
 | `add_bookmark`         | `name`, `anchor_id`                        | —                                 |
+| `pin`                  | `anchor_id`                                | `name` (a readable slug)          |
+| `pin_outline`          | —                                          | `levels` (an `[lo, hi]` band)     |
 | `add_hyperlink`        | `anchor_id`, and one of `url` / `bookmark` | `text`, `screen_tip`              |
 | `insert_cross_reference` | `anchor_id`, `target`                    | `kind` (`text`/`page`/`number`/`above_below`), `hyperlink`, `where` or `before: true` |
 | `insert_caption`       | `anchor_id`                                | `label`, `text`, `position` (`above`/`below`; default above for `Table`, else below) |
@@ -2353,7 +2396,23 @@ the new `footnote:N` / `endnote:N` in the batch's `outputs`. `insert_toc` insert
 a table of contents (`levels` is a `[upper, lower]` pair, default `[1, 3]`);
 follow it with an `update_fields` op so its page numbers populate.
 
-`add_bookmark` names a range (the prerequisite for the rest). `add_hyperlink`
+`add_bookmark` names a range (the prerequisite for the rest). `pin` plants a
+**durable handle** on an `anchor_id` and returns its `pin:CODE` (random, or a
+readable `name` slug); `pin_outline` pins every heading at once, returning the
+`{heading:N: pin:CODE}` map (idempotent; `levels` restricts the band). These are
+the batch-side mirror of the `pin` / `pin-outline` verbs — reach for them when a
+positional id would renumber mid-batch.
+
+**Durable handles in a batch.** Add `bind: "slug"` (or `bind: true` for a random
+code) to an `insert` / `insert_block` / `insert_section` / `insert_markdown` /
+`create_table` op to mint a `pin:` on the new content — it comes back as `pin` in
+that op's `outputs` entry. And any op field of the exact form `$ops[N].field` is
+replaced with an earlier op's recorded output *before* the op runs, so a batch can
+create then target without a round-trip — e.g. `create_table` at op 0, then
+`{"op": "set_cell", "table": "$ops[0].table", …}`. A forward / unknown reference
+fails that op (and the batch) cleanly.
+
+`add_hyperlink`
 links an `anchor_id` to exactly one of `url` (external) or `bookmark` (internal),
 with optional `text`. `insert_cross_reference` references a `target` anchor id
 (`bookmark:` / `heading:` / `footnote:` / `endnote:`) — an unresolvable target is

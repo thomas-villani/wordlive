@@ -12,6 +12,7 @@ wrapper both already handle.
 
 from __future__ import annotations
 
+import re
 from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -69,6 +70,8 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_endnote": ("anchor_id", "text"),
     "insert_toc": ("anchor_id",),
     "add_bookmark": ("name", "anchor_id"),
+    "pin": ("anchor_id",),
+    "pin_outline": (),
     "add_hyperlink": ("anchor_id",),
     "insert_cross_reference": ("anchor_id", "target"),
     "insert_caption": ("anchor_id",),
@@ -175,10 +178,10 @@ _PAGE_SETUP_FIELDS = (
 OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "write_bookmark": (),
     "write_cc": (),
-    "insert_paragraph": ("text", "runs", "style", *_WHERE_FIELDS),
-    "insert_block": ("items", *_WHERE_FIELDS),
-    "insert_section": ("level", *_WHERE_FIELDS),
-    "insert_markdown": _WHERE_FIELDS,
+    "insert_paragraph": ("text", "runs", "style", "bind", *_WHERE_FIELDS),
+    "insert_block": ("items", "bind", *_WHERE_FIELDS),
+    "insert_section": ("level", "bind", *_WHERE_FIELDS),
+    "insert_markdown": ("bind", *_WHERE_FIELDS),
     "replace_section": ("body", "markdown"),
     "delete_paragraph": (),
     "append_paragraph": ("style",),
@@ -220,6 +223,8 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_endnote": _WHERE_FIELDS,
     "insert_toc": ("levels", "use_heading_styles", "hyperlinks", *_WHERE_FIELDS),
     "add_bookmark": (),
+    "pin": ("name",),
+    "pin_outline": ("levels",),
     "add_hyperlink": ("url", "bookmark", "text", "screen_tip"),
     "insert_cross_reference": ("kind", "hyperlink", *_WHERE_FIELDS),
     "insert_caption": ("label", "text", "position", *_WHERE_FIELDS),
@@ -293,7 +298,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "update_row": ("column",),
     "delete_row": (),
     "set_heading_row": ("row", "heading", "allow_break"),
-    "create_table": ("rows", "cols", "style", "data", "header", *_WHERE_FIELDS),
+    "create_table": ("rows", "cols", "style", "data", "header", "bind", *_WHERE_FIELDS),
     "delete_table": (),
     "insert_break": ("kind", *_WHERE_FIELDS),
     "add_comment": ("author",),
@@ -336,6 +341,66 @@ def op_before(op: dict[str, Any]) -> bool:
     return op.get("where") == "before"
 
 
+def _apply_bind(doc: Document, op: dict[str, Any], rng: Any) -> dict[str, Any]:
+    """Mint a durable handle over a just-inserted range when the op carries `bind`.
+
+    `bind` is `true` (auto random code) or a readable slug string. Returns
+    `{"pin": "pin:<code>"}` to merge into the op's output dict, or `{}` when
+    there's no usable `bind`. `rng` is the `Anchor` the insert returned.
+    """
+    spec = op.get("bind")
+    if spec in (None, False, ""):
+        return {}
+    name = spec if isinstance(spec, str) else None
+    return {"pin": doc.pin(rng, name=name)["pin"]}
+
+
+# A whole-string reference to an earlier op's output, e.g. `$ops[0].table`.
+_OP_REF_RE = re.compile(r"^\$ops\[(\d+)\]\.([A-Za-z_]\w*)$")
+
+
+def _resolve_op_refs(op: dict[str, Any], results: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    """Substitute `$ops[N].field` references in `op` with prior ops' outputs.
+
+    A batch op can target what an earlier op produced — e.g. after a
+    `create_table` at index 0, ``{"op": "set_cell", "table": "$ops[0].table", …}``
+    reuses the new table's index without a second round-trip. Only a *whole*
+    string value of the exact form ``$ops[N].field`` is substituted (no
+    interpolation inside a larger string); the walk recurses into nested list /
+    dict values. Returns a new dict — the caller's op is left untouched.
+
+    Raises `OpError` (a `WordliveError`, so the batch records it as this op's
+    failure) for a forward / self / failed-op reference or an unknown field.
+    """
+
+    def resolve(value: Any) -> Any:
+        if isinstance(value, str):
+            m = _OP_REF_RE.match(value)
+            if not m:
+                return value
+            idx, field = int(m.group(1)), m.group(2)
+            if idx not in results:
+                raise OpError(
+                    f"reference {value!r} points at op {idx}, which has not produced output "
+                    "yet (only earlier, successful ops can be referenced)"
+                )
+            out = results[idx]
+            if field not in out:
+                available = ", ".join(sorted(out)) or "none"
+                raise OpError(
+                    f"reference {value!r}: op {idx} has no output field {field!r} "
+                    f"(available: {available})"
+                )
+            return out[field]
+        if isinstance(value, list):
+            return [resolve(v) for v in value]
+        if isinstance(value, dict):
+            return {k: resolve(v) for k, v in value.items()}
+        return value
+
+    return resolve(op)
+
+
 def validate_op(op: dict[str, Any]) -> str:
     """Return the op kind after asserting it's known and required keys exist."""
     if not isinstance(op, dict):
@@ -369,23 +434,35 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         if ("text" in op) == ("runs" in op):
             raise OpError("op 'insert_paragraph' requires exactly one of 'text' or 'runs'")
         anchor = doc.anchor_by_id(op["anchor_id"])
+        where = "before" if op_before(op) else "after"
         if "runs" in op:
             # Structured inline formatting — route through the block primitive
             # (one item). `text` stays a literal plain insert (no markdown sugar);
             # markdown lives in insert_block's item text.
-            anchor.insert_block(
-                [{"runs": op["runs"], "style": op.get("style")}],
-                where=("before" if op_before(op) else "after"),
+            rng = anchor.insert_block([{"runs": op["runs"], "style": op.get("style")}], where=where)
+        elif op.get("bind"):
+            # `bind` needs a handle on the new paragraph; route the literal text
+            # through insert_block as a single run (no markdown sugar) to get a
+            # RangeAnchor to pin, preserving the plain-text-is-literal contract.
+            rng = anchor.insert_block(
+                [{"runs": [{"text": op["text"]}], "style": op.get("style")}], where=where
             )
-        elif op_before(op):
-            anchor.insert_paragraph_before(op["text"], style=op.get("style"))
         else:
-            anchor.insert_paragraph_after(op["text"], style=op.get("style"))
+            if op_before(op):
+                anchor.insert_paragraph_before(op["text"], style=op.get("style"))
+            else:
+                anchor.insert_paragraph_after(op["text"], style=op.get("style"))
+            return None
+        return _apply_bind(doc, op, rng) or None
     elif kind == "insert_block":
         rng = doc.anchor_by_id(op["anchor_id"]).insert_block(
             op["items"], where=("before" if op_before(op) else "after")
         )
-        return {"anchor_id": rng.anchor_id, "paragraphs": len(op["items"])}
+        return {
+            "anchor_id": rng.anchor_id,
+            "paragraphs": len(op["items"]),
+            **_apply_bind(doc, op, rng),
+        }
     elif kind == "insert_section":
         rng = doc.anchor_by_id(op["anchor_id"]).insert_section(
             op["heading"],
@@ -393,12 +470,12 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             level=int(op.get("level", 1)),
             where=("before" if op_before(op) else "after"),
         )
-        return {"anchor_id": rng.anchor_id}
+        return {"anchor_id": rng.anchor_id, **_apply_bind(doc, op, rng)}
     elif kind == "insert_markdown":
         rng = doc.anchor_by_id(op["anchor_id"]).insert_markdown(
             op["markdown"], where=("before" if op_before(op) else "after")
         )
-        return {"anchor_id": rng.anchor_id}
+        return {"anchor_id": rng.anchor_id, **_apply_bind(doc, op, rng)}
     elif kind == "replace_section":
         if ("body" in op) == ("markdown" in op):
             raise OpError("op 'replace_section' requires exactly one of 'body' or 'markdown'")
@@ -525,6 +602,10 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
     elif kind == "add_bookmark":
         doc.bookmarks.add(op["name"], op["anchor_id"])
         return {"bookmark": op["name"]}
+    elif kind == "pin":
+        return doc.pin(op["anchor_id"], name=op.get("name"))
+    elif kind == "pin_outline":
+        return {"pins": doc.pin_outline(levels=op.get("levels"))}
     elif kind == "add_hyperlink":
         if ("url" in op) == ("bookmark" in op):
             raise OpError("op 'add_hyperlink' requires exactly one of 'url' or 'bookmark'")
@@ -694,7 +775,11 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             where=("before" if op_before(op) else "after"),
             **kwargs,
         )
-        return {"table": table.index, "rows": table.row_count, "columns": table.column_count}
+        result = {"table": table.index, "rows": table.row_count, "columns": table.column_count}
+        if op.get("bind"):
+            trng = table.com.Range
+            result.update(_apply_bind(doc, op, doc.range(int(trng.Start), int(trng.End))))
+        return result
     elif kind == "delete_table":
         doc.tables[op["table"]].delete()
     elif kind == "insert_break":
@@ -755,13 +840,16 @@ def run_batch(
     ops_run = 0
     outputs: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
+    # Each successful op's raw output dict, keyed by index — the source for any
+    # `$ops[N].field` references a later op makes (see `_resolve_op_refs`).
+    results_by_index: dict[int, dict[str, Any]] = {}
     failure_exc: WordliveError | None = None
     failure_meta: dict[str, Any] | None = None
     tracking = doc.tracked_changes() if tracked else nullcontext()
     with tracking, doc.edit(label):
         for i, op in enumerate(ops):
             try:
-                out = apply_op(doc, op)
+                out = apply_op(doc, _resolve_op_refs(op, results_by_index))
             except WordliveError as exc:
                 failure_exc = exc
                 failure_meta = {
@@ -788,6 +876,7 @@ def run_batch(
                 )
             if out is not None:
                 outputs.append({"index": i, "op": op.get("op"), **out})
+            results_by_index[i] = out or {}
             ops_run += 1
 
     if failure_exc is None:

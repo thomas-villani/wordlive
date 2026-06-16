@@ -19,6 +19,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clamp only guarded the document's final mark; this fixes interior boundaries.
 
 ### Added
+- **Durable handles (`pin:`) & stale-anchor diagnostics.** The fix for fragile
+  positional `para:N` / `heading:N` ids that renumber under later inserts:
+  - **`doc.pin(anchor, name=None)`** (alias `doc.stamp`) plants a Word-hidden
+    bookmark (`_wl_<code>`) over an anchor's range and returns a `pin:<code>`
+    anchor id — a random hex code, or a readable slug via `name="budget-intro"`.
+    Word maintains the range↔bookmark association across inserts / deletes /
+    edits natively, so the handle keeps pointing at the same content; a deleted
+    paragraph's pin correctly vanishes (resolving raises `AnchorNotFoundError`).
+    `pin:CODE` resolves through `doc.anchor_by_id` like any anchor. CLI:
+    `wordlive pin ANCHOR_ID [--name SLUG]`; exec op `pin`; MCP `word_write`
+    command `pin`.
+  - **`doc.pin_outline(levels=…)`** (and `outline(pin=True)`) pins every heading
+    in one call, returning the `{anchor_id: pin}` map — a durable navigation
+    scaffold. Idempotent (reuses a heading's existing handle, keyed by range
+    start). CLI `wordlive pin-outline [--levels LO HI]`; exec op `pin_outline`.
+  - **`bind: "name"`** on an insert op (`insert` / `insert_block` /
+    `insert_section` / `insert_markdown` / `create_table`) mints a pin on the
+    freshly-inserted content and returns it in that op's `outputs` entry.
+  - **Intra-batch output references.** Any exec-op field of the exact form
+    `$ops[N].field` is replaced with an earlier op's recorded output before the
+    op runs — e.g. create a table at op 0, then `set_cell` with
+    `"table": "$ops[0].table"`.
+  - **Stale-anchor recovery hints.** A missed positional `para:N` / `heading:N`
+    now raises `AnchorNotFoundError` whose message explains *why* (out-of-range
+    vs body-text-not-a-heading, the paragraph count, the nearest heading) and
+    recommends pinning, instead of a bare "not found".
 - **`python -m wordlive`.** The CLI is now runnable as a module (a thin
   `__main__` aliasing the `wordlive` console script), so tooling can drive it
   through the current interpreter without depending on the script being on PATH.
