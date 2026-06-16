@@ -55,6 +55,7 @@ Quick index (capability → real release):
 | Content-control **creation** (`insert_content_control`); back-of-book index; table of figures | v0.16.0 |
 | Citations & bibliography (`doc.sources`, `insert_citation`, `insert_bibliography`); table of authorities | v0.16.0 |
 | Document themes (`doc.theme` — apply / brand colours / fonts) | v0.16.0 |
+| Durable handles (`doc.pin`/`stamp`, `pin:`, `pin_outline`, insert `bind`, `$ops[N]` refs) + stale-anchor hints | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -65,9 +66,21 @@ from the shipped clusters above.
 
 `heading:N`, `para:N`, `bookmark:NAME`, `cc:NAME`, `table:N:R:C`,
 `range:START-END`, `header:S:WHICH` / `footer:S:WHICH`, `footnote:N`,
-`endnote:N`, `image:N`, `equation:N`, `start`, `end`. One resolver:
+`endnote:N`, `image:N`, `equation:N`, `pin:CODE`, `start`, `end`. One resolver:
 `doc.anchor_by_id(id)`. A malformed scheme (`banana:7`) reports "unknown anchor
 type".
+
+- **`pin:CODE`** is the **durable handle** (Unreleased): `doc.pin(anchor)` /
+  `stamp` plants a Word-hidden bookmark `_wl_<code>` over a range and returns
+  `pin:<code>` (random hex, or a `name=` slug stored `_wl_<slug,-→_>`). Word keeps
+  the range association across edits — the actual source of durability — so it's
+  the escape hatch for positional `para:N`/`heading:N` that renumber. `pin:`
+  reuses the `Bookmark` class (a `_pin_code` makes `anchor_id` report `pin:` not
+  `bookmark:`); minting bypasses `_validate_bookmark_name` (which forbids the
+  leading `_`). `doc.pin_outline(levels=…)` bulk-pins headings, idempotent by
+  range start. Insert ops take `bind:"slug"`; any op field `$ops[N].field` is
+  substituted with an earlier op's output before it runs. A stale positional miss
+  now carries a recovery `hint` (out-of-range vs not-a-heading, nearest heading).
 
 - **`para:N` and `heading:N` share one index space** — a heading is both; copy
   the id from `outline` (the first heading is rarely `heading:1`). Word's
@@ -161,6 +174,14 @@ escaping — path-bearing batches should use `--script FILE` or `--ops -`.
   119/34) — insert via the EMPTY raw-code path. `Sources.Add` ingests a single
   `<b:Source>`; `BibliographyStyle` is a plain string (APA/MLA/Chicago/IEEE/
   Turabian ok; GOST/ISO690 build-dependent).
+- **Hidden bookmarks need `Bookmarks.ShowHidden`.** Word omits
+  leading-underscore bookmarks (its own `_Toc`/`_Ref`, and wordlive's `_wl_`
+  pins) from `Document.Bookmarks` *iteration* unless the collection's
+  `ShowHidden` flag is set — but `Exists(name)` / `Bookmarks(name)` find them
+  regardless. Enumerating pins (e.g. `pin_outline` idempotency, `list(
+  include_hidden=True)`) must flip `ShowHidden=True` for the read and restore it
+  (the `_bookmarks_including_hidden` helper). The fake COM fixture *does* yield
+  hidden ones, so this is a smoke-only failure mode — caught live, not in units.
 - **Themes:** Office 16 has **no `RemoveDocumentTheme`**; `.RGB` is a BGR
   `OLE_COLOR` int (12 friendly colour slots via `to_bgr`/`bgr_to_hex`).
 - **Colours/units** go through the internal `_format.py` helper (colours →
@@ -185,40 +206,16 @@ ambiguous `find` match.
 Everything here is **specced but not yet implemented** (re-verified 2026-06-15).
 Ordered by leverage.
 
-## 1. Durable handles & stale-anchor diagnostics
+> **Durable handles & stale-anchor diagnostics — ✅ shipped (Unreleased).** All
+> five pieces landed: `doc.pin`/`stamp` + the `pin:` anchor, `doc.pin_outline` /
+> `outline(pin=True)`, insert-op `bind:"name"`, `$ops[N].field` references, and
+> stale-anchor recovery hints. See Part I's load-bearing facts (the `pin:`
+> taxonomy entry and the `Bookmarks.ShowHidden` gotcha) and `CHANGELOG.md`. Native
+> `w14:paraId` was rejected (live probe 2026-06-09): assigned lazily and
+> COM-invisible (`Range.WordOpenXML` strips it), so minted bookmarks are the only
+> mechanism that survives the edits we care about.
 
-The single highest-leverage gap: an agent's primary pain is fragile positional
-`para:N` ids that renumber under later inserts. Four related pieces, one
-bookmark-backed mechanism:
-
-- **`pin`/`stamp` for existing content.** Plant a hidden bookmark (`_wl_<code>`;
-  the `_` prefix is Word-hidden) on an existing paragraph's range and return a
-  short id (`pin:a3f9c2`, or a readable slug `pin:budget-intro`). Word maintains
-  the Range association across insert / delete / text edits natively (the real
-  source of durability); resolve is O(1) via `Bookmarks`. A deleted paragraph's
-  handle correctly vanishes.
-- **Durable insert handles — `bind: "name"`** on an insert op mints the same
-  bookmark on freshly-inserted content, so a batch keeps a stable handle.
-- **Intra-batch output references** — let an op reference a prior op's output,
-  e.g. `anchor_id: "$ops[0].table"`, so a batch can create a table then target it
-  without a second round-trip.
-- **Bulk-pin the outline — `doc.pin_outline(levels=…)`** (or `pin=True` on the
-  `outline` read): stamp a handle on every heading/section-start in one call,
-  returning the `{anchor_id → pin}` map — a durable navigation scaffold up front.
-  Idempotent (skip ranges already carrying a `_wl_` bookmark).
-- **Stale-anchor diagnostics.** When a positional `para:N` resolves to something
-  unexpected after a mutation, return a recovery hint (the failed op index,
-  moved-vs-vanished, nearest heading / fuzzy text hit) rather than a bare
-  `AnchorNotFoundError` — and recommend the durable handle as the escape hatch.
-
-**Why native `w14:paraId` is unusable** (live probe, 2026-06-09): assigned
-**lazily** (a fresh doc has none, even after save — Word only stamps when a
-feature needs them) and **COM-invisible** (`Range.WordOpenXML` strips it; it
-surfaces only in the saved-zip `word/document.xml`). Content-derived codes
-(hash/slug) are labels, not anchors — they break on the exact edits we want to
-survive. Hence the minted-bookmark design.
-
-## 2. Revision write surface (read side already shipped)
+## 1. Revision write surface (read side already shipped)
 
 `doc.revisions`, `snapshot(markup="all")`, and MCP track-status shipped in
 v0.12.0. Still open:
@@ -231,7 +228,7 @@ v0.12.0. Still open:
   (workaround: re-read between tracked edits, or take a `markup="all"` snapshot).
   A proper revision-aware read model is the real fix.
 
-## 3. Publishing flourishes — the floating-shape remainder
+## 2. Publishing flourishes — the floating-shape remainder
 
 The publishing-quality cluster (character/paragraph formatting, borders/shading/
 tab-stops, style creation, PageSetup writes, fields/page numbers, pagination
@@ -246,7 +243,7 @@ pure floating-shape work, individually small; bundle whichever land cheap:
 The shipped `insert_field` primitive already covers the general `Fields.Add` case
 these once leaned on.
 
-## 4. Charts (Excel-backed)
+## 3. Charts (Excel-backed)
 
 Approved 2026-05-31 as the SmartArt substitute. `Range.InlineShapes.AddChart2`
 embeds a chart whose data lives in an embedded Excel workbook. Heavier than
@@ -263,7 +260,7 @@ items above.
   kinds + flat `data` only. **Deferred:** multi-series, secondary axes,
   axis/series formatting, `BreakLink` policy, reading existing charts back out.
 
-## 5. Structural query helpers (new, lower priority)
+## 4. Structural query helpers (new, lower priority)
 
 From the gpt-5.4 review: content-under-heading, block-between-headings,
 nearest-heading-before/after, find-paragraph-by-approx-text. Several reduce to

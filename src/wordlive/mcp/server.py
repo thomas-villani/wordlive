@@ -230,14 +230,19 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             op["text"] = p["text"]
         if p.get("style") is not None:
             op["style"] = p["style"]
+        if p.get("bind") is not None:
+            op["bind"] = p["bind"]
         return op
     if command == "insert_block":
-        return {
+        op = {
             "op": "insert_block",
             "anchor_id": need("anchor_id"),
             "items": need("items"),
             "before": bool(p.get("before", False)),
         }
+        if p.get("bind") is not None:
+            op["bind"] = p["bind"]
+        return op
     if command == "insert_section":
         op = {
             "op": "insert_section",
@@ -248,14 +253,19 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         }
         if p.get("level") is not None:
             op["level"] = p["level"]
+        if p.get("bind") is not None:
+            op["bind"] = p["bind"]
         return op
     if command == "insert_markdown":
-        return {
+        op = {
             "op": "insert_markdown",
             "anchor_id": need("anchor_id"),
             "markdown": need("markdown"),
             "before": bool(p.get("before", False)),
         }
+        if p.get("bind") is not None:
+            op["bind"] = p["bind"]
+        return op
     if command == "replace_section":
         if (p.get("body") is None) == (p.get("markdown") is None):
             raise OpError("replace_section requires exactly one of 'body' or 'markdown'")
@@ -423,6 +433,16 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         return op
     if command == "add_bookmark":
         return {"op": "add_bookmark", "name": need("name"), "anchor_id": need("anchor_id")}
+    if command == "pin":
+        op = {"op": "pin", "anchor_id": need("anchor_id")}
+        if p.get("name") is not None:
+            op["name"] = p["name"]
+        return op
+    if command == "pin_outline":
+        op = {"op": "pin_outline"}
+        if p.get("levels") is not None:
+            op["levels"] = p["levels"]
+        return op
     if command == "add_hyperlink":
         if (p.get("url") is None) == (p.get("bookmark") is None):
             raise OpError("add_hyperlink requires exactly one of 'url' or 'bookmark'")
@@ -663,6 +683,8 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
                 op["header"] = bool(p["header"])
             if p.get("data") is not None:
                 op["data"] = p["data"]
+            if p.get("bind") is not None:
+                op["bind"] = p["bind"]
             return op
         if action == "autofit":
             op = {"op": "autofit_table", "table": need("table")}
@@ -1003,6 +1025,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "insert_endnote",
             "insert_toc",
             "add_bookmark",
+            "pin",
+            "pin_outline",
             "add_hyperlink",
             "insert_cross_reference",
             "insert_caption",
@@ -1030,6 +1054,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         runs: list[Any] | None = None,
         items: list[Any] | None = None,
         name: str | None = None,
+        bind: str | bool | None = None,
         style: str | None = None,
         before: bool = False,
         paragraph: bool = True,
@@ -1176,12 +1201,13 @@ def build_server(worker: Worker | None = None) -> FastMCP:
     ) -> dict[str, Any]:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
-        insert {anchor_id, text|runs, [before,style]} — text is literal; runs is
-            [{text,bold?,italic?,underline?,style?}] for inline-formatted spans ·
-        insert_block {anchor_id, items, [before]} — a contiguous run of styled
+        insert {anchor_id, text|runs, [before,style,bind]} — text is literal; runs is
+            [{text,bold?,italic?,underline?,style?}] for inline-formatted spans;
+            bind ("slug" or true) mints a durable pin on the new paragraph ·
+        insert_block {anchor_id, items, [before,bind]} — a contiguous run of styled
             paragraphs in one op; each item is "plain text" or {text|runs, style?}
             (text carries **bold**/*italic* markdown); returns the block's
-            range:START-END so you can apply_list/comment over the whole run ·
+            range:START-END (and pin:CODE when bind is set) ·
         insert_section {anchor_id, heading, body, [level=1, before]} — a Heading {level}
             paragraph plus its body (body = insert_block items shape) in one op ·
         insert_markdown {anchor_id, markdown, [before]} — a constrained-Markdown block
@@ -1234,6 +1260,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         insert_toc {[anchor_id=start],levels=[upper,lower],use_heading_styles,hyperlinks,[before]} —
             a table of contents; run update_fields after to populate page numbers ·
         add_bookmark {name,anchor_id} — create a named bookmark over an anchor's range ·
+        pin {anchor_id,[name]} — plant a DURABLE handle on an anchor; returns pin:CODE that
+            survives the inserts/deletes that renumber para:N / heading:N (name = a readable
+            slug like budget-intro, else a random code) ·
+        pin_outline {[levels]} — pin every heading at once; returns {heading:N: pin:CODE}
+            (idempotent; levels = an inclusive [lo,hi] band) ·
         add_hyperlink {anchor_id, url | bookmark, [text,screen_tip]} — external URL or internal
             bookmark jump; text sets the visible link text ·
         insert_cross_reference {anchor_id,target,[kind=text|page|number|above_below,hyperlink,before]} —
@@ -1299,6 +1330,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "runs": runs,
             "items": items,
             "name": name,
+            "bind": bind,
             "style": style,
             "before": before,
             "paragraph": paragraph,
@@ -1498,7 +1530,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
           insert_footnote/insert_endnote {anchor_id,text,[before]} — returns the new footnote:N/endnote:N in outputs ·
           insert_toc {anchor_id,[levels=[upper,lower],use_heading_styles,hyperlinks,before]} — update_fields after to fill page numbers ·
-          add_bookmark {name,anchor_id} · add_hyperlink {anchor_id, url|bookmark, [text,screen_tip]} ·
+          add_bookmark {name,anchor_id} · pin {anchor_id,[name]} — durable pin:CODE handle that
+            survives renumbering · pin_outline {[levels]} — pin every heading, returns {heading:N: pin:CODE} ·
+          add_hyperlink {anchor_id, url|bookmark, [text,screen_tip]} ·
           insert_cross_reference {anchor_id,target,[kind,hyperlink,before]} — target is a bookmark:/heading:/footnote:/endnote: id ·
           insert_caption {anchor_id,[label,text,position=above|below]} — own-paragraph caption ·
           create_content_control {anchor_id,[kind=rich_text|text|picture|combo_box|dropdown|date|checkbox|
@@ -1519,6 +1553,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           add_comment {anchor_id,text,[author]} · resolve_comment {index} · delete_comment {index} ·
           apply_list {anchor_id,[type=bulleted|numbered|outline,continue_previous]} · remove_list/restart_numbering/indent_list/outdent_list {anchor_id} ·
           write_header/write_footer {section,text,[which=primary|first|even]}.
+
+        Durable handles: add bind:"slug" (or true) to insert/insert_block/insert_section/
+        insert_markdown/create_table to mint a pin: on the new content (returned in that op's
+        outputs). Any op field of the exact form $ops[N].field is replaced with an earlier op's
+        output before it runs (e.g. create_table at op 0, then set_cell table:"$ops[0].table").
 
         Call word_read(command="guide") for the full field reference.
         """

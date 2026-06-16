@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 
 from . import _com, _findreplace, _proofing, _snapshot
 from ._anchors import (
+    _WL_PREFIX,
+    Bookmark,
     BookmarkCollection,
     ContentControlCollection,
     EndAnchor,
@@ -20,8 +22,14 @@ from ._anchors import (
     ParagraphCollection,
     RangeAnchor,
     StartAnchor,
+    _bookmarks_including_hidden,
     _IndexedHeading,
+    _mint_wl_bookmark,
+    _new_pin_code,
+    _pin_id_for,
+    _pin_name_for,
     _utf16_len,
+    _validate_pin_slug,
     _within_table,
     paragraph_text,
 )
@@ -63,6 +71,28 @@ def _markup_flag(markup: str) -> bool:
     if value in ("all", "on", "true"):
         return True
     raise OpError(f"markup must be 'none' or 'all', got {markup!r}")
+
+
+def _resolve_level_band(levels: int | tuple[int, int] | None) -> tuple[int, int]:
+    """Normalise a `pin_outline` `levels` argument into an inclusive `(lo, hi)` band.
+
+    `None` -> all heading levels (1–9); an `int` n -> `1..n`; a `(lo, hi)` pair ->
+    that inclusive band. Raises `OpError` on a bad shape or out-of-range value.
+    """
+    if levels is None:
+        return 1, 9
+    if isinstance(levels, bool):  # bool is an int subclass — reject before the int branch
+        raise OpError(f"levels must be an int or (lo, hi) tuple, not {levels!r}")
+    if isinstance(levels, int):
+        if not 1 <= levels <= 9:
+            raise OpError(f"levels must be between 1 and 9, got {levels}")
+        return 1, levels
+    if isinstance(levels, (tuple, list)) and len(levels) == 2:
+        lo, hi = int(levels[0]), int(levels[1])
+        if not (1 <= lo <= hi <= 9):
+            raise OpError(f"invalid level band: {levels!r} (expected 1 <= lo <= hi <= 9)")
+        return lo, hi
+    raise OpError(f"levels must be an int or (lo, hi) tuple, got {levels!r}")
 
 
 class Document:
@@ -157,6 +187,100 @@ class Document:
     @property
     def bookmarks(self) -> BookmarkCollection:
         return BookmarkCollection(self)
+
+    def pin(self, anchor: Anchor | str, name: str | None = None) -> dict[str, Any]:
+        """Plant a durable handle on `anchor`'s range and return its `pin:` id.
+
+        The fix for fragile positional ids: `pin("para:7")` mints a hidden
+        bookmark over that paragraph's range and hands back a `pin:<code>` anchor
+        id that keeps pointing at the same content across later inserts / deletes
+        / edits (Word maintains the association natively — that's the durability).
+        Resolve it like any anchor — `doc.anchor_by_id("pin:a3f9c2")` — or feed it
+        straight into another op. If the pinned content is later deleted the handle
+        correctly vanishes (resolving it raises `AnchorNotFoundError`).
+
+        `anchor` is an [`Anchor`][wordlive.Anchor] or an anchor id string. `name`
+        optionally gives a readable slug (``budget-intro`` -> ``pin:budget-intro``;
+        lowercase words joined by single hyphens); omit it for a random code.
+        Re-using a slug moves the handle to the new range (Word's `Bookmarks.Add`
+        semantics). Editing *through* the pin (`set_text`) keeps it; rewriting the
+        same span via a different anchor's `Range.Text` drops it.
+
+        Returns `{"anchor_id": "pin:…", "pin": "pin:…", "target": <resolved id>}`.
+        `stamp` is an alias. Wrap in `doc.edit(...)` for atomic undo — but do not
+        call it inside an already-open edit scope (custom undo records don't nest;
+        the `exec` batch already owns one). The CLI verb is
+        `wordlive pin ANCHOR_ID [--name SLUG]`; the exec op is `pin`.
+        """
+        resolved = self.anchor_by_id(anchor) if isinstance(anchor, str) else anchor
+        target = anchor if isinstance(anchor, str) else resolved.anchor_id
+        if name is not None:
+            code = _validate_pin_slug(name)
+            with _com.translate_com_errors():
+                _mint_wl_bookmark(self._doc, resolved.com, code)
+        else:
+            with _com.translate_com_errors():
+                code = _new_pin_code()
+                while self._doc.Bookmarks.Exists(_pin_name_for(code)):
+                    code = _new_pin_code()
+                _mint_wl_bookmark(self._doc, resolved.com, code)
+        return {"anchor_id": f"pin:{code}", "pin": f"pin:{code}", "target": target}
+
+    # `stamp` reads better for "stamp a handle on this"; same operation.
+    stamp = pin
+
+    def _existing_pin_starts(self) -> dict[int, str]:
+        """Map each existing `_wl_` bookmark's range start -> its pin code.
+
+        Backs `pin_outline` idempotency: a heading whose range start already
+        carries a wordlive handle reuses it instead of minting a duplicate.
+        """
+        out: dict[int, str] = {}
+        with _com.translate_com_errors():
+            for bm in _bookmarks_including_hidden(self._doc):
+                nm = str(bm.Name)
+                if nm.startswith(_WL_PREFIX):
+                    out[int(bm.Range.Start)] = _pin_id_for(nm)
+        return out
+
+    def pin_outline(self, *, levels: int | tuple[int, int] | None = None) -> dict[str, str]:
+        """Pin every heading at once and return the `{heading_id: pin_id}` map.
+
+        A durable navigation scaffold up front: stamp a handle on each heading so
+        an agent can address sections by `pin:` ids that survive the inserts /
+        deletes it is about to make, instead of re-reading `outline` after every
+        edit. Idempotent — a heading already carrying a wordlive handle reuses it,
+        so calling this twice returns the same map (run it once on a stable
+        document; the reuse keys on each heading's range start).
+
+        `levels` filters which headings get pinned: `None` (default) pins every
+        heading, an `int` n pins levels ``1..n``, and a ``(lo, hi)`` tuple pins
+        the inclusive band. Returns an ordered ``{"heading:3": "pin:a3f9c2", …}``.
+        Wrap in `doc.edit(...)` for atomic undo. See
+        [`pin`][wordlive.Document.pin] for the single-anchor form.
+        """
+        lo, hi = _resolve_level_band(levels)
+        existing = self._existing_pin_starts()
+        out: dict[str, str] = {}
+        with _com.translate_com_errors():
+            for idx, para in enumerate(self._doc.Paragraphs, start=1):
+                try:
+                    level = int(para.OutlineLevel)
+                except Exception:
+                    continue
+                if level >= 10 or not (lo <= level <= hi):
+                    continue
+                rng = para.Range
+                start = int(rng.Start)
+                code = existing.get(start)
+                if code is None:
+                    code = _new_pin_code()
+                    while self._doc.Bookmarks.Exists(_pin_name_for(code)):
+                        code = _new_pin_code()
+                    _mint_wl_bookmark(self._doc, rng, code)
+                    existing[start] = code
+                out[f"heading:{idx}"] = f"pin:{code}"
+        return out
 
     @property
     def content_controls(self) -> ContentControlCollection:
@@ -583,6 +707,7 @@ class Document:
           - `heading:N`        — Nth paragraph in the document (1-based, must be a heading)
           - `para:N`           — Nth paragraph (1-based, any paragraph; same index space as `heading:N`)
           - `bookmark:NAME`    — bookmark by name
+          - `pin:CODE`         — a durable handle minted by `pin` / `stamp` / `pin_outline`
           - `cc:NAME`          — content control by Title (or Tag)
           - `footnote:N`       — Nth footnote (1-based), resolving to its note body
           - `endnote:N`        — Nth endnote (1-based), resolving to its note body
@@ -623,6 +748,13 @@ class Document:
             return Paragraph(self, idx)
         if kind == "bookmark":
             return self.bookmarks[value]
+        if kind == "pin":
+            name = _pin_name_for(value)
+            with _com.translate_com_errors():
+                if not self._doc.Bookmarks.Exists(name):
+                    # A vanished pin (its content was deleted) correctly misses.
+                    raise AnchorNotFoundError("pin", anchor_id)
+            return Bookmark.pin(self, value)
         if kind == "cc":
             return self.content_controls[value]
         if kind in ("footnote", "endnote"):
@@ -700,7 +832,8 @@ class Document:
             anchor_id,
             hint=(
                 f"unknown anchor type {kind!r}; expected one of "
-                "start/end/heading/para/bookmark/cc/footnote/endnote/image/table/range/header/footer"
+                "start/end/heading/para/bookmark/pin/cc/footnote/endnote/image/table/range/"
+                "header/footer"
             ),
         )
 
@@ -1034,8 +1167,16 @@ class Document:
         with _com.translate_com_errors():
             self._doc.Fields.Update()
 
-    def outline(self) -> list[dict[str, Any]]:
-        """Return all heading paragraphs as `[{level, text, anchor_id}, ...]`."""
+    def outline(self, *, pin: bool = False) -> list[dict[str, Any]]:
+        """Return all heading paragraphs as `[{level, text, anchor_id}, ...]`.
+
+        With `pin=True` each row also carries a durable `pin` id and the headings
+        are pinned as a side effect (idempotent — see
+        [`pin_outline`][wordlive.Document.pin_outline]). This **mutates** the
+        document, so it is a Python-API-only convenience; the read surfaces
+        (`wordlive read outline`, MCP `word_read outline`) stay pure — pin in bulk
+        via `pin_outline` / the `pin_outline` exec op instead.
+        """
         out: list[dict[str, Any]] = []
         with _com.translate_com_errors():
             for idx, para in enumerate(self._doc.Paragraphs, start=1):
@@ -1052,6 +1193,12 @@ class Document:
                         "anchor_id": f"heading:{idx}",
                     }
                 )
+        if pin:
+            pinmap = self.pin_outline()
+            for row in out:
+                handle = pinmap.get(row["anchor_id"])
+                if handle:
+                    row["pin"] = handle
         return out
 
     def stats(self) -> dict[str, Any]:

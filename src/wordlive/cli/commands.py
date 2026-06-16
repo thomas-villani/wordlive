@@ -111,6 +111,8 @@ def register(group: click.Group) -> None:
     group.add_command(equations_cmd)
     group.add_command(insert_equation_cmd)
     group.add_command(bookmark)
+    group.add_command(pin_cmd)
+    group.add_command(pin_outline_cmd)
     group.add_command(link_cmd)
     group.add_command(cross_ref_cmd)
     group.add_command(caption_cmd)
@@ -234,6 +236,71 @@ def paragraphs_cmd(ctx: click.Context) -> None:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             items = doc.paragraphs.list()
             emit(items, as_text=not ctx.obj["as_json"], text=_fmt_paragraphs(items))
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# pin / pin-outline — durable handles
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="pin")
+@click.argument("anchor_id")
+@click.option(
+    "--name",
+    "name",
+    default=None,
+    help="A readable slug for the pin (lowercase words joined by hyphens, "
+    "e.g. budget-intro); omit for a random code.",
+)
+@click.pass_context
+def pin_cmd(ctx: click.Context, anchor_id: str, name: str | None) -> None:
+    """Plant a durable handle on ANCHOR_ID and print its pin: id.
+
+    A pin survives the inserts/deletes that renumber positional para:N / heading:N
+    ids — resolve it later with `--anchor-id pin:CODE`. If the pinned content is
+    deleted the handle vanishes (exit 2 on the next resolve).
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: pin {anchor_id}"):
+                result = doc.pin(anchor_id, name=name)
+            emit(
+                result,
+                as_text=not ctx.obj["as_json"],
+                text=f"{result['pin']} -> {result['target']}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="pin-outline")
+@click.option(
+    "--levels",
+    "levels",
+    nargs=2,
+    type=int,
+    default=None,
+    help="Pin only headings in this inclusive level band, e.g. --levels 1 2.",
+)
+@click.pass_context
+def pin_outline_cmd(ctx: click.Context, levels: tuple[int, int] | None) -> None:
+    """Pin every heading at once; print the {heading:N -> pin:CODE} map.
+
+    Idempotent — a heading already pinned reuses its handle. A durable navigation
+    scaffold to set up before a batch of structural edits.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit("CLI: pin-outline"):
+                pins = doc.pin_outline(levels=levels)
+            text = "\n".join(f"{k} -> {v}" for k, v in pins.items()) or "(no headings)"
+            emit(pins, as_text=not ctx.obj["as_json"], text=text)
 
     _run(ctx, go)
 
@@ -5207,7 +5274,7 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     insert_image, insert_equation, replace, find_replace, apply_style, format_paragraph,
     format_run, set_shading, set_borders, drop_cap, add_tab_stop, add_style, set_style,
     insert_field, set_page_setup, update_fields, insert_footnote, insert_endnote,
-    insert_toc, add_bookmark, add_hyperlink, insert_cross_reference,
+    insert_toc, add_bookmark, pin, pin_outline, add_hyperlink, insert_cross_reference,
     insert_caption, create_content_control, mark_index_entry, insert_index,
     insert_table_of_figures, set_bibliography_style, add_source, insert_citation,
     insert_bibliography, mark_citation, insert_table_of_authorities,
@@ -5222,6 +5289,13 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     style; append_inline/prepend_inline continue the adjacent paragraph, text
     only. append_paragraph/prepend_paragraph remain as synonyms.) A field an op
     doesn't use is reported in the result's `warnings`, not silently dropped.
+
+    Durable handles: `bind: "slug"` (or `true`) on insert/insert_block/
+    insert_section/insert_markdown/create_table mints a `pin:` handle on the new
+    content and returns it in that op's `outputs` entry. An op field of the exact
+    form `$ops[N].field` is replaced with an earlier op's output before the op
+    runs — e.g. create a table at op 0, then `{"op": "set_cell", "table":
+    "$ops[0].table", ...}`.
     See docs/cli.md for each op's required and optional fields.
     """
     if (script is None) == (ops_inline is None):

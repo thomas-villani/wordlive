@@ -301,6 +301,25 @@ heading/body fonts. `doc.theme.colors` / `.major_font` / `.minor_font` /
 
 ::: wordlive.DocumentTheme
 
+## Durable handles (pins)
+
+Positional `para:N` / `heading:N` ids renumber when a structural edit shifts the
+document. When a positional anchor misses, `AnchorNotFoundError.hint` says why
+(out-of-range vs body-text-not-a-heading, the paragraph count, the nearest
+heading) and recommends pinning. `doc.pin(anchor, name=None)` (alias
+`doc.stamp`) plants a hidden bookmark over an anchor's range and returns a
+`pin:<code>` id — random, or a readable slug via `name="budget-intro"` — that
+Word keeps attached to the same content across inserts / deletes / edits;
+resolve it with `doc.anchor_by_id("pin:…")` like any anchor (a deleted target's
+pin vanishes). `doc.pin_outline(levels=…)` pins every heading in one call and
+returns the `{anchor_id: pin}` map (idempotent — reuses a heading's existing
+handle), and `doc.outline(pin=True)` adds a `pin` to each outline row. Wrap pin
+calls in `doc.edit(...)` for atomic undo. In an `exec` batch, `bind: "name"` on
+an insert op mints a pin on the new content, and `$ops[N].field` references an
+earlier op's output (see [CLI](cli.md#exec) / [MCP](mcp.md#batches)). The methods
+are [`Document.pin`](#wordlive.Document) / `stamp`, `pin_outline`, and
+`outline(pin=…)`.
+
 ## Anchoring & linking
 
 Create a named anchor, then point at it. `doc.bookmarks.add(name, anchor)`
