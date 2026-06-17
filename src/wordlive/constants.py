@@ -614,3 +614,22 @@ class WdIndexType(IntEnum):
 
     INDENT = 0
     RUNIN = 1
+
+
+class XlChartType(IntEnum):
+    """`Range.InlineShapes.AddChart2(Type=...)` values — the chart kinds `insert_chart` exposes.
+
+    A deliberately narrow slice of Excel's ~80-member `XlChartType` (charts are
+    Excel-backed: `AddChart2` embeds a chart whose data lives in a hidden Excel
+    workbook). `insert_chart(kind=...)` maps its string keys onto these:
+    ``"bar"`` → `COLUMN_CLUSTERED` (vertical clustered columns — Word's own
+    "bar"-button default), ``"pie"`` → `PIE`, ``"line"`` → `LINE`, and
+    ``"scatter"`` → `XY_SCATTER_MARKERS` (markers only, no connecting line — the
+    scientific default; both axes numeric). Multi-series, secondary axes, and
+    axis/series formatting are deferred — keep this narrow.
+    """
+
+    COLUMN_CLUSTERED = 51
+    LINE = 4
+    PIE = 5
+    XY_SCATTER_MARKERS = 65

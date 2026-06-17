@@ -195,6 +195,8 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.images.list()
             if command == "equations":
                 return doc.equations.list()
+            if command == "charts":
+                return doc.charts.list()
             if command == "hyperlinks":
                 return doc.hyperlinks.list()
             if command == "fields":
@@ -795,6 +797,17 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         if p.get("display") is not None:
             op["display"] = bool(p["display"])
         return op
+    if command == "insert_chart":
+        op = {
+            "op": "insert_chart",
+            "anchor_id": need("anchor_id"),
+            "kind": need("kind"),
+            "data": need("data"),
+            "before": bool(p.get("before", False)),
+        }
+        if p.get("title") is not None:
+            op["title"] = p["title"]
+        return op
     raise OpError(f"unknown write command: {command!r}")
 
 
@@ -964,6 +977,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "images",
             "read_image",
             "equations",
+            "charts",
             "hyperlinks",
             "fields",
             "properties",
@@ -1005,6 +1019,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         read_image {anchor_id} (an embedded picture's bytes as base64 + mime — pass
         an image:N id or any single-image anchor) ·
         equations (math zones: equation:N id, type, linear preview, para) ·
+        charts (Excel-backed charts: chart:N id, kind, title, para) ·
         hyperlinks (links: text, address/sub_address, range:START-END id — the read
         mirror of add_hyperlink) · fields (PAGE/REF/TOC/…: kind, code, rendered
         result, range id — the read mirror of insert_field) ·
@@ -1076,6 +1091,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "text_box",
             "insert_image",
             "insert_equation",
+            "insert_chart",
             "insert_break",
             "insert_field",
             "update_fields",
@@ -1387,6 +1403,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         insert_equation {anchor_id, unicodemath|latex|mathml, [display=true,before]} — a math
             equation on its own paragraph; unicodemath is native, latex needs the server's
             latex extra, mathml uses Office's transform; display centres it, else inline ·
+        insert_chart {anchor_id, kind=bar|pie|line|scatter, data, [title,before]} — an Excel-backed
+            chart; data is {label:value} for bar/pie/line or [[x,y],…] pairs for scatter (numeric
+            axes); needs Excel installed (else error code excel_not_available); data is then static ·
         save {} — save to the document's existing file (must already be saved) ·
         save_as {path,[overwrite]} — save a .docx to path ·
         export_pdf {path,[from_page,to_page]} — export a PDF (the deliverable path).
@@ -1603,6 +1622,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           insert_image {anchor_id,wrap, path|base64, [before,block,width,height,alt_text,lock_aspect]} ·
           insert_equation {anchor_id, unicodemath|latex|mathml, [display=true,before]} — own-paragraph
             math; unicodemath native, latex needs the latex extra, mathml via Office; returns equation:N in outputs ·
+          insert_chart {anchor_id, kind=bar|pie|line|scatter, data, [title,before]} — Excel-backed chart;
+            data is {label:value} (bar/pie/line) or [[x,y],…] pairs (scatter); needs Excel; returns chart:N in outputs ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
           insert_footnote/insert_endnote {anchor_id,text,[before]} — returns the new footnote:N/endnote:N in outputs ·

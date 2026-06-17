@@ -12,6 +12,7 @@ from ._anchors import (
     _WL_PREFIX,
     Bookmark,
     BookmarkCollection,
+    ChartCollection,
     ContentControlCollection,
     EndAnchor,
     EquationCollection,
@@ -416,6 +417,20 @@ class Document:
         [`insert_equation`][wordlive.Anchor.insert_equation].
         """
         return EquationCollection(self)
+
+    @property
+    def charts(self) -> ChartCollection:
+        """Read-only, iterable view over the document's charts (`doc.charts`).
+
+        Index a chart by 1-based position (`doc.charts[2]`) to get a
+        [`ChartAnchor`][wordlive.ChartAnchor] (`chart:N`); `chart_type` / `title`
+        read its metadata. `list()` summarises each chart (kind, title, and the
+        `para:N` it sits in). Charts are inserted with their data link broken
+        (static data), so reading the series back is deferred — this view is
+        metadata only. The write mirror is any anchor's
+        [`insert_chart`][wordlive.Anchor.insert_chart].
+        """
+        return ChartCollection(self)
 
     @property
     def sections(self) -> SectionCollection:
@@ -836,6 +851,7 @@ class Document:
           - `endnote:N`        — Nth endnote (1-based), resolving to its note body
           - `image:N`          — Nth embedded image (1-based, Word's InlineShapes order)
           - `equation:N`       — Nth equation (1-based, Word's OMaths order)
+          - `chart:N`          — Nth chart (1-based, document order over chart inline shapes)
           - `table:N:R:C`      — cell at 1-based (row, column) of the Nth table
           - `range:START-END`  — arbitrary character span (the form `find()` emits)
           - `header:S:WHICH`   — the WHICH header of section S (WHICH = primary/first/even)
@@ -908,6 +924,15 @@ class Document:
                 return self.equations[idx]
             except AnchorNotFoundError as e:
                 raise AnchorNotFoundError("equation", anchor_id) from e
+        if kind == "chart":
+            try:
+                idx = int(value)
+            except ValueError as e:
+                raise AnchorNotFoundError("chart", anchor_id) from e
+            try:
+                return self.charts[idx]
+            except AnchorNotFoundError as e:
+                raise AnchorNotFoundError("chart", anchor_id) from e
         if kind == "table":
             parts = value.split(":")
             if len(parts) != 3:
@@ -1328,7 +1353,7 @@ class Document:
         """A one-call summary of the document — the "what am I looking at" read.
 
         Returns `{pages, words, characters, paragraphs, lines, sections,
-        headings, tables, images, equations, comments, revisions, saved}`. The five text
+        headings, tables, images, equations, charts, comments, revisions, saved}`. The five text
         counts come from Word's own `ComputeStatistics`; the structural counts
         come from wordlive's discovery collections (so they agree with
         `doc.tables` / `doc.images` / `outline` etc.); `saved` is `doc.saved`.
@@ -1355,6 +1380,7 @@ class Document:
             "tables": len(self.tables),
             "images": len(self.images),
             "equations": len(self.equations),
+            "charts": len(self.charts),
             "comments": len(self.comments),
             "revisions": len(self.revisions),
             "saved": self.saved,

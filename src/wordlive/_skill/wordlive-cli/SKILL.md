@@ -147,6 +147,25 @@ wordlive equations          # list equation:N ids, type, linear preview, para:N
   Re-list with `equations` (or re-resolve right before you reference it) rather
   than caching an id across further inserts. The result carries the new id.
 
+## Charts (Excel-backed)
+```
+wordlive insert-chart --anchor-id ID --kind bar|pie|line|scatter --data JSON \
+    [--title "…"] [--before | --after]
+wordlive charts             # list chart:N ids, kind, title, para:N
+```
+- `--data` is JSON (or `--data -` to read from stdin): an object
+  `{"Q1": 10, "Q2": 25}` for `bar`/`pie`/`line`, or an array of `[x, y]` pairs
+  `[[1.2, 3.4], [2.5, 6.1]]` for `scatter` (both axes numeric; duplicate x kept)
+  — `line` accepts either. As an `exec`/`insert_chart` op the fields are
+  `{anchor_id, kind, data, [title, before]}`.
+- Charts are **Excel-backed**: the data lives in a hidden Excel workbook, so
+  **Excel must be installed** — if it isn't, the command exits **`6`**
+  (`excel_not_available`) and the document is left untouched. wordlive then breaks
+  the data link, so the chart's data is **static** (no embedded workbook ships in
+  the doc, and the series data isn't read back — `charts` is metadata only).
+- `chart:N` is **positional** (document order); inserting another chart earlier
+  renumbers it. The result carries the new id.
+
 ## Snapshot — render page(s) to PNG so you can *see* the layout
 ```
 wordlive snapshot [--anchor-id ID | --page N | --pages A-B] [--out FILE] [--dpi 150] [--max-dim N] [--markup none|all]
@@ -211,7 +230,8 @@ stable across the batch.
 Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `write_cc`, `insert_paragraph`, `insert_block`, `insert_section`,
 `insert_markdown`, `replace_section`, `delete_paragraph`, `append`,
-`append_inline`, `prepend`, `prepend_inline`, `insert_image`, `insert_equation`, `replace`,
+`append_inline`, `prepend`, `prepend_inline`, `insert_image`, `insert_equation`,
+`insert_chart`, `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`,
 `set_borders`, `drop_cap`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,
 `set_page_setup`, `update_fields`, `insert_footnote`, `insert_endnote`,

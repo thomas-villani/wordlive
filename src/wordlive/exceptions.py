@@ -153,6 +153,26 @@ class SnapshotError(WordliveError):
         super().__init__(message)
 
 
+class ExcelNotAvailableError(WordliveError):
+    """`insert_chart` needs Microsoft Excel, but it isn't available over COM.
+
+    Charts are Excel-backed: `Range.InlineShapes.AddChart2` embeds a chart whose
+    data lives in a hidden Excel workbook, so a working `Excel.Application` COM
+    server is required. Raised (after a non-mutating probe, before any chart is
+    inserted — the document is left untouched) when Excel isn't installed or
+    can't be launched. Unlike `WordBusyError` this is a one-time environment
+    problem, not a transient busy state — install Excel, or render the chart
+    elsewhere and embed it with `insert_image`. It has its own CLI exit code (6),
+    parallel to `WordNotRunningError`'s exit 4, so a missing-Excel failure is
+    distinguishable from generic bad input. Not retryable.
+    """
+
+    def __init__(
+        self, message: str = "Microsoft Excel is not available; charts require Excel installed"
+    ) -> None:
+        super().__init__(message)
+
+
 class WordBusyError(WordliveError):
     """Word rejected the RPC — typically a modal dialog or a transient busy state.
 
@@ -271,6 +291,8 @@ def classify(exc: WordliveError) -> tuple[str, bool]:
         return "word_busy", True
     if isinstance(exc, WordNotRunningError):
         return "word_not_running", False
+    if isinstance(exc, ExcelNotAvailableError):
+        return "excel_not_available", False
     if isinstance(exc, DocumentNotFoundError):
         return "document_not_found", False
     if isinstance(exc, PathNotAllowedError):

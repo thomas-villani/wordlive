@@ -110,6 +110,8 @@ def register(group: click.Group) -> None:
     group.add_command(read_image_cmd)
     group.add_command(equations_cmd)
     group.add_command(insert_equation_cmd)
+    group.add_command(charts_cmd)
+    group.add_command(insert_chart_cmd)
     group.add_command(bookmark)
     group.add_command(pin_cmd)
     group.add_command(pin_outline_cmd)
@@ -3070,6 +3072,37 @@ def equations_cmd(ctx: click.Context) -> None:
     _run(ctx, go)
 
 
+def _fmt_charts(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "(no charts)"
+    lines: list[str] = []
+    for r in rows:
+        para = r.get("para") or ""
+        title = r.get("title")
+        suffix = f"  {title!r}" if title else ""
+        lines.append(f"[{r['anchor_id']}] {r.get('kind', '?')}  {para}{suffix}")
+    return "\n".join(lines)
+
+
+@click.command(name="charts")
+@click.pass_context
+def charts_cmd(ctx: click.Context) -> None:
+    """List the document's charts (chart:N id, kind, title, para:N).
+
+    The discovery half of charting: see what charts are in the document and
+    address them by `chart:N`. Metadata only (the series data is static) and
+    non-mutating.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.charts.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_charts(rows))
+
+    _run(ctx, go)
+
+
 @click.command(name="insert-equation")
 @click.option(
     "--anchor-id", "anchor_id", required=True, help="Anchor to insert the equation relative to."
@@ -3149,6 +3182,78 @@ def insert_equation_cmd(
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"inserted {equation.anchor_id} {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="insert-chart")
+@click.option(
+    "--anchor-id", "anchor_id", required=True, help="Anchor to insert the chart relative to."
+)
+@click.option(
+    "--kind",
+    "kind",
+    required=True,
+    type=click.Choice(["bar", "pie", "line", "scatter"]),
+    help="Chart kind: bar (clustered columns), pie, line, or scatter.",
+)
+@click.option(
+    "--data",
+    "data",
+    required=True,
+    help="Chart data as JSON, or '-' to read it from stdin: an object "
+    '{"label": value} (bar/pie/line) or an array of [x, y] pairs (scatter/line).',
+)
+@click.option("--title", "title", default=None, help="Chart title (and series name).")
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Insert before the anchor instead of after it.",
+)
+@click.pass_context
+def insert_chart_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    kind: str,
+    data: str,
+    title: str | None,
+    before: bool,
+) -> None:
+    """Insert an Excel-backed chart at any anchor (atomic-undo).
+
+    --data is JSON (or '-' for stdin): an object {"Q1": 10, "Q2": 25} for
+    bar/pie/line, or an array of [x, y] pairs [[1.2, 3.4], [2.5, 6.1]] for
+    scatter (both axes numeric; duplicate x preserved). Charts embed a hidden
+    Excel workbook, so Excel must be installed (exit 6 if not); the data link is
+    then broken, so the chart's data is static.
+    """
+    raw = click.get_text_stream("stdin").read() if data == "-" else data
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise click.UsageError(f"--data is not valid JSON: {e}") from e
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert chart {where} {anchor_id}"):
+                chart = anchor.insert_chart(kind, parsed, title=title, where=where)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "chart": chart.index,
+                    "chart_anchor_id": chart.anchor_id,
+                    "kind": kind,
+                    "where": where,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted {chart.anchor_id} ({kind}) {where} {anchor_id}",
             )
 
     _run(ctx, go)
@@ -5595,7 +5700,7 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     Supported ops: write_bookmark, write_cc, insert_paragraph, insert_block,
     insert_section, insert_markdown, replace_section,
     delete_paragraph, append, append_inline, prepend, prepend_inline,
-    insert_image, insert_equation, replace, find_replace, apply_style, format_paragraph,
+    insert_image, insert_equation, insert_chart, replace, find_replace, apply_style, format_paragraph,
     format_run, set_shading, set_borders, drop_cap, add_tab_stop, add_style, set_style,
     insert_field, set_page_setup, update_fields, insert_footnote, insert_endnote,
     insert_toc, add_bookmark, pin, pin_outline, add_hyperlink, insert_cross_reference,

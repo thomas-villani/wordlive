@@ -19,6 +19,7 @@ Exception
     ├── ImageSourceError
     ├── PathNotAllowedError
     ├── SnapshotError
+    ├── ExcelNotAvailableError
     ├── WordBusyError
     ├── OpError
     └── ComError
@@ -114,6 +115,17 @@ not this. It's an environment/dependency problem, so it maps to the generic exit
 code (1). Fix by installing the extra: `pip install "wordlive[snapshot]"` (or
 `uv add "wordlive[snapshot]"`). **Not retryable** until the backend is present.
 
+### `ExcelNotAvailableError`
+[`insert_chart`](python-api.md#charts) is Excel-backed —
+`InlineShapes.AddChart2` embeds a chart whose data lives in a hidden Excel
+workbook — so it needs a working `Excel.Application` COM server. Raised (after a
+non-invasive registry probe, *before* any chart is inserted, so the document is
+left untouched) when Excel isn't installed. Unlike [`WordBusyError`](#wordbusyerror)
+this is a one-time environment problem, so it has its own CLI exit code (**6**),
+parallel to [`WordNotRunningError`](#wordnotrunningerror)'s 4, and `code:
+"excel_not_available"` for MCP clients. **Not retryable** until Excel is
+installed (or render the chart elsewhere and embed it with `insert_image`).
+
 ### `WordBusyError`
 Word rejected the COM RPC. This usually means a modal dialog is open (Save
 As, Find & Replace, etc.) or Word is mid-operation. **Retryable** with
@@ -152,7 +164,7 @@ If you find a code that should be treated as busy/retryable, it goes in the
 
 ## CLI exit codes
 
-The CLI maps the exception hierarchy onto six exit codes, defined in
+The CLI maps the exception hierarchy onto seven exit codes, defined in
 [`src/wordlive/cli/main.py`](https://github.com/thomas-villani/wordlive/blob/main/src/wordlive/cli/main.py):
 
 | Exit | Exception(s)                                | Meaning                          | Retry?                |
@@ -163,6 +175,7 @@ The CLI maps the exception hierarchy onto six exit codes, defined in
 | `3`  | `WordBusyError`                              | modal dialog or busy RPC         | **yes**, with back-off |
 | `4`  | `WordNotRunningError`                        | no Word instance                 | only if user launches Word |
 | `5`  | `AmbiguousMatchError`                        | `replace --find` matched more than one occurrence | **yes**, after picking `--occurrence N` or passing `--all` |
+| `6`  | `ExcelNotAvailableError`                     | `insert-chart` needs Excel installed | only after installing Excel |
 
 ## Retry guidance
 
