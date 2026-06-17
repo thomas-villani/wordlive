@@ -153,6 +153,9 @@ def register(group: click.Group) -> None:
     group.add_command(table)
     group.add_command(comment)
     group.add_command(track)
+    group.add_command(revision)
+    group.add_command(watermark_cmd)
+    group.add_command(insert_text_box_cmd)
     group.add_command(list_cmd)
     group.add_command(sections_cmd)
     group.add_command(section)
@@ -406,6 +409,51 @@ def read_section(ctx: click.Context, heading: str | None, anchor_id: str | None)
                 },
                 as_text=not ctx.obj["as_json"],
                 text=body,
+            )
+
+    _run(ctx, go)
+
+
+@read.command(name="text")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor whose text to read.")
+@click.option(
+    "--view",
+    "view",
+    type=click.Choice(["raw", "final", "original", "segments"]),
+    default="raw",
+    help=(
+        "raw = text as-is (deleted+inserted runs both present); final = as if tracked "
+        "changes accepted; original = as if rejected; segments = per-run breakdown."
+    ),
+)
+@click.pass_context
+def read_text(ctx: click.Context, anchor_id: str, view: str) -> None:
+    """Read an anchor's text, optionally resolving tracked changes (--view)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            if view == "segments":
+                segs = anchor.revision_segments()
+                emit(
+                    {"anchor_id": anchor_id, "segments": segs},
+                    as_text=not ctx.obj["as_json"],
+                    text="".join(
+                        s["text"] if s["change"] is None else f"[{s['change']}:{s['text']}]"
+                        for s in segs
+                    ),
+                )
+                return
+            text = {
+                "raw": lambda: anchor.text,
+                "final": lambda: anchor.text_final,
+                "original": lambda: anchor.text_original,
+            }[view]()
+            emit(
+                {"anchor_id": anchor_id, "view": view, "text": text},
+                as_text=not ctx.obj["as_json"],
+                text=text,
             )
 
     _run(ctx, go)
@@ -4787,6 +4835,282 @@ def track_off(ctx: click.Context) -> None:
 
 
 # ---------------------------------------------------------------------------
+# revision list | accept | reject | accept-all | reject-all
+# (the top-level `revisions` command above is an alias for `revision list`)
+# ---------------------------------------------------------------------------
+
+
+@click.group(name="revision")
+def revision() -> None:
+    """List tracked changes and accept / reject them (the write side of `revisions`)."""
+
+
+@revision.command(name="list")
+@click.pass_context
+def revision_list(ctx: click.Context) -> None:
+    """List the document's tracked changes (alias of the top-level `revisions`)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.revisions.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_revisions(rows))
+
+    _run(ctx, go)
+
+
+@revision.command(name="accept")
+@click.option(
+    "--index", "index", type=int, required=True, help="1-based revision index (see `revisions`)."
+)
+@click.pass_context
+def revision_accept(ctx: click.Context, index: int) -> None:
+    """Accept revision INDEX — make that tracked change permanent."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rev = doc.revisions[index]
+            with doc.edit(f"CLI: accept revision {index}"):
+                rev.accept()
+            emit(
+                {"ok": True, "index": index, "accepted": True},
+                as_text=not ctx.obj["as_json"],
+                text=f"accepted revision {index}",
+            )
+
+    _run(ctx, go)
+
+
+@revision.command(name="reject")
+@click.option(
+    "--index", "index", type=int, required=True, help="1-based revision index (see `revisions`)."
+)
+@click.pass_context
+def revision_reject(ctx: click.Context, index: int) -> None:
+    """Reject revision INDEX — undo that tracked change."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rev = doc.revisions[index]
+            with doc.edit(f"CLI: reject revision {index}"):
+                rev.reject()
+            emit(
+                {"ok": True, "index": index, "rejected": True},
+                as_text=not ctx.obj["as_json"],
+                text=f"rejected revision {index}",
+            )
+
+    _run(ctx, go)
+
+
+@revision.command(name="accept-all")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    default=None,
+    help="Scope to one anchor's range (e.g. 'heading:3'); whole document if omitted.",
+)
+@click.pass_context
+def revision_accept_all(ctx: click.Context, anchor_id: str | None) -> None:
+    """Accept every tracked change (optionally only inside --anchor-id)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            within = doc.anchor_by_id(anchor_id) if anchor_id else None
+            with doc.edit("CLI: accept all revisions"):
+                n = doc.revisions.accept_all(within=within)
+            emit(
+                {"ok": True, "accepted": n, "anchor_id": anchor_id},
+                as_text=not ctx.obj["as_json"],
+                text=f"accepted {n} revision(s)",
+            )
+
+    _run(ctx, go)
+
+
+@revision.command(name="reject-all")
+@click.option(
+    "--anchor-id",
+    "anchor_id",
+    default=None,
+    help="Scope to one anchor's range (e.g. 'heading:3'); whole document if omitted.",
+)
+@click.pass_context
+def revision_reject_all(ctx: click.Context, anchor_id: str | None) -> None:
+    """Reject every tracked change (optionally only inside --anchor-id)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            within = doc.anchor_by_id(anchor_id) if anchor_id else None
+            with doc.edit("CLI: reject all revisions"):
+                n = doc.revisions.reject_all(within=within)
+            emit(
+                {"ok": True, "rejected": n, "anchor_id": anchor_id},
+                as_text=not ctx.obj["as_json"],
+                text=f"rejected {n} revision(s)",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# watermark / insert-text-box  (floating-shape publishing flourishes)
+# ---------------------------------------------------------------------------
+
+
+@click.command(name="watermark")
+@click.option("--text", "text", default=None, help="Watermark text (e.g. DRAFT). Required to set.")
+@click.option(
+    "--remove", "remove", is_flag=True, default=False, help="Remove any existing text watermark."
+)
+@click.option("--font", "font", default="Calibri", show_default=True, help="Watermark font.")
+@click.option("--color", "color", default="#C0C0C0", show_default=True, help="Fill colour.")
+@click.option(
+    "--layout",
+    "layout",
+    type=click.Choice(["diagonal", "horizontal"]),
+    default="diagonal",
+    show_default=True,
+    help="Diagonal (45°) or horizontal.",
+)
+@click.option(
+    "--transparent/--solid",
+    "transparent",
+    default=True,
+    show_default="--transparent",
+    help="Wash the watermark out (50%) so body text stays readable.",
+)
+@click.pass_context
+def watermark_cmd(
+    ctx: click.Context,
+    text: str | None,
+    remove: bool,
+    font: str,
+    color: str,
+    layout: str,
+    transparent: bool,
+) -> None:
+    """Stamp (or --remove) a text watermark behind every page (atomic-undo)."""
+    if remove == (text is not None):
+        raise click.UsageError("provide either --text (to set) or --remove (not both)")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            if remove:
+                with doc.edit("CLI: remove watermark"):
+                    n = doc.remove_watermark()
+                emit(
+                    {"ok": True, "removed": n},
+                    as_text=not ctx.obj["as_json"],
+                    text=f"removed {n} watermark shape(s)",
+                )
+                return
+            assert text is not None  # guaranteed by the validation above
+            with doc.edit("CLI: set watermark"):
+                n = doc.set_watermark(
+                    text, font=font, color=color, layout=layout, semitransparent=transparent
+                )
+            emit(
+                {"ok": True, "text": text, "sections": n},
+                as_text=not ctx.obj["as_json"],
+                text=f"watermarked {n} section(s) with {text!r}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="insert-text-box")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor to attach the text box to.")
+@click.option("--text", "text", required=True, help="Text box body.")
+@click.option("--width", "width", default="200", show_default=True, help="Width (pt or '3in').")
+@click.option("--height", "height", default="100", show_default=True, help="Height (pt or '2cm').")
+@click.option(
+    "--wrap",
+    "wrap",
+    type=click.Choice(["square", "tight", "through", "top-bottom", "front", "behind"]),
+    default="square",
+    show_default=True,
+    help="How body text flows around the box.",
+)
+@click.option(
+    "--before/--after",
+    "before",
+    default=False,
+    show_default="--after",
+    help="Anchor before the anchor instead of after it.",
+)
+@click.option("--font", "font", default=None, help="Text font.")
+@click.option("--size", "size", default=None, help="Font size (pt or unit string).")
+@click.option("--bold/--no-bold", "bold", default=None, help="Bold the text.")
+@click.option("--italic/--no-italic", "italic", default=None, help="Italicise the text.")
+@click.option(
+    "--align",
+    "alignment",
+    type=click.Choice(["left", "center", "right", "justify"]),
+    default=None,
+    help="Paragraph alignment.",
+)
+@click.option("--fill", "fill", default=None, help="Background colour (e.g. '#eeeeff' / 'navy').")
+@click.option("--border-color", "border_color", default=None, help="Outline colour.")
+@click.option("--no-border", "no_border", is_flag=True, default=False, help="No outline.")
+@click.pass_context
+def insert_text_box_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    text: str,
+    width: str,
+    height: str,
+    wrap: str,
+    before: bool,
+    font: str | None,
+    size: str | None,
+    bold: bool | None,
+    italic: bool | None,
+    alignment: str | None,
+    fill: str | None,
+    border_color: str | None,
+    no_border: bool,
+) -> None:
+    """Insert a floating text box / pull quote at an anchor (atomic-undo)."""
+    if no_border and border_color is not None:
+        raise click.UsageError("pass either --no-border or --border-color (not both)")
+    border: str | bool | None = False if no_border else border_color
+    where = "before" if before else "after"
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: insert text box {where} {anchor_id}"):
+                anchor.insert_text_box(
+                    text,
+                    width=width,
+                    height=height,
+                    wrap=wrap,
+                    where=where,
+                    font=font,
+                    size=size,
+                    bold=bold,
+                    italic=italic,
+                    alignment=alignment,
+                    fill=fill,
+                    border=border,
+                )
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "wrap": wrap},
+                as_text=not ctx.obj["as_json"],
+                text=f"inserted text box {where} {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
 # list show | apply | remove | info | restart | indent | outdent
 # ---------------------------------------------------------------------------
 
@@ -5284,6 +5608,8 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     set_property, delete_property, set_variable, delete_variable,
     insert_break, add_comment,
     resolve_comment, delete_comment,
+    accept_revision, reject_revision, accept_all_revisions, reject_all_revisions,
+    set_watermark, remove_watermark, insert_text_box,
     apply_list, remove_list, restart_numbering, indent_list, outdent_list,
     write_header, write_footer. (append/prepend add a new paragraph + optional
     style; append_inline/prepend_inline continue the adjacent paragraph, text

@@ -169,6 +169,20 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.comments.list()
             if command == "revisions":
                 return doc.revisions.list()
+            if command == "read_text":
+                anchor_id = _need(p, "anchor_id", command)
+                view = p.get("view", "raw")
+                anchor = doc.anchor_by_id(anchor_id)
+                if view == "segments":
+                    return {"anchor_id": anchor_id, "segments": anchor.revision_segments()}
+                if view not in ("raw", "final", "original"):
+                    raise OpError("read 'read_text' view must be raw / final / original / segments")
+                text = {
+                    "raw": lambda: anchor.text,
+                    "final": lambda: anchor.text_final,
+                    "original": lambda: anchor.text_original,
+                }[view]()
+                return {"anchor_id": anchor_id, "view": view, "text": text}
             if command == "track":
                 return {"track_changes": doc.track_changes}
             if command == "sections":
@@ -625,6 +639,45 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         if action == "delete":
             return {"op": "delete_comment", "index": need("index")}
         raise OpError(f"unknown comment action: {action!r}")
+    if command == "revision":
+        action = need("action")
+        if action == "accept":
+            return {"op": "accept_revision", "index": need("index")}
+        if action == "reject":
+            return {"op": "reject_revision", "index": need("index")}
+        if action in ("accept_all", "reject_all"):
+            op = {"op": f"{action}_revisions"}
+            if p.get("anchor_id") is not None:
+                op["anchor_id"] = p["anchor_id"]
+            return op
+        raise OpError(f"unknown revision action: {action!r}")
+    if command == "watermark":
+        if p.get("remove"):
+            return {"op": "remove_watermark"}
+        op = {"op": "set_watermark", "text": need("text")}
+        for k in ("font", "color", "layout", "semitransparent"):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "text_box":
+        op = {"op": "insert_text_box", "anchor_id": need("anchor_id"), "text": need("text")}
+        if p.get("before") is not None:
+            op["before"] = bool(p["before"])
+        for k in (
+            "width",
+            "height",
+            "wrap",
+            "font",
+            "size",
+            "bold",
+            "italic",
+            "alignment",
+            "fill",
+            "border",
+        ):
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
     if command == "table":
         action = need("action")
         if action == "set_cell":
@@ -903,6 +956,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "styles",
             "comments",
             "revisions",
+            "read_text",
             "track",
             "sections",
             "footnotes",
@@ -930,6 +984,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         all_paragraphs: bool = False,
         start: int | None = None,
         count: int | None = None,
+        view: str | None = None,
     ) -> Any:
         """Read from the open Word document. Dispatch on `command`:
 
@@ -942,7 +997,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         table_records {table} (body rows as dicts keyed by the header row — the
         read mirror of building a table from records) ·
         styles · comments · revisions (tracked changes: type/author/text/range per
-        change) · track (is Track Changes on?) · sections · footnotes · endnotes ·
+        change) · read_text {anchor_id,[view]} (an anchor's text; view=raw|final|
+        original|segments resolves tracked changes — final=as if accepted,
+        original=as if rejected, segments=per-run insert/delete breakdown) ·
+        track (is Track Changes on?) · sections · footnotes · endnotes ·
         images (embedded pictures: image:N id, mime, size, alt, para) ·
         read_image {anchor_id} (an embedded picture's bytes as base64 + mime — pass
         an image:N id or any single-image anchor) ·
@@ -977,6 +1035,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "all_paragraphs": all_paragraphs,
             "start": start,
             "count": count,
+            "view": view,
         }
         try:
             return _read_impl(w, command, params)
@@ -1008,10 +1067,13 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "set_style",
             "list",
             "comment",
+            "revision",
             "table",
             "header",
             "footer",
             "track",
+            "watermark",
+            "text_box",
             "insert_image",
             "insert_equation",
             "insert_break",
@@ -1198,6 +1260,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         overwrite: bool = False,
         from_page: int | None = None,
         to_page: int | None = None,
+        layout: str | None = None,
+        semitransparent: bool | None = None,
+        remove: bool | None = None,
+        border: str | bool | None = None,
     ) -> dict[str, Any]:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
@@ -1237,6 +1303,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             based_on,next_style]} — set an existing style's font/paragraph defaults ·
         list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
         comment {action=add|resolve|delete,...} ·
+        revision {action=accept|reject (index) | accept_all|reject_all ([anchor_id] scopes to that
+            range, else whole doc)} — resolve tracked changes; accept/reject renumber the rest ·
         table {action=set_cell|add_row|append_record|update_row|delete_row|set_heading_row|autofit|create|delete,
                create needs anchor_id and [rows,cols] (optional when data is given —
                inferred from it),[style,header,data,before]; data is a 2-D array OR
@@ -1308,6 +1376,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             orientation=portrait|landscape,paper_size=letter|legal|tabloid|a3|a4|a5,columns,column_spacing} —
             section page geometry; lengths accept unit strings ·
         header/footer {section,text,[which]} · track {on} ·
+        watermark {text,[font,color,layout=diagonal|horizontal,semitransparent]} | {remove:true} —
+            a text watermark behind every page (DRAFT/CONFIDENTIAL); remove:true clears it ·
+        text_box {anchor_id,text,[width,height,wrap=square|tight|through|top-bottom|front|behind,
+            before,font,size,bold,italic,alignment,fill,border]} — a floating text box / pull quote;
+            border=false for no outline, a colour for a coloured one ·
         insert_image {anchor_id,wrap, image_base64|path,
             [before,block,width,height,alt_text,lock_aspect]} — block puts the image on its
             own new line instead of in the anchor's text run ·
@@ -1474,6 +1547,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "overwrite": overwrite,
             "from_page": from_page,
             "to_page": to_page,
+            "layout": layout,
+            "semitransparent": semitransparent,
+            "remove": remove,
+            "border": border,
         }
         try:
             return _write_impl(w, command, params, policy=policy)
@@ -1551,6 +1628,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           set_property {name,value,[custom]} / delete_property {name} — document metadata (built-in or custom) ·
           set_variable {name,value} / delete_variable {name} — invisible DOCVARIABLE storage ·
           add_comment {anchor_id,text,[author]} · resolve_comment {index} · delete_comment {index} ·
+          accept_revision/reject_revision {index} — resolve one tracked change (renumbers the rest) ·
+          accept_all_revisions/reject_all_revisions {[anchor_id]} — resolve every tracked change ([anchor_id] scopes to that range) ·
+          set_watermark {text,[font,color,layout=diagonal|horizontal,semitransparent]} / remove_watermark {} — text watermark behind every page ·
+          insert_text_box {anchor_id,text,[width,height,wrap,before,font,size,bold,italic,alignment,fill,border]} — a floating pull quote ·
           apply_list {anchor_id,[type=bulleted|numbered|outline,continue_previous]} · remove_list/restart_numbering/indent_list/outdent_list {anchor_id} ·
           write_header/write_footer {section,text,[which=primary|first|even]}.
 

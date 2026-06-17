@@ -53,11 +53,12 @@ not-a-heading, the nearest heading, and a nudge to pin).
 
 ## Reading
 - `wordlive read bookmark NAME` (or `read bookmark --list` for every bookmark name) · `read cc NAME` · `read section "Heading Text"`
+- `wordlive read text --anchor-id ID [--view raw|final|original|segments]` — an anchor's text; `final`/`original` resolve tracked changes (final = as if accepted, original = as if rejected — the deleted wording, which `raw`/`Range.Text` omits), `segments` is the per-run insert/delete breakdown.
 - `wordlive find --text "phrase"` — locate before editing; returns `range:` ids.
 - `wordlive table list` · `wordlive table read N` · `wordlive table records N` — body rows as `{header: value}` dicts (row 1 is the header), the read mirror of building a table from records.
 - `wordlive footnotes` · `wordlive endnotes` — each note's `footnote:N`/`endnote:N` id, text, and `para:N`.
 - `wordlive images` — each embedded picture's `image:N` id, MIME, size, alt text, and `para:N`. Pull one out with `wordlive read-image --anchor-id image:N [--out FILE]` (`--out` writes the raw bytes; otherwise base64 + mime inline) — the path for handing a picture to a vision model.
-- `wordlive revisions` — tracked changes as structured data (`type`/`author`/`text`/`range`); the readable counterpart to `snapshot --markup all`. `wordlive track status` reports whether Track Changes is on.
+- `wordlive revisions` — tracked changes as structured data (`type`/`author`/`text`/`range`); the readable counterpart to `snapshot --markup all`. `wordlive track status` reports whether Track Changes is on. Resolve them with `wordlive revision accept|reject --index N` or `revision accept-all|reject-all [--anchor-id ID]` (scope to one anchor's range).
 - `wordlive hyperlinks` — every link's text, external `address`/internal `sub_address`, and `range:`/`para:` (the read mirror of `link`). `wordlive fields` — every field's `kind` (`PAGE`/`REF`/`TOC`/…), raw `code`, and rendered `result` (the read mirror of `insert-field`; run `update-fields` first to refresh).
 - `wordlive properties list` — built-in + custom document properties (metadata). `wordlive variables list` — invisible `{ DOCVARIABLE }` storage as `{name: value}`.
 - `wordlive proofing` — spelling/grammar errors (count + flagged runs with `range:` ids) and readability statistics (Flesch Reading Ease, Flesch-Kincaid Grade Level, …). Heavier than `stats` (it (re)checks the doc).
@@ -101,6 +102,7 @@ not-a-heading, the nearest heading, and a nudge to pin).
 - `wordlive variables set --name ClientName --value "Acme"` · `variables delete --name ClientName` — create/update/remove a `{ DOCVARIABLE }` variable; read with `variables list`.
 - `wordlive comment add --anchor-id ID --text "…"` (+ `comment list` · `comment resolve --index N` · `comment delete --index N`).
 - `wordlive track on|off|status` — toggle / inspect Track Changes. Read the recorded edits structurally with `wordlive revisions`, or see them with `snapshot --markup all`.
+- `wordlive watermark --text "DRAFT" [--layout diagonal|horizontal] [--color C] [--solid]` (or `--remove`) — a text watermark behind every page (replaces a prior one, doesn't stack). `wordlive insert-text-box --anchor-id ID --text "…" [--width 2.5in] [--height H] [--wrap square|…] [--fill C] [--no-border]` — a floating pull quote anchored to the paragraph.
 - `wordlive header write --section S --text "…"` · `footer write --section S --text "…"` (`--which primary|first|even`); `header read` / `footer read --section S [--which …]` read them back.
 - `wordlive sections` — list sections with their page setup (orientation, margins, page size).
 
@@ -222,9 +224,11 @@ Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `delete_row`, `set_heading_row`, `autofit_table`, `create_table`,
 `delete_table`, `set_property`, `delete_property`, `set_variable`,
 `delete_variable`, `insert_break`,
-`add_comment`, `resolve_comment`, `delete_comment`, `apply_list`, `remove_list`,
-`restart_numbering`, `indent_list`, `outdent_list`, `write_header`,
-`write_footer`.
+`add_comment`, `resolve_comment`, `delete_comment`, `accept_revision`,
+`reject_revision`, `accept_all_revisions`, `reject_all_revisions`,
+`set_watermark`, `remove_watermark`, `insert_text_box`, `apply_list`,
+`remove_list`, `restart_numbering`, `indent_list`, `outdent_list`,
+`write_header`, `write_footer`.
 (`append` / `prepend` add a new final / first **paragraph** and take `text` +
 optional `style`, no anchor — `append_paragraph` / `prepend_paragraph` are
 explicit synonyms. `append_inline` / `prepend_inline` instead **continue** the

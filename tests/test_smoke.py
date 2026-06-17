@@ -955,3 +955,143 @@ def test_insert_equation_latex_when_backend_present(scratch_doc):
         eq = doc.end.insert_equation(latex=r"\frac{-b}{2a}")
     assert len(doc.equations) == 1
     assert "<math" in eq.mathml
+
+
+# ---------------------------------------------------------------------------
+# Revision write surface — accept/reject, bulk, revision-aware reads (real
+# Track Changes; both inserted and deleted runs present in the stream)
+# ---------------------------------------------------------------------------
+
+
+def test_revision_accept_one_makes_it_permanent(scratch_doc):
+    """A tracked insertion accepted loses its revision mark; the text stays."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("original")
+    with doc.tracked_changes(), doc.edit("tracked edit"):
+        doc.find_replace("original", "rewritten", all=True)
+    assert len(doc.revisions) >= 1
+    with doc.edit("accept"):
+        doc.revisions[1].accept()
+    # Fewer revisions remain, and the rewritten text survives.
+    assert "rewritten" in "\n".join(p["text"] for p in doc.paragraphs.list())
+
+
+def test_revision_reject_one_undoes_it(scratch_doc):
+    """Rejecting a tracked insertion removes the inserted text."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("keep this")
+    with doc.tracked_changes(), doc.edit("tracked"):
+        doc.end.insert_paragraph_after("DELETE ME")
+    before = len(doc.revisions)
+    assert before >= 1
+    with doc.edit("reject"):
+        for _ in range(before):
+            doc.revisions[1].reject()
+    assert "DELETE ME" not in "\n".join(p["text"] for p in doc.paragraphs.list())
+
+
+def test_accept_all_clears_every_revision(scratch_doc):
+    """Whole-document accept_all resolves all tracked changes at once."""
+    doc = scratch_doc
+    with doc.tracked_changes(), doc.edit("tracked"):
+        doc.append_paragraph("alpha")
+        doc.append_paragraph("beta")
+    assert len(doc.revisions) >= 1
+    with doc.edit("accept all"):
+        n = doc.revisions.accept_all()
+    assert n >= 1
+    assert len(doc.revisions) == 0
+
+
+def test_accept_all_within_anchor_scopes_to_range(scratch_doc):
+    """accept_all(within=paragraph) resolves only the changes inside that range.
+
+    Note an anchor's range is literal: a paragraph anchor covers that paragraph,
+    so we scope to the paragraph that carries the tracked change (a *heading*
+    anchor would cover only the heading line, not the body beneath it).
+    """
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("alpha")
+        doc.append_paragraph("beta")
+    with doc.tracked_changes(), doc.edit("tracked"):
+        doc.paragraphs[1].insert_after(" ONE")
+        doc.paragraphs[2].insert_after(" TWO")
+    total = len(doc.revisions)
+    assert total >= 2
+    first_para = next(p for p in doc.paragraphs if "alpha" in p.text)
+    with doc.edit("accept first only"):
+        accepted = doc.revisions.accept_all(within=first_para)
+    assert accepted >= 1
+    # The second paragraph's revisions remain.
+    assert 0 < len(doc.revisions) < total
+
+
+def test_revision_aware_reads_split_inserted_and_deleted(scratch_doc):
+    """text_final / text_original separate the two runs a tracked replace leaves."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("the quick fox")
+    with doc.tracked_changes(), doc.edit("tracked"):
+        doc.find_replace("quick", "slow", all=True)
+    para = next(p for p in doc.paragraphs if "fox" in p.text)
+    # final = as if accepted (slow), original = as if rejected (quick).
+    assert "slow" in para.text_final and "quick" not in para.text_final
+    assert "quick" in para.text_original and "slow" not in para.text_original
+    changes = {s["change"] for s in para.revision_segments()}
+    assert "insert" in changes and "delete" in changes
+
+
+# ---------------------------------------------------------------------------
+# Publishing flourishes — watermark (header-story WordArt) + text box
+# ---------------------------------------------------------------------------
+
+
+def test_set_and_remove_watermark(scratch_doc):
+    """A text watermark lands in the header story and removes cleanly."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Body content")
+    with doc.edit("watermark"):
+        n = doc.set_watermark("DRAFT")
+    assert n >= 1
+    header_shapes = doc.com.Sections(1).Headers(1).Shapes
+    names = [header_shapes(i).Name for i in range(1, int(header_shapes.Count) + 1)]
+    assert any(name.startswith("PowerPlusWaterMarkObject") for name in names)
+    with doc.edit("remove watermark"):
+        removed = doc.remove_watermark()
+    assert removed >= 1
+    assert doc.remove_watermark() == 0  # idempotent — nothing left
+
+
+def test_set_watermark_replaces_not_stacks(scratch_doc):
+    """Setting a second watermark clears the first rather than stacking."""
+    doc = scratch_doc
+    with doc.edit("w1"):
+        doc.set_watermark("DRAFT", layout="horizontal")
+    with doc.edit("w2"):
+        doc.set_watermark("FINAL")
+    header_shapes = doc.com.Sections(1).Headers(1).Shapes
+    watermarks = [
+        header_shapes(i).Name
+        for i in range(1, int(header_shapes.Count) + 1)
+        if header_shapes(i).Name.startswith("PowerPlusWaterMarkObject")
+    ]
+    assert len(watermarks) == 1
+
+
+def test_insert_text_box_creates_floating_shape_with_text(scratch_doc):
+    """A pull-quote text box is a floating shape whose frame carries the text."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Article body goes here.")
+    before = int(doc.com.Shapes.Count)
+    with doc.edit("text box"):
+        doc.paragraphs[1].insert_text_box(
+            "Pull quote!", width="2.5in", height="1in", fill="#dddddd"
+        )
+    assert int(doc.com.Shapes.Count) == before + 1
+    shape = doc.com.Shapes(int(doc.com.Shapes.Count))
+    assert "Pull quote!" in str(shape.TextFrame.TextRange.Text)

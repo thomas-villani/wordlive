@@ -13,9 +13,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from . import _com, _equations, _images, _lists
+from . import _com, _equations, _images, _lists, _revisions
 from ._format import to_bgr, to_points
 from .constants import (
+    MsoTextOrientation,
     MsoTriState,
     WdBorderType,
     WdBreakType,
@@ -901,6 +902,56 @@ class Anchor(ABC):
         with _com.translate_com_errors():
             return range_text(self._range())
 
+    def _revision_runs(self, start: int, end: int) -> list[dict[str, Any]]:
+        """`{change, start, end, text}` for each insert/delete revision overlapping `[start, end)`."""
+        runs: list[dict[str, Any]] = []
+        for row in self._doc.revisions.list():
+            change = row["type"]
+            if change not in ("insert", "delete"):
+                continue
+            r_start, r_end = int(row["start"]), int(row["end"])
+            if r_end <= start or r_start >= end:
+                continue
+            runs.append({"change": change, "start": r_start, "end": r_end, "text": row["text"]})
+        return runs
+
+    def revision_segments(self) -> list[dict[str, Any]]:
+        """The anchor's text split into tracked-change segments (revision-aware read).
+
+        Returns `[{text, change}, …]` in document order, where `change` is
+        ``"insert"``, ``"delete"``, or ``None`` (unchanged). Word's `text` read
+        shows the *final* view (inserted runs present, deleted runs gone); this
+        also surfaces the deleted runs, so you can see both sides of a tracked
+        edit. [`text_final`][wordlive.Anchor.text_final] and
+        [`text_original`][wordlive.Anchor.text_original] are the two flattened
+        views. The structured, whole-document counterpart is `doc.revisions`.
+        """
+        with _com.translate_com_errors():
+            rng = self._range()
+            start, end = int(rng.Start), int(rng.End)
+            final_text = range_text(rng)
+        return _revisions.segment_runs(final_text, start, self._revision_runs(start, end))
+
+    @property
+    def text_final(self) -> str:
+        """The anchor's text **as if every tracked change in it were accepted**.
+
+        Inserted runs stay, deleted runs drop — the after-the-edits view. Equal to
+        `text` when nothing tracked touches the range. The mirror is
+        [`text_original`][wordlive.Anchor.text_original]; the per-segment breakdown
+        is [`revision_segments`][wordlive.Anchor.revision_segments].
+        """
+        return "".join(s["text"] for s in self.revision_segments() if s["change"] != "delete")
+
+    @property
+    def text_original(self) -> str:
+        """The anchor's text **as if every tracked change in it were rejected**.
+
+        Deleted runs stay, inserted runs drop — the before-the-edits view. The
+        mirror of [`text_final`][wordlive.Anchor.text_final].
+        """
+        return "".join(s["text"] for s in self.revision_segments() if s["change"] != "insert")
+
     @property
     @abstractmethod
     def anchor_id(self) -> str:
@@ -1250,6 +1301,96 @@ class Anchor(ABC):
                 if alt_text is not None:
                     # AlternativeText doesn't always survive the conversion.
                     shape.AlternativeText = alt_text
+
+    def insert_text_box(
+        self,
+        text: str,
+        *,
+        width: Any = 200,
+        height: Any = 100,
+        wrap: str = "square",
+        where: str = "after",
+        font: str | None = None,
+        size: Any = None,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        alignment: str | None = None,
+        fill: str | None = None,
+        border: str | bool | None = None,
+    ) -> None:
+        """Insert a floating text box (a pull quote / call-out) anchored here.
+
+        A `Shapes.AddTextbox` floating shape is anchored to this anchor's
+        paragraph and seeded with `text`. `width` / `height` are points or a unit
+        string (``"3in"`` / ``"8cm"``). `wrap` is how body text flows around it —
+        ``"square"`` (default), ``"tight"``, ``"through"``, ``"top-bottom"``,
+        ``"front"``, or ``"behind"`` (the same vocabulary as `insert_image`, minus
+        ``"inline"``). `where` places the anchor ``"after"`` (default) or
+        ``"before"`` this anchor's range.
+
+        The remaining kwargs style the box and its text, each optional:
+        `font` / `size` (points or unit string) / `bold` / `italic` set the
+        character format; `alignment` (``"left"``/``"center"``/``"right"``/
+        ``"justify"``) the paragraph; `fill` is a background colour
+        (``"#eeeeff"`` / ``"navy"``) and `border` is ``False`` for no outline, a
+        colour string for a coloured outline, or ``True`` for the default.
+
+        Floating shapes are off the anchor model (no `textbox:N` id) — for
+        absolute positioning or fancier styling, reach the returned shape through
+        `.com` on the document's `Shapes`. Wrap in `doc.edit(...)` for atomic
+        undo; raises `ValueError` for an unknown `wrap` / `where`.
+        """
+        if wrap not in _WRAP_NAMES:
+            raise ValueError(
+                f"unknown wrap {wrap!r}; expected one of {sorted(_WRAP_NAMES)} (text boxes float)"
+            )
+        if where not in ("before", "after"):
+            raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+        wd_align = _ALIGNMENT_NAMES[alignment] if alignment is not None else None
+        try:
+            w = to_points(width)
+            h = to_points(height)
+            font_size = to_points(size) if size is not None else None
+            fill_bgr = to_bgr(fill) if fill is not None else None
+            border_bgr = to_bgr(border) if isinstance(border, str) else None
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+        with _com.translate_com_errors():
+            doc_com = self._doc.com
+            rng = self._range()
+            pos = int(rng.Start) if where == "before" else int(rng.End)
+            anchor_rng = doc_com.Range(pos, pos)
+            shape = doc_com.Shapes.AddTextbox(
+                Orientation=int(MsoTextOrientation.HORIZONTAL),
+                Left=0.0,
+                Top=0.0,
+                Width=w,
+                Height=h,
+                Anchor=anchor_rng,
+            )
+            text_range = shape.TextFrame.TextRange
+            text_range.Text = text
+            font_obj = text_range.Font
+            if font is not None:
+                font_obj.Name = font
+            if font_size is not None:
+                font_obj.Size = font_size
+            if bold is not None:
+                font_obj.Bold = int(MsoTriState.TRUE if bold else MsoTriState.FALSE)
+            if italic is not None:
+                font_obj.Italic = int(MsoTriState.TRUE if italic else MsoTriState.FALSE)
+            if wd_align is not None:
+                text_range.ParagraphFormat.Alignment = int(wd_align)
+            shape.WrapFormat.Type = int(_WRAP_NAMES[wrap])
+            if fill_bgr is not None:
+                shape.Fill.Visible = int(MsoTriState.TRUE)
+                shape.Fill.Solid()
+                shape.Fill.ForeColor.RGB = fill_bgr
+            if border is False:
+                shape.Line.Visible = int(MsoTriState.FALSE)
+            elif border_bgr is not None:
+                shape.Line.Visible = int(MsoTriState.TRUE)
+                shape.Line.ForeColor.RGB = border_bgr
 
     def insert_equation(
         self,

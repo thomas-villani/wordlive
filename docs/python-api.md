@@ -42,14 +42,17 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 
 Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
 `format_run(...)`, `set_shading(...)`, `set_borders(...)`, `add_tab_stop(...)`,
-`insert_paragraph_before/after(...)`, `insert_block(...)`, `insert_image(...)`, `insert_table(...)`,
+`insert_paragraph_before/after(...)`, `insert_block(...)`, `insert_image(...)`,
+`insert_text_box(...)`, `insert_table(...)`,
 `insert_break(...)`, `insert_field(...)`, `insert_footnote(...)`,
 `insert_endnote(...)`, `insert_toc(...)`, `insert_table_of_figures(...)`,
 `mark_index_entry(...)`, `insert_index(...)`, `insert_citation(...)`,
 `insert_bibliography(...)`, `mark_citation(...)`,
 `insert_table_of_authorities(...)`, `insert_content_control(...)`,
 `link_to(...)`,
-`insert_cross_reference(...)`, `insert_caption(...)`, and the list verbs (`apply_list`, `remove_list`,
+`insert_cross_reference(...)`, `insert_caption(...)`, the revision-aware reads
+(`text_final`, `text_original`, `revision_segments()` — see
+[Track Changes](#track-changes)), and the list verbs (`apply_list`, `remove_list`,
 `list_info`, `restart_numbering`, `indent_list`, `outdent_list`) from
 [`Anchor`](#wordlive.Anchor), so the same calls work uniformly on bookmarks,
 content controls, headings, paragraphs, table cells, header/footer ranges, and
@@ -168,6 +171,21 @@ it needs no `doc.edit(...)`.
 ::: wordlive.ImageAnchor
 
 ::: wordlive.ImageCollection
+
+## Watermarks & text boxes
+
+The floating-shape flourishes, both documented on their host classes above.
+`Document.set_watermark(text, …)` stamps a WordArt text watermark
+(DRAFT / CONFIDENTIAL) behind every page via each section's header story —
+`layout="diagonal"`/`"horizontal"`, `color`, `font`, `semitransparent`; it
+replaces any prior text watermark rather than stacking, and
+`Document.remove_watermark()` clears it (idempotent). `Anchor.insert_text_box(text, …)`
+drops a floating text box / pull quote anchored to any anchor's paragraph, with
+`width`/`height` (points or unit strings), `wrap` (the `insert_image` vocabulary
+minus `"inline"`), `where`, the text-format kwargs, and `fill`/`border`. Both are
+edits — wrap in `doc.edit(...)` for atomic undo. Floating shapes are off the
+anchor model (no `textbox:N` id); for precise positioning reach the shape via
+`.com` on `doc.com.Shapes`.
 
 ## Equations
 
@@ -425,13 +443,24 @@ Changes on for the scope and restores the prior setting on exit — pair it with
 reject. `Document.track_changes` is the underlying read/write property for the
 persistent flag. Both are documented on [`Document`](#wordlive.Document).
 
-`Document.revisions` is a read-only [`RevisionCollection`](#wordlive.RevisionCollection)
+`Document.revisions` is a [`RevisionCollection`](#wordlive.RevisionCollection)
 that reads those tracked changes back as structured data — the way to *see* what
-a tracked batch recorded (plain text reads concatenate the inserted and deleted
-runs). `revisions.list()` reports each change as
+a tracked batch recorded. `revisions.list()` reports each change as
 `{index, type, author, text, anchor_id, start, end, date}`, where `type` is
 `"insert"` / `"delete"` / `"format"` / … . The visual counterpart is
 `snapshot(markup="all")` (see [Snapshots](#snapshots)).
+
+Resolve them, too: `revisions[N].accept()` / `.reject()` make a single change
+permanent / undo it (and renumber the rest), while
+`revisions.accept_all(within=anchor)` / `reject_all(within=anchor)` do the whole
+document — or just one anchor's range when `within` is given — and return the
+count resolved.
+
+For a read that separates a tracked edit's two sides, the [`Anchor`](#wordlive.Anchor)
+helpers `text_final` (as if accepted), `text_original` (as if rejected), and
+`revision_segments()` (the ordered `{text, change}` breakdown) reconstruct both:
+Word's plain `text` read is the *final* view (inserted runs present, deleted runs
+gone), so the original wording lives only on the delete revisions.
 
 ::: wordlive.RevisionCollection
 

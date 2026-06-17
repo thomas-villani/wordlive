@@ -729,6 +729,9 @@ def _make_range(start: int, end: int) -> MagicMock:
     rng.Information = MagicMock(name="Information", return_value=1)
     # Border support: one stable child per edge so per-side asserts work.
     rng.Borders = _FakeBorders()
+    # Revision support: a range scopes accept_all/reject_all(within=...). Empty by
+    # default — tests that need a populated range seed rng.Revisions themselves.
+    rng.Revisions = _FakeRevisions([])
     return rng
 
 
@@ -975,9 +978,10 @@ class _FakeComments:
 
 
 class _FakeRevision:
-    """Mimics a Word Revision: Type (int), Author, Range (with Text), Date."""
+    """Mimics a Word Revision: Type (int), Author, Range (with Text), Date, Accept/Reject."""
 
-    def __init__(self, spec: dict[str, Any]) -> None:
+    def __init__(self, spec: dict[str, Any], owner: _FakeRevisions | None = None) -> None:
+        self._owner = owner
         self.Type = int(spec.get("type", 1))  # 1=insert, 2=delete
         self.Author = spec.get("author", "")
         rng = MagicMock(name="RevisionRange")
@@ -988,12 +992,20 @@ class _FakeRevision:
         # A plain ISO string (real Word returns a datetime; the reader accepts both).
         self.Date = spec.get("date", "2026-06-08T12:00:00")
 
+    def Accept(self) -> None:
+        if self._owner is not None:
+            self._owner._remove(self)
+
+    def Reject(self) -> None:
+        if self._owner is not None:
+            self._owner._remove(self)
+
 
 class _FakeRevisions:
-    """Mimics doc.Revisions: Count, 1-based call lookup, iteration."""
+    """Mimics doc.Revisions: Count, 1-based call lookup, iteration, Accept/RejectAll."""
 
     def __init__(self, revisions: list[dict[str, Any]]) -> None:
-        self._items = [_FakeRevision(r) for r in revisions]
+        self._items = [_FakeRevision(r, owner=self) for r in revisions]
 
     @property
     def Count(self) -> int:
@@ -1004,6 +1016,15 @@ class _FakeRevisions:
 
     def __iter__(self) -> Iterable[Any]:
         return iter(list(self._items))
+
+    def _remove(self, revision: _FakeRevision) -> None:
+        self._items.remove(revision)
+
+    def AcceptAll(self) -> None:
+        self._items.clear()
+
+    def RejectAll(self) -> None:
+        self._items.clear()
 
 
 class _FakeNote:
@@ -1302,6 +1323,52 @@ class _FakeLists:
 _WHICH_INDEX = {"primary": 1, "first": 2, "even": 3}
 
 
+class _FakeFloatingShape:
+    """A floating shape (WordArt watermark / text box): a settable Name + Delete."""
+
+    def __init__(self, owner: _FakeFloatingShapes, *, name: str = "", text: str = "") -> None:
+        self._owner = owner
+        self.Name = name
+        self.Text = text
+        for child in ("TextEffect", "Line", "Fill", "WrapFormat", "TextFrame"):
+            setattr(self, child, MagicMock(name=f"Shape.{child}"))
+
+    def Delete(self) -> None:
+        self._owner._remove(self)
+
+
+class _FakeFloatingShapes:
+    """Mimics Range.Shapes / Document.Shapes: AddTextEffect/AddTextbox, Count, 1-based lookup."""
+
+    def __init__(self) -> None:
+        self._items: list[_FakeFloatingShape] = []
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, index: int) -> _FakeFloatingShape:
+        return self._items[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._items))
+
+    def AddTextEffect(
+        self, PresetTextEffect: int = 0, Text: str = "", **kwargs: Any
+    ) -> _FakeFloatingShape:
+        shape = _FakeFloatingShape(self, text=str(Text))
+        self._items.append(shape)
+        return shape
+
+    def AddTextbox(self, **kwargs: Any) -> _FakeFloatingShape:
+        shape = _FakeFloatingShape(self)
+        self._items.append(shape)
+        return shape
+
+    def _remove(self, shape: _FakeFloatingShape) -> None:
+        self._items.remove(shape)
+
+
 class _FakeHeaderFooter:
     """Mimics a Word HeaderFooter: a settable Range, Exists, LinkToPrevious."""
 
@@ -1309,6 +1376,7 @@ class _FakeHeaderFooter:
         rng = _make_range(0, len(text))
         rng.Text = text
         self.Range = rng
+        self.Shapes = _FakeFloatingShapes()  # watermark target (header story)
         self.Exists = exists
         self.LinkToPrevious = linked
 
@@ -1415,6 +1483,7 @@ def _make_document(
     doc.Name = name
     doc.FullName = full_name
     doc.InlineShapes = _FakeDocInlineShapes(images)
+    doc.Shapes = _FakeFloatingShapes()  # floating-shape target (text boxes)
     # Document-info collections (always present so .Count is a real int, never a
     # MagicMock): variables, hyperlinks, fields, properties, and proofing.
     doc.Variables = _FakeVariables(variables)

@@ -155,6 +155,47 @@ class MsoTriState(IntEnum):
     FALSE = 0
 
 
+class MsoTextOrientation(IntEnum):
+    """`Shapes.AddTextbox(Orientation=...)` — only the horizontal box is exposed."""
+
+    HORIZONTAL = 1
+
+
+class MsoPresetTextEffect(IntEnum):
+    """`Shapes.AddTextEffect(PresetTextEffect=...)` — the plain WordArt preset.
+
+    `TEXT_EFFECT1` (`msoTextEffect1`) is the unstyled, fill-only preset Word's own
+    text-watermark feature uses; the fill colour / transparency are then set on
+    the returned shape.
+    """
+
+    TEXT_EFFECT1 = 0
+
+
+class WdShapePosition(IntEnum):
+    """Sentinel positions for `Shape.Left` / `Shape.Top` (centre on the relative-to frame)."""
+
+    CENTER = -999995
+
+
+class WdRelativeHorizontalPosition(IntEnum):
+    """`Shape.RelativeHorizontalPosition` — what `Shape.Left` is measured from."""
+
+    MARGIN = 0
+
+
+class WdRelativeVerticalPosition(IntEnum):
+    """`Shape.RelativeVerticalPosition` — what `Shape.Top` is measured from."""
+
+    MARGIN = 0
+
+
+class WdWrapSideType(IntEnum):
+    """`Shape.WrapFormat.Side` — which sides of a floating shape text flows past."""
+
+    BOTH = 0
+
+
 class WdSaveFormat(IntEnum):
     """`Document.SaveAs2(FileFormat=...)` values — the formats `save_as` exposes.
 

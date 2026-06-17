@@ -129,6 +129,9 @@ wordlive comment list
 wordlive comment resolve --index 1
 wordlive track on            # record edits as revisions; `track off` to stop
 wordlive revisions           # read the tracked changes back (type/author/text/range)
+wordlive revision accept --index 1          # …or accept / reject them
+wordlive revision accept-all --anchor-id heading:3   # accept every change in one section
+wordlive read text --anchor-id para:5 --view original  # text as if changes were rejected
 # …and `wordlive snapshot --markup all` renders those changes as visible marks.
 
 # Non-visual layout introspection (reason about pages without a snapshot):
@@ -173,6 +176,10 @@ base64 logo.png | wordlive insert-image --anchor-id bookmark:Logo --base64 - --w
 # …and read embedded pictures back out (image:N ids; for a vision model):
 wordlive images                                            # list every embedded picture
 wordlive read-image --anchor-id image:1 --out logo.png     # extract bytes + mime
+
+# Floating-shape flourishes — a watermark behind every page, a pull-quote box:
+wordlive watermark --text DRAFT                            # …or --remove
+wordlive insert-text-box --anchor-id heading:2 --text "Key takeaway" --width 2.5in
 
 # Equations — UnicodeMath (native), LaTeX (needs the `latex` extra), or MathML:
 wordlive insert-equation --anchor-id heading:3 --unicodemath "x=(-b±√(b^2-4ac))/(2a)"

@@ -1,16 +1,22 @@
-"""Revisions — read Word's tracked changes as structured data.
+"""Revisions — read *and* resolve Word's tracked changes as structured data.
 
 When Track Changes is on, every edit becomes a `Revision` the user can accept or
-reject. wordlive can already *write* tracked revisions (`doc.tracked_changes()`),
-but an agent making tracked edits was otherwise blind to what it had recorded:
-snapshots render the *final* text, and plain text reads concatenate the inserted
-and deleted runs with no marker. `doc.revisions` closes that gap with a
-structured, read-only view that mirrors `doc.comments` — the structured channel,
-paired with `doc.snapshot(markup="all")` for the visual one.
+reject. wordlive can already *write* tracked revisions (`doc.tracked_changes()`);
+`doc.revisions` is the structured read view that mirrors `doc.comments` — the
+structured channel, paired with `doc.snapshot(markup="all")` for the visual one.
 
 Revisions are addressed by 1-based index (`doc.revisions[2]`), matching Word's
-own `Revisions(n)` ordering. Reading is non-mutating; accept/reject of individual
-revisions stays on the `.com` escape hatch for now.
+own `Revisions(n)` ordering. A single revision can be resolved in place —
+`doc.revisions[2].accept()` / `.reject()` — and the whole document (or a single
+anchor's range) accepted or rejected at once with
+`doc.revisions.accept_all()` / `.reject_all(within=anchor)`.
+
+**Revision-aware reads.** A tracked edit leaves *both* the inserted and the
+deleted runs present in the text stream, so a plain `anchor.text` read of a
+just-edited paragraph is neither the before nor the after — it concatenates the
+two. `segment_runs` reconstructs either view from the revision ranges; the
+`Anchor.text_final` / `Anchor.text_original` / `Anchor.revision_segments`
+helpers expose it per anchor (see `_anchors.py`).
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ from .constants import WdRevisionType
 from .exceptions import AnchorNotFoundError
 
 if TYPE_CHECKING:
+    from ._anchors import Anchor
     from ._document import Document
 
 
@@ -78,6 +85,75 @@ def _iso_date(value: Any) -> str | None:
     return text or None
 
 
+# Only insert / delete revisions change the text stream; every other kind
+# (formatting, paragraph-number, …) leaves characters untouched, so they play no
+# part in reconstructing the before/after text.
+_TEXT_CHANGE_TYPES: frozenset[str] = frozenset({"insert", "delete"})
+
+
+def segment_runs(
+    final_text: str, base_start: int, runs: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Reconstruct a range's insert / delete / unchanged segments from its revisions.
+
+    The subtlety (confirmed against live Word): a range's `Range.Text` is the
+    **final** view — inserted runs are present, *deleted* runs are gone. The
+    deleted characters survive only on the delete `Revision` itself (`run["text"]`),
+    and Word reports revision offsets in a **markup** coordinate space where the
+    deleted text still occupies positions. So we can't just label characters of
+    `final_text`; we walk the markup space and splice the deleted text back in.
+
+    `final_text` is the range's `Range.Text`; `base_start` its `Range.Start`;
+    `runs` is `[{change, start, end, text}, …]` for the insert / delete revisions
+    overlapping the range (document-absolute markup offsets, with the revision's
+    own text). Returns `[{text, change}, …]` in document order — `change` is
+    ``"insert"``, ``"delete"``, or ``None`` (unchanged) — from which:
+
+    - **final** (accept-all) = the segments whose `change` is not ``"delete"``
+      (== `final_text`);
+    - **original** (reject-all) = those whose `change` is not ``"insert"``.
+
+    Offsets are UTF-16 code units; outside the Basic Multilingual Plane they
+    diverge from Python string indices — the same caveat the rest of the codebase
+    carries (see `_utf16_len`).
+    """
+    ordered = sorted(
+        (r for r in runs if r.get("change") in _TEXT_CHANGE_TYPES),
+        key=lambda r: int(r["start"]),
+    )
+    segments: list[dict[str, Any]] = []
+
+    def emit(text: str, change: str | None) -> None:
+        if not text:
+            return
+        if segments and segments[-1]["change"] == change:
+            segments[-1]["text"] += text
+        else:
+            segments.append({"text": text, "change": change})
+
+    markup_cur = base_start  # position in the all-revisions-shown coordinate space
+    final_cur = 0  # index into final_text (deletions absent, insertions present)
+    for run in ordered:
+        start, end = int(run["start"]), int(run["end"])
+        if start < markup_cur:  # overlaps already-consumed space; skip defensively
+            continue
+        gap = start - markup_cur  # unchanged text before this revision
+        if gap > 0:
+            emit(final_text[final_cur : final_cur + gap], None)
+            final_cur += gap
+            markup_cur += gap
+        width = end - start
+        if run.get("change") == "insert":
+            # Inserted text lives in final_text at the cursor.
+            emit(final_text[final_cur : final_cur + width], "insert")
+            final_cur += width
+        else:  # delete — text is gone from final_text; restore it from the run
+            emit(_clean(run.get("text")), "delete")
+        markup_cur += width
+    emit(final_text[final_cur:], None)  # trailing unchanged text
+    return segments
+
+
 class Revision:
     """A single tracked change, located by its 1-based document index."""
 
@@ -119,6 +195,30 @@ class Revision:
             return _iso_date(self._com.Date)
         except Exception:
             return None
+
+    def accept(self) -> None:
+        """Accept this tracked change — make it permanent.
+
+        For an insertion the inserted text stays and loses its revision mark; for
+        a deletion the struck-through text is removed. Accepting **renumbers** the
+        remaining revisions (this one is consumed), so cached `doc.revisions[N]`
+        indices past it shift down by one — re-list between resolves, or use the
+        bulk [`accept_all`][wordlive.RevisionCollection.accept_all]. Wrap in
+        `doc.edit(...)` for atomic undo.
+        """
+        with _com.translate_com_errors():
+            self._com.Accept()
+
+    def reject(self) -> None:
+        """Reject this tracked change — undo it.
+
+        For an insertion the inserted text is removed; for a deletion the
+        struck-through text is restored. Like [`accept`][wordlive.Revision.accept]
+        this consumes the revision and renumbers the rest. Wrap in `doc.edit(...)`
+        for atomic undo.
+        """
+        with _com.translate_com_errors():
+            self._com.Reject()
 
     def to_dict(self) -> dict[str, Any]:
         """`{index, type, author, text, anchor_id, start, end, date}` — the `list()` shape.
@@ -171,6 +271,42 @@ class RevisionCollection:
             with _com.translate_com_errors():
                 com = self._doc.com.Revisions(i)
             yield Revision(self._doc, com, i)
+
+    def _revisions_com(self, within: Anchor | None) -> Any:
+        """The COM `Revisions` collection to act on — the doc's, or one anchor's range."""
+        if within is None:
+            return self._doc.com.Revisions
+        return within.com.Revisions
+
+    def accept_all(self, *, within: Anchor | None = None) -> int:
+        """Accept every tracked change at once and report how many were resolved.
+
+        With no `within`, accepts the whole document; pass any anchor (heading,
+        section range, cell, `range:START-END`, …) as `within` to accept only the
+        tracked changes inside that range — "accept all my edits in this section".
+        Returns the count accepted (read before the operation, since accepting
+        empties the collection). Wrap in `doc.edit(...)` for atomic undo.
+        """
+        with _com.translate_com_errors():
+            revisions = self._revisions_com(within)
+            count = int(revisions.Count)
+            if count:
+                revisions.AcceptAll()
+        return count
+
+    def reject_all(self, *, within: Anchor | None = None) -> int:
+        """Reject every tracked change at once and report how many were resolved.
+
+        The mirror of [`accept_all`][wordlive.RevisionCollection.accept_all]:
+        whole-document by default, or scoped to `within`'s range. Returns the
+        count rejected. Wrap in `doc.edit(...)` for atomic undo.
+        """
+        with _com.translate_com_errors():
+            revisions = self._revisions_com(within)
+            count = int(revisions.Count)
+            if count:
+                revisions.RejectAll()
+        return count
 
     def list(self) -> list[dict[str, Any]]:
         """All tracked changes as `{index, type, author, text, anchor_id, start, end, date}` dicts."""
