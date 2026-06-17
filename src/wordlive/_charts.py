@@ -28,8 +28,20 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from .constants import XlChartType
+from ._format import to_bgr
+from .constants import (
+    XlAxisGroup,
+    XlAxisType,
+    XlChartType,
+    XlLegendPosition,
+    XlScaleType,
+    XlTrendlineType,
+)
 from .exceptions import OpError
+
+# Sentinel for "argument not supplied" — lets a formatting field tell "leave
+# untouched" apart from an explicit `None` that means "clear" (e.g. a title).
+_UNSET: Any = object()
 
 # `insert_chart(kind=...)` string → Excel chart-type enum. Keep narrow.
 KIND_TO_XL: dict[str, XlChartType] = {
@@ -43,6 +55,52 @@ KIND_TO_XL: dict[str, XlChartType] = {
 XL_TO_KIND: dict[int, str] = {int(v): k for k, v in KIND_TO_XL.items()}
 
 CHART_KINDS: tuple[str, ...] = tuple(KIND_TO_XL)
+
+# --- formatting vocab: caller-facing strings → Excel enums (kept narrow) -------
+
+LEGEND_POSITIONS: dict[str, XlLegendPosition] = {
+    "right": XlLegendPosition.RIGHT,
+    "left": XlLegendPosition.LEFT,
+    "top": XlLegendPosition.TOP,
+    "bottom": XlLegendPosition.BOTTOM,
+    "corner": XlLegendPosition.CORNER,
+}
+
+# `value`/`y` is the dependent axis, `category`/`x` the independent one.
+AXIS_WHICH: dict[str, XlAxisType] = {
+    "value": XlAxisType.VALUE,
+    "y": XlAxisType.VALUE,
+    "category": XlAxisType.CATEGORY,
+    "x": XlAxisType.CATEGORY,
+}
+
+SCALE_TYPES: dict[str, XlScaleType] = {
+    "linear": XlScaleType.LINEAR,
+    "log": XlScaleType.LOGARITHMIC,
+    "logarithmic": XlScaleType.LOGARITHMIC,
+}
+
+TRENDLINE_KINDS: dict[str, XlTrendlineType] = {
+    "linear": XlTrendlineType.LINEAR,
+    "exponential": XlTrendlineType.EXPONENTIAL,
+    "logarithmic": XlTrendlineType.LOGARITHMIC,
+    "log": XlTrendlineType.LOGARITHMIC,
+    "moving_average": XlTrendlineType.MOVING_AVERAGE,
+    "moving_avg": XlTrendlineType.MOVING_AVERAGE,
+    "polynomial": XlTrendlineType.POLYNOMIAL,
+    "power": XlTrendlineType.POWER,
+}
+
+
+def _lookup(value: str, table: dict[str, Any], *, label: str) -> Any:
+    """Map a caller string onto an enum, raising `OpError` (bad input) on a miss."""
+    try:
+        key = value.strip().lower()
+    except AttributeError as e:
+        raise OpError(f"{label} must be a string, got {value!r}") from e
+    if key not in table:
+        raise OpError(f"unknown {label} {value!r}; expected one of {sorted(table)}")
+    return table[key]
 
 
 def probe_excel_available() -> bool:
@@ -202,3 +260,153 @@ def populate_chart(
         chart_com.ChartData.BreakLink()
     finally:
         _close_workbook(wb, xlapp)
+
+
+# --- post-insert formatting (operates on the BreakLink-static Chart) -----------
+#
+# Every helper below mutates a chart's *presentation* (style, legend, axes,
+# trendlines, colours) on the static, post-insert `Chart` COM object. Live-probed
+# 2026-06-16/17: none of these reopen the embedded-Excel data grid or respin a
+# hidden Excel (verified 0 orphan EXCEL.EXE across the full surface), so they need
+# no Excel gate. The standing rule still holds: they never read *series data*
+# back. Bad input raises `OpError`; COM failures surface via the caller's
+# `translate_com_errors`.
+
+
+def apply_chart_format(
+    chart_com: Any,
+    *,
+    title: Any = _UNSET,
+    legend: bool | None = None,
+    legend_position: str | None = None,
+    chart_style: int | None = None,
+    background: Any = None,
+    plot_background: Any = None,
+    font: str | None = None,
+    font_size: Any = None,
+    font_color: Any = None,
+    data_labels: bool | None = None,
+    data_label_format: str | None = None,
+    chart_type: str | None = None,
+) -> None:
+    """Apply whole-chart / design formatting. Tri-state: only passed fields write.
+
+    `title=None` clears the title (omit it to leave it alone — that's what the
+    `_UNSET` sentinel distinguishes). `legend_position` implies the legend is
+    shown. `chart_style` is the built-in design-gallery int. `background` /
+    `plot_background` and `font_color` accept any [`to_bgr`][wordlive._format.to_bgr]
+    colour; `font` / `font_size` set the whole-chart font. `data_labels` toggles
+    point labels on every series; `chart_type` re-types the chart in place.
+    """
+    if title is not _UNSET:
+        if title:
+            chart_com.HasTitle = True
+            chart_com.ChartTitle.Text = str(title)
+        else:  # None or "" → remove the title
+            chart_com.HasTitle = False
+    if legend is not None:
+        chart_com.HasLegend = bool(legend)
+    if legend_position is not None:
+        chart_com.HasLegend = True
+        chart_com.Legend.Position = int(
+            _lookup(legend_position, LEGEND_POSITIONS, label="legend_position")
+        )
+    if chart_style is not None:
+        chart_com.ChartStyle = int(chart_style)
+    if background is not None:
+        chart_com.ChartArea.Format.Fill.ForeColor.RGB = to_bgr(background)
+    if plot_background is not None:
+        chart_com.PlotArea.Format.Fill.ForeColor.RGB = to_bgr(plot_background)
+    if font is not None or font_size is not None or font_color is not None:
+        from ._anchors import _apply_font  # lazy: _anchors imports this module
+
+        _apply_font(chart_com.ChartArea.Font, font_name=font, size=font_size, color=font_color)
+    if data_labels is not None:
+        sc = chart_com.SeriesCollection()
+        for i in range(1, int(sc.Count) + 1):
+            sc(i).HasDataLabels = bool(data_labels)
+    if data_label_format is not None:
+        sc = chart_com.SeriesCollection()
+        for i in range(1, int(sc.Count) + 1):
+            series = sc(i)
+            series.HasDataLabels = True
+            series.DataLabels().NumberFormat = str(data_label_format)
+    if chart_type is not None:
+        if chart_type not in KIND_TO_XL:
+            raise OpError(f"unknown chart_type {chart_type!r}; expected one of {list(CHART_KINDS)}")
+        chart_com.ChartType = int(KIND_TO_XL[chart_type])
+
+
+def apply_axis_format(
+    chart_com: Any,
+    which: str,
+    *,
+    title: Any = _UNSET,
+    minimum: Any = None,
+    maximum: Any = None,
+    scale: str | None = None,
+    number_format: str | None = None,
+    gridlines: bool | None = None,
+) -> None:
+    """Format one axis of the chart. `which` is ``"value"``/``"y"`` or
+    ``"category"``/``"x"``; tri-state otherwise. `scale` is ``"linear"`` or
+    ``"log"``; `title=None` clears the axis title."""
+    atype = _lookup(which, AXIS_WHICH, label="axis")
+    axis = chart_com.Axes(int(atype), int(XlAxisGroup.PRIMARY))
+    if title is not _UNSET:
+        if title:
+            axis.HasTitle = True
+            axis.AxisTitle.Text = str(title)
+        else:
+            axis.HasTitle = False
+    if minimum is not None:
+        axis.MinimumScale = float(minimum)
+    if maximum is not None:
+        axis.MaximumScale = float(maximum)
+    if scale is not None:
+        axis.ScaleType = int(_lookup(scale, SCALE_TYPES, label="scale"))
+    if number_format is not None:
+        axis.TickLabels.NumberFormat = str(number_format)
+    if gridlines is not None:
+        axis.HasMajorGridlines = bool(gridlines)
+
+
+def add_trendline(
+    chart_com: Any,
+    *,
+    series: int = 1,
+    kind: str = "linear",
+    display_equation: bool = False,
+    display_r_squared: bool = False,
+    forward: Any = None,
+    backward: Any = None,
+) -> None:
+    """Fit a trendline to a series. `kind` is one of `TRENDLINE_KINDS`; the
+    optional `forward`/`backward` extend the fit that many units past the data."""
+    xl = _lookup(kind, TRENDLINE_KINDS, label="trendline kind")
+    sc = chart_com.SeriesCollection(int(series))
+    tl = sc.Trendlines().Add(int(xl))  # positional Type — keywords drop under late binding
+    if display_equation:
+        tl.DisplayEquation = True
+    if display_r_squared:
+        tl.DisplayRSquared = True
+    if forward is not None:
+        tl.Forward = float(forward)
+    if backward is not None:
+        tl.Backward = float(backward)
+
+
+def set_series_color(
+    chart_com: Any, color: Any, *, series: int = 1, point: int | None = None
+) -> None:
+    """Recolour a whole series, or a single 1-based `point` (a bar / pie slice /
+    marker). Sets the fill, and the line/marker colour too where the series has
+    one (line/scatter). `color` is any [`to_bgr`][wordlive._format.to_bgr] colour."""
+    bgr = to_bgr(color)
+    sc = chart_com.SeriesCollection(int(series))
+    target = sc.Points(int(point)) if point is not None else sc
+    target.Format.Fill.ForeColor.RGB = bgr
+    try:
+        target.Format.Line.ForeColor.RGB = bgr
+    except Exception:
+        pass  # bar/pie points have no separate line — the fill is the colour

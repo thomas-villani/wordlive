@@ -190,6 +190,11 @@ wordlive equations                                         # list equation:N ids
 wordlive insert-chart --anchor-id end --kind bar --data '{"Q1": 10, "Q2": 25, "Q3": 18}' --title "Quarterly"
 echo '[[1.2, 3.4], [2.5, 6.1]]' | wordlive insert-chart --anchor-id end --kind scatter --data -
 wordlive charts                                            # list chart:N ids, kind, title
+# Format & design an existing chart (no Excel needed; tri-state):
+wordlive format-chart --anchor-id chart:1 --chart-style 240 --legend --title "Quarterly"
+wordlive format-axis --anchor-id chart:1 --which value --scale log --title "USD (M)"
+wordlive add-trendline --anchor-id chart:1 --kind power --display-equation   # law of best fit
+wordlive set-series-color --anchor-id chart:1 --color "#2E86C1" --point 2
 
 # Snapshot — render page(s) to PNG so a vision model can SEE the layout
 # (needs the `snapshot` extra: pip install "wordlive[snapshot]"):

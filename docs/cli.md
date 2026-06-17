@@ -1384,12 +1384,57 @@ $ echo '[[1.2, 3.4], [1.2, 3.9], [2.5, 6.1]]' | wordlive insert-chart --anchor-i
 {"ok": true, "anchor_id": "end", "chart": 2, "chart_anchor_id": "chart:2", "kind": "scatter", "where": "after"}
 
 $ wordlive charts
-[{"index": 1, "anchor_id": "chart:1", "kind": "bar", "title": "Quarterly", "para": "para:1"}]
+[{"index": 1, "anchor_id": "chart:1", "kind": "bar", "title": "Quarterly", "chart_style": 201, "has_legend": false, "para": "para:1"}]
 ```
 
 Failures: `1` malformed `--data` (bad JSON, empty, wrong shape, non-numeric
 value — an `OpError`); `2` anchor not found; `3` Word busy; **`6`** Excel not
 installed (`ExcelNotAvailableError`).
+
+## `format-chart` / `format-axis` / `add-trendline` / `set-series-color`
+
+```
+wordlive format-chart --anchor-id chart:N [--title TXT] [--legend|--no-legend] \
+    [--legend-position right|left|top|bottom|corner] [--chart-style INT] \
+    [--background COLOR] [--plot-background COLOR] \
+    [--font NAME] [--font-size SIZE] [--font-color COLOR] \
+    [--data-labels|--no-data-labels] [--data-label-format FMT] \
+    [--chart-type bar|pie|line|scatter]
+wordlive format-axis --anchor-id chart:N --which value|y|category|x \
+    [--title TXT] [--minimum N] [--maximum N] [--scale linear|log] \
+    [--number-format FMT] [--gridlines|--no-gridlines]
+wordlive add-trendline --anchor-id chart:N [--series N] \
+    [--kind linear|exponential|logarithmic|moving_average|polynomial|power] \
+    [--display-equation] [--display-r-squared] [--forward N] [--backward N]
+wordlive set-series-color --anchor-id chart:N --color COLOR [--series N] [--point N]
+```
+
+Format and design an **existing** `chart:N` — Word's chart "Design"/"Format"
+tabs. These operate on the post-insert, static chart, so **Excel is not needed**
+(no exit 6). Every option is tri-state: only what you pass is written. Colours are
+a name, hex (`#2E86C1`), or comma-separated `r,g,b`. `format-chart --chart-type`
+re-types the chart in place; `--chart-style` is the built-in design-gallery id.
+`format-axis --scale log` suits order-of-magnitude data; `--which` takes
+`value`/`y` or `category`/`x`. `add-trendline --kind power --display-equation`
+draws the law of best fit. `set-series-color --point N` recolours one bar / pie
+slice / marker (1-based); omit it to colour the whole series.
+
+```console
+$ wordlive format-chart --anchor-id chart:1 --chart-style 240 --legend --title "Quarterly"
+{"ok": true, "anchor_id": "chart:1", "applied": {"title": "Quarterly", "legend": true, "chart_style": 240}}
+
+$ wordlive format-axis --anchor-id chart:1 --which value --scale log --title "USD (M)"
+{"ok": true, "anchor_id": "chart:1", "which": "value", "applied": {"title": "USD (M)", "scale": "log"}}
+
+$ wordlive add-trendline --anchor-id chart:2 --kind power --display-equation
+{"ok": true, "anchor_id": "chart:2", "applied": {"series": 1, "kind": "power", "display_equation": true, "display_r_squared": false}}
+
+$ wordlive set-series-color --anchor-id chart:1 --color "#2E86C1" --point 2
+{"ok": true, "anchor_id": "chart:1", "series": 1, "point": 2, "color": "#2E86C1"}
+```
+
+Failures: `1` bad input (unknown colour / scale / trendline kind, or the anchor
+isn't a `chart:N`); `2` chart not found; `3` Word busy.
 
 ## `snapshot [--anchor-id ID | --page N | --pages A-B]`
 

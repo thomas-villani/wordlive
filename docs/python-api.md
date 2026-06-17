@@ -239,10 +239,47 @@ embedded workbook ships in the document, and the series data isn't read back
 CLI/MCP surfaces add the same Excel probe.
 
 `doc.charts` is the read side: a discovery collection whose `list()` reports each
-chart's `chart:N` id, `kind`, `title`, and the `para:N` it sits in (metadata
-only). Index it (`doc.charts[2]`) for a [`ChartAnchor`](#wordlive.ChartAnchor),
-then read `chart.chart_type` / `chart.title`. A chart has no plain text, so
-`set_text` raises — delete and re-insert to change it.
+chart's `chart:N` id, `kind`, `title`, `chart_style`, `has_legend`, and the
+`para:N` it sits in (metadata only). Index it (`doc.charts[2]`) for a
+[`ChartAnchor`](#wordlive.ChartAnchor), then read `chart.chart_type` /
+`chart.title` / `chart.chart_style` / `chart.has_legend`. A chart has no plain
+text, so `set_text` raises — delete and re-insert to change the *data*.
+
+### Formatting & design
+
+The chart's appearance — Word's "Design" and "Format" tabs — is a curated set of
+methods on [`ChartAnchor`](#wordlive.ChartAnchor). They operate on the
+**post-insert, static** chart, so **no Excel is involved** (and no
+`ExcelNotAvailableError`); every field is tri-state (only what you pass is
+written), and each method returns `self` so they chain:
+
+```python
+doc.charts[1].format(
+    title="Quarterly revenue", legend=True, legend_position="bottom",
+    chart_style=242, background="#F4F6F7", data_labels=True,
+).set_axis("value", title="USD (M)", minimum=0, maximum=30, scale="log")
+
+scatter = doc.charts[2]
+scatter.add_trendline(kind="power", display_equation=True)  # draws the law of best fit
+scatter.set_series_color("#2E86C1")          # or point=N for one bar / pie slice
+```
+
+- **`format(...)`** — whole-chart/design: `title` (`None` clears), `legend` +
+  `legend_position`, `chart_style` (design-gallery int), `background` /
+  `plot_background` fills, `font` / `font_size` / `font_color`, `data_labels` +
+  `data_label_format`, and `chart_type` to re-type the chart in place.
+- **`set_axis(which, ...)`** — `which` is `"value"`/`"y"` or `"category"`/`"x"`;
+  sets `title`, `minimum`/`maximum`, `scale` (`"linear"`/`"log"`),
+  `number_format`, `gridlines`.
+- **`add_trendline(...)`** — `kind` ∈ linear/exponential/logarithmic/
+  moving_average/polynomial/power on a 1-based `series`, with `display_equation`
+  / `display_r_squared` and `forward`/`backward` forecast.
+- **`set_series_color(color, *, series=1, point=None)`** — recolour a whole
+  series, or one 1-based `point` (bar / pie slice / marker). `color` is a name,
+  hex, or `(r, g, b)`.
+
+Bad input (unknown colour / scale / trendline kind) raises
+[`OpError`](errors.md#operror). Wrap calls in `doc.edit(...)` for atomic undo.
 
 ::: wordlive.ChartAnchor
 
