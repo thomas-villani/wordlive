@@ -5,18 +5,7 @@ All notable changes to **wordlive** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-- **`find_replace` no longer eats a trailing paragraph/cell mark at a segment
-  boundary.** Replacing a *whole paragraph* that sat immediately before a table
-  (or any segment edge) matched the trailing `\r` too, so the replacement
-  deleted the paragraph break and fused the paragraph into the following table's
-  first cell (e.g. a header cell read back as `"Costs decreased.Item"`). The
-  normalization sentinel now maps to the offset one past the last *contributing*
-  character rather than `len(s)`, so a folded-away trailing mark (`\r`, the
-  `\x07` cell marker, a stripped space) is left intact. The earlier terminal-mark
-  clamp only guarded the document's final mark; this fixes interior boundaries.
+## 0.17.0
 
 ### Added
 - **Structural query helpers.** Three pure document reads that navigate and
@@ -160,6 +149,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   blue and the "live" half in cyan on a terminal, clean ASCII when piped. Both
   are eager top-level flags: no
   subcommand needed and Word is never touched.
+
+## [0.16.1] - 2026-06-16
+
+### Fixed
+- **`find_replace` no longer eats a trailing paragraph/cell mark at a segment
+  boundary.** Replacing a *whole paragraph* that sat immediately before a table
+  (or any segment edge) matched the trailing `\r` too, so the replacement
+  deleted the paragraph break and fused the paragraph into the following table's
+  first cell (e.g. a header cell read back as `"Costs decreased.Item"`). The
+  normalization sentinel now maps to the offset one past the last *contributing*
+  character rather than `len(s)`, so a folded-away trailing mark (`\r`, the
+  `\x07` cell marker, a stripped space) is left intact. The earlier terminal-mark
+  clamp only guarded the document's final mark; this fixes interior boundaries.
+
 
 ## [0.16.0] — 2026-06-15
 
@@ -910,6 +913,9 @@ v0–v0.8 development line bundled here:
   `wordlive install-skill`, an mkdocs Material docs site, and PyPI
   trusted-publishing on tag push.
 
+
+[0.17.0]: https://github.com/thomas-villani/wordlive/compare/v0.16.1...v0.17.0
+[0.16.1]: https://github.com/thomas-villani/wordlive/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/thomas-villani/wordlive/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/thomas-villani/wordlive/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/thomas-villani/wordlive/compare/v0.13.0...v0.14.0
