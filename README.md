@@ -69,6 +69,13 @@ wordlive paragraphs               # same: para:N, level, offsets, text
 wordlive read bookmark Address
 wordlive write bookmark Address --text "123 Main St"
 
+# Navigate & locate by structure (read-only):
+wordlive read section "Introduction"                          # body under a heading
+wordlive read between --start heading:1 --end heading:3        # block between two headings
+wordlive read nearest-heading --anchor-id para:42             # the section a paragraph sits in
+wordlive find --text "exact phrase"                            # exact (normalized) → range:S-E
+wordlive find-paragraph --text "roughly remembered text"       # FUZZY → ranked para:N + scores
+
 # Insert a new paragraph relative to ANY anchor (heading, paragraph, bookmark, …):
 wordlive insert --anchor-id heading:1 --text "..."          # after (default)
 wordlive insert --anchor-id para:3 --text "..." --before

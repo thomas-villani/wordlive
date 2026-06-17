@@ -238,3 +238,167 @@ def test_exec_update_row_unknown_header_fails_batch(fake_word):
         )
     assert isinstance(exc, OpError)
     assert result["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# Structural query helpers — doc.between / nearest_heading / find_paragraphs
+#
+# The default fake doc has three paragraphs (see conftest.fake_word):
+#   heading:1 "Introduction" (L1)  range 0–13
+#   para:2    "Body text here." (body) range 13–29
+#   heading:3 "Risks" (L2)        range 29–35
+# ---------------------------------------------------------------------------
+
+
+def test_between_excludes_bounding_headings(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.com.Range(13, 29).Text = "Body text here.\r"
+        span = doc.between("heading:1", "heading:3")
+    assert (span.start, span.end) == (13, 29)
+    assert span.anchor_id == "range:13-29"
+    assert span.text == "Body text here.\r"
+
+
+def test_between_inclusive_covers_both_headings(fake_word):
+    with wordlive.attach() as word:
+        span = word.documents.active.between("heading:1", "heading:3", inclusive=True)
+    assert (span.start, span.end) == (0, 35)
+
+
+def test_between_out_of_order_raises(fake_word):
+    import pytest
+
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(OpError, match="begins before"):
+            doc.between("heading:3", "heading:1")
+
+
+def test_nearest_heading_before_is_enclosing(fake_word):
+    with wordlive.attach() as word:
+        row = word.documents.active.nearest_heading("para:2", direction="before")
+    assert row == {"level": 1, "text": "Introduction", "anchor_id": "heading:1"}
+
+
+def test_nearest_heading_after_is_next(fake_word):
+    with wordlive.attach() as word:
+        row = word.documents.active.nearest_heading("para:2", direction="after")
+    assert row["anchor_id"] == "heading:3" and row["level"] == 2
+
+
+def test_nearest_heading_none_past_last(fake_word):
+    with wordlive.attach() as word:
+        row = word.documents.active.nearest_heading("heading:3", direction="after")
+    assert row is None
+
+
+def test_nearest_heading_bad_direction_raises(fake_word):
+    import pytest
+
+    with wordlive.attach() as word:
+        with pytest.raises(OpError, match="before.*after"):
+            word.documents.active.nearest_heading("para:2", direction="sideways")
+
+
+def test_find_paragraphs_ranks_best_first(fake_word):
+    with wordlive.attach() as word:
+        rows = word.documents.active.find_paragraphs("Body text here", min_score=0.5)
+    assert rows[0]["anchor_id"] == "para:2"
+    assert rows[0]["index"] == 2 and rows[0]["is_heading"] is False
+    assert rows == sorted(rows, key=lambda r: r["score"], reverse=True)
+
+
+def test_find_paragraphs_min_score_filters(fake_word):
+    with wordlive.attach() as word:
+        rows = word.documents.active.find_paragraphs("Risks", min_score=0.99)
+    # find_paragraphs always addresses by para:N; level/is_heading flag headings.
+    assert [r["anchor_id"] for r in rows] == ["para:3"]
+    assert rows[0]["score"] == 1.0 and rows[0]["level"] == 2 and rows[0]["is_heading"] is True
+
+
+def test_find_paragraphs_limit_caps(fake_word):
+    with wordlive.attach() as word:
+        rows = word.documents.active.find_paragraphs("Risks", limit=1, min_score=0.0)
+    assert len(rows) == 1
+
+
+def test_find_paragraphs_empty_query_returns_empty(fake_word):
+    with wordlive.attach() as word:
+        assert word.documents.active.find_paragraphs("   ") == []
+
+
+def test_find_paragraphs_normalizes_query(fake_word):
+    # Smart quotes + em-dash in the paragraph fold onto the straight-ASCII query.
+    dc = fake_word.ActiveDocument
+    dc.Paragraphs._items[1].Range.Text = "“Smart” quotes—dash\r"
+    with wordlive.attach() as word:
+        rows = word.documents.active.find_paragraphs('"Smart" quotes-dash')
+    assert rows[0]["anchor_id"] == "para:2" and rows[0]["score"] == 1.0
+
+
+def test_find_paragraphs_bad_args_raise(fake_word):
+    import pytest
+
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with pytest.raises(OpError):
+            doc.find_paragraphs("x", limit=0)
+        with pytest.raises(OpError):
+            doc.find_paragraphs("x", min_score=2.0)
+
+
+# CLI ----------------------------------------------------------------------
+
+
+def test_cli_read_between(fake_word):
+    import json
+
+    fake_word.ActiveDocument.Range(13, 29).Text = "Body text here.\r"
+    code, out, _ = _invoke(["read", "between", "--start", "heading:1", "--end", "heading:3"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["anchor_id"] == "range:13-29" and data["inclusive"] is False
+
+
+def test_cli_read_nearest_heading(fake_word):
+    import json
+
+    code, out, _ = _invoke(
+        ["read", "nearest-heading", "--anchor-id", "para:2", "--direction", "before"]
+    )
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["heading"]["anchor_id"] == "heading:1" and data["direction"] == "before"
+
+
+def test_cli_find_paragraph(fake_word):
+    import json
+
+    code, out, _ = _invoke(["find-paragraph", "--text", "Risks", "--min-score", "0.99"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert [r["anchor_id"] for r in data] == ["para:3"]
+
+
+# MCP ----------------------------------------------------------------------
+
+
+def test_mcp_read_between(fake_word):
+    out = _read_impl(W, "between", {"start_anchor": "heading:1", "end_anchor": "heading:3"})
+    assert out["anchor_id"] == "range:13-29" and out["start"] == "heading:1"
+
+
+def test_mcp_read_nearest_heading(fake_word):
+    out = _read_impl(W, "nearest_heading", {"anchor_id": "para:2", "direction": "after"})
+    assert out["heading"]["anchor_id"] == "heading:3"
+
+
+def test_mcp_read_nearest_heading_default_direction(fake_word):
+    out = _read_impl(W, "nearest_heading", {"anchor_id": "para:2"})
+    assert out["direction"] == "before" and out["heading"]["anchor_id"] == "heading:1"
+
+
+def test_mcp_find_paragraphs(fake_word):
+    out = _read_impl(W, "find_paragraphs", {"text": "Risks", "min_score": 0.99})
+    assert [r["anchor_id"] for r in out] == ["para:3"]

@@ -19,6 +19,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clamp only guarded the document's final mark; this fixes interior boundaries.
 
 ### Added
+- **Structural query helpers.** Three pure document reads that navigate and
+  locate by structure, composing over the existing outline/find primitives:
+  - `doc.between(start, end, *, inclusive=False)` — a `RangeAnchor` spanning the
+    gap between two anchors (the headline use is two `heading:N` ids: the block
+    between two headings). Default excludes both bounding paragraphs;
+    `inclusive=True` covers them. CLI `wordlive read between --start ID --end ID
+    [--inclusive]`; MCP `word_read` command `between`.
+  - `doc.nearest_heading(where, *, direction="before")` — the heading nearest a
+    position (`anchor` id / `Anchor` / char offset). `before` = the enclosing /
+    preceding heading, `after` = the next one. Returns an `outline()`-shaped row
+    or `None`. CLI `wordlive read nearest-heading --anchor-id ID [--direction
+    before|after]`; MCP `word_read` command `nearest_heading`.
+  - `doc.find_paragraphs(text, *, limit=5, min_score=0.6)` — **fuzzy** paragraph
+    search: scores every paragraph against `text` with `difflib.SequenceMatcher`
+    over the same normalization `find()` uses (NFKC, smart quotes, dashes,
+    whitespace), so a typo'd or paraphrased query still locates its `para:N`.
+    Returns ranked `{anchor_id, index, score, text, level, is_heading}` rows.
+    Unlike `find()` (exact substring → `range:START-END`), this is similarity
+    ranked → `para:N`. CLI `wordlive find-paragraph --text T [--limit N]
+    [--min-score F]`; MCP `word_read` command `find_paragraphs`.
+
+  (Content-under-heading was already covered by `Heading.section_range()` /
+  `read section`.) All three are pure reads — no `exec` ops, no `__init__`
+  exports; they leave selection/scroll/`Saved` untouched.
 - **Charts (Excel-backed).** `anchor.insert_chart(kind, data, *, title=None)`
   embeds a chart via `InlineShapes.AddChart2` — `kind` ∈
   `bar`/`pie`/`line`/`scatter`. `data` is a `{label: value}` mapping (bar/pie/

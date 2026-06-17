@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -1348,6 +1349,146 @@ class Document:
                 if handle:
                     row["pin"] = handle
         return out
+
+    def between(
+        self,
+        start: str | Anchor,
+        end: str | Anchor,
+        *,
+        inclusive: bool = False,
+    ) -> RangeAnchor:
+        """Return a `RangeAnchor` spanning the gap between two anchors.
+
+        The "give me the block between these two headings" read. `start` and
+        `end` are anchor ids (e.g. ``"heading:1"`` / ``"heading:3"``) or
+        `Anchor` objects; the headline use is a pair of `heading:N` ids, but any
+        anchors work (bookmarks, paragraphs, ranges).
+
+        With ``inclusive=False`` (default) the span runs from the **end** of
+        `start`'s range to the **start** of `end`'s range — the content strictly
+        between them, excluding both bounding paragraphs (so two headings yield
+        just the body in between). With ``inclusive=True`` it runs from the
+        start of `start` to the end of `end`, covering both bounding paragraphs.
+
+        Read ``.text`` on the result for the spanned text, or feed its
+        `range:START-END` id into any range-taking op. A pure read (the returned
+        offsets are live — use them before further edits shift the document).
+        Raises `OpError` if `end` begins before `start`.
+        """
+        with _com.translate_com_errors():
+            s_anchor = self.anchor_by_id(start) if isinstance(start, str) else start
+            e_anchor = self.anchor_by_id(end) if isinstance(end, str) else end
+            s_rng, e_rng = s_anchor.com, e_anchor.com
+            s_start, s_end = int(s_rng.Start), int(s_rng.End)
+            e_start, e_end = int(e_rng.Start), int(e_rng.End)
+        if e_start < s_start:
+            raise OpError(
+                f"'between' end anchor ({e_anchor.anchor_id}) begins before start "
+                f"anchor ({s_anchor.anchor_id})"
+            )
+        if inclusive:
+            lo, hi = min(s_start, e_start), max(s_end, e_end)
+        else:
+            # Strictly between: end of `start` to start of `end`. When the anchors
+            # abut with no gap, clamp to an empty span at the boundary.
+            lo, hi = s_end, max(s_end, e_start)
+        return self.range(lo, hi)
+
+    def nearest_heading(
+        self,
+        where: str | Anchor | int,
+        *,
+        direction: str = "before",
+    ) -> dict[str, Any] | None:
+        """The heading nearest to a position, scanning ``before`` or ``after`` it.
+
+        `where` is an anchor id (``"para:12"``), an `Anchor`, or a raw character
+        offset (int). `direction` is ``"before"`` (the nearest heading at or
+        above the position — i.e. the section the position sits in) or
+        ``"after"`` (the next heading past it). Returns an `outline()`-shaped
+        row ``{level, text, anchor_id}`` (``anchor_id`` is ``heading:N``), or
+        ``None`` if there is no heading in that direction. A pure read.
+        """
+        if direction not in ("before", "after"):
+            raise OpError(f"direction must be 'before' or 'after', got {direction!r}")
+        with _com.translate_com_errors():
+            if isinstance(where, str):
+                offset = int(self.anchor_by_id(where).com.Start)
+            elif isinstance(where, int):  # raw character offset
+                offset = int(where)
+            else:
+                offset = int(where.com.Start)
+            best: dict[str, Any] | None = None
+            for idx, para in enumerate(self._doc.Paragraphs, start=1):
+                try:
+                    level = int(para.OutlineLevel)
+                except Exception:
+                    continue
+                if level >= 10:  # body text, not a heading
+                    continue
+                h_start = int(para.Range.Start)
+                row = {"level": level, "text": paragraph_text(para), "anchor_id": f"heading:{idx}"}
+                if direction == "before":
+                    if h_start <= offset:
+                        best = row  # paragraphs are in order; keep the last one at/above
+                    else:
+                        break
+                elif h_start > offset:  # "after": first heading strictly past the offset
+                    best = row
+                    break
+        return best
+
+    def find_paragraphs(
+        self,
+        text: str,
+        *,
+        limit: int = 5,
+        min_score: float = 0.6,
+    ) -> list[dict[str, Any]]:
+        """Fuzzy-rank paragraphs by similarity to `text` (typo/paraphrase tolerant).
+
+        Unlike `find()` (exact substring on normalized text), this scores
+        **every paragraph** against `text` with `difflib.SequenceMatcher` over
+        the same normalized form (NFKC, smart quotes, dashes, whitespace) — so
+        an approximately-remembered paragraph still locates its `para:N`.
+        Returns up to `limit` rows, sorted by descending `score`, keeping only
+        those with ``score >= min_score``:
+        ``[{anchor_id, index, score, text, level, is_heading}, ...]``. An empty
+        or whitespace-only query returns ``[]``. A pure read.
+        """
+        if limit < 1:
+            raise OpError(f"limit must be >= 1, got {limit}")
+        if not 0.0 <= min_score <= 1.0:
+            raise OpError(f"min_score must be in [0, 1], got {min_score}")
+        needle = _findreplace._normalize(text).text
+        if not needle:
+            return []
+        scored: list[dict[str, Any]] = []
+        with _com.translate_com_errors():
+            for idx, para in enumerate(self._doc.Paragraphs, start=1):
+                raw = paragraph_text(para)
+                hay = _findreplace._normalize(raw).text
+                if not hay:
+                    continue
+                score = difflib.SequenceMatcher(None, needle, hay).ratio()
+                if score < min_score:
+                    continue
+                try:
+                    level = int(para.OutlineLevel)
+                except Exception:
+                    level = 10
+                scored.append(
+                    {
+                        "anchor_id": f"para:{idx}",
+                        "index": idx,
+                        "score": round(score, 4),
+                        "text": raw,
+                        "level": level,
+                        "is_heading": level < 10,
+                    }
+                )
+        scored.sort(key=lambda r: r["score"], reverse=True)
+        return scored[:limit]
 
     def stats(self) -> dict[str, Any]:
         """A one-call summary of the document — the "what am I looking at" read.

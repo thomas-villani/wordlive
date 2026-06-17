@@ -173,6 +173,46 @@ same visible heading text appears more than once.
 
 Failures: `2` heading not found.
 
+## `read between --start ID --end ID [--inclusive]`
+
+```
+wordlive read between --start ID --end ID [--inclusive]   [--doc DOC_NAME]
+```
+
+Read the content **between two anchors** — the headline use is two `heading:N`
+ids (the block between two headings), but any anchors work. By default the span
+is *strictly between* them (e.g. the body between two headings, excluding both
+heading lines); `--inclusive` covers both bounding paragraphs. Returns the
+spanning `range:START-END` id plus its text.
+
+```bash
+$ wordlive read between --start heading:1 --end heading:3
+{"start": "heading:1", "end": "heading:3", "inclusive": false,
+ "anchor_id": "range:13-352", "text": "Body of the first section …"}
+```
+
+The returned offsets are live — use them before further edits shift the
+document. Failures: `1` if `end` begins before `start`; `2` anchor not found.
+
+## `read nearest-heading --anchor-id ID [--direction before|after]`
+
+```
+wordlive read nearest-heading --anchor-id ID [--direction before|after]   [--doc DOC_NAME]
+```
+
+Find the heading nearest to a position. `--direction before` (default) returns
+the enclosing / preceding heading — the section the anchor sits in; `after`
+returns the next heading past it. Emits the heading row (`{level, text,
+anchor_id}`) under `heading`, or `null` when there is none in that direction.
+
+```bash
+$ wordlive read nearest-heading --anchor-id para:42 --direction before
+{"anchor_id": "para:42", "direction": "before",
+ "heading": {"level": 2, "text": "Risks", "anchor_id": "heading:17"}}
+```
+
+Failures: `1` bad `--direction`; `2` anchor not found.
+
 ## `write bookmark NAME (--text "…" | --create --anchor-id ID)`
 
 ```
@@ -1596,6 +1636,35 @@ NBSP, etc.) — that's the form Word will preserve when you replace it.
 
 Failures: returns `[]` with exit `0` for no matches; `2` if `--in ANCHOR_ID`
 refers to a missing anchor.
+
+## `find-paragraph --text "…" [--limit N] [--min-score F]`
+
+```
+wordlive find-paragraph --text "…" [--limit 5] [--min-score 0.6]   [--doc DOC_NAME]
+```
+
+**Fuzzy** paragraph search — the typo-/paraphrase-tolerant counterpart to
+`find`. Where `find` does an *exact substring* match (on normalized text) and
+returns `range:START-END` hits, `find-paragraph` scores **every paragraph**
+against the query with a similarity ratio (`difflib.SequenceMatcher`, over the
+same NFKC + smart-quote/dash/whitespace normalization) and returns the best
+`para:N` candidates. Use it when you have approximately-remembered text and want
+the paragraph it belongs to.
+
+```bash
+$ wordlive find-paragraph --text "the quick brown fox jumped over the dog"
+[{"anchor_id": "para:12", "index": 12, "score": 0.9438,
+  "text": "The quick brown fox jumps over the lazy dog.",
+  "level": 10, "is_heading": false}]
+```
+
+Rows are sorted by descending `score`; only those with `score >= --min-score`
+(default `0.6`) are kept, capped at `--limit` (default `5`). Headings are
+included (flagged by `is_heading` / `level`), addressed by `para:N`. An empty or
+whitespace-only query returns `[]`.
+
+Failures: returns `[]` with exit `0` for no matches above the threshold; `1` for
+`--limit < 1` or `--min-score` outside `[0, 1]`.
 
 ## `replace`
 
