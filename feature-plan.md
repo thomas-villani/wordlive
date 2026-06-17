@@ -61,6 +61,7 @@ Quick index (capability → real release):
 | Watermark (`doc.set_watermark`/`remove_watermark`); text box / pull quote (`anchor.insert_text_box`) | Unreleased |
 | Charts (Excel-backed: `anchor.insert_chart`, `doc.charts`, `chart:N`; bar/pie/line/scatter; `ExcelNotAvailableError`, exit 6) | Unreleased |
 | Chart formatting & design (`ChartAnchor.format`/`set_axis`/`add_trendline`/`set_series_color`; `chart_style`/`has_legend` reads) | Unreleased |
+| Structural query helpers (`doc.between`, `doc.nearest_heading`, `doc.find_paragraphs`; content-under-heading already shipped) | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -306,12 +307,20 @@ Ordered by leverage.
 > *data* back out (`doc.charts` stays metadata-only). One probe note: `Axis.Visible`
 > is not settable under late binding, so axis show/hide is not exposed.
 
-## 1. Structural query helpers (new, lower priority)
+> **Structural query helpers — ✅ shipped (Unreleased).** The last Part II item.
+> Three pure doc-level reads composing over `outline` + `find`:
+> `doc.between(start, end, *, inclusive=False)` (a `RangeAnchor` between two
+> anchors — the block between two headings), `doc.nearest_heading(where, *,
+> direction="before"|"after")` (the enclosing/preceding or next heading nearest a
+> position), and `doc.find_paragraphs(text, *, limit, min_score)` (**fuzzy**
+> paragraph ranking via `difflib.SequenceMatcher` over `find()`'s normalization —
+> the typo/paraphrase-tolerant counterpart to the exact-substring `find`, returning
+> ranked `para:N`). Wired across CLI (`read between`, `read nearest-heading`,
+> top-level `find-paragraph`) and MCP `word_read`. **Content-under-heading was
+> already shipped** (`Heading.section_range()`/`section_text()` + `read section`),
+> so these three complete the item. Pure reads — no `exec` ops.
 
-From the gpt-5.4 review: content-under-heading, block-between-headings,
-nearest-heading-before/after, find-paragraph-by-approx-text. Several reduce to
-thin compositions over `outline` + `find`, so they sit below the introspection
-reads (already shipped). Not yet ticketed.
+(No remaining approved/next-up items — see Part III for the deferred backlog.)
 
 ---
 

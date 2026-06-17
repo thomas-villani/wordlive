@@ -54,7 +54,9 @@ not-a-heading, the nearest heading, and a nudge to pin).
 ## Reading
 - `wordlive read bookmark NAME` (or `read bookmark --list` for every bookmark name) · `read cc NAME` · `read section "Heading Text"`
 - `wordlive read text --anchor-id ID [--view raw|final|original|segments]` — an anchor's text; `final`/`original` resolve tracked changes (final = as if accepted, original = as if rejected — the deleted wording, which `raw`/`Range.Text` omits), `segments` is the per-run insert/delete breakdown.
-- `wordlive find --text "phrase"` — locate before editing; returns `range:` ids.
+- `wordlive read between --start ID --end ID [--inclusive]` — content between two anchors (e.g. the block between two headings; default excludes both heading lines). `wordlive read nearest-heading --anchor-id ID [--direction before|after]` — the heading nearest a position (`before` = enclosing/preceding, `after` = next).
+- `wordlive find --text "phrase"` — exact locate before editing; returns `range:` ids.
+- `wordlive find-paragraph --text "approx text" [--limit N] [--min-score F]` — **fuzzy** paragraph search (typo/paraphrase tolerant), returns ranked `para:N` candidates with scores. Use this when you remember the gist; use `find` for exact substrings.
 - `wordlive table list` · `wordlive table read N` · `wordlive table records N` — body rows as `{header: value}` dicts (row 1 is the header), the read mirror of building a table from records.
 - `wordlive footnotes` · `wordlive endnotes` — each note's `footnote:N`/`endnote:N` id, text, and `para:N`.
 - `wordlive images` — each embedded picture's `image:N` id, MIME, size, alt text, and `para:N`. Pull one out with `wordlive read-image --anchor-id image:N [--out FILE]` (`--out` writes the raw bytes; otherwise base64 + mime inline) — the path for handing a picture to a vision model.

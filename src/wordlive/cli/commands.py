@@ -73,6 +73,18 @@ def _fmt_find(matches: list[dict[str, Any]]) -> str:
     return "\n".join(f"{m['start']:>6}–{m['end']:<6}  {m['text']!r}" for m in matches)
 
 
+def _fmt_find_paragraphs(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "(no matches)"
+    return "\n".join(f"{r['score']:.2f}  {r['anchor_id']:<10}  {r['text']!r}" for r in rows)
+
+
+def _fmt_nearest_heading(anchor_id: str, direction: str, row: dict[str, Any] | None) -> str:
+    if row is None:
+        return f"(no heading {direction} {anchor_id})"
+    return f"{row['anchor_id']}  (L{row['level']})  {row['text']!r}"
+
+
 def _fmt_replace_summary(replacements: list[dict[str, Any]]) -> str:
     n = len(replacements)
     return f"replaced {n} occurrence{'s' if n != 1 else ''}"
@@ -147,6 +159,7 @@ def register(group: click.Group) -> None:
     group.add_command(export_pdf_cmd)
     group.add_command(cursor)
     group.add_command(find_cmd)
+    group.add_command(find_paragraph_cmd)
     group.add_command(replace)
     group.add_command(go_to)
     group.add_command(style)
@@ -415,6 +428,70 @@ def read_section(ctx: click.Context, heading: str | None, anchor_id: str | None)
                 },
                 as_text=not ctx.obj["as_json"],
                 text=body,
+            )
+
+    _run(ctx, go)
+
+
+@read.command(name="between")
+@click.option("--start", "start", required=True, help="Start anchor id (e.g. 'heading:1').")
+@click.option("--end", "end", required=True, help="End anchor id (e.g. 'heading:3').")
+@click.option(
+    "--inclusive",
+    "inclusive",
+    is_flag=True,
+    default=False,
+    help="Include both bounding paragraphs (default: only the content strictly between).",
+)
+@click.pass_context
+def read_between(ctx: click.Context, start: str, end: str, inclusive: bool) -> None:
+    """Read the content between two anchors (read-only).
+
+    Default spans the gap strictly between START and END (e.g. the body between
+    two headings, excluding the heading lines); --inclusive covers both.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            span = doc.between(start, end, inclusive=inclusive)
+            body = span.text
+            emit(
+                {
+                    "start": start,
+                    "end": end,
+                    "inclusive": inclusive,
+                    "anchor_id": span.anchor_id,
+                    "text": body,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=body,
+            )
+
+    _run(ctx, go)
+
+
+@read.command(name="nearest-heading")
+@click.option("--anchor-id", "anchor_id", required=True, help="Position to scan from (any anchor).")
+@click.option(
+    "--direction",
+    "direction",
+    type=click.Choice(["before", "after"]),
+    default="before",
+    help="before = enclosing/preceding heading; after = next heading.",
+)
+@click.pass_context
+def read_nearest_heading(ctx: click.Context, anchor_id: str, direction: str) -> None:
+    """Find the heading nearest to ANCHOR (read-only)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            row = doc.nearest_heading(anchor_id, direction=direction)
+            emit(
+                {"anchor_id": anchor_id, "direction": direction, "heading": row},
+                as_text=not ctx.obj["as_json"],
+                text=_fmt_nearest_heading(anchor_id, direction, row),
             )
 
     _run(ctx, go)
@@ -3908,6 +3985,30 @@ def find_cmd(ctx: click.Context, text: str, in_: str | None) -> None:
             scope = doc.anchor_by_id(in_) if in_ else None
             matches = doc.find(text, scope=scope)
             emit(matches, as_text=not ctx.obj["as_json"], text=_fmt_find(matches))
+
+    _run(ctx, go)
+
+
+@click.command(name="find-paragraph")
+@click.option("--text", "text", required=True, help="Approximate paragraph text to locate.")
+@click.option("--limit", "limit", type=int, default=5, show_default=True, help="Max candidates.")
+@click.option(
+    "--min-score",
+    "min_score",
+    type=float,
+    default=0.6,
+    show_default=True,
+    help="Minimum similarity score (0–1) to include.",
+)
+@click.pass_context
+def find_paragraph_cmd(ctx: click.Context, text: str, limit: int, min_score: float) -> None:
+    """Fuzzy-rank paragraphs by similarity to TEXT (typo/paraphrase tolerant, read-only)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.find_paragraphs(text, limit=limit, min_score=min_score)
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_find_paragraphs(rows))
 
     _run(ctx, go)
 

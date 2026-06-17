@@ -744,6 +744,41 @@ def test_location_page_rises_after_a_page_break(scratch_doc):
     assert bot["page"] >= top["page"] + 1
 
 
+def test_structural_query_helpers(scratch_doc):
+    """between / nearest_heading / find_paragraphs over a real outline.
+
+    Layout: Heading 1 'Alpha' → body → Heading 1 'Beta' → body. Pure reads."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        # Pin body paragraphs to Normal — a paragraph appended after a Heading 1
+        # otherwise inherits the heading style (real Word behaviour) and would
+        # itself read as a heading.
+        doc.append_paragraph("Alpha", style="Heading 1")
+        doc.append_paragraph("The quick brown fox jumps over the lazy dog.", style="Normal")
+        doc.append_paragraph("Beta", style="Heading 1")
+        doc.append_paragraph("Second section body paragraph.", style="Normal")
+    alpha = _para_id_by_text(doc, "Alpha")
+    beta = _para_id_by_text(doc, "Beta")
+    body1 = _para_id_by_text(doc, "The quick brown fox jumps over the lazy dog.")
+
+    # between: the body under Alpha (excludes both heading lines).
+    span = doc.between(alpha, beta)
+    assert "quick brown fox" in span.text
+    assert "Beta" not in span.text and "Alpha" not in span.text
+    assert doc.between(alpha, beta, inclusive=True).text.strip().startswith("Alpha")
+
+    # nearest_heading: enclosing vs next.
+    assert doc.nearest_heading(body1, direction="before")["text"] == "Alpha"
+    assert doc.nearest_heading(body1, direction="after")["text"] == "Beta"
+
+    # find_paragraphs: a lightly-typo'd query still ranks the intended paragraph
+    # first, with a high-but-imperfect score (proves real fuzzy ranking).
+    rows = doc.find_paragraphs("the quick brown fox jumped over the lazy dog", limit=3)
+    assert rows, "expected at least one fuzzy match"
+    assert rows[0]["anchor_id"] == body1
+    assert 0.8 <= rows[0]["score"] < 1.0
+
+
 def test_table_records_round_trip_and_update(scratch_doc):
     """records() reads back what insert_table(data=[{...}]) wrote; append_record
     and update_row edit by header name."""

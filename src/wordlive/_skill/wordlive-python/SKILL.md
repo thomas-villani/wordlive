@@ -34,10 +34,13 @@ with wl.attach() as word:        # attach to the already-running Word (raises if
 doc.outline()                       # [{"level", "text", "anchor_id": "heading:N"}, …]
 doc.paragraphs.list()               # every paragraph: index, anchor_id "para:N", level,
                                     #   style (Word style name), is_heading, start, end, text
-doc.find("the risk register")       # fuzzy; [{"anchor_id": "range:S-E", "start","end","text"}]
+doc.find("the risk register")       # exact substring (normalized); [{"anchor_id":"range:S-E",…}]
+doc.find_paragraphs("approx text")  # FUZZY ranking (difflib); [{"anchor_id":"para:N","score",…}]
 doc.bookmarks["Address"].text       # bookmark text
 doc.content_controls["Signatory"].text
 doc.heading("Introduction").section_text()   # body under a heading, to the next ≤-level one
+doc.between("heading:1", "heading:3")         # RangeAnchor between two anchors (excl. headings)
+doc.nearest_heading("para:42")                # heading row nearest a position (direction=before|after)
 doc.tables[1].grid()                # 2-D list of cell text (1-based index, or by Title)
 doc.styles.list()                   # [{"name","type","builtin","in_use"}]
 doc.sections[1].page_setup          # margins / orientation / page size (points)

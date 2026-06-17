@@ -159,6 +159,30 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                     "level": h.level,
                     "text": h.section_text(),
                 }
+            if command == "between":
+                start_id = _need(p, "start_anchor", command)
+                end_id = _need(p, "end_anchor", command)
+                inclusive = bool(p.get("inclusive", False))
+                span = doc.between(start_id, end_id, inclusive=inclusive)
+                return {
+                    "start": start_id,
+                    "end": end_id,
+                    "inclusive": inclusive,
+                    "anchor_id": span.anchor_id,
+                    "text": span.text,
+                }
+            if command == "nearest_heading":
+                anchor_id = _need(p, "anchor_id", command)
+                direction = p.get("direction") or "before"
+                row = doc.nearest_heading(anchor_id, direction=direction)
+                return {"anchor_id": anchor_id, "direction": direction, "heading": row}
+            if command == "find_paragraphs":
+                kwargs: dict[str, Any] = {}
+                if p.get("limit") is not None:
+                    kwargs["limit"] = p["limit"]
+                if p.get("min_score") is not None:
+                    kwargs["min_score"] = p["min_score"]
+                return doc.find_paragraphs(_need(p, "text", command), **kwargs)
             if command == "table_list":
                 return doc.tables.list()
             if command == "table_read":
@@ -980,6 +1004,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "read_bookmark",
             "read_cc",
             "read_section",
+            "between",
+            "nearest_heading",
+            "find_paragraphs",
             "table_list",
             "table_read",
             "table_records",
@@ -1016,6 +1043,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         start: int | None = None,
         count: int | None = None,
         view: str | None = None,
+        start_anchor: str | None = None,
+        end_anchor: str | None = None,
+        inclusive: bool = False,
+        direction: str | None = None,
+        limit: int | None = None,
+        min_score: float | None = None,
     ) -> Any:
         """Read from the open Word document. Dispatch on `command`:
 
@@ -1024,7 +1057,16 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         status (no doc needed; reports name/path/saved/is_active per open doc) ·
         outline [all_paragraphs] · paragraphs [start,count] ·
         find {text,[in_anchor]} · read_bookmark {name} · read_cc {name} ·
-        read_section {heading | anchor_id} · table_list · table_read {table} ·
+        read_section {heading | anchor_id} (body under a heading) ·
+        between {start_anchor,end_anchor,[inclusive]} (content spanning two anchors —
+        e.g. the block between two headings; default excludes both heading lines,
+        inclusive covers them; returns a range:START-END id + text) ·
+        nearest_heading {anchor_id,[direction=before|after]} (the heading nearest a
+        position — before=enclosing/preceding, after=next; an outline row or null) ·
+        find_paragraphs {text,[limit=5],[min_score=0.6]} (fuzzy-rank paragraphs by
+        similarity to text — typo/paraphrase tolerant, unlike the exact-substring find;
+        returns para:N candidates with scores) ·
+        table_list · table_read {table} ·
         table_records {table} (body rows as dicts keyed by the header row — the
         read mirror of building a table from records) ·
         styles · comments · revisions (tracked changes: type/author/text/range per
@@ -1068,6 +1110,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "start": start,
             "count": count,
             "view": view,
+            "start_anchor": start_anchor,
+            "end_anchor": end_anchor,
+            "inclusive": inclusive,
+            "direction": direction,
+            "limit": limit,
+            "min_score": min_score,
         }
         try:
             return _read_impl(w, command, params)
