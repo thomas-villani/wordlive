@@ -36,6 +36,7 @@ from ._anchors import (
 from ._comments import CommentCollection
 from ._edit import EditScope
 from ._fields import FieldCollection
+from ._format import to_bgr
 from ._hyperlinks import HyperlinkCollection
 from ._lists import ListCollection
 from ._notes import EndnoteCollection, FootnoteCollection
@@ -49,7 +50,19 @@ from ._styles import StyleCollection
 from ._tables import Table, TableCollection
 from ._themes import DocumentTheme
 from ._variables import VariableCollection
-from .constants import WdInformation, WdSaveFormat, WdStatistic
+from .constants import (
+    MsoPresetTextEffect,
+    MsoTriState,
+    WdHeaderFooterIndex,
+    WdInformation,
+    WdRelativeHorizontalPosition,
+    WdRelativeVerticalPosition,
+    WdSaveFormat,
+    WdShapePosition,
+    WdStatistic,
+    WdWrapSideType,
+    WdWrapType,
+)
 from .exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
@@ -427,7 +440,7 @@ class Document:
 
     @property
     def revisions(self) -> RevisionCollection:
-        """Read-only, iterable view over the document's tracked changes (`doc.revisions`).
+        """Iterable view over the document's tracked changes (`doc.revisions`).
 
         When Track Changes is on, every edit is a `Revision` the user can accept
         or reject. `doc.revisions.list()` reports each as
@@ -435,8 +448,17 @@ class Document:
         *structured* way to see what tracked edits a batch recorded (the visual
         way is [`snapshot(markup="all")`][wordlive.Document.snapshot]). Index by
         1-based position (`doc.revisions[2]`); `type` is `"insert"` / `"delete"`
-        / `"format"` / … . Writing tracked changes is
-        [`tracked_changes()`][wordlive.Document.tracked_changes].
+        / `"format"` / … .
+
+        Resolve them too: `doc.revisions[2].accept()` / `.reject()` for one, or
+        [`accept_all`][wordlive.RevisionCollection.accept_all] /
+        [`reject_all`][wordlive.RevisionCollection.reject_all]
+        (`within=anchor` to scope to one section/range) for many. For a read that
+        separates the inserted from the deleted runs of a just-edited range, use
+        [`Anchor.text_final`][wordlive.Anchor.text_final] /
+        [`text_original`][wordlive.Anchor.text_original] /
+        [`revision_segments`][wordlive.Anchor.revision_segments]. Writing tracked
+        changes is [`tracked_changes()`][wordlive.Document.tracked_changes].
         """
         return RevisionCollection(self)
 
@@ -577,6 +599,107 @@ class Document:
         finally:
             with _com.translate_com_errors():
                 self._doc.TrackRevisions = previous
+
+    # Word's own text-watermark feature names its WordArt shapes with this prefix
+    # (e.g. "PowerPlusWaterMarkObject357921"); reusing it means set_watermark
+    # replaces a watermark the user added through the ribbon, and remove_watermark
+    # finds it — the established convention, not a wordlive marker.
+    _WATERMARK_NAME_PREFIX = "PowerPlusWaterMarkObject"
+
+    def set_watermark(
+        self,
+        text: str,
+        *,
+        font: str = "Calibri",
+        color: str = "#C0C0C0",
+        layout: str = "diagonal",
+        semitransparent: bool = True,
+    ) -> int:
+        """Stamp a text watermark (DRAFT / CONFIDENTIAL / …) behind every page.
+
+        Adds a WordArt shape to each section's primary header story — the same
+        mechanism (and shape name) as Word's *Design → Watermark → Custom*, so it
+        shows behind the body text on every page and replaces any existing text
+        watermark. `layout` is ``"diagonal"`` (default, rotated 45°) or
+        ``"horizontal"``; `color` is the fill colour (``"#C0C0C0"`` / ``"red"``);
+        `semitransparent` washes it out (50% transparency) so body text stays
+        readable. Returns the number of sections stamped.
+
+        Any prior watermark is cleared first, so calling it twice doesn't stack.
+        Remove one with [`remove_watermark`][wordlive.Document.remove_watermark].
+        Wrap in `doc.edit(...)` for atomic undo. Raises `OpError` for a bad
+        `layout` or `color`.
+        """
+        if layout not in ("diagonal", "horizontal"):
+            raise OpError(f"watermark layout must be 'diagonal' or 'horizontal'; got {layout!r}")
+        try:
+            fill_bgr = to_bgr(color)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+        rotation = 315.0 if layout == "diagonal" else 0.0
+        self.remove_watermark()
+        with _com.translate_com_errors():
+            sections = self._doc.Sections
+            count = int(sections.Count)
+            for s in range(1, count + 1):
+                section = sections(s)
+                header = section.Headers(int(WdHeaderFooterIndex.PRIMARY))
+                ps = section.PageSetup
+                usable = float(ps.PageWidth) - float(ps.LeftMargin) - float(ps.RightMargin)
+                width = max(72.0, usable)
+                # Shapes live on the HeaderFooter itself, not its Range (a Range
+                # has no .Shapes) — this is the header story Word's own watermark
+                # feature draws into.
+                shape = header.Shapes.AddTextEffect(
+                    PresetTextEffect=int(MsoPresetTextEffect.TEXT_EFFECT1),
+                    Text=text,
+                    FontName=font,
+                    FontSize=1.0,  # WordArt scales to the box; explicit size below
+                    FontBold=int(MsoTriState.FALSE),
+                    FontItalic=int(MsoTriState.FALSE),
+                    Left=0.0,
+                    Top=0.0,
+                )
+                shape.Name = f"{self._WATERMARK_NAME_PREFIX}{s}"
+                shape.TextEffect.NormalizedHeight = False
+                shape.Line.Visible = int(MsoTriState.FALSE)
+                shape.Fill.Visible = int(MsoTriState.TRUE)
+                shape.Fill.Solid()
+                shape.Fill.ForeColor.RGB = fill_bgr
+                shape.Fill.Transparency = 0.5 if semitransparent else 0.0
+                shape.Rotation = rotation
+                shape.LockAspectRatio = int(MsoTriState.TRUE)
+                shape.Width = width
+                shape.Height = width / 5.0
+                shape.WrapFormat.AllowOverlap = True
+                shape.WrapFormat.Side = int(WdWrapSideType.BOTH)
+                shape.WrapFormat.Type = int(WdWrapType.BEHIND)
+                shape.RelativeHorizontalPosition = int(WdRelativeHorizontalPosition.MARGIN)
+                shape.RelativeVerticalPosition = int(WdRelativeVerticalPosition.MARGIN)
+                shape.Left = float(WdShapePosition.CENTER)
+                shape.Top = float(WdShapePosition.CENTER)
+        return count
+
+    def remove_watermark(self) -> int:
+        """Remove any text watermark added by `set_watermark` (or Word's ribbon).
+
+        Deletes every WordArt shape named like Word's watermark object across all
+        sections' header stories. Returns the number of shapes removed (0 if there
+        was no watermark). Wrap in `doc.edit(...)` for atomic undo.
+        """
+        removed = 0
+        with _com.translate_com_errors():
+            sections = self._doc.Sections
+            for s in range(1, int(sections.Count) + 1):
+                header = sections(s).Headers(int(WdHeaderFooterIndex.PRIMARY))
+                shapes = header.Shapes
+                # Delete back-to-front: removing a shape renumbers those after it.
+                for i in range(int(shapes.Count), 0, -1):
+                    shape = shapes(i)
+                    if str(shape.Name or "").startswith(self._WATERMARK_NAME_PREFIX):
+                        shape.Delete()
+                        removed += 1
+        return removed
 
     def add_table(
         self,

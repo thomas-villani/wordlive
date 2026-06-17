@@ -860,7 +860,8 @@ List the document's tracked changes — the structured counterpart to
 `snapshot --markup all`. Each revision reports its `type` (`insert` / `delete` /
 `format` / …), `author`, the affected `text`, and a `range:START-END` id.
 Reading is non-mutating. (Toggle Track Changes with `track on` / `off`; check it
-with `track status`.)
+with `track status`.) This is an alias for `revision list` — see the `revision`
+group below to *resolve* changes.
 
 ```bash
 $ wordlive revisions
@@ -869,6 +870,55 @@ $ wordlive revisions
 ```
 
 Failures: `3` Word busy, `4` Word not running.
+
+## `revision list | accept | reject | accept-all | reject-all`
+
+```
+wordlive revision list
+wordlive revision accept  --index N
+wordlive revision reject  --index N
+wordlive revision accept-all [--anchor-id ID]
+wordlive revision reject-all [--anchor-id ID]
+```
+
+Resolve tracked changes (the write side of `revisions`). `accept` makes the
+change at 1-based `--index` permanent; `reject` undoes it — both renumber the
+remaining revisions, so re-list between resolves. `accept-all` / `reject-all`
+resolve every change at once and report the count; pass `--anchor-id` to scope
+to a single anchor's range ("accept all my edits in this section" — note an
+anchor's range is literal, so a `heading:N` covers only the heading line, not the
+body below it; target a paragraph/range that spans the changes). All wrap one
+atomic-undo step.
+
+```bash
+$ wordlive revision accept --index 1
+{"ok": true, "index": 1, "accepted": true}
+$ wordlive revision accept-all --anchor-id heading:3
+{"ok": true, "accepted": 4, "anchor_id": "heading:3"}
+```
+
+Failures: `2` anchor not found / index out of range, `3` Word busy, `4` Word not
+running.
+
+## `read text --anchor-id ID [--view raw|final|original|segments]`
+
+```
+wordlive read text --anchor-id ID [--view raw|final|original|segments]
+```
+
+Read an anchor's text, optionally resolving tracked changes. `raw` (default) is
+`Range.Text` as Word reports it — already the *final* view (inserted runs
+present, deleted runs gone). `final` reconstructs the accept-all view explicitly;
+`original` the reject-all view (the deleted wording, which lives only on the
+delete revisions, spliced back in); `segments` returns the ordered
+`{text, change}` breakdown (`change` ∈ `insert` / `delete` / `null`).
+
+```bash
+$ wordlive read text --anchor-id para:5 --view original
+{"anchor_id": "para:5", "view": "original", "text": "the quick brown fox"}
+```
+
+Failures: `2` anchor not found, `3` Word busy, `4` Word not running.
 
 ## `locate --anchor-id ID`
 
@@ -1212,6 +1262,52 @@ $ base64 logo.png | wordlive insert-image --anchor-id bookmark:Header --base64 -
 Failures: `1` the image is missing, unreadable, or not a recognised raster
 format (PNG/JPEG/GIF/BMP/TIFF) — an `ImageSourceError`; `2` anchor not found
 or an invalid `--wrap` value; `3` Word busy.
+
+## `watermark (--text "…" | --remove) [--layout …] [--color …] [--font …] [--solid]`
+
+```
+wordlive watermark --text "DRAFT" [--font NAME] [--color COLOR] \
+    [--layout diagonal|horizontal] [--transparent | --solid] [--doc DOC_NAME]
+wordlive watermark --remove [--doc DOC_NAME]
+```
+
+Stamp (or `--remove`) a text watermark behind every page — WordArt drawn into
+each section's header story, named like Word's own *Design → Watermark* object
+(so it replaces a ribbon-added one). `--layout` is `diagonal` (45°, default) or
+`horizontal`; `--color` the fill (default `#C0C0C0`); `--solid` turns off the
+default 50% wash. Setting twice replaces rather than stacks. One atomic-undo step.
+
+```bash
+$ wordlive watermark --text "CONFIDENTIAL" --color "#ff0000"
+{"ok": true, "text": "CONFIDENTIAL", "sections": 1}
+$ wordlive watermark --remove
+{"ok": true, "removed": 1}
+```
+
+Failures: `1` bad `--layout`/`--color`; `3` Word busy, `4` Word not running.
+
+## `insert-text-box --anchor-id ID --text "…" [--width …] [--height …] [--wrap …]`
+
+```
+wordlive insert-text-box --anchor-id ID --text "…" [--width W] [--height H] \
+    [--wrap square|tight|through|top-bottom|front|behind] [--before | --after] \
+    [--font F] [--size S] [--bold | --no-bold] [--italic | --no-italic] \
+    [--align left|center|right|justify] [--fill COLOR] \
+    [--border-color COLOR | --no-border] [--doc DOC_NAME]
+```
+
+Insert a floating text box / pull quote anchored to the anchor's paragraph.
+`--width`/`--height` accept points or unit strings (`3in`, `8cm`); `--wrap` is
+how body text flows around it (the `insert-image` vocabulary minus `inline`).
+`--fill` sets a background colour and `--no-border` / `--border-color` control
+the outline. One atomic-undo step.
+
+```bash
+$ wordlive insert-text-box --anchor-id heading:2 --text "Key takeaway" --width 2.5in --fill "#eeeeff"
+{"ok": true, "anchor_id": "heading:2", "wrap": "square"}
+```
+
+Failures: `2` anchor not found or invalid `--wrap`; `3` Word busy.
 
 ## `insert-equation --anchor-id ID (--unicodemath … | --latex … | --mathml …)` / `equations`
 
@@ -2307,6 +2403,13 @@ Script shape:
 | `add_comment`          | `anchor_id`, `text`                        | `author`                          |
 | `resolve_comment`      | `index`                                    | —                                 |
 | `delete_comment`       | `index`                                    | —                                 |
+| `accept_revision`      | `index`                                    | —                                 |
+| `reject_revision`      | `index`                                    | —                                 |
+| `accept_all_revisions` | —                                          | `anchor_id` (scope to its range)  |
+| `reject_all_revisions` | —                                          | `anchor_id`                       |
+| `set_watermark`        | `text`                                     | `font`, `color`, `layout`, `semitransparent` |
+| `remove_watermark`     | —                                          | —                                 |
+| `insert_text_box`      | `anchor_id`, `text`                        | `width`, `height`, `wrap`, `font`, `size`, `bold`, `italic`, `alignment`, `fill`, `border`, `before`/`after` |
 | `apply_list`           | `anchor_id`                                | `type` (`bulleted`/`numbered`/`outline`), `continue` |
 | `remove_list`          | `anchor_id`                                | —                                 |
 | `restart_numbering`    | `anchor_id`                                | —                                 |
@@ -2427,6 +2530,14 @@ settles.
 verbs — `add_comment` attaches a side-channel annotation to an `anchor_id`
 without touching the text, while `resolve_comment` / `delete_comment` take a
 1-based `index`. Since deletes re-index, ordering matters within a batch.
+
+`accept_revision` / `reject_revision` resolve the tracked change at a 1-based
+`index`; `accept_all_revisions` / `reject_all_revisions` resolve them all
+(optionally scoped to an `anchor_id`'s range). Like comment deletes, accepting /
+rejecting re-indexes the rest, so order within a batch matters — the bulk ops are
+safer when resolving several. `set_watermark` / `remove_watermark` stamp or clear
+a text watermark behind every page, and `insert_text_box` drops a floating pull
+quote at an `anchor_id` (these mirror the `watermark` / `insert-text-box` verbs).
 
 `apply_list`, `remove_list`, `restart_numbering`, `indent_list`, and
 `outdent_list` mirror the `list` verbs — all take an `anchor_id`, and

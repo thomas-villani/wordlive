@@ -382,13 +382,48 @@ with doc.tracked_changes(), doc.edit("Suggest plainer wording"):
 setting on exit; every edit lands as an accept/reject-able revision.
 `doc.track_changes` is the underlying persistent bool.
 
-**See what you recorded.** Plain text reads concatenate the inserted and deleted
-runs, so don't reason off them while tracking. Instead read the revisions
-structurally — `doc.revisions.list()` → `[{index, type, author, text, anchor_id,
-…}]` (`type` is `insert`/`delete`/`format`/…) — or *visually* with
-`doc.snapshot(markup="all")`, which renders the marks and balloons. (One caveat:
-a tracked `find_replace` on the **same** paragraph as a previous one can drift,
-because both runs are still present — re-read between tracked edits.)
+**See what you recorded.** Read the revisions structurally —
+`doc.revisions.list()` → `[{index, type, author, text, anchor_id, …}]` (`type` is
+`insert`/`delete`/`format`/…) — or *visually* with `doc.snapshot(markup="all")`.
+A plain `anchor.text` read is the **final** view (inserted runs present, deleted
+runs gone), so to recover the *original* wording use the revision-aware reads:
+
+```python
+para.text_final        # as if every tracked change in it were accepted
+para.text_original     # as if rejected (the deleted wording, restored)
+para.revision_segments()  # [{text, change}] — change is insert/delete/None
+```
+
+(A tracked `find_replace` on the **same** paragraph as a previous one can still
+drift — re-read between tracked edits, or use `text_final` to see the result.)
+
+**Resolve them.** Accept or reject changes once you (or the user) are happy:
+
+```python
+with doc.edit("Resolve review"):
+    doc.revisions[2].accept()                       # or .reject() — one change
+    doc.revisions.accept_all()                      # the whole document
+    doc.revisions.reject_all(within=doc.heading("Risks"))  # just one section's range
+```
+
+`accept`/`reject` renumber the rest (re-list between them); `accept_all`/
+`reject_all` return the count resolved. An anchor's range is *literal* — a heading
+covers only its line, so scope `within=` to a range/paragraph that spans the
+changes.
+
+### Publishing flourishes — watermark & pull quote
+
+```python
+with doc.edit("Stamp draft"):
+    doc.set_watermark("DRAFT", layout="diagonal")   # WordArt behind every page
+    doc.heading("Summary").insert_text_box(          # a floating pull quote
+        "Key takeaway.", width="2.5in", fill="#eeeeff", wrap="square")
+# doc.remove_watermark() clears it (idempotent; setting again replaces).
+```
+
+`set_watermark` draws into each section's header story (replacing a prior one);
+`insert_text_box` floats a `Shapes.AddTextbox` anchored to the anchor's paragraph
+(`wrap` is the `insert_image` vocabulary minus `inline`).
 
 ### Document info — metadata, variables, links, fields, proofing
 

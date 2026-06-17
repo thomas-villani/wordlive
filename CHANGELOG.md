@@ -19,6 +19,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clamp only guarded the document's final mark; this fixes interior boundaries.
 
 ### Added
+- **Revision write surface — accept / reject tracked changes.** The read side
+  (`doc.revisions`, `snapshot(markup="all")`) shipped in v0.12.0; mutating a
+  `Revision` no longer needs the `.com` escape hatch:
+  - **`doc.revisions[N].accept()` / `.reject()`** resolve a single tracked change
+    (accepting consumes it and renumbers the rest). CLI `wordlive revision accept
+    --index N` / `reject`; exec ops `accept_revision` / `reject_revision`; MCP
+    `word_write` command `revision` (`action=accept|reject`).
+  - **`doc.revisions.accept_all(within=anchor)` / `.reject_all(within=anchor)`**
+    resolve every tracked change at once — whole-document by default, or scoped to
+    any anchor's range (`within=heading` / `range:` / cell / …) so an agent can
+    "accept all my edits in this section". Returns the count resolved. CLI
+    `wordlive revision accept-all [--anchor-id …]` / `reject-all`; exec ops
+    `accept_all_revisions` / `reject_all_revisions`; MCP `revision`
+    (`action=accept_all|reject_all`). The top-level `revisions` command stays as
+    the alias for the new `revision list`.
+- **Revision-aware reads — `Anchor.text_final` / `text_original` /
+  `revision_segments()`.** A tracked edit's two sides live in different places:
+  Word's `Range.Text` returns the **final** view (inserted runs present, deleted
+  runs gone), while the deleted text survives only on the delete `Revision`.
+  These reconstruct both — `text_final` (as if accepted), `text_original` (as if
+  rejected), and `revision_segments()` (the ordered `{text, change}` breakdown,
+  `change` ∈ insert/delete/None). CLI `wordlive read text --anchor-id ID --view
+  raw|final|original|segments`; MCP `word_read` command `read_text` (`view=…`).
+- **Watermark — `doc.set_watermark(text, …)` / `doc.remove_watermark()`.** Stamps
+  a text watermark (DRAFT / CONFIDENTIAL) behind every page via WordArt in each
+  section's header story (the same shape name as Word's *Design → Watermark*, so
+  it replaces a ribbon-added one). `layout="diagonal"|"horizontal"`, `color`,
+  `font`, `semitransparent`; setting twice replaces rather than stacks; removal
+  is idempotent. CLI `wordlive watermark --text … [--layout …]` / `--remove`;
+  exec ops `set_watermark` / `remove_watermark`; MCP `word_write` `watermark`.
+- **Text box / pull quote — `anchor.insert_text_box(text, …)`.** A floating
+  `Shapes.AddTextbox` anchored to any anchor's paragraph, with `width` / `height`
+  (points or unit strings), `wrap` (the `insert_image` vocabulary minus inline),
+  `where`, text formatting (`font` / `size` / `bold` / `italic` / `alignment`),
+  and `fill` / `border`. CLI `wordlive insert-text-box --anchor-id ID --text …`;
+  exec op `insert_text_box`; MCP `word_write` `text_box`.
 - **Durable handles (`pin:`) & stale-anchor diagnostics.** The fix for fragile
   positional `para:N` / `heading:N` ids that renumber under later inserts:
   - **`doc.pin(anchor, name=None)`** (alias `doc.stamp`) plants a Word-hidden

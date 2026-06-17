@@ -56,6 +56,9 @@ Quick index (capability → real release):
 | Citations & bibliography (`doc.sources`, `insert_citation`, `insert_bibliography`); table of authorities | v0.16.0 |
 | Document themes (`doc.theme` — apply / brand colours / fonts) | v0.16.0 |
 | Durable handles (`doc.pin`/`stamp`, `pin:`, `pin_outline`, insert `bind`, `$ops[N]` refs) + stale-anchor hints | Unreleased |
+| Revision write surface (`revision.accept`/`reject`, `revisions.accept_all`/`reject_all` w/ `within=`) | Unreleased |
+| Revision-aware reads (`anchor.text_final`/`text_original`/`revision_segments`) | Unreleased |
+| Watermark (`doc.set_watermark`/`remove_watermark`); text box / pull quote (`anchor.insert_text_box`) | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -118,6 +121,27 @@ escaping — path-bearing batches should use `--script FILE` or `--ops -`.
 
 ### Live-Word gotchas (hard-won; don't re-learn these)
 
+- **Tracked text is the FINAL view in `Range.Text`** (live-probed 2026-06-16):
+  Word's `Range.Text` returns the *accepted* text — inserted runs present,
+  **deleted runs absent**. The deleted characters survive only on the delete
+  `Revision` (`.Range.Text`), and revision offsets are reported in a **markup**
+  coordinate space where the deleted text still occupies positions (so a delete
+  revision's range overlaps real unchanged text in the final stream). So
+  reconstructing the *original* (reject-all) view can't filter `Range.Text` — it
+  must walk the markup space and splice the deleted text back in from each delete
+  revision. This is what `_revisions.segment_runs` does (`accept`/`reject` on a
+  single `Revision` renumbers the rest; `Range.Revisions.AcceptAll`/`RejectAll`
+  scope the bulk op). An **anchor's range is literal** — `accept_all(within=heading)`
+  covers only the heading line, not its section body (use a range/paragraph that
+  actually spans the revisions).
+- **Floating shapes live on the HeaderFooter / Document, not on `Range`.** A
+  `Range` has **no** `.Shapes` (an AttributeError); the watermark draws into
+  `Section.Headers(wdHeaderFooterPrimary).Shapes.AddTextEffect(...)` (WordArt,
+  named `PowerPlusWaterMarkObject<N>` to match — and replace — Word's own
+  watermark feature), and a text box is `Document.Shapes.AddTextbox(..., Anchor=range)`.
+  `Shape.WrapFormat.Type = behind` floats a watermark behind body text;
+  `Shape.Left/Top = wdShapeCenter (-999995)` with `RelativeHorizontal/VerticalPosition
+  = margin` centres it.
 - **Styles** are writable since v0.12.0 (`doc.styles.add(...)` →
   `style.format_run`/`format_paragraph`); read-only before that. `StyleNotFound`
   subclasses `AnchorNotFound` → reuses exit 2.
@@ -215,35 +239,20 @@ Ordered by leverage.
 > COM-invisible (`Range.WordOpenXML` strips it), so minted bookmarks are the only
 > mechanism that survives the edits we care about.
 
-## 1. Revision write surface (read side already shipped)
+> **Revision write surface — ✅ shipped (Unreleased).** Both pieces landed:
+> per-revision `accept()`/`reject()` + whole-doc/anchor-scoped `accept_all`/
+> `reject_all(within=…)`, and the revision-aware reads
+> `Anchor.text_final`/`text_original`/`revision_segments()`. See Part I's
+> load-bearing facts (the tracked-text representation entry) and `CHANGELOG.md`.
 
-`doc.revisions`, `snapshot(markup="all")`, and MCP track-status shipped in
-v0.12.0. Still open:
+> **Publishing flourishes (floating-shape remainder) — ✅ shipped (Unreleased).**
+> `doc.set_watermark`/`remove_watermark` (header-story WordArt) and
+> `anchor.insert_text_box` (floating `Shapes.AddTextbox`). The publishing-quality
+> cluster (character/paragraph formatting, borders/shading/tab-stops, style
+> creation, PageSetup writes, fields/page numbers, pagination controls, drop cap
+> — v0.15.0) is now complete.
 
-- **Accept / reject individual revisions** — a typed `revision.accept()` /
-  `.reject()` (and a doc-wide accept/reject-all). Mutating a single `Revision`
-  stays on `.com` until then.
-- **Revision-aware text reads** — a tracked `find_replace` on the *same*
-  paragraph still drifts because both inserted and deleted runs are present
-  (workaround: re-read between tracked edits, or take a `markup="all"` snapshot).
-  A proper revision-aware read model is the real fix.
-
-## 2. Publishing flourishes — the floating-shape remainder
-
-The publishing-quality cluster (character/paragraph formatting, borders/shading/
-tab-stops, style creation, PageSetup writes, fields/page numbers, pagination
-controls, **drop cap** — shipped v0.15.0) is essentially done. What's left is
-pure floating-shape work, individually small; bundle whichever land cheap:
-
-- **Watermark** — `doc.set_watermark(text, …)` via the header-story
-  `Shapes.AddTextEffect` (WordArt) — DRAFT/CONFIDENTIAL stamps.
-- **Text box / pull quote** — `anchor.insert_text_box(text, …)` →
-  `Shapes.AddTextbox`.
-
-The shipped `insert_field` primitive already covers the general `Fields.Add` case
-these once leaned on.
-
-## 3. Charts (Excel-backed)
+## 1. Charts (Excel-backed)
 
 Approved 2026-05-31 as the SmartArt substitute. `Range.InlineShapes.AddChart2`
 embeds a chart whose data lives in an embedded Excel workbook. Heavier than
@@ -260,7 +269,7 @@ items above.
   kinds + flat `data` only. **Deferred:** multi-series, secondary axes,
   axis/series formatting, `BreakLink` policy, reading existing charts back out.
 
-## 4. Structural query helpers (new, lower priority)
+## 2. Structural query helpers (new, lower priority)
 
 From the gpt-5.4 review: content-under-heading, block-between-headings,
 nearest-heading-before/after, find-paragraph-by-approx-text. Several reduce to

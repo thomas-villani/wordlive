@@ -105,6 +105,13 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "add_comment": ("anchor_id", "text"),
     "resolve_comment": ("index",),
     "delete_comment": ("index",),
+    "accept_revision": ("index",),
+    "reject_revision": ("index",),
+    "accept_all_revisions": (),
+    "reject_all_revisions": (),
+    "set_watermark": ("text",),
+    "remove_watermark": (),
+    "insert_text_box": ("anchor_id", "text"),
     "apply_list": ("anchor_id",),
     "remove_list": ("anchor_id",),
     "restart_numbering": ("anchor_id",),
@@ -304,6 +311,25 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "add_comment": ("author",),
     "resolve_comment": (),
     "delete_comment": (),
+    "accept_revision": (),
+    "reject_revision": (),
+    "accept_all_revisions": ("anchor_id",),
+    "reject_all_revisions": ("anchor_id",),
+    "set_watermark": ("font", "color", "layout", "semitransparent"),
+    "remove_watermark": (),
+    "insert_text_box": (
+        "width",
+        "height",
+        "wrap",
+        "font",
+        "size",
+        "bold",
+        "italic",
+        "alignment",
+        "fill",
+        "border",
+        *_WHERE_FIELDS,
+    ),
     "apply_list": ("type", "continue_previous", "continue"),
     "remove_list": (),
     "restart_numbering": (),
@@ -794,6 +820,41 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         doc.comments[op["index"]].resolve()
     elif kind == "delete_comment":
         doc.comments[op["index"]].delete()
+    elif kind == "accept_revision":
+        doc.revisions[op["index"]].accept()
+    elif kind == "reject_revision":
+        doc.revisions[op["index"]].reject()
+    elif kind == "accept_all_revisions":
+        within = doc.anchor_by_id(op["anchor_id"]) if op.get("anchor_id") else None
+        doc.revisions.accept_all(within=within)
+    elif kind == "reject_all_revisions":
+        within = doc.anchor_by_id(op["anchor_id"]) if op.get("anchor_id") else None
+        doc.revisions.reject_all(within=within)
+    elif kind == "set_watermark":
+        doc.set_watermark(
+            op["text"],
+            font=op.get("font", "Calibri"),
+            color=op.get("color", "#C0C0C0"),
+            layout=op.get("layout", "diagonal"),
+            semitransparent=bool(op.get("semitransparent", True)),
+        )
+    elif kind == "remove_watermark":
+        doc.remove_watermark()
+    elif kind == "insert_text_box":
+        doc.anchor_by_id(op["anchor_id"]).insert_text_box(
+            op["text"],
+            width=op.get("width", 200),
+            height=op.get("height", 100),
+            wrap=op.get("wrap", "square"),
+            where=("before" if op_before(op) else "after"),
+            font=op.get("font"),
+            size=op.get("size"),
+            bold=op.get("bold"),
+            italic=op.get("italic"),
+            alignment=op.get("alignment"),
+            fill=op.get("fill"),
+            border=op.get("border"),
+        )
     elif kind == "apply_list":
         continue_previous = bool(op.get("continue_previous", op.get("continue", False)))
         doc.anchor_by_id(op["anchor_id"]).apply_list(
