@@ -147,6 +147,11 @@ a.insert_equation(latex=r"\frac{-b}{2a}", display=False)  # → EquationAnchor; 
 a.insert_chart("bar", {"Q1": 10, "Q2": 25, "Q3": 18}, title="Quarterly")  # → ChartAnchor (chart:N); Excel-backed
 a.insert_chart("scatter", [[1.2, 3.4], [1.2, 3.9], [2.5, 6.1]])  # [x,y] pairs → numeric axes, duplicate x kept
 # charts need Excel installed (else ExcelNotAvailableError); data is made static (no embedded workbook ships); doc.charts lists them
+c = doc.charts[1]                          # ChartAnchor — formatting/design (no Excel needed; chainable; tri-state)
+c.format(title="Revenue", legend=True, legend_position="bottom", chart_style=242, background="#F4F6F7", data_labels=True)
+c.set_axis("value", title="USD", minimum=0, maximum=30, scale="log")  # which=value|y|category|x; scale linear|log
+c.add_trendline(kind="power", display_equation=True)  # linear|exponential|logarithmic|moving_average|polynomial|power
+c.set_series_color("#2E86C1")              # whole series; pass point=N to recolour one bar/slice; c.format(chart_type="line") re-types
 a.insert_table(data=[["Item", "Cost"], ["Travel", "$400"]], header=True)  # rows/cols inferred from data
 a.insert_table(data=[{"Item": "Travel", "Cost": "$400"}])  # records → keys become a bolded header row
 a.apply_list("numbered")                # + remove_list/list_info/restart_numbering/indent_list/outdent_list

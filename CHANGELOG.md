@@ -40,6 +40,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     runs before closing the workbook so the chart's data goes **static** and the
     hidden Excel terminates instead of orphaning (an orphaned data grid otherwise
     locks all later inserts with "the chart data grid is already open").
+- **Chart formatting & design.** A curated formatting surface on `ChartAnchor`
+  (`chart:N`) — Word's "Design"/"Format" tabs — operating on the **post-insert,
+  static** chart, so it needs **no Excel** (live-probed: zero embedded-Excel
+  respin / orphans). All fields are tri-state and the methods chain:
+  - **`chart.format(...)`** — title, legend (+`legend_position`), `chart_style`
+    (design-gallery int), chart/plot background fills, whole-chart font,
+    `data_labels` (+number format), and `chart_type` to re-type in place.
+  - **`chart.set_axis(which, ...)`** — `which` = `value`/`y` or `category`/`x`;
+    title, min/max, `scale` (`linear`/`log`), number format, gridlines.
+  - **`chart.add_trendline(...)`** — linear/exponential/logarithmic/
+    moving_average/polynomial/power on a series, with `display_equation` /
+    `display_r_squared` and forward/backward forecast (a power fit + equation
+    draws the law of best fit).
+  - **`chart.set_series_color(color, *, series=1, point=None)`** — recolour a
+    whole series or one 1-based point/slice.
+  - Read side gains `chart.chart_style` / `chart.has_legend` (and the same two
+    fields in `doc.charts.list()`). CLI `format-chart` / `format-axis` /
+    `add-trendline` / `set-series-color`; exec ops + MCP `word_write`/`word_exec`
+    commands `format_chart` / `format_axis` / `add_trendline` / `set_series_color`.
 - **Revision write surface — accept / reject tracked changes.** The read side
   (`doc.revisions`, `snapshot(markup="all")`) shipped in v0.12.0; mutating a
   `Revision` no longer needs the `.com` escape hatch:

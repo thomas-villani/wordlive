@@ -151,7 +151,20 @@ wordlive equations          # list equation:N ids, type, linear preview, para:N
 ```
 wordlive insert-chart --anchor-id ID --kind bar|pie|line|scatter --data JSON \
     [--title "…"] [--before | --after]
-wordlive charts             # list chart:N ids, kind, title, para:N
+wordlive charts             # list chart:N ids, kind, title, chart_style, has_legend, para:N
+# Formatting & design — operate on an existing chart:N (no Excel needed):
+wordlive format-chart --anchor-id chart:N [--title …] [--legend|--no-legend] \
+    [--legend-position right|left|top|bottom|corner] [--chart-style INT] \
+    [--background COLOR] [--plot-background COLOR] [--font …] [--font-size …] \
+    [--font-color COLOR] [--data-labels|--no-data-labels] [--data-label-format …] \
+    [--chart-type bar|pie|line|scatter]
+wordlive format-axis --anchor-id chart:N --which value|y|category|x \
+    [--title …] [--minimum N] [--maximum N] [--scale linear|log] \
+    [--number-format …] [--gridlines|--no-gridlines]
+wordlive add-trendline --anchor-id chart:N [--series N] \
+    [--kind linear|exponential|logarithmic|moving_average|polynomial|power] \
+    [--display-equation] [--display-r-squared] [--forward N] [--backward N]
+wordlive set-series-color --anchor-id chart:N --color COLOR [--series N] [--point N]
 ```
 - `--data` is JSON (or `--data -` to read from stdin): an object
   `{"Q1": 10, "Q2": 25}` for `bar`/`pie`/`line`, or an array of `[x, y]` pairs
@@ -165,6 +178,12 @@ wordlive charts             # list chart:N ids, kind, title, para:N
   the doc, and the series data isn't read back — `charts` is metadata only).
 - `chart:N` is **positional** (document order); inserting another chart earlier
   renumbers it. The result carries the new id.
+- **Formatting & design** (`format-chart` / `format-axis` / `add-trendline` /
+  `set-series-color`, or the `format_chart` / `format_axis` / `add_trendline` /
+  `set_series_color` ops) work on the **static** post-insert chart — **no Excel
+  needed**. All fields are tri-state (only what you pass is written); colours are a
+  name / hex / `r,g,b`. A `power`/`exponential` trendline with `--display-equation`
+  draws the law of best fit; `--scale log` suits order-of-magnitude data.
 
 ## Snapshot — render page(s) to PNG so you can *see* the layout
 ```
@@ -231,7 +250,8 @@ Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `write_cc`, `insert_paragraph`, `insert_block`, `insert_section`,
 `insert_markdown`, `replace_section`, `delete_paragraph`, `append`,
 `append_inline`, `prepend`, `prepend_inline`, `insert_image`, `insert_equation`,
-`insert_chart`, `replace`,
+`insert_chart`, `format_chart`, `format_axis`, `add_trendline`, `set_series_color`,
+`replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`,
 `set_borders`, `drop_cap`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,
 `set_page_setup`, `update_fields`, `insert_footnote`, `insert_endnote`,

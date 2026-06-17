@@ -53,6 +53,10 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_image": ("anchor_id", "wrap"),
     "insert_equation": ("anchor_id",),  # exactly one of unicodemath/latex/mathml (apply_op)
     "insert_chart": ("anchor_id", "kind", "data"),
+    "format_chart": ("anchor_id",),
+    "format_axis": ("anchor_id", "which"),
+    "add_trendline": ("anchor_id",),
+    "set_series_color": ("anchor_id", "color"),
     "replace": ("anchor_id", "text"),
     "find_replace": ("find", "text"),
     "apply_style": ("anchor_id", "name"),
@@ -210,6 +214,30 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     ),
     "insert_equation": ("unicodemath", "latex", "mathml", "display", *_WHERE_FIELDS),
     "insert_chart": ("title", *_WHERE_FIELDS),
+    "format_chart": (
+        "title",
+        "legend",
+        "legend_position",
+        "chart_style",
+        "background",
+        "plot_background",
+        "font",
+        "font_size",
+        "font_color",
+        "data_labels",
+        "data_label_format",
+        "chart_type",
+    ),
+    "format_axis": ("title", "minimum", "maximum", "scale", "number_format", "gridlines"),
+    "add_trendline": (
+        "series",
+        "kind",
+        "display_equation",
+        "display_r_squared",
+        "forward",
+        "backward",
+    ),
+    "set_series_color": ("series", "point"),
     "replace": (),
     "find_replace": ("in", "all", "occurrence"),
     "apply_style": (),
@@ -554,6 +582,22 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             where=("before" if op_before(op) else "after"),
         )
         return {"chart": chart.index, "anchor_id": chart.anchor_id}
+    elif kind in ("format_chart", "format_axis", "add_trendline", "set_series_color"):
+        from ._anchors import ChartAnchor  # lazy: avoid an _ops → _anchors import cycle
+
+        anchor = doc.anchor_by_id(op["anchor_id"])
+        if not isinstance(anchor, ChartAnchor):
+            raise OpError(f"{op['anchor_id']!r} is not a chart; {kind} needs a chart:N anchor")
+        fields = OP_OPTIONAL_FIELDS[kind]
+        kwargs = {k: op[k] for k in fields if k in op}
+        if kind == "format_chart":
+            anchor.format(**kwargs)
+        elif kind == "format_axis":
+            anchor.set_axis(op["which"], **kwargs)
+        elif kind == "add_trendline":
+            anchor.add_trendline(**kwargs)
+        else:  # set_series_color
+            anchor.set_series_color(op["color"], **kwargs)
     elif kind == "replace":
         doc.anchor_by_id(op["anchor_id"]).set_text(op["text"])
     elif kind == "find_replace":

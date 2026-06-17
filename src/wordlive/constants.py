@@ -633,3 +633,58 @@ class XlChartType(IntEnum):
     LINE = 4
     PIE = 5
     XY_SCATTER_MARKERS = 65
+
+
+class XlLegendPosition(IntEnum):
+    """`Chart.Legend.Position` values — where the legend sits relative to the plot.
+
+    Used by `ChartAnchor.format(legend_position=...)`. `CORNER` is the top-right
+    overlay; the rest are outside the plot on that edge.
+    """
+
+    BOTTOM = -4107
+    CORNER = 2
+    LEFT = -4131
+    RIGHT = -4152
+    TOP = -4160
+
+
+class XlAxisType(IntEnum):
+    """`Chart.Axes(Type, ...)` selector. `CATEGORY` is the x/horizontal axis,
+    `VALUE` the y/value axis. `ChartAnchor.set_axis(which=...)` maps
+    ``"category"``/``"x"`` → `CATEGORY` and ``"value"``/``"y"`` → `VALUE`."""
+
+    CATEGORY = 1
+    VALUE = 2
+
+
+class XlAxisGroup(IntEnum):
+    """`Chart.Axes(Type, AxisGroup)` group selector. wordlive targets the
+    `PRIMARY` axis group only (secondary axes are deferred)."""
+
+    PRIMARY = 1
+
+
+class XlScaleType(IntEnum):
+    """`Axis.ScaleType` values. `LOGARITHMIC` is the order-of-magnitude scale;
+    `ChartAnchor.set_axis(scale=...)` maps ``"linear"`` / ``"log"`` onto these."""
+
+    LINEAR = -4132
+    LOGARITHMIC = -4133
+
+
+class XlTrendlineType(IntEnum):
+    """`Trendlines.Add(Type=...)` values — the curve fitted to a series.
+
+    `ChartAnchor.add_trendline(kind=...)` maps ``"linear"``, ``"exponential"``,
+    ``"logarithmic"``, ``"moving_average"``, ``"polynomial"``, ``"power"`` onto
+    these. A power/exponential fit with `DisplayEquation` draws the law of best
+    fit on a scatter — first-class for scientific publishing.
+    """
+
+    LINEAR = -4132
+    EXPONENTIAL = 5
+    LOGARITHMIC = -4133
+    MOVING_AVERAGE = 6
+    POLYNOMIAL = 3
+    POWER = 4

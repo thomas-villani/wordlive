@@ -1135,3 +1135,45 @@ def test_insert_charts_all_kinds_and_metadata(scratch_doc):
     assert rows[0]["title"] == "Quarterly"
     assert rows[1]["title"] is None
     assert rows[3]["title"] == "signal"
+
+
+def test_chart_formatting_verbs(scratch_doc):
+    """Drive the post-insert formatting surface against a live chart.
+
+    Live-probed safe: these operate on the BreakLink-static chart with no
+    embedded-Excel respin (validated 0 orphan EXCEL.EXE). We assert only that the
+    calls succeed and read back the *stable* design metadata (`chart_style`,
+    `has_legend`, `title`) — never the series data. One shared doc, one edit batch.
+    """
+    doc = scratch_doc
+    with doc.edit("insert"):
+        doc.end.insert_chart("bar", {"Q1": 10, "Q2": 25, "Q3": 18}, title="Q")
+        doc.end.insert_chart("scatter", [[1.0, 2.0], [2.0, 5.0], [3.0, 7.0], [4.0, 10.0]])
+    bar, scatter = doc.charts[1], doc.charts[2]
+
+    with doc.edit("format charts"):
+        bar.format(
+            title="Quarterly revenue",
+            legend=True,
+            legend_position="bottom",
+            chart_style=242,
+            background="#F4F6F7",
+            data_labels=True,
+            data_label_format="0",
+        ).set_axis("value", title="USD (M)", minimum=0, maximum=30, gridlines=True)
+        bar.set_series_color("#2E86C1")
+        bar.set_series_color("#E74C3C", point=2)
+        # scatter: log value axis + a power trendline that draws its equation
+        scatter.set_axis("value", scale="log").set_axis("x", title="t (s)")
+        scatter.add_trendline(kind="power", display_equation=True, display_r_squared=True)
+        scatter.set_series_color((39, 174, 96))
+
+    # Re-type a chart in place, then read back only the safe design metadata.
+    with doc.edit("retype"):
+        bar.format(chart_type="line")
+    assert bar.chart_type == "line"
+    assert bar.title == "Quarterly revenue"
+    assert bar.chart_style == 242
+    assert bar.has_legend is True
+    row = doc.charts.list()[0]
+    assert row["chart_style"] == 242 and row["has_legend"] is True

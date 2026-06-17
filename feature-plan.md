@@ -60,6 +60,7 @@ Quick index (capability → real release):
 | Revision-aware reads (`anchor.text_final`/`text_original`/`revision_segments`) | Unreleased |
 | Watermark (`doc.set_watermark`/`remove_watermark`); text box / pull quote (`anchor.insert_text_box`) | Unreleased |
 | Charts (Excel-backed: `anchor.insert_chart`, `doc.charts`, `chart:N`; bar/pie/line/scatter; `ExcelNotAvailableError`, exit 6) | Unreleased |
+| Chart formatting & design (`ChartAnchor.format`/`set_axis`/`add_trendline`/`set_series_color`; `chart_style`/`has_legend` reads) | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -77,8 +78,10 @@ resolver: `doc.anchor_by_id(id)`. A malformed scheme (`banana:7`) reports
 - **`chart:N`** is positional over the document's chart inline shapes
   (`HasChart`), in document order — it renumbers when an earlier chart is
   inserted; re-list (`doc.charts`), don't cache. Metadata only: `chart_type` /
-  `title`. Reading chart *series data* back is deferred (and the data link is
-  broken at insert, so it's static anyway).
+  `title` / `chart_style` / `has_legend`. It's also the **write** target for
+  formatting (`format`/`set_axis`/`add_trendline`/`set_series_color`). Reading
+  chart *series data* back is deferred (and the data link is broken at insert, so
+  it's static anyway).
 
 - **`pin:CODE`** is the **durable handle** (Unreleased): `doc.pin(anchor)` /
   `stamp` plants a Word-hidden bookmark `_wl_<code>` over a range and returns
@@ -289,9 +292,19 @@ Ordered by leverage.
 > Part I's load-bearing facts (the `chart:N` taxonomy entry and the Excel-backed
 > live-Word gotcha — `Selection`-only insert, SERIES-formula population, the
 > mandatory `BreakLink`-before-close to avoid orphan Excel) and `CHANGELOG.md`.
-> **Deferred as planned:** multi-series, secondary axes, axis/series formatting,
-> exposing `BreakLink` as a policy knob, and reading existing charts' data back
-> out (`doc.charts` is metadata only).
+
+> **Chart formatting & design — ✅ shipped (Unreleased).** A curated formatting
+> surface on `ChartAnchor`: `format(...)` (title/legend/`chart_style`/fills/font/
+> data-labels/`chart_type`), `set_axis(which, ...)` (title/min/max/`scale=log`/
+> number-format/gridlines), `add_trendline(...)` (linear…power + equation/R²), and
+> `set_series_color(color, *, series, point)`. Read side gains `chart_style` /
+> `has_legend`. All operate on the **post-insert static chart with no Excel respin**
+> (live-re-probed 2026-06-17: 0 orphan EXCEL.EXE across the surface) — so these
+> verbs need **no Excel gate**. Wired across CLI/exec/MCP. **Deferred as planned:**
+> multi-series authoring, secondary axes, error bars, 3-D, `ApplyChartTemplate`
+> (`.crtx`), exposing `BreakLink` as a policy knob, and reading existing charts'
+> *data* back out (`doc.charts` stays metadata-only). One probe note: `Axis.Visible`
+> is not settable under late binding, so axis show/hide is not exposed.
 
 ## 1. Structural query helpers (new, lower priority)
 
@@ -314,41 +327,26 @@ reads (already shipped). Not yet ticketed.
 
 ## Deferred (no concrete trigger yet)
 
-- **Chart formatting & design (surface live-probed 2026-06-16).** `insert_chart`
-  ships kind + data + title only; the *entire* Office chart formatting surface is
-  reachable today via the `.com` escape hatch (`doc.charts[N]._shape().Chart`) and
-  was probed live — **almost all of it works on a post-insert (BreakLink-static)
-  chart with no embedded-Excel respin and no orphans** (per-point recolour already
-  demoed). The one rule still holds: don't read chart *data* back. A future pass
-  would expose a curated slice — either a `chart.format(...)` method on
-  `ChartAnchor` or thin verbs (`apply_style` / `set_colors` / `add_trendline` /
-  `set_axis`). What the probe confirmed settable:
-  - **Design / whole-chart:** `Chart.ChartStyle` (int — the built-in style
-    gallery), `ChartArea`/`PlotArea` `.Format.Fill`/`.Line`, **change `ChartType`
-    after insert**, `ApplyChartTemplate(.crtx)`. The modern
-    `Chart.SetElement(msoElement…)` API is the cleanest element toggle
-    (title-above, legend-bottom, gridlines, data-labels all worked).
-  - **Elements + text:** `HasTitle`/`HasLegend`/`HasDataTable` + `.Font` /
-    `Legend.Position`; `ChartArea.Font` sets a whole-chart font.
-  - **Axes:** axis titles, major gridlines, `MinimumScale`/`MaximumScale`,
-    **`Axis.ScaleType` = logarithmic** (`xlScaleLogarithmic` = -4133 — ideal for
-    the wheat-doubling / atoms-by-order-of-magnitude charts), tick-label
-    `Font`/`NumberFormat`, axis line colour.
-  - **Series / points:** `Series.Format` `.Fill`/`.Line`/`.Shadow`/`.Glow`,
-    **per-point `Points(i).Format.Fill`** (vary-by-point colours), pie
-    `Points(i).Explosion`, `HasDataLabels` + `DataLabels().Font`/`NumberFormat`,
-    bar `ChartGroups(1).GapWidth`/`Overlap`.
-  - **Scatter / line:** `MarkerStyle`/`MarkerSize`/`MarkerBackgroundColor`, line
-    `Smooth`, **`Series.Trendlines().Add(Type=…)`** with `DisplayEquation` /
-    `DisplayRSquared` (a power-fit on a scatter literally draws the law of best
-    fit), and `Series.ErrorBar(...)` (scientific error bars — wants the right enum
-    args). Colours are Office `OLE_COLOR` BGR longs — reuse `_format.to_bgr`.
+- **Chart formatting & design — the curated slice shipped (Unreleased).** A first
+  pass (`ChartAnchor.format`/`set_axis`/`add_trendline`/`set_series_color` +
+  `chart_style`/`has_legend` reads) is live (see Part I); it operates on the
+  post-insert **static** chart with no Excel respin (re-probed 2026-06-17: 0 orphan
+  EXCEL.EXE). The `.com` escape hatch (`doc.charts[N]._shape().Chart`) still
+  reaches everything; the one rule holds — don't read chart *data* back. **Still
+  deferred** from the live-probed surface:
+  - **Series/point depth:** `Series.Format` `.Shadow`/`.Glow`, pie
+    `Points(i).Explosion`, `MarkerStyle`/`MarkerSize`, line `Smooth`, bar
+    `ChartGroups(1).GapWidth`/`Overlap`, per-element `.Font`.
+  - **Scientific:** `Series.ErrorBar(...)` (error bars — wants the right enum
+    args); polynomial `Order` / moving-average `Period` knobs on trendlines.
+  - **Whole-chart:** secondary axes, multi-series authoring, `HasDataTable`,
+    `ThreeD` (lives on the series `Format`), `ApplyChartTemplate(.crtx)` (needs a
+    real `.crtx` path), and axis show/hide — `Axis.Visible` is **not settable**
+    under pywin32 late binding (confirmed 2026-06-17, so it's intentionally absent).
 
-  *Probe misses were all test-side, not real gaps:* `ApplyChartTemplate` needs a
-  real `.crtx` path, `ErrorBar` needs correct enum args, and `ThreeD` lives on the
-  series `Format`, not the chart's. Keep any future surface narrow (the charts
-  philosophy); `ChartColor`/"Change Colors" isn't one COM property — it's
-  `ChartStyle` + per-series/point fills.
+  Keep any extension narrow (the charts philosophy); `ChartColor`/"Change Colors"
+  isn't one COM property — it's `ChartStyle` + per-series/point fills (now
+  exposed). Colours are Office `OLE_COLOR` BGR longs — reuse `_format.to_bgr`.
 - **Events / sinks** — `WithEvents(word.com, Handler)` for `DocumentBeforeSave`,
   `WindowSelectionChange`. Wait for a use case before designing the marshalling
   layer.

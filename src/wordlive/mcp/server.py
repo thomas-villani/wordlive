@@ -28,7 +28,14 @@ from typing import TYPE_CHECKING, Any, Literal
 from .. import attach
 from .._anchors import Heading
 from .._guide import skill_body
-from .._ops import _PAGE_SETUP_FIELDS, _PARA_FIELDS, _STYLE_RUN_FIELDS, pick_doc, run_batch
+from .._ops import (
+    _PAGE_SETUP_FIELDS,
+    _PARA_FIELDS,
+    _STYLE_RUN_FIELDS,
+    OP_OPTIONAL_FIELDS,
+    pick_doc,
+    run_batch,
+)
 from .._paths import PathPolicy
 from ..exceptions import OpError, WordliveError, classify
 from ._worker import ComWorker, Worker
@@ -808,6 +815,16 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         if p.get("title") is not None:
             op["title"] = p["title"]
         return op
+    if command in ("format_chart", "format_axis", "add_trendline", "set_series_color"):
+        op = {"op": command, "anchor_id": need("anchor_id")}
+        if command == "format_axis":
+            op["which"] = need("which")
+        if command == "set_series_color":
+            op["color"] = need("color")
+        for k in OP_OPTIONAL_FIELDS[command]:
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
     raise OpError(f"unknown write command: {command!r}")
 
 
@@ -1019,7 +1036,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         read_image {anchor_id} (an embedded picture's bytes as base64 + mime — pass
         an image:N id or any single-image anchor) ·
         equations (math zones: equation:N id, type, linear preview, para) ·
-        charts (Excel-backed charts: chart:N id, kind, title, para) ·
+        charts (Excel-backed charts: chart:N id, kind, title, chart_style, has_legend, para) ·
         hyperlinks (links: text, address/sub_address, range:START-END id — the read
         mirror of add_hyperlink) · fields (PAGE/REF/TOC/…: kind, code, rendered
         result, range id — the read mirror of insert_field) ·
@@ -1092,6 +1109,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "insert_image",
             "insert_equation",
             "insert_chart",
+            "format_chart",
+            "format_axis",
+            "add_trendline",
+            "set_series_color",
             "insert_break",
             "insert_field",
             "update_fields",
@@ -1406,6 +1427,15 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         insert_chart {anchor_id, kind=bar|pie|line|scatter, data, [title,before]} — an Excel-backed
             chart; data is {label:value} for bar/pie/line or [[x,y],…] pairs for scatter (numeric
             axes); needs Excel installed (else error code excel_not_available); data is then static ·
+        format_chart {anchor_id=chart:N, [title,legend,legend_position,chart_style,background,
+            plot_background,font,font_size,font_color,data_labels,data_label_format,chart_type]} —
+            whole-chart/design formatting (no Excel needed; tri-state — only fields you pass apply) ·
+        format_axis {anchor_id=chart:N, which=value|y|category|x,
+            [title,minimum,maximum,scale=linear|log,number_format,gridlines]} — format one axis ·
+        add_trendline {anchor_id=chart:N, [series=1,kind=linear|exponential|logarithmic|
+            moving_average|polynomial|power,display_equation,display_r_squared,forward,backward]} ·
+        set_series_color {anchor_id=chart:N, color, [series=1,point]} — recolour a series or one
+            1-based point/slice (color = name, hex, or [r,g,b]) ·
         save {} — save to the document's existing file (must already be saved) ·
         save_as {path,[overwrite]} — save a .docx to path ·
         export_pdf {path,[from_page,to_page]} — export a PDF (the deliverable path).
@@ -1624,6 +1654,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             math; unicodemath native, latex needs the latex extra, mathml via Office; returns equation:N in outputs ·
           insert_chart {anchor_id, kind=bar|pie|line|scatter, data, [title,before]} — Excel-backed chart;
             data is {label:value} (bar/pie/line) or [[x,y],…] pairs (scatter); needs Excel; returns chart:N in outputs ·
+          format_chart {anchor_id=chart:N,[title,legend,legend_position,chart_style,background,plot_background,font,font_size,font_color,data_labels,data_label_format,chart_type]} — chart design/format (no Excel) ·
+          format_axis {anchor_id=chart:N,which=value|y|category|x,[title,minimum,maximum,scale=linear|log,number_format,gridlines]} ·
+          add_trendline {anchor_id=chart:N,[series=1,kind=linear|exponential|logarithmic|moving_average|polynomial|power,display_equation,display_r_squared,forward,backward]} ·
+          set_series_color {anchor_id=chart:N,color,[series=1,point]} — recolour a series or one 1-based point/slice ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
           insert_footnote/insert_endnote {anchor_id,text,[before]} — returns the new footnote:N/endnote:N in outputs ·

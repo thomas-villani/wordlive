@@ -374,11 +374,76 @@ class _FakeChartData:
         self.linked = False
 
 
+# --- formatting surface (post-insert, static chart) -------------------------
+
+
+class _FakeColorTarget:
+    """A `.Format.Fill` / `.Format.Line` ForeColor holder — captures `.RGB`."""
+
+    def __init__(self) -> None:
+        self.ForeColor = SimpleNamespace(RGB=None)
+
+
+class _FakeShapeFormat:
+    def __init__(self) -> None:
+        self.Fill = _FakeColorTarget()
+        self.Line = _FakeColorTarget()
+
+
+class _FakeTrendline:
+    def __init__(self, type_: int) -> None:
+        self.Type = type_
+        self.DisplayEquation = False
+        self.DisplayRSquared = False
+        self.Forward = None
+        self.Backward = None
+
+
+class _FakeTrendlines:
+    def __init__(self, series: _FakeSeries) -> None:
+        self._series = series
+
+    def Add(self, type_: int) -> _FakeTrendline:
+        tl = _FakeTrendline(int(type_))
+        self._series.trendlines.append(tl)
+        return tl
+
+
+class _FakePoint:
+    def __init__(self) -> None:
+        self.Format = _FakeShapeFormat()
+
+
+class _FakeAxis:
+    def __init__(self) -> None:
+        self.HasTitle = False
+        self.AxisTitle = SimpleNamespace(Text="")
+        self.MinimumScale = None
+        self.MaximumScale = None
+        self.ScaleType = None
+        self.TickLabels = SimpleNamespace(NumberFormat="")
+        self.HasMajorGridlines = False
+
+
 class _FakeSeries:
     def __init__(self, collection: _FakeSeriesCollection) -> None:
         self._collection = collection
         self.Formula = ""
         self.Name = ""
+        self.Format = _FakeShapeFormat()
+        self.HasDataLabels = False
+        self._data_labels = SimpleNamespace(NumberFormat="")
+        self._points: dict[int, _FakePoint] = {}
+        self.trendlines: list[_FakeTrendline] = []
+
+    def Points(self, index: int) -> _FakePoint:
+        return self._points.setdefault(int(index), _FakePoint())
+
+    def DataLabels(self) -> SimpleNamespace:
+        return self._data_labels
+
+    def Trendlines(self) -> _FakeTrendlines:
+        return _FakeTrendlines(self)
 
     def Delete(self) -> None:
         self._collection._items.remove(self)
@@ -410,9 +475,20 @@ class _FakeChart:
         self.ChartTitle = SimpleNamespace(Text="")
         self._series = _FakeSeriesCollection()
         self.ChartData = _FakeChartData(_FakeChartWorkbook())
+        # Formatting surface (mutated by the post-insert format verbs).
+        self.ChartStyle = 201
+        self.HasLegend = False
+        self.Legend = SimpleNamespace(Position=None)
+        self.ChartArea = SimpleNamespace(Format=_FakeShapeFormat(), Font=SimpleNamespace())
+        self.PlotArea = SimpleNamespace(Format=_FakeShapeFormat(), Font=SimpleNamespace())
+        self._axes: dict[tuple[int, int], _FakeAxis] = {}
 
-    def SeriesCollection(self) -> _FakeSeriesCollection:
-        return self._series
+    def SeriesCollection(self, index: int | None = None) -> Any:
+        # Real Word: no index → the collection; with an index → that Series.
+        return self._series if index is None else self._series(int(index))
+
+    def Axes(self, axis_type: int, group: int = 1) -> _FakeAxis:
+        return self._axes.setdefault((int(axis_type), int(group)), _FakeAxis())
 
 
 class _FakeChartInlineShape:

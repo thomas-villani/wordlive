@@ -3625,6 +3625,149 @@ class ChartAnchor(Anchor):
                 return None
             return str(chart.ChartTitle.Text or "")
 
+    @property
+    def chart_style(self) -> int:
+        """The built-in design-gallery style id (`Chart.ChartStyle`)."""
+        with _com.translate_com_errors():
+            return int(self._shape().Chart.ChartStyle)
+
+    @property
+    def has_legend(self) -> bool:
+        """Whether the chart currently shows a legend."""
+        with _com.translate_com_errors():
+            return bool(self._shape().Chart.HasLegend)
+
+    def format(
+        self,
+        *,
+        title: Any = _charts._UNSET,
+        legend: bool | None = None,
+        legend_position: str | None = None,
+        chart_style: int | None = None,
+        background: Any = None,
+        plot_background: Any = None,
+        font: str | None = None,
+        font_size: Any = None,
+        font_color: Any = None,
+        data_labels: bool | None = None,
+        data_label_format: str | None = None,
+        chart_type: str | None = None,
+    ) -> ChartAnchor:
+        """Apply whole-chart / design formatting — Word's chart "Design" tab.
+
+        All kwargs are optional and tri-state; only the ones you pass are written.
+        `title=None` clears the chart title (omit it to leave it). `legend`
+        toggles the legend; `legend_position` (`"right"`/`"left"`/`"top"`/
+        `"bottom"`/`"corner"`) implies it's shown. `chart_style` is the built-in
+        design-gallery int. `background` / `plot_background` fill the chart and
+        plot areas; `font` / `font_size` / `font_color` set the whole-chart font.
+        `data_labels` toggles point labels on every series, `data_label_format`
+        is their number format. `chart_type` (`"bar"`/`"pie"`/`"line"`/
+        `"scatter"`) re-types the chart in place. Operates on the static chart —
+        no Excel needed. Returns `self` (chainable); wrap in `doc.edit(...)` for
+        atomic undo. Bad input raises `OpError`.
+        """
+        self._apply(
+            _charts.apply_chart_format,
+            title=title,
+            legend=legend,
+            legend_position=legend_position,
+            chart_style=chart_style,
+            background=background,
+            plot_background=plot_background,
+            font=font,
+            font_size=font_size,
+            font_color=font_color,
+            data_labels=data_labels,
+            data_label_format=data_label_format,
+            chart_type=chart_type,
+        )
+        return self
+
+    def set_axis(
+        self,
+        which: str,
+        *,
+        title: Any = _charts._UNSET,
+        minimum: Any = None,
+        maximum: Any = None,
+        scale: str | None = None,
+        number_format: str | None = None,
+        gridlines: bool | None = None,
+    ) -> ChartAnchor:
+        """Format one axis. `which` is ``"value"``/``"y"`` or ``"category"``/``"x"``.
+
+        Tri-state: `title=None` clears the axis title; `minimum`/`maximum` set the
+        scale bounds; `scale` is ``"linear"`` or ``"log"`` (log is ideal for
+        order-of-magnitude data); `number_format` is the tick-label format string;
+        `gridlines` toggles major gridlines. Returns `self`. Bad input raises
+        `OpError`.
+        """
+        self._apply(
+            _charts.apply_axis_format,
+            which,
+            title=title,
+            minimum=minimum,
+            maximum=maximum,
+            scale=scale,
+            number_format=number_format,
+            gridlines=gridlines,
+        )
+        return self
+
+    def add_trendline(
+        self,
+        *,
+        series: int = 1,
+        kind: str = "linear",
+        display_equation: bool = False,
+        display_r_squared: bool = False,
+        forward: Any = None,
+        backward: Any = None,
+    ) -> ChartAnchor:
+        """Fit a trendline to a series (1-based `series`).
+
+        `kind` is ``"linear"``, ``"exponential"``, ``"logarithmic"``,
+        ``"moving_average"``, ``"polynomial"``, or ``"power"``. `display_equation`
+        / `display_r_squared` annotate the fit — a power/exponential fit with the
+        equation literally draws the law of best fit. `forward` / `backward`
+        extend the line that many units past the data. Returns `self`. Bad input
+        raises `OpError`.
+        """
+        self._apply(
+            _charts.add_trendline,
+            series=series,
+            kind=kind,
+            display_equation=display_equation,
+            display_r_squared=display_r_squared,
+            forward=forward,
+            backward=backward,
+        )
+        return self
+
+    def set_series_color(
+        self, color: Any, *, series: int = 1, point: int | None = None
+    ) -> ChartAnchor:
+        """Recolour a whole series, or a single 1-based `point` (bar / pie slice).
+
+        `color` is a named colour, hex (`"#2E86C1"`), or `(r, g, b)`. Omit `point`
+        to colour the entire series; pass it to vary one bar / slice / marker.
+        Sets the line/marker colour too where the series has one (line/scatter).
+        Returns `self`. Bad input raises `OpError`.
+        """
+        self._apply(_charts.set_series_color, color, series=series, point=point)
+        return self
+
+    def _apply(self, fn: Any, *args: Any, **kwargs: Any) -> None:
+        """Run a `_charts` formatting helper on this chart's `Chart`, translating
+        COM and bad-input errors into the wordlive hierarchy (`OpError`)."""
+        chart = self._shape().Chart
+        try:
+            with _com.translate_com_errors():
+                fn(chart, *args, **kwargs)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
     def set_text(self, text: str) -> None:
         raise OpError(
             "a chart anchor has no plain text to set; delete it and "
@@ -3663,11 +3806,13 @@ class ChartCollection:
             yield ChartAnchor(self._doc, i)
 
     def list(self) -> list[dict[str, Any]]:
-        """Every chart as `{index, anchor_id, kind, title, para}`.
+        """Every chart as `{index, anchor_id, kind, title, chart_style, has_legend, para}`.
 
         `kind` is the chart-type string; `title` the chart title (or ``None``);
+        `chart_style` the design-gallery id; `has_legend` whether a legend shows;
         `para` the `para:N` the chart sits in. Touches only `ChartType` /
-        `ChartTitle` (never the series data), so it's cheap and Word-stable.
+        `ChartTitle` / `ChartStyle` / `HasLegend` (never the series data), so it's
+        cheap and Word-stable.
         """
         out: list[dict[str, Any]] = []
         with _com.translate_com_errors():
@@ -3685,6 +3830,14 @@ class ChartCollection:
                 except Exception:
                     title = None
                 try:
+                    chart_style: int | None = int(chart.ChartStyle)
+                except Exception:
+                    chart_style = None
+                try:
+                    has_legend: bool | None = bool(chart.HasLegend)
+                except Exception:
+                    has_legend = None
+                try:
                     start = int(shape.Range.Start)
                 except Exception:
                     start = None
@@ -3698,6 +3851,8 @@ class ChartCollection:
                         "anchor_id": f"chart:{i}",
                         "kind": kind,
                         "title": title,
+                        "chart_style": chart_style,
+                        "has_legend": has_legend,
                         "para": para_id,
                     }
                 )

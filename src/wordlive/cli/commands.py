@@ -112,6 +112,10 @@ def register(group: click.Group) -> None:
     group.add_command(insert_equation_cmd)
     group.add_command(charts_cmd)
     group.add_command(insert_chart_cmd)
+    group.add_command(format_chart_cmd)
+    group.add_command(format_axis_cmd)
+    group.add_command(add_trendline_cmd)
+    group.add_command(set_series_color_cmd)
     group.add_command(bookmark)
     group.add_command(pin_cmd)
     group.add_command(pin_outline_cmd)
@@ -3260,6 +3264,270 @@ def insert_chart_cmd(
 
 
 # ---------------------------------------------------------------------------
+# format-chart / format-axis / add-trendline / set-series-color (chart:N)
+# ---------------------------------------------------------------------------
+
+
+def _chart_anchor(word: Any, doc_name: str | None, anchor_id: str) -> Any:
+    """Resolve `anchor_id` to a chart, raising a clean usage error otherwise."""
+    from .._anchors import ChartAnchor
+
+    doc = _pick_doc(word, doc_name)
+    anchor = doc.anchor_by_id(anchor_id)
+    if not isinstance(anchor, ChartAnchor):
+        raise click.UsageError(f"{anchor_id!r} is not a chart; pass a chart:N anchor")
+    return doc, anchor
+
+
+@click.command(name="format-chart")
+@click.option("--anchor-id", "anchor_id", required=True, help="Chart anchor (chart:N) to format.")
+@click.option("--title", "title", default=None, help='Chart title (pass "" to clear it).')
+@click.option("--legend/--no-legend", "legend", default=None, help="Show or hide the legend.")
+@click.option(
+    "--legend-position",
+    "legend_position",
+    type=click.Choice(["right", "left", "top", "bottom", "corner"]),
+    default=None,
+    help="Where the legend sits (implies it is shown).",
+)
+@click.option(
+    "--chart-style", "chart_style", type=int, default=None, help="Design-gallery style id."
+)
+@click.option("--background", "background", default=None, help="Chart-area fill colour.")
+@click.option("--plot-background", "plot_background", default=None, help="Plot-area fill colour.")
+@click.option("--font", "font", default=None, help="Whole-chart font family.")
+@click.option("--font-size", "font_size", default=None, help="Whole-chart font size (pt or unit).")
+@click.option("--font-color", "font_color", default=None, help="Whole-chart font colour.")
+@click.option(
+    "--data-labels/--no-data-labels", "data_labels", default=None, help="Show point data labels."
+)
+@click.option(
+    "--data-label-format", "data_label_format", default=None, help="Data-label number format."
+)
+@click.option(
+    "--chart-type",
+    "chart_type",
+    type=click.Choice(["bar", "pie", "line", "scatter"]),
+    default=None,
+    help="Re-type the chart in place.",
+)
+@click.pass_context
+def format_chart_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    title: str | None,
+    legend: bool | None,
+    legend_position: str | None,
+    chart_style: int | None,
+    background: str | None,
+    plot_background: str | None,
+    font: str | None,
+    font_size: str | None,
+    font_color: str | None,
+    data_labels: bool | None,
+    data_label_format: str | None,
+    chart_type: str | None,
+) -> None:
+    """Apply whole-chart / design formatting to a chart (atomic-undo).
+
+    Operates on the static chart — no Excel needed. Colours are a name, hex
+    (#2E86C1), or comma-separated r,g,b. Pass at least one option.
+    """
+    raw: dict[str, Any] = {
+        "title": title,
+        "legend": legend,
+        "legend_position": legend_position,
+        "chart_style": chart_style,
+        "background": _parse_color(background),
+        "plot_background": _parse_color(plot_background),
+        "font": font,
+        "font_size": font_size,
+        "font_color": _parse_color(font_color),
+        "data_labels": data_labels,
+        "data_label_format": data_label_format,
+        "chart_type": chart_type,
+    }
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one formatting option")
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _chart_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: format chart {anchor_id}"):
+                anchor.format(**kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"formatted {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="format-axis")
+@click.option("--anchor-id", "anchor_id", required=True, help="Chart anchor (chart:N) to format.")
+@click.option(
+    "--which",
+    "which",
+    required=True,
+    type=click.Choice(["value", "y", "category", "x"]),
+    help="Which axis: value/y or category/x.",
+)
+@click.option("--title", "title", default=None, help='Axis title (pass "" to clear it).')
+@click.option("--minimum", "minimum", type=float, default=None, help="Axis minimum.")
+@click.option("--maximum", "maximum", type=float, default=None, help="Axis maximum.")
+@click.option(
+    "--scale",
+    "scale",
+    type=click.Choice(["linear", "log"]),
+    default=None,
+    help="Axis scale type.",
+)
+@click.option("--number-format", "number_format", default=None, help="Tick-label number format.")
+@click.option("--gridlines/--no-gridlines", "gridlines", default=None, help="Show major gridlines.")
+@click.pass_context
+def format_axis_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    which: str,
+    title: str | None,
+    minimum: float | None,
+    maximum: float | None,
+    scale: str | None,
+    number_format: str | None,
+    gridlines: bool | None,
+) -> None:
+    """Format one axis of a chart (atomic-undo). `log` scale suits order-of-magnitude data."""
+    raw: dict[str, Any] = {
+        "title": title,
+        "minimum": minimum,
+        "maximum": maximum,
+        "scale": scale,
+        "number_format": number_format,
+        "gridlines": gridlines,
+    }
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one axis option")
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _chart_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: format axis {anchor_id}"):
+                anchor.set_axis(which, **kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "which": which, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"formatted {which} axis of {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="add-trendline")
+@click.option("--anchor-id", "anchor_id", required=True, help="Chart anchor (chart:N).")
+@click.option("--series", "series", type=int, default=1, show_default=True, help="1-based series.")
+@click.option(
+    "--kind",
+    "kind",
+    type=click.Choice(
+        ["linear", "exponential", "logarithmic", "moving_average", "polynomial", "power"]
+    ),
+    default="linear",
+    show_default=True,
+    help="Trendline curve type.",
+)
+@click.option(
+    "--display-equation", "display_equation", is_flag=True, default=False, help="Show the equation."
+)
+@click.option(
+    "--display-r-squared", "display_r_squared", is_flag=True, default=False, help="Show R²."
+)
+@click.option("--forward", "forward", type=float, default=None, help="Forecast forward N units.")
+@click.option("--backward", "backward", type=float, default=None, help="Forecast backward N units.")
+@click.pass_context
+def add_trendline_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    series: int,
+    kind: str,
+    display_equation: bool,
+    display_r_squared: bool,
+    forward: float | None,
+    backward: float | None,
+) -> None:
+    """Fit a trendline to a chart series (atomic-undo).
+
+    A power/exponential fit with --display-equation draws the law of best fit.
+    """
+    kwargs: dict[str, Any] = {
+        "series": series,
+        "kind": kind,
+        "display_equation": display_equation,
+        "display_r_squared": display_r_squared,
+    }
+    if forward is not None:
+        kwargs["forward"] = forward
+    if backward is not None:
+        kwargs["backward"] = backward
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _chart_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: add trendline {anchor_id}"):
+                anchor.add_trendline(**kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"added {kind} trendline to {anchor_id} series {series}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="set-series-color")
+@click.option("--anchor-id", "anchor_id", required=True, help="Chart anchor (chart:N).")
+@click.option(
+    "--color", "color", required=True, help="Colour: name, hex (#2E86C1), or comma-separated r,g,b."
+)
+@click.option("--series", "series", type=int, default=1, show_default=True, help="1-based series.")
+@click.option(
+    "--point",
+    "point",
+    type=int,
+    default=None,
+    help="1-based point/slice to recolour (omit to colour the whole series).",
+)
+@click.pass_context
+def set_series_color_cmd(
+    ctx: click.Context, anchor_id: str, color: str, series: int, point: int | None
+) -> None:
+    """Recolour a chart series, or a single point / pie slice (atomic-undo)."""
+    parsed = _parse_color(color)
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _chart_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set series color {anchor_id}"):
+                anchor.set_series_color(parsed, series=series, point=point)
+            target = f"point {point}" if point is not None else f"series {series}"
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "series": series,
+                    "point": point,
+                    "color": color,
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"recoloured {target} of {anchor_id} -> {color}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
 # snapshot [--anchor-id ID | --page N | --pages A-B] [--out FILE] [--dpi N]
 # ---------------------------------------------------------------------------
 
@@ -5700,7 +5968,8 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     Supported ops: write_bookmark, write_cc, insert_paragraph, insert_block,
     insert_section, insert_markdown, replace_section,
     delete_paragraph, append, append_inline, prepend, prepend_inline,
-    insert_image, insert_equation, insert_chart, replace, find_replace, apply_style, format_paragraph,
+    insert_image, insert_equation, insert_chart, format_chart, format_axis, add_trendline,
+    set_series_color, replace, find_replace, apply_style, format_paragraph,
     format_run, set_shading, set_borders, drop_cap, add_tab_stop, add_style, set_style,
     insert_field, set_page_setup, update_fields, insert_footnote, insert_endnote,
     insert_toc, add_bookmark, pin, pin_outline, add_hyperlink, insert_cross_reference,
