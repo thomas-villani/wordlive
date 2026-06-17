@@ -218,6 +218,36 @@ and re-insert to change it.
 
 ::: wordlive.EquationCollection
 
+## Charts
+
+Excel-backed charts as first-class anchors. The write side is
+[`Anchor.insert_chart`](#wordlive.Anchor): `kind` is `"bar"` (clustered
+columns), `"pie"`, `"line"`, or `"scatter"`, and `data` is either a `{label:
+value}` mapping (for bar/pie/line) or an array of `[x, y]` pairs (for `scatter` —
+both axes numeric, with duplicate/clustered x preserved as distinct points; line
+accepts either). `title=` sets the chart title and series name. It returns a
+[`ChartAnchor`](#wordlive.ChartAnchor) addressed `chart:N` — a *positional* id in
+document order, so inserting another chart earlier renumbers it.
+
+Charts embed a chart via `InlineShapes.AddChart2`, whose data lives in a hidden
+Excel workbook — so **Excel must be installed**. A non-invasive registry probe
+gates the insert and raises [`ExcelNotAvailableError`](#wordlive.ExcelNotAvailableError)
+(CLI exit 6) *before* touching the document if Excel is absent. After populating
+the data wordlive **breaks the data link**, so the chart's data is static: no
+embedded workbook ships in the document, and the series data isn't read back
+(which keeps the hidden Excel from orphaning). The Python API is ungated; the
+CLI/MCP surfaces add the same Excel probe.
+
+`doc.charts` is the read side: a discovery collection whose `list()` reports each
+chart's `chart:N` id, `kind`, `title`, and the `para:N` it sits in (metadata
+only). Index it (`doc.charts[2]`) for a [`ChartAnchor`](#wordlive.ChartAnchor),
+then read `chart.chart_type` / `chart.title`. A chart has no plain text, so
+`set_text` raises — delete and re-insert to change it.
+
+::: wordlive.ChartAnchor
+
+::: wordlive.ChartCollection
+
 ## Footnotes, endnotes & TOC
 
 Notes and the table of contents are reference structures built from anchors.

@@ -52,6 +52,7 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "prepend_inline": ("text",),
     "insert_image": ("anchor_id", "wrap"),
     "insert_equation": ("anchor_id",),  # exactly one of unicodemath/latex/mathml (apply_op)
+    "insert_chart": ("anchor_id", "kind", "data"),
     "replace": ("anchor_id", "text"),
     "find_replace": ("find", "text"),
     "apply_style": ("anchor_id", "name"),
@@ -208,6 +209,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         *_WHERE_FIELDS,
     ),
     "insert_equation": ("unicodemath", "latex", "mathml", "display", *_WHERE_FIELDS),
+    "insert_chart": ("title", *_WHERE_FIELDS),
     "replace": (),
     "find_replace": ("in", "all", "occurrence"),
     "apply_style": (),
@@ -544,6 +546,14 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             where=("before" if op_before(op) else "after"), **eq_kwargs
         )
         return {"equation": equation.index, "anchor_id": equation.anchor_id}
+    elif kind == "insert_chart":
+        chart = doc.anchor_by_id(op["anchor_id"]).insert_chart(
+            op["kind"],
+            op["data"],
+            title=op.get("title"),
+            where=("before" if op_before(op) else "after"),
+        )
+        return {"chart": chart.index, "anchor_id": chart.anchor_id}
     elif kind == "replace":
         doc.anchor_by_id(op["anchor_id"]).set_text(op["text"])
     elif kind == "find_replace":

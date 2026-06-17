@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -285,6 +286,167 @@ class _FakeDocInlineShapes:
 
     def __iter__(self) -> Iterable[Any]:
         return iter(self._items)
+
+
+# ---------------------------------------------------------------------------
+# Charts — the Excel-backed AddChart2 surface, faked enough for the wiring tests.
+# Mirrors the live mechanics _charts.populate_chart drives: write data into the
+# embedded workbook's cells, point a single series at them via a SERIES formula,
+# title, BreakLink, then close the workbook. The fake captures all of it.
+# ---------------------------------------------------------------------------
+
+
+class _FakeCell:
+    def __init__(self, store: dict[tuple[int, int], Any], row: int, col: int) -> None:
+        self._store = store
+        self._row = row
+        self._col = col
+
+    @property
+    def Value(self) -> Any:
+        return self._store.get((self._row, self._col))
+
+    @Value.setter
+    def Value(self, value: Any) -> None:
+        self._store[(self._row, self._col)] = value
+
+    @property
+    def Address(self) -> str:
+        return f"${chr(ord('A') + self._col - 1)}${self._row}"
+
+
+class _FakeCells:
+    """`Worksheet.Cells(r, c)` — a callable cell accessor over a shared value store."""
+
+    def __init__(self) -> None:
+        self.values: dict[tuple[int, int], Any] = {}
+
+    def __call__(self, row: int, col: int) -> _FakeCell:
+        return _FakeCell(self.values, row, col)
+
+
+class _FakeCellRange:
+    def __init__(self, a: _FakeCell, b: _FakeCell) -> None:
+        self._a = a
+        self._b = b
+
+    @property
+    def Address(self) -> str:
+        return f"{self._a.Address}:{self._b.Address}"
+
+
+class _FakeChartWorksheet:
+    def __init__(self) -> None:
+        self.Name = "Sheet1"
+        self.Cells = _FakeCells()
+        self.UsedRange = MagicMock(name="UsedRange")
+
+    def Range(self, a: _FakeCell, b: _FakeCell) -> _FakeCellRange:
+        return _FakeCellRange(a, b)
+
+
+class _FakeChartWorkbook:
+    """The chart's embedded Excel workbook (`ChartData.Workbook`)."""
+
+    def __init__(self) -> None:
+        self._ws = _FakeChartWorksheet()
+        self.Application = MagicMock(name="EmbeddedExcel")
+        # Empty after Close, so populate_chart's quit-if-empty branch fires.
+        self.Application.Workbooks.Count = 0
+        self.closed = False
+
+    def Worksheets(self, index: int) -> _FakeChartWorksheet:
+        return self._ws
+
+    def Close(self, save_changes: bool = False) -> None:
+        self.closed = True
+
+
+class _FakeChartData:
+    def __init__(self, workbook: _FakeChartWorkbook) -> None:
+        self.Workbook = workbook
+        self.linked = True
+
+    def Activate(self) -> None:
+        pass
+
+    def BreakLink(self) -> None:
+        self.linked = False
+
+
+class _FakeSeries:
+    def __init__(self, collection: _FakeSeriesCollection) -> None:
+        self._collection = collection
+        self.Formula = ""
+        self.Name = ""
+
+    def Delete(self) -> None:
+        self._collection._items.remove(self)
+
+
+class _FakeSeriesCollection:
+    """`Chart.SeriesCollection()` — seeded with AddChart2's 3 placeholder series."""
+
+    def __init__(self, count: int = 3) -> None:
+        self._items: list[_FakeSeries] = [_FakeSeries(self) for _ in range(count)]
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def __call__(self, index: int) -> _FakeSeries:
+        return self._items[index - 1]
+
+    def NewSeries(self) -> _FakeSeries:
+        series = _FakeSeries(self)
+        self._items.append(series)
+        return series
+
+
+class _FakeChart:
+    def __init__(self, chart_type: int) -> None:
+        self.ChartType = int(chart_type)
+        self.HasTitle = False
+        self.ChartTitle = SimpleNamespace(Text="")
+        self._series = _FakeSeriesCollection()
+        self.ChartData = _FakeChartData(_FakeChartWorkbook())
+
+    def SeriesCollection(self) -> _FakeSeriesCollection:
+        return self._series
+
+
+class _FakeChartInlineShape:
+    """A document chart inline shape — what AddChart2 returns and inserts."""
+
+    def __init__(self, chart_type: int, start: int, owner: _FakeDocInlineShapes) -> None:
+        self.HasChart = True
+        self.Type = 12  # wdInlineShapeChart
+        self.Chart = _FakeChart(chart_type)
+        self.Range = _make_range(start, start + 1)
+        self._owner = owner
+
+    def Delete(self) -> None:
+        if self in self._owner._items:
+            self._owner._items.remove(self)
+
+
+def _wire_chart_insertion(doc: MagicMock) -> None:
+    """Make `Selection.InlineShapes.AddChart2` insert a chart into `doc.InlineShapes`.
+
+    AddChart2 only works off the live Selection (a Range raises in real Word), so
+    `insert_chart` selects the point then calls `Application.Selection.InlineShapes
+    .AddChart2`. The fake appends the new chart shape to the document's inline
+    shapes (incrementing positions) so `chart:N` / `doc.charts` resolve it.
+    """
+
+    def add_chart2(style: int, chart_type: int) -> _FakeChartInlineShape:
+        items = doc.InlineShapes._items
+        start = (len(items) + 1) * 100
+        shape = _FakeChartInlineShape(int(chart_type), start, doc.InlineShapes)
+        items.append(shape)
+        return shape
+
+    doc.Application.Selection.InlineShapes.AddChart2 = add_chart2
 
 
 class _FakeOMath:
@@ -1606,6 +1768,9 @@ def _make_document(
     # Equations: document-level OMaths, each range built through the cached
     # factory so its Start maps back to a paragraph for list()'s `para`.
     doc.OMaths = _FakeDocOMaths(equations, _range_factory)
+
+    # Charts: AddChart2 (off the Selection) inserts into doc.InlineShapes.
+    _wire_chart_insertion(doc)
 
     return doc
 

@@ -14,6 +14,7 @@ from ..exceptions import (
     AmbiguousMatchError,
     AnchorNotFoundError,
     DocumentNotFoundError,
+    ExcelNotAvailableError,
     WordBusyError,
     WordliveError,
     WordNotRunningError,
@@ -26,6 +27,7 @@ EXIT_ANCHOR_NOT_FOUND = 2
 EXIT_WORD_BUSY = 3
 EXIT_WORD_NOT_RUNNING = 4
 EXIT_AMBIGUOUS_MATCH = 5
+EXIT_EXCEL_NOT_AVAILABLE = 6
 
 
 def emit(payload: Any, *, as_text: bool = False, text: str | None = None) -> None:
@@ -53,6 +55,8 @@ def _exit_for(exc: WordliveError) -> int:
         return EXIT_WORD_BUSY
     if isinstance(exc, WordNotRunningError):
         return EXIT_WORD_NOT_RUNNING
+    if isinstance(exc, ExcelNotAvailableError):
+        return EXIT_EXCEL_NOT_AVAILABLE
     if isinstance(exc, DocumentNotFoundError):
         return EXIT_OTHER
     # PathNotAllowedError (policy denial) also lands on EXIT_OTHER (1), like

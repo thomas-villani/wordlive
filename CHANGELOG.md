@@ -19,6 +19,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clamp only guarded the document's final mark; this fixes interior boundaries.
 
 ### Added
+- **Charts (Excel-backed).** `anchor.insert_chart(kind, data, *, title=None)`
+  embeds a chart via `InlineShapes.AddChart2` — `kind` ∈
+  `bar`/`pie`/`line`/`scatter`. `data` is a `{label: value}` mapping (bar/pie/
+  line) or an array of `[x, y]` pairs (scatter — numeric axes, duplicate x kept;
+  line accepts either). Returns a `ChartAnchor` (`chart:N`); discover charts via
+  `doc.charts` (metadata only: kind, title, para). CLI `wordlive insert-chart
+  --anchor-id ID --kind K --data JSON` / `wordlive charts`; exec op
+  `insert_chart` (outputs `chart:N`); MCP `word_write`/`word_exec` command
+  `insert_chart`, `word_read` command `charts`.
+  - **Charts are Excel-backed**, so they need Excel installed: a non-invasive
+    registry probe gates the insert and raises the new `ExcelNotAvailableError`
+    (**CLI exit code 6**, parallel to "Word not running"'s 4) before touching the
+    document. Several hard-won live-Word mechanics are encoded in `_charts.py`:
+    `AddChart2` only works off the `Selection` (a `Range` raises "Requested
+    object is not available"); data is written into the embedded workbook's cells
+    and bound with a `=SERIES(...)` formula (the `Series.XValues`/`.Values` array
+    setters are unreliable under pywin32 late binding, and a literal x-array
+    stores text — breaking a scatter's numeric axis); and `ChartData.BreakLink()`
+    runs before closing the workbook so the chart's data goes **static** and the
+    hidden Excel terminates instead of orphaning (an orphaned data grid otherwise
+    locks all later inserts with "the chart data grid is already open").
 - **Revision write surface — accept / reject tracked changes.** The read side
   (`doc.revisions`, `snapshot(markup="all")`) shipped in v0.12.0; mutating a
   `Revision` no longer needs the `.com` escape hatch:

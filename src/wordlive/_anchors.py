@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from . import _com, _equations, _images, _lists, _revisions
+from . import _charts, _com, _equations, _images, _lists, _revisions
 from ._format import to_bgr, to_points
 from .constants import (
     MsoTextOrientation,
@@ -39,7 +39,7 @@ from .constants import (
     WdUnderline,
     WdWrapType,
 )
-from .exceptions import AnchorNotFoundError, EquationError, OpError
+from .exceptions import AnchorNotFoundError, EquationError, ExcelNotAvailableError, OpError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -1391,6 +1391,66 @@ class Anchor(ABC):
             elif border_bgr is not None:
                 shape.Line.Visible = int(MsoTriState.TRUE)
                 shape.Line.ForeColor.RGB = border_bgr
+
+    def insert_chart(
+        self,
+        kind: str,
+        data: Any,
+        *,
+        title: str | None = None,
+        where: str = "after",
+    ) -> ChartAnchor:
+        """Insert an Excel-backed chart at this anchor and return it.
+
+        `kind` is one of ``"bar"`` (clustered columns), ``"pie"``, ``"line"``, or
+        ``"scatter"``. `data` is either an object mapping ``{label: value}`` (for
+        bar / pie / line) or an array of ``[x, y]`` pairs (for ``scatter`` — both
+        axes numeric, duplicate x preserved — and ``line``). `title` sets the
+        chart title and series name; ``None`` leaves it untitled. `where` places
+        the chart ``"after"`` (default) or ``"before"`` this anchor's range.
+
+        Charts are Excel-backed: this embeds a chart whose data lives in a hidden
+        Excel workbook, then breaks the link so the data is **static** — no live
+        workbook ships in the document and the series data can't be read back
+        (deferred). Requires Excel installed: raises `ExcelNotAvailableError`
+        (CLI exit 6), checked up front so the document is untouched on a missing
+        Excel. Raises `OpError` for malformed `data` and `ValueError` for an
+        unknown `kind` / `where`.
+
+        Word's chart API only inserts off the live `Selection`, so this moves the
+        cursor to the insertion point; wrap in `doc.edit(...)` (as the CLI / exec
+        / MCP surfaces do) for atomic undo and to restore the user's selection.
+        """
+        if kind not in _charts.KIND_TO_XL:
+            raise ValueError(
+                f"unknown chart kind {kind!r}; expected one of {sorted(_charts.KIND_TO_XL)}"
+            )
+        if where not in ("before", "after"):
+            raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
+        xs, ys = _charts.normalize_chart_data(kind, data)
+        if not _charts.probe_excel_available():
+            raise ExcelNotAvailableError()
+        xl_type = int(_charts.KIND_TO_XL[kind])
+        with _com.translate_com_errors():
+            doc_com = self._doc.com
+            rng = self._range()
+            pos = int(rng.Start) if where == "before" else int(rng.End)
+            # AddChart2 only works off the Selection, never an arbitrary Range
+            # (a Range raises "Requested object is not available"). doc.edit()
+            # restores the user's selection on exit.
+            doc_com.Range(pos, pos).Select()
+            shape = doc_com.Application.Selection.InlineShapes.AddChart2(-1, xl_type)
+            try:
+                _charts.populate_chart(shape.Chart, kind, xs, ys, title)
+            except Exception:
+                # Don't leave a half-built placeholder chart behind on failure.
+                try:
+                    shape.Delete()
+                except Exception:
+                    pass
+                raise
+            index = _chart_index_at(doc_com, int(shape.Range.Start))
+        return ChartAnchor(self._doc, index)
 
     def insert_equation(
         self,
@@ -3489,6 +3549,155 @@ class EquationCollection:
                         "anchor_id": f"equation:{i}",
                         "type": eq_type,
                         "linear": linear,
+                        "para": para_id,
+                    }
+                )
+        return out
+
+
+def _chart_index_at(doc_com: Any, start: int) -> int:
+    """1-based index, among the document's charts, of the chart at `start`.
+
+    Charts are addressed `chart:N` in document order (over `HasChart` inline
+    shapes). After an insert, the new chart sits at character position `start`;
+    its index is the position of the first chart at or after `start`.
+    """
+    shapes = _charts.chart_shapes(doc_com)
+    for i, shape in enumerate(shapes, start=1):
+        try:
+            if int(shape.Range.Start) >= start:
+                return i
+        except Exception:
+            continue
+    return len(shapes)
+
+
+class ChartAnchor(Anchor):
+    """An Excel-backed chart located by 1-based index — `chart:N`.
+
+    Indexes the document's chart inline shapes in document order. The anchor
+    resolves to the chart's range, so it inherits `apply_style` / formatting like
+    any anchor. `chart_type` reports the kind string (``"bar"`` / ``"pie"`` /
+    ``"line"`` / ``"scatter"``) and `title` the chart title — metadata only:
+    charts are inserted with a broken data link, so the underlying series data is
+    static and isn't read back. Create charts with
+    [`Anchor.insert_chart`][wordlive.Anchor.insert_chart]; discover them via
+    [`doc.charts`][wordlive.Document.charts]. A chart isn't plain text, so
+    `set_text` raises.
+    """
+
+    kind = "chart"
+
+    def __init__(self, doc: Document, index: int) -> None:
+        super().__init__(doc, name=f"chart:{index}")
+        self._index = index
+
+    @property
+    def index(self) -> int:
+        return self._index
+
+    @property
+    def anchor_id(self) -> str:
+        return f"chart:{self._index}"
+
+    def _shape(self) -> Any:
+        shapes = _charts.chart_shapes(self._doc.com)
+        if not (1 <= self._index <= len(shapes)):
+            raise AnchorNotFoundError("chart", f"chart:{self._index}")
+        return shapes[self._index - 1]
+
+    def _range(self) -> Any:
+        return self._shape().Range
+
+    @property
+    def chart_type(self) -> str:
+        """The chart kind — ``"bar"`` / ``"pie"`` / ``"line"`` / ``"scatter"`` (or the raw int)."""
+        with _com.translate_com_errors():
+            ctype = int(self._shape().Chart.ChartType)
+        return _charts.XL_TO_KIND.get(ctype, str(ctype))
+
+    @property
+    def title(self) -> str | None:
+        """The chart's title, or ``None`` if it has none."""
+        with _com.translate_com_errors():
+            chart = self._shape().Chart
+            if not bool(chart.HasTitle):
+                return None
+            return str(chart.ChartTitle.Text or "")
+
+    def set_text(self, text: str) -> None:
+        raise OpError(
+            "a chart anchor has no plain text to set; delete it and "
+            "insert_chart(...) again to change it"
+        )
+
+
+class ChartCollection:
+    """Read-only, iterable view over the document's charts (`doc.charts`).
+
+    Index a chart by 1-based position (`doc.charts[2]`) to get a
+    [`ChartAnchor`][wordlive.ChartAnchor] (`chart:N`); `list()` summarises every
+    chart — id, kind, title, and the `para:N` it sits in. Positions follow
+    document order. Metadata only — charts are inserted with their data link
+    broken (static data), so reading the series back is deferred. The write
+    mirror is any anchor's [`insert_chart`][wordlive.Anchor.insert_chart].
+    """
+
+    def __init__(self, doc: Document) -> None:
+        self._doc = doc
+
+    def __len__(self) -> int:
+        with _com.translate_com_errors():
+            return len(_charts.chart_shapes(self._doc.com))
+
+    def __getitem__(self, index: int) -> ChartAnchor:
+        if isinstance(index, bool) or not isinstance(index, int):
+            raise TypeError(f"chart index must be int, got {type(index).__name__}")
+        n = len(self)
+        if not (1 <= index <= n):
+            raise AnchorNotFoundError("chart", str(index))
+        return ChartAnchor(self._doc, index)
+
+    def __iter__(self) -> Iterator[ChartAnchor]:
+        for i in range(1, len(self) + 1):
+            yield ChartAnchor(self._doc, i)
+
+    def list(self) -> list[dict[str, Any]]:
+        """Every chart as `{index, anchor_id, kind, title, para}`.
+
+        `kind` is the chart-type string; `title` the chart title (or ``None``);
+        `para` the `para:N` the chart sits in. Touches only `ChartType` /
+        `ChartTitle` (never the series data), so it's cheap and Word-stable.
+        """
+        out: list[dict[str, Any]] = []
+        with _com.translate_com_errors():
+            shapes = _charts.chart_shapes(self._doc.com)
+            for i, shape in enumerate(shapes, start=1):
+                chart = shape.Chart
+                try:
+                    kind: str | None = _charts.XL_TO_KIND.get(
+                        int(chart.ChartType), str(int(chart.ChartType))
+                    )
+                except Exception:
+                    kind = None
+                try:
+                    title = str(chart.ChartTitle.Text) if bool(chart.HasTitle) else None
+                except Exception:
+                    title = None
+                try:
+                    start = int(shape.Range.Start)
+                except Exception:
+                    start = None
+                para_id: str | None = None
+                if start is not None:
+                    para = self._doc.paragraphs.at(start)
+                    para_id = para.anchor_id if para is not None else None
+                out.append(
+                    {
+                        "index": i,
+                        "anchor_id": f"chart:{i}",
+                        "kind": kind,
+                        "title": title,
                         "para": para_id,
                     }
                 )

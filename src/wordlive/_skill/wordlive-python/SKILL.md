@@ -74,6 +74,7 @@ from its id with `doc.anchor_by_id(...)`, or use the typed accessors:
 | `footnote:N` / `endnote:N` | `doc.footnotes[N]` / `doc.endnotes[N]` | the Nth note's body (1-based) |
 | `image:N` | `doc.images[N]` | the Nth embedded picture (1-based, Word's `InlineShapes` order) |
 | `equation:N` | `doc.equations[N]` | the Nth equation (1-based, Word's `OMaths` order) |
+| `chart:N` | `doc.charts[N]` | the Nth chart (1-based, document order) |
 | `table:N:R:C` | `doc.tables[N].cell(R, C)` | a table cell |
 | `range:START-END` | `doc.anchor_by_id("range:412-429")` | a raw character span (what `find()` emits) |
 | `header:S:WHICH` / `footer:S:WHICH` | `doc.sections[S].header(WHICH)` | header/footer (`primary`/`first`/`even`) |
@@ -143,6 +144,9 @@ a.read_image()                          # → (bytes, mime) — extract the one 
 a.insert_equation(unicodemath="x=(-b±√(b^2-4ac))/(2a)")   # native; or latex= (needs the `latex` extra) / mathml=
 a.insert_equation(latex=r"\frac{-b}{2a}", display=False)  # → EquationAnchor; display=True→centred "Equation" style, False→Normal+left
 # equation:N is positional (OMaths order) — inserting one before another renumbers it; re-list, don't cache the id
+a.insert_chart("bar", {"Q1": 10, "Q2": 25, "Q3": 18}, title="Quarterly")  # → ChartAnchor (chart:N); Excel-backed
+a.insert_chart("scatter", [[1.2, 3.4], [1.2, 3.9], [2.5, 6.1]])  # [x,y] pairs → numeric axes, duplicate x kept
+# charts need Excel installed (else ExcelNotAvailableError); data is made static (no embedded workbook ships); doc.charts lists them
 a.insert_table(data=[["Item", "Cost"], ["Travel", "$400"]], header=True)  # rows/cols inferred from data
 a.insert_table(data=[{"Item": "Travel", "Cost": "$400"}])  # records → keys become a bolded header row
 a.apply_list("numbered")                # + remove_list/list_info/restart_numbering/indent_list/outdent_list

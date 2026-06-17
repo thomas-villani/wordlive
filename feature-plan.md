@@ -59,6 +59,7 @@ Quick index (capability → real release):
 | Revision write surface (`revision.accept`/`reject`, `revisions.accept_all`/`reject_all` w/ `within=`) | Unreleased |
 | Revision-aware reads (`anchor.text_final`/`text_original`/`revision_segments`) | Unreleased |
 | Watermark (`doc.set_watermark`/`remove_watermark`); text box / pull quote (`anchor.insert_text_box`) | Unreleased |
+| Charts (Excel-backed: `anchor.insert_chart`, `doc.charts`, `chart:N`; bar/pie/line/scatter; `ExcelNotAvailableError`, exit 6) | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -69,9 +70,15 @@ from the shipped clusters above.
 
 `heading:N`, `para:N`, `bookmark:NAME`, `cc:NAME`, `table:N:R:C`,
 `range:START-END`, `header:S:WHICH` / `footer:S:WHICH`, `footnote:N`,
-`endnote:N`, `image:N`, `equation:N`, `pin:CODE`, `start`, `end`. One resolver:
-`doc.anchor_by_id(id)`. A malformed scheme (`banana:7`) reports "unknown anchor
-type".
+`endnote:N`, `image:N`, `equation:N`, `chart:N`, `pin:CODE`, `start`, `end`. One
+resolver: `doc.anchor_by_id(id)`. A malformed scheme (`banana:7`) reports
+"unknown anchor type".
+
+- **`chart:N`** is positional over the document's chart inline shapes
+  (`HasChart`), in document order — it renumbers when an earlier chart is
+  inserted; re-list (`doc.charts`), don't cache. Metadata only: `chart_type` /
+  `title`. Reading chart *series data* back is deferred (and the data link is
+  broken at insert, so it's static anyway).
 
 - **`pin:CODE`** is the **durable handle** (Unreleased): `doc.pin(anchor)` /
   `stamp` plants a Word-hidden bookmark `_wl_<code>` over a range and returns
@@ -215,13 +222,35 @@ escaping — path-bearing batches should use `--script FILE` or `--ops -`.
   use) so they don't inherit a neighbouring heading's style and pollute the
   outline. LaTeX is the optional `latex` extra; `.mathml` round-trips via
   Office's own XSLT.
+- **Charts are Excel-backed and the embedded-Excel lifecycle is the whole game**
+  (live-probed 2026-06-16). `Range.InlineShapes.AddChart2` raises "Requested
+  object is not available" — it **only works off `Selection`** (`doc.Range(pos,
+  pos).Select()` then `Application.Selection.InlineShapes.AddChart2(-1, type)`;
+  `doc.edit()` restores the user's selection). Populate by writing the data into
+  the embedded workbook's **cells** and binding a `=SERIES(name, x, y, 1)`
+  **formula string** — the `Series.XValues`/`.Values` array setters are flaky
+  under pywin32 late binding ("Property XValues can not be set"), and a literal
+  inline array stores x as **text**, so a scatter plots at category positions
+  1,2,3 instead of its numeric x. **`ChartData.BreakLink()` before
+  `Workbook.Close()`** is mandatory: touching `.Chart` opens an embedded-Excel
+  *data grid* that is **global, persistent state surviving `doc.Close`** — leave
+  it open and the hidden Excel orphans, and every later insert fails "the chart
+  data grid is already open in DocumentN". BreakLink severs Word's link (data
+  goes static) so the workbook closes and the Excel terminates; quit it only when
+  `Workbooks.Count == 0`. Don't read a chart's *series* data back (it
+  destabilises Word — RPC failures/crashes); metadata reads touch only
+  `ChartType` / `ChartTitle`. The Excel-availability gate is a `winreg`
+  `HKEY_CLASSES_ROOT\Excel.Application` lookup (`pythoncom.CLSIDFromProgID`
+  doesn't exist in this pywin32) — non-invasive, never launches/disturbs a user's
+  Excel.
 
 ### Exit codes (CLI)
 
 `0` ok · `1` other/bad-input (incl. `ImageSourceError`, `SnapshotError`,
 `PathNotAllowedError`, `DocumentNotFoundError`) · `2` anchor/style not found or
 zero `find` matches · `3` Word busy (retryable) · `4` Word not running · `5`
-ambiguous `find` match.
+ambiguous `find` match · `6` Excel not available (`ExcelNotAvailableError`, for
+`insert-chart`).
 
 ---
 
@@ -252,24 +281,19 @@ Ordered by leverage.
 > creation, PageSetup writes, fields/page numbers, pagination controls, drop cap
 > — v0.15.0) is now complete.
 
-## 1. Charts (Excel-backed)
+> **Charts (Excel-backed) — ✅ shipped (Unreleased).** `anchor.insert_chart(kind,
+> data, *, title=None)` (bar/pie/line/scatter) → `ChartAnchor` (`chart:N`);
+> `doc.charts` read collection; the `ExcelNotAvailableError` gate (CLI exit 6).
+> `data` grew a second shape over the original "flat mapping" spec — an array of
+> `[x, y]` pairs — so **scatter is first-class** (numeric axes, duplicate x). See
+> Part I's load-bearing facts (the `chart:N` taxonomy entry and the Excel-backed
+> live-Word gotcha — `Selection`-only insert, SERIES-formula population, the
+> mandatory `BreakLink`-before-close to avoid orphan Excel) and `CHANGELOG.md`.
+> **Deferred as planned:** multi-series, secondary axes, axis/series formatting,
+> exposing `BreakLink` as a policy knob, and reading existing charts' data back
+> out (`doc.charts` is metadata only).
 
-Approved 2026-05-31 as the SmartArt substitute. `Range.InlineShapes.AddChart2`
-embeds a chart whose data lives in an embedded Excel workbook. Heavier than
-images (a new transitive dependency + a much larger surface), hence below the
-items above.
-
-- **`anchor.insert_chart(kind, data, *, title=None)`** — `kind` → `XlChartType`
-  (`bar`→`xlColumnClustered`, `pie`→`xlPie`, `scatter`→`xlXYScatter`,
-  `line`→`xlLine`); `data` (flat label→value mapping) populates
-  `ChartData.Workbook.Worksheets(1)`.
-- **Transitive Excel dependency** — `AddChart2` spins up hidden Excel. Gate
-  behind an "is Excel available?" probe + a typed error (clean exit, not exit 1).
-- `XlChartType` subset in `constants.py` (internal). **Keep narrow:** common
-  kinds + flat `data` only. **Deferred:** multi-series, secondary axes,
-  axis/series formatting, `BreakLink` policy, reading existing charts back out.
-
-## 2. Structural query helpers (new, lower priority)
+## 1. Structural query helpers (new, lower priority)
 
 From the gpt-5.4 review: content-under-heading, block-between-headings,
 nearest-heading-before/after, find-paragraph-by-approx-text. Several reduce to
@@ -285,11 +309,46 @@ reads (already shipped). Not yet ticketed.
 - **Native SmartArt** — declined 2026-05-31. `Shapes.AddSmartArt(Layout, …)` +
   driving the `Nodes` tree is heavy and brittle (GUID-indexed layouts,
   floating-only, hard to read back, locale/version-sensitive) for an intent that
-  **charts** (Part II) and **render-diagram-to-image** (mermaid/graphviz →
+  **charts** (shipped) and **render-diagram-to-image** (mermaid/graphviz →
   `insert_image`) already serve. Revisit only on a concrete SmartArt need.
 
 ## Deferred (no concrete trigger yet)
 
+- **Chart formatting & design (surface live-probed 2026-06-16).** `insert_chart`
+  ships kind + data + title only; the *entire* Office chart formatting surface is
+  reachable today via the `.com` escape hatch (`doc.charts[N]._shape().Chart`) and
+  was probed live — **almost all of it works on a post-insert (BreakLink-static)
+  chart with no embedded-Excel respin and no orphans** (per-point recolour already
+  demoed). The one rule still holds: don't read chart *data* back. A future pass
+  would expose a curated slice — either a `chart.format(...)` method on
+  `ChartAnchor` or thin verbs (`apply_style` / `set_colors` / `add_trendline` /
+  `set_axis`). What the probe confirmed settable:
+  - **Design / whole-chart:** `Chart.ChartStyle` (int — the built-in style
+    gallery), `ChartArea`/`PlotArea` `.Format.Fill`/`.Line`, **change `ChartType`
+    after insert**, `ApplyChartTemplate(.crtx)`. The modern
+    `Chart.SetElement(msoElement…)` API is the cleanest element toggle
+    (title-above, legend-bottom, gridlines, data-labels all worked).
+  - **Elements + text:** `HasTitle`/`HasLegend`/`HasDataTable` + `.Font` /
+    `Legend.Position`; `ChartArea.Font` sets a whole-chart font.
+  - **Axes:** axis titles, major gridlines, `MinimumScale`/`MaximumScale`,
+    **`Axis.ScaleType` = logarithmic** (`xlScaleLogarithmic` = -4133 — ideal for
+    the wheat-doubling / atoms-by-order-of-magnitude charts), tick-label
+    `Font`/`NumberFormat`, axis line colour.
+  - **Series / points:** `Series.Format` `.Fill`/`.Line`/`.Shadow`/`.Glow`,
+    **per-point `Points(i).Format.Fill`** (vary-by-point colours), pie
+    `Points(i).Explosion`, `HasDataLabels` + `DataLabels().Font`/`NumberFormat`,
+    bar `ChartGroups(1).GapWidth`/`Overlap`.
+  - **Scatter / line:** `MarkerStyle`/`MarkerSize`/`MarkerBackgroundColor`, line
+    `Smooth`, **`Series.Trendlines().Add(Type=…)`** with `DisplayEquation` /
+    `DisplayRSquared` (a power-fit on a scatter literally draws the law of best
+    fit), and `Series.ErrorBar(...)` (scientific error bars — wants the right enum
+    args). Colours are Office `OLE_COLOR` BGR longs — reuse `_format.to_bgr`.
+
+  *Probe misses were all test-side, not real gaps:* `ApplyChartTemplate` needs a
+  real `.crtx` path, `ErrorBar` needs correct enum args, and `ThreeD` lives on the
+  series `Format`, not the chart's. Keep any future surface narrow (the charts
+  philosophy); `ChartColor`/"Change Colors" isn't one COM property — it's
+  `ChartStyle` + per-series/point fills.
 - **Events / sinks** — `WithEvents(word.com, Handler)` for `DocumentBeforeSave`,
   `WindowSelectionChange`. Wait for a use case before designing the marshalling
   layer.

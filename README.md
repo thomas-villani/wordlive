@@ -186,6 +186,11 @@ wordlive insert-equation --anchor-id heading:3 --unicodemath "x=(-b±√(b^2-4ac
 wordlive insert-equation --anchor-id heading:3 --latex "\frac{-b}{2a}"   # pip install "wordlive[latex]"
 wordlive equations                                         # list equation:N ids, type, preview
 
+# Charts — Excel-backed (needs Excel installed; data becomes static):
+wordlive insert-chart --anchor-id end --kind bar --data '{"Q1": 10, "Q2": 25, "Q3": 18}' --title "Quarterly"
+echo '[[1.2, 3.4], [2.5, 6.1]]' | wordlive insert-chart --anchor-id end --kind scatter --data -
+wordlive charts                                            # list chart:N ids, kind, title
+
 # Snapshot — render page(s) to PNG so a vision model can SEE the layout
 # (needs the `snapshot` extra: pip install "wordlive[snapshot]"):
 wordlive snapshot --anchor-id heading:3 --out section.png   # the section's page(s)
@@ -218,7 +223,7 @@ Where `ops.json` looks like:
 }
 ```
 
-Exit codes: `0` ok, `1` other, `2` anchor-not-found, `3` Word-busy, `4` Word-not-running, `5` ambiguous-match (`replace --find` hit several).
+Exit codes: `0` ok, `1` other, `2` anchor-not-found, `3` Word-busy, `4` Word-not-running, `5` ambiguous-match (`replace --find` hit several), `6` Excel-not-available (`insert-chart`).
 
 ## Agent skills
 

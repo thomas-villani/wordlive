@@ -1095,3 +1095,43 @@ def test_insert_text_box_creates_floating_shape_with_text(scratch_doc):
     assert int(doc.com.Shapes.Count) == before + 1
     shape = doc.com.Shapes(int(doc.com.Shapes.Count))
     assert "Pull quote!" in str(shape.TextFrame.TextRange.Text)
+
+
+# ---------------------------------------------------------------------------
+# Charts (insert_chart + doc.charts) — real Excel-backed AddChart2 / BreakLink.
+# Requires Excel installed alongside Word. The recipe is hard-won (see _charts):
+# insert off the Selection, populate the embedded workbook via a SERIES formula,
+# then BreakLink + close so no orphan Excel is left behind.
+# ---------------------------------------------------------------------------
+
+
+def test_insert_charts_all_kinds_and_metadata(scratch_doc):
+    """Insert every kind into ONE doc (one undo step) and read back the metadata.
+
+    Deliberately one shared document and a single edit batch: each chart spins up
+    and tears down a hidden Excel, and cycling that rapidly across many separate
+    docs is what destabilises live Word (transient RPC hiccups — the same
+    fragility `_charts` tames with BreakLink). One pass mirrors real usage. We
+    read only the stable metadata (`chart_type`, `title`, count) — never the
+    series data, which re-spins Excel.
+
+    Reaching all four kinds also proves the no-orphan close works: a leftover open
+    data grid would make the second insert raise "the chart data grid is already
+    open", so four charts in a row means BreakLink+close released it each time.
+    """
+    doc = scratch_doc
+    with doc.edit("charts"):
+        doc.end.insert_chart("bar", {"Q1": 10, "Q2": 25, "Q3": 18}, title="Quarterly")
+        doc.end.insert_chart("pie", {"A": 1, "B": 2, "C": 3})
+        doc.end.insert_chart("line", {"Jan": 3.1, "Feb": 4.7})
+        # scatter from [x, y] pairs, with a duplicate x (numeric value axis)
+        doc.end.insert_chart("scatter", [[1.2, 3.4], [1.2, 3.9], [2.5, 6.1]], title="signal")
+
+    assert len(doc.charts) == 4
+    rows = doc.charts.list()
+    assert [r["anchor_id"] for r in rows] == ["chart:1", "chart:2", "chart:3", "chart:4"]
+    assert [r["kind"] for r in rows] == ["bar", "pie", "line", "scatter"]
+    # title set where given; title=None leaves the chart untitled
+    assert rows[0]["title"] == "Quarterly"
+    assert rows[1]["title"] is None
+    assert rows[3]["title"] == "signal"

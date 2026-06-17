@@ -35,6 +35,7 @@ mode without parsing strings:
 | `3`  | Word busy / modal      | `WordBusyError` (retryable) |
 | `4`  | Word not running       | `WordNotRunningError`      |
 | `5`  | Ambiguous match        | `AmbiguousMatchError` (multiple `find` hits without `--all`/`--occurrence`) |
+| `6`  | Excel not available    | `ExcelNotAvailableError` (`insert-chart` needs Excel installed) |
 
 See the [Errors page](errors.md) for the full exception taxonomy and
 retry guidance.
@@ -1352,6 +1353,43 @@ $ wordlive equations
 Failures: `1` malformed input (no dialect, or more than one; unparseable
 MathML/LaTeX; the `latex` extra not installed) — an `EquationError`; `2` anchor
 not found; `3` Word busy.
+
+## `insert-chart --anchor-id ID --kind bar|pie|line|scatter --data JSON` / `charts`
+
+```
+wordlive insert-chart --anchor-id ID --kind bar|pie|line|scatter --data JSON \
+    [--title "…"] [--before | --after] [--doc DOC_NAME]
+wordlive charts [--doc DOC_NAME]
+```
+
+Insert an **Excel-backed** chart at any anchor (atomic-undo). `--data` is JSON
+(or `--data -` to read it from stdin): an object `{"label": value}` for
+`bar`/`pie`/`line`, or an array of `[x, y]` pairs for `scatter` (both axes
+numeric, duplicate x preserved); `line` accepts either. `--title` sets the chart
+title and series name.
+
+Charts embed a hidden Excel workbook (`InlineShapes.AddChart2`), so **Excel must
+be installed** — if it isn't, the command exits **`6`** (`ExcelNotAvailableError`)
+and the document is left untouched. wordlive then breaks the data link, so the
+chart's data is **static**: no embedded workbook ships in the document, and the
+series data isn't read back. `charts` is the read side — every chart's `chart:N`
+id, `kind`, `title`, and `para:N`; `chart:N` is positional (document order), so
+inserting another chart earlier renumbers it.
+
+```bash
+$ wordlive insert-chart --anchor-id end --kind bar --data '{"Q1": 10, "Q2": 25, "Q3": 18}' --title "Quarterly"
+{"ok": true, "anchor_id": "end", "chart": 1, "chart_anchor_id": "chart:1", "kind": "bar", "where": "after"}
+
+$ echo '[[1.2, 3.4], [1.2, 3.9], [2.5, 6.1]]' | wordlive insert-chart --anchor-id end --kind scatter --data -
+{"ok": true, "anchor_id": "end", "chart": 2, "chart_anchor_id": "chart:2", "kind": "scatter", "where": "after"}
+
+$ wordlive charts
+[{"index": 1, "anchor_id": "chart:1", "kind": "bar", "title": "Quarterly", "para": "para:1"}]
+```
+
+Failures: `1` malformed `--data` (bad JSON, empty, wrong shape, non-numeric
+value — an `OpError`); `2` anchor not found; `3` Word busy; **`6`** Excel not
+installed (`ExcelNotAvailableError`).
 
 ## `snapshot [--anchor-id ID | --page N | --pages A-B]`
 
