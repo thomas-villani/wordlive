@@ -59,7 +59,9 @@ def probe_excel_available() -> bool:
     except ImportError:
         return False
     try:
-        winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "Excel.Application").Close()
+        # typeshed guards winreg's members behind sys.platform == "win32", so
+        # OpenKey/HKEY_CLASSES_ROOT read as missing under Linux-CI mypy.
+        winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "Excel.Application").Close()  # type: ignore[attr-defined]
         return True
     except OSError:
         return False
