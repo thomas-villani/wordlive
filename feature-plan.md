@@ -1,6 +1,6 @@
 # wordlive — feature roadmap
 
-How to read this document (refreshed 2026-06-15, after the **v0.16.0** release):
+How to read this document (refreshed 2026-06-17, after the post-polish roadmap brainstorm):
 
 - **Status-first, not version-numbered.** Work is bucketed by **status** and,
   within "next up", by **priority** — never by speculative version labels (an
@@ -260,8 +260,10 @@ ambiguous `find` match · `6` Excel not available (`ExcelNotAvailableError`, for
 
 # Part II — Approved / next up (priority order)
 
-Everything here is **specced but not yet implemented** (re-verified 2026-06-15).
-Ordered by leverage.
+Everything here is **specced but not yet implemented**. Ordered by leverage. The
+✅ blockquotes immediately below shipped since this section was first written (now
+indexed in Part I); the live backlog — the **post-polish brainstorm wave**
+(2026-06-17) — follows them.
 
 > **Durable handles & stale-anchor diagnostics — ✅ shipped (Unreleased).** All
 > five pieces landed: `doc.pin`/`stamp` + the `pin:` anchor, `doc.pin_outline` /
@@ -320,7 +322,185 @@ Ordered by leverage.
 > already shipped** (`Heading.section_range()`/`section_text()` + `read section`),
 > so these three complete the item. Pure reads — no `exec` ops.
 
-(No remaining approved/next-up items — see Part III for the deferred backlog.)
+## Priority 1 — Document quality & change tracking (the agent-publishing core)
+
+### 1. Linter + formatting regularizer — `doc.lint()` / `doc.regularize()`
+
+The highest-utility next feature: a declarative rule set that **audits** a document
+for publishing-quality defects and **autofixes** the mechanical ones. Pure
+composition over shipped write primitives (`format_paragraph`, `set_heading_row`,
+styles, `fields`, `outline`) — **no new COM surface**. Seed the rule catalogue from
+the `all2md` linter + the recurring by-hand edits. **Detailed design:
+`spec-linter.md`** (rule catalogue, the consistency/structural/policy split,
+profiles, and the direct-override detection probe).
+
+- **`doc.lint(rules=None, within=anchor)`** → ranked findings
+  `{rule, severity, anchor_id, message, fixable, fix_hint}`. Read-only.
+- **`doc.regularize(rules=None, within=anchor, dry_run=False)`** → applies the
+  fixable subset in one `doc.edit()` (atomic undo); returns the change list.
+- **Seed rules:** heading not `keep_with_next` (dangling header at a page foot);
+  missing widow/orphan control; a table broken across pages with no repeating
+  heading row (`set_heading_row`); inconsistent line spacing / direct formatting
+  vs. the paragraph style; split/orphaned list numbering (the "N independent 1.
+  lists" footgun); empty heading polluting the outline/TOC; broken
+  cross-ref / bookmark / field; mixed body fonts; missing image alt text; stray
+  double-spaces / empty paragraphs.
+- Rules are **declarative + individually selectable** (id + severity +
+  enable/disable) so a caller can audit → review → apply, or later wire
+  `regularize` into the save hook (Priority 7).
+- Surfaces: Python (`doc.lint`/`doc.regularize`); CLI (`lint` JSON findings /
+  `regularize`); `regularize` exec op (a write, for the atomic-undo batch — `lint`
+  stays a read); MCP `word_read command=lint` / `word_write command=regularize`.
+- **Foundational sub-item:** a new **`anchor.format_info()` read control** — the
+  missing read mirror of `format_paragraph`/`format_run` (wordlive has the write
+  side but no read side). Returns effective alignment/font/spacing per anchor,
+  each annotated style-inherited vs direct-override, plus `mixed` for `wdUndefined`
+  runs. The substrate every consistency rule consumes; useful standalone. CLI
+  `read format`, MCP `word_read command=format_info`.
+- **Direct-override detection live-validated 2026-06-17** (effective vs
+  `ParagraphStyle` comparison, `wdUndefined` for mixed runs, `Font.Reset()`
+  strip-to-style all confirmed — see `spec-linter.md` §7).
+- **Probe before shipping:** each fix must be **idempotent** (re-running
+  `regularize` is a no-op) so it doesn't "fix" intentional formatting.
+
+### 2. Checkpoint + diff — `doc.checkpoint()` / `doc.changes_since()` / `doc.diff()`
+
+Promoted from nice-to-have to **load-bearing** by the 2026-06-17 event probe: Word
+emits **no content-change event** (see Priority 7), so the only way to answer "what
+changed" is a structural snapshot + diff. Also the substrate for compare/merge
+(Priority 5) and the save-hook review (Priority 7). **Detailed design:
+`spec-checkpoint-diff.md`** (the fingerprint shape, content-aligned diff via
+`SequenceMatcher`, and the opt-in pin-backed tracked checkpoint).
+
+- **`doc.checkpoint()`** → an opaque, serialisable structural snapshot (per
+  paragraph: text + style + key format; tables/headings; a content hash). Cheap
+  pure read; no Word state touched.
+- **`doc.changes_since(cp)`** / **`doc.diff(cp_a, cp_b)`** → a structured change
+  list `{op: insert|delete|replace|restyle, anchor_id, before, after}`, aligned by
+  content (difflib over `find()`'s normalization).
+- Lets a multi-step agent verify "did my edits land where I meant" without
+  re-reading the whole document, and powers "review what the user changed since I
+  last looked."
+- Surfaces: Python + CLI (`checkpoint` emits a token the caller stores; `diff
+  --since FILE`) + MCP `word_read`. **Not an exec op** (pure reads; the token
+  round-trips through the caller, not Word).
+- **Deferred:** persisting checkpoints inside the document (a `doc.variables`
+  store) — start with caller-held tokens.
+
+## Priority 2 — Read ergonomics & interchange
+
+### 3. Token-budgeted whole-doc read — `doc.read(budget=N)`
+
+A structure-aware compressed representation of an **entire** document sized to a
+token budget, so an agent can load an 80-page document into context cheaply with
+every anchor still addressable. Headings verbatim; body summarised/elided by depth;
+tables as shapes; anchors preserved. Pure read; Python + CLI + MCP `word_read`.
+**Probe:** the eliding heuristic (how to spend the budget across a deep vs. flat
+doc) wants a live tuning pass.
+
+### 4. Markdown / HTML export — `doc.to_markdown(within=anchor)`
+
+The **read** mirror of the shipped `insert_markdown` compose path — clean Markdown
+(or HTML) *out* of a document or any anchor's range. Constant agent need ("give me
+this section as markdown"). Port the docx→md mapping + learnings from `all2md`
+(which already does this well over structured docx). Pure read; Python + CLI + MCP.
+**Deferred:** full-fidelity HTML and round-trip guarantees (export is lossy by
+design, like the constrained-subset import).
+
+## Priority 3 — Polish (incremental; lands before the event loop)
+
+Small, well-scoped cuts rounding out shipped clusters. COM detail for each is in
+Part III's catalogue (promoted here, not re-derived).
+
+### 5. Table polish
+Merged / split cells (the addressing model assumes a rectangular grid — needs a
+story for how a merged cell reports its `table:N:R:C` id), `add_column` /
+`delete_column`. (AutoFit + repeating heading rows already shipped.)
+
+### 6. List polish
+Per-level bullet / number format, custom list-template authoring, multi-section
+`LinkToPrevious` editing.
+
+### 7. Chart depth (post-insert, static — no Excel respin)
+Error bars (`Series.ErrorBar` — wants the right enum args), series/point formatting
+(`MarkerStyle`/`MarkerSize`, line `Smooth`, bar `GapWidth`/`Overlap`, pie
+`Explosion`, per-element `.Font`), trendline `Order`/`Period` knobs, secondary axes
+/ multi-series authoring, `HasDataTable`, `ApplyChartTemplate(.crtx)`. Keep each
+extension narrow (the charts philosophy). `Axis.Visible` stays out (not settable
+under late binding, confirmed 2026-06-17). Full COM surface: Part III.
+
+## Priority 4 — Vision ↔ anchor bridge
+
+### 8. Anchor-overlay snapshots — `snapshot(..., overlay="anchors")`
+
+Render a page with `para:N` / `heading:N` / `table:N` / `image:N` ids drawn as
+labelled overlays on the rasterised image, so a **vision model can see the layout
+and name the exact anchor to act on** — closing the loop between wordlive's two
+addressing modes (pixels + anchor ids). Small effort over the shipped snapshot
+pipeline (PyMuPDF draws the boxes/labels post-rasterise from each anchor's
+`location()` page + bounding rect). Python `snapshot` / `snapshot_anchor`, the
+`--overlay` CLI flag, the `word_snapshot` param. **Probe:** extracting per-anchor
+pixel rects from Word (`Information(wdHorizontalPositionRelativeToPage)` + page
+geometry) and mapping them onto the PyMuPDF page raster.
+
+## Priority 5 — Comparison & generation (larger surfaces; each its own design pass)
+
+### 9. Compare / merge — `word.compare(a, b)` → tracked revisions
+`Application.CompareDocuments` renders the delta of two drafts as **tracked
+revisions** in a new document — which wordlive already reads and accepts/rejects end
+to end. Needs a **second-document handle** in the model (also unlocks
+cross-document section copy). Pairs with checkpoint/diff (Priority 1) as the
+in-session counterpart. *Medium-high; the second-doc handle is the new primitive.*
+
+### 10. Templating + mail merge
+Fill a content-control / `{{placeholder}}` template from a JSON record
+(`doc.fill(record)`), and/or `Document.MailMerge` for "N letters from a table." The
+enterprise document-generation use case; builds on shipped content-control creation
++ variables. *High value, high cost — its own multi-step design pass.*
+
+## Priority 6 — Deliverable hand-off
+
+### 11. Prepare-for-sharing — `doc.prepare_for_sharing(...)`
+One-call hand-off bundling three parked items: inspect & strip metadata / hidden
+text / resolved comments (`Document.RemoveDocumentInformation`), optional
+`Document.Protect(...)` to lock editing (gate like persistence), and an
+accessibility audit (alt-text coverage, heading structure, reading order — feeds
+the linter). The "make this safe to send" workflow.
+
+## Priority 7 — Event loop / co-editing (sequenced after polish)
+
+### 12. `doc.watch()` — event sink + reactive mode
+The biggest architectural addition and wordlive's headline differentiator: an agent
+that works *alongside* the user in a live session. Feasibility **proven live**
+(2026-06-17) via `WithEvents` + `PumpWaitingMessages`. Headline use: a
+**review-on-save** hook (`doc.on_save(review_fn)`) that intercepts
+`DocumentBeforeSave`, runs `doc.lint()`/`regularize`/comments, then re-saves.
+
+**Load-bearing event facts (live-probed 2026-06-17, Word 16 — `MSWORD.OLB` 8.7):**
+- **No content-change event exists.** `TypeText`/`InsertAfter` fire nothing;
+  `DocumentChange` is active-doc-switch, not an edit. Reacting to user edits must
+  go through **checkpoint + diff** (Priority 1) — that's *why* it's Priority 1.
+  Content-control `OnExit`/`ContentUpdate` are the only "content changed" signals,
+  and only inside a CC.
+- **Sinks:** `ApplicationEvents4` (app-wide — `DocumentBeforeSave(Doc, SaveAsUI,
+  Cancel)`, `DocumentBeforeClose`, `DocumentBeforePrint`, `WindowSelectionChange(Sel)`,
+  `DocumentChange()`, `DocumentOpen`, `NewDocument`, `WindowActivate/Deactivate`,
+  `MailMerge*`); `DocumentEvents2` (per-doc — `ContentControlOnExit/OnEnter/
+  ContentUpdate/AfterAdd/BeforeDelete`, `XMLAfterInsert/BeforeDelete`,
+  `BuildingBlockInsert`).
+- **Requires a running message pump** (`PumpWaitingMessages` in the COM/STA
+  thread) — a long-running pumped process, not the one-shot CLI; pairs with the
+  deferred **`asyncio` wrapper**.
+- **Event args arrive as raw late-bound `PyIDispatch`** — `.Name`/`.Start` raise
+  `AttributeError` until re-wrapped with `win32com.client.Dispatch(arg)`; the sink
+  must re-wrap each arg into a wordlive type.
+- **`DocumentBeforeSave` Cancel is byref** (a pywin32 handler must
+  `return (SaveAsUI, Cancel)` to write it back); calling `Save()` inside the
+  handler **re-fires** the event (re-entrancy guard needed), and a `Save()` that
+  needs UI (`SaveAsUI=True`) **blocks the automation thread** on the dialog.
+- **`WindowSelectionChange` floods** (one per caret move) — debounce.
+
+(Mirrors the project memory `word-com-events-gotchas`.)
 
 ---
 
@@ -341,8 +521,9 @@ Ordered by leverage.
   `chart_style`/`has_legend` reads) is live (see Part I); it operates on the
   post-insert **static** chart with no Excel respin (re-probed 2026-06-17: 0 orphan
   EXCEL.EXE). The `.com` escape hatch (`doc.charts[N]._shape().Chart`) still
-  reaches everything; the one rule holds — don't read chart *data* back. **Still
-  deferred** from the live-probed surface:
+  reaches everything; the one rule holds — don't read chart *data* back. The depth
+  items below are **→ promoted to Part II Priority 3, item 7 (chart depth)**; this
+  entry remains the detailed COM catalogue for them:
   - **Series/point depth:** `Series.Format` `.Shadow`/`.Glow`, pie
     `Points(i).Explosion`, `MarkerStyle`/`MarkerSize`, line `Smooth`, bar
     `ChartGroups(1).GapWidth`/`Overlap`, per-element `.Font`.
@@ -357,9 +538,11 @@ Ordered by leverage.
   isn't one COM property — it's `ChartStyle` + per-series/point fills (now
   exposed). Colours are Office `OLE_COLOR` BGR longs — reuse `_format.to_bgr`.
 - **Events / sinks** — `WithEvents(word.com, Handler)` for `DocumentBeforeSave`,
-  `WindowSelectionChange`. Wait for a use case before designing the marshalling
-  layer.
-- **`asyncio` wrapper** — natural once events land. Sync core stays.
+  `WindowSelectionChange`. **→ promoted to Part II Priority 7 (`doc.watch()`)** —
+  use case found (review-on-save) and feasibility live-probed 2026-06-17; the
+  marshalling gotchas are now captured there.
+- **`asyncio` wrapper** — natural once events land. Sync core stays. **→ pairs
+  with Part II Priority 7** (the pumped event loop wants it).
 - **Read-model caching** — premature; live reads are correct. Cache when events
   arrive to invalidate on `DocumentChange`.
 - **Styles deep cuts** — character/list/linked styles, theme-aware fonts, style
@@ -368,8 +551,9 @@ Ordered by leverage.
   document themes shipped v0.16.0.)
 - **Table polish** — merged/split cells (addressing assumes rectangular),
   `add_column`/`delete_column`. (AutoFit shipped v0.15.0 as `Table.autofit`.)
+  **→ promoted to Part II Priority 5.**
 - **List polish** — custom list-template authoring, per-level bullet/number
-  format, multi-section `LinkToPrevious` editing.
+  format, multi-section `LinkToPrevious` editing. **→ promoted to Part II Priority 6.**
 - **Comment/revision polish** — comment replies (`comment.reply`), author/date
   filtering on `list()`. (Per-revision accept/reject is active backlog — Part II.)
 - **Image polish** — wrap *side* + text distance; absolute/relative positioning
@@ -411,12 +595,14 @@ application/window/view surfaces (group I) are in real tension with *politeness*
 
 - **Protection / editing restrictions** — `Document.Protect(type, …)` /
   `Unprotect`, read-only enforcement, `Permission` (IRM). Hand back a locked
-  deliverable. *Weight: medium; gate like persistence.*
+  deliverable. *Weight: medium; gate like persistence.* **→ folded into Part II
+  Priority 6 (item 11, prepare-for-sharing).**
 - **Encryption / passwords** — `Document.Password` / `WritePassword`.
   *Security-sensitive; gate hard or leave to the human.*
 - **Compare / merge** — `Application.CompareDocuments`, `Document.Merge`. "Diff
   these two drafts" as tracked revisions — genuinely agent-shaped. *Weight:
-  medium-high; needs a second-document handle in the model.*
+  medium-high; needs a second-document handle in the model.* **→ promoted to Part
+  II Priority 5 (item 9).**
 - **Inspect / redact**, **digital signatures** — *niche / low priority.*
 
 ### D. Mail merge & data-driven generation
@@ -425,7 +611,8 @@ application/window/view surfaces (group I) are in real tension with *politeness*
   printer / email. The canonical "generate N letters from a table" workflow —
   squarely in wordlive's document-generation wheelhouse, but a large surface
   (data-source binding, field mapping, output routing). *Weight: high value, high
-  cost — its own multi-step design pass.*
+  cost — its own multi-step design pass.* **→ promoted to Part II Priority 5 (item
+  10, with content-control templating).**
 
 ### E. Structured & data-bound content
 
