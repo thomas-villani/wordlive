@@ -14,8 +14,12 @@ item 2. This is the detailed design; the roadmap keeps the one-paragraph summary
 Three forces converge on the same primitive:
 
 1. **Word has no content-change event** (live-probed 2026-06-17 — see
-   `feature-plan.md` Priority 7). The *only* way to answer "what did the user/agent
-   change" is to fingerprint the document at two points and diff them.
+   `feature-plan.md` Priority 7), and `WindowSelectionChange` is **not** a usable
+   substitute: during 25s of continuous manual typing it fired only 4× (missing an
+   11s / 58-char run), while a 170ms poll caught all 85 changes. So the *only*
+   reliable way to answer "what did the user/agent change" is to fingerprint the
+   document at two points and diff them — checkpoint/diff isn't a convenience, it's
+   the only mechanism.
 2. **An agent needs to verify its own edits landed** — "did my 5 `replace` ops hit
    exactly the 5 paragraphs I meant, and nothing else?" — without re-reading the
    whole document into context.

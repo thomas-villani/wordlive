@@ -498,7 +498,16 @@ that works *alongside* the user in a live session. Feasibility **proven live**
   `return (SaveAsUI, Cancel)` to write it back); calling `Save()` inside the
   handler **re-fires** the event (re-entrancy guard needed), and a `Save()` that
   needs UI (`SaveAsUI=True`) **blocks the automation thread** on the dialog.
-- **`WindowSelectionChange` floods** (one per caret move) — debounce.
+- **`WindowSelectionChange` is the closest edit signal but unreliable** — it does
+  **not** fire per keystroke. Live-probed 2026-06-17: during 25s of continuous
+  manual typing (~90 char edits) it fired only **4×**, once missing an 11s / 58-char
+  run entirely (Word coalesces it during fast typing); discrete caret moves
+  (click / arrow / programmatic `.Select()`) do fire it, and programmatic
+  `TypeText` fires it *not at all*. So it can't even serve as a dependable
+  "something changed, go look" trigger — **timer-based polling / checkpoint-diff is
+  the only reliable edit detector** (a 170ms poll caught all 85 changes the events
+  missed). This is the empirical proof that Priority 1's checkpoint/diff is
+  mandatory, not optional.
 
 (Mirrors the project memory `word-com-events-gotchas`.)
 
