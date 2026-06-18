@@ -345,6 +345,11 @@ $ wordlive find --text "the risk register" --in heading:3
 This is the same matcher as `replace --find`, but read-only — useful as a
 pre-flight check or to enumerate candidates for an `--occurrence` pick.
 
+`find` matches **exact** text (after cosmetic normalization). When the agent
+only *approximately* remembers the wording — a paraphrase, a typo, a half-recalled
+sentence — reach for `find-paragraph` instead; see
+[recipe 15](#15-locate-a-paragraph-exact-find-vs-fuzzy-find-paragraph).
+
 ## 5. LLM tool-use loop
 
 The CLI's JSON-in / JSON-out shape is designed to drop straight into a
@@ -923,3 +928,71 @@ $ base64 logo.png | wordlive insert-image --anchor-id bookmark:Logo --base64 - \
 A missing file, malformed base64, or an unrecognised format raises
 [`ImageSourceError`](errors.md#imagesourceerror) (exit code 1) before anything
 is inserted — the batch never half-mutates the document.
+
+## 15. Locate a paragraph: exact `find` vs fuzzy `find-paragraph`
+
+Two locators, two jobs. **`find`** does exact substring matching (after
+normalizing smart quotes / dashes / whitespace) and returns `range:START-END`
+hits — the right tool when you know the literal text and want to *edit* it (it
+feeds straight into `replace`; see [recipe 4](#4-fuzzy-find-replace-llm-friendly)).
+**`find_paragraphs`** scores *every paragraph* for similarity to your query with
+`difflib.SequenceMatcher` (over the same normalization) and returns ranked
+`para:N` candidates — the right tool when the agent only **approximately**
+remembers the wording and wants the paragraph it lives in.
+
+A model holding a paraphrase would get **zero** hits from `find`, but
+`find_paragraphs` still ranks the real paragraph first:
+
+=== "Python"
+
+    ```python
+    import wordlive as wl
+
+    with wl.attach() as word:
+        doc = word.documents.active
+
+        # The doc says: "The quick brown fox jumps over the lazy dog."
+        # The agent only half-remembers it:
+        hits = doc.find("the fast brown fox leaps over a lazy dog")   # exact → []
+        ranked = doc.find_paragraphs("the fast brown fox leaps over a lazy dog")
+
+    print(hits)                       # []  — no exact substring
+    print(ranked[0]["anchor_id"],     # "para:12"
+          round(ranked[0]["score"], 2))  # 0.86  — best fuzzy match
+    ```
+
+    `find_paragraphs` returns
+    `[{anchor_id, index, score, text, level, is_heading}, …]` sorted by
+    descending `score`, keeping only matches at or above `min_score` (default
+    `0.6`), capped at `limit` (default `5`). Headings are included and flagged by
+    `is_heading` / `level`, but everything is addressed by `para:N`.
+
+=== "CLI"
+
+    ```bash
+    # Exact: nothing, because the wording drifted.
+    $ wordlive find --text "the fast brown fox leaps over a lazy dog"
+    []
+
+    # Fuzzy: the real paragraph, ranked, with a score.
+    $ wordlive find-paragraph --text "the fast brown fox leaps over a lazy dog"
+    [{"anchor_id": "para:12", "index": 12, "score": 0.8605,
+      "text": "The quick brown fox jumps over the lazy dog.",
+      "level": 10, "is_heading": false}]
+    ```
+
+    Tune the breadth with `--limit N` and the strictness with `--min-score F`
+    (0–1). An empty or whitespace-only query returns `[]`.
+
+Then act on the winner by its `para:N` id — read it, edit it, or use it as a
+`scope` for a precise `find_replace`:
+
+```python
+target = ranked[0]["anchor_id"]                       # "para:12"
+with doc.edit("Fix the pangram"):
+    doc.find_replace("jumps", "leaps", scope=doc.anchor_by_id(target))
+```
+
+Rule of thumb: **`find` to edit known text, `find_paragraphs` to locate
+half-remembered text.** Pair them — `find_paragraphs` to home in on the
+paragraph, then a scoped exact `find` / `find_replace` for the surgical change.

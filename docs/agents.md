@@ -26,62 +26,121 @@ wordlive llm-help --python   # the `import wordlive as wl` guide
 Point your agent at `wordlive --help` and it's told to run exactly this. This is
 the lowest-friction way to give a one-off agent everything it needs.
 
-## Claude Code
+## Install the skill
 
-Two complementary moves — install the skill so Claude Code knows the surface,
-and (optionally) register the MCP server so it can also call the tools directly:
+A skill teaches a coding agent the whole wordlive surface so it shells out to
+`wordlive …` (or `import wordlive`) itself — no MCP server needed. It lands as a
+`SKILL.md` that any skill-aware agent (Claude Code, Cursor, …) auto-discovers:
 
 ```bash
-# Skill — lands in ./.agents/skills/wordlive-cli/SKILL.md (commit it to share).
-wordlive install-skill            # CLI skill (default)
-wordlive install-skill --both     # also the wordlive-python skill
+wordlive install-skill            # CLI skill → ./.agents/skills/wordlive-cli/SKILL.md
+wordlive install-skill --python   # the Python-API skill instead
+wordlive install-skill --both     # both
+```
 
-# MCP — merges a server entry into the project's ./.mcp.json (uses uvx, no install).
+Project-local by default (commit it to share); `--system` installs to
+`~/.agents/skills/` for every project.
+
+## Connect the MCP server
+
+The MCP server is one stdio process exposing the four `word_*` tools. Every
+client launches it the same way — this is the entry to register:
+
+```json
+{
+  "mcpServers": {
+    "wordlive": {
+      "command": "uvx",
+      "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]
+    }
+  }
+}
+```
+
+`uvx` runs the published package straight from PyPI — no separate install — and
+the `snapshot` extra enables the `word_snapshot` vision tool (renders a page to
+an image the model can *see*). Two variants on the launch command:
+
+- **Pinned install:** `pip install "wordlive[mcp,snapshot]"`, then use
+  `"command": "wordlive-mcp"` with no `args`.
+- **Local checkout (dev):** `"command": "uv"`, `"args": ["run", "--directory",
+  "C:\\path\\to\\wordlive", "wordlive-mcp"]`.
+
+`wordlive install-mcp` writes this entry for you (Claude Desktop / Claude Code);
+`wordlive install-mcp --print` emits the snippet to paste anywhere else. **Restart
+the client** after editing its config. Because wordlive drives Word over COM, the
+client must run on the **same Windows machine** as Word — the paths below are the
+Windows locations.
+
+### Claude Desktop (MCP-only)
+
+Easiest is the one-click bundle: download `wordlive.mcpb` (built from
+[`mcpb/`](https://github.com/thomas-villani/wordlive/tree/main/mcpb)) and drop it
+onto **Settings → Extensions**. Otherwise register the server entry:
+
+```bash
+wordlive install-mcp        # writes %APPDATA%\Claude\claude_desktop_config.json
+```
+
+or edit that file by hand (**Settings → Developer → Edit Config** opens it) with
+the `mcpServers` entry above.
+
+### Claude Code (skill **and** MCP)
+
+```bash
+# Built-in CLI — user scope, so it's available in every project:
+claude mcp add --scope user --transport stdio wordlive \
+    -- uvx --from "wordlive[mcp,snapshot]" wordlive-mcp
+
+# …or a committable project-local .mcp.json:
 wordlive install-mcp --client claude-code
 ```
 
-Restart Claude Code to pick up the `.mcp.json` change. The skill is committed
-per-project; `--system` installs it to `~/.agents/skills/` for every project.
+`--scope user` stores it in `~/.claude.json` (this machine only); `--scope
+project` (and `install-mcp --client claude-code`) write `.mcp.json` at the repo
+root, which you commit to share. Run `/mcp` inside Claude Code to confirm it
+connected.
 
-## Claude Desktop
+### Cursor
 
-Claude Desktop is MCP-only. Easiest first:
+Paste the `mcpServers` entry above into `.cursor/mcp.json` (this project) or
+`%USERPROFILE%\.cursor\mcp.json` (every project) — same shape, so
+`wordlive install-mcp --print` gives you exactly what to drop in. Then enable it
+under **Settings → Tools & MCP**.
 
-1. **One-click bundle.** Download `wordlive.mcpb` (built from
-   [`mcpb/`](https://github.com/thomas-villani/wordlive/tree/main/mcpb)) and drop
-   it onto **Settings → Extensions**.
-2. **`install-mcp`.** Register the server in Claude Desktop's
-   `claude_desktop_config.json` in one command (it launches the server with
-   `uvx`, so there's no separate install):
+### VS Code (Copilot agent mode)
 
-   ```bash
-   wordlive install-mcp                  # → Claude Desktop's config (default)
-   ```
-3. **By hand.** `pip install "wordlive[mcp,snapshot]"`, then add:
+VS Code uses a **different shape**: a top-level `servers` key plus an explicit
+`"type": "stdio"`. Put this in `.vscode/mcp.json` (workspace) or your user config
+(command palette → **MCP: Open User Configuration**):
 
-   ```json
-   { "mcpServers": { "wordlive": { "command": "wordlive-mcp" } } }
-   ```
-
-Restart Claude Desktop afterwards. The `snapshot` extra adds the
-`word_snapshot` vision tool (renders a page to an image the model can *see*).
-
-## Cursor & other coding agents
-
-Any agent that reads `.agents/skills/**/SKILL.md` (or that you can paste context
-into) gets the skill the same way:
-
-```bash
-wordlive install-skill            # ./.agents/skills/wordlive-cli/SKILL.md
-wordlive install-skill --python   # the Python-API skill instead
+```json
+{
+  "servers": {
+    "wordlive": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]
+    }
+  }
+}
 ```
 
-If your editor's agent speaks MCP, point its config at the server — print the
-snippet for any client and paste it where that client expects `mcpServers`:
+Start it from the gutter **Start** action (or **MCP: List Servers**), then select
+it in the Copilot Chat **Agent** tool picker.
 
-```bash
-wordlive install-mcp --print
-```
+### Windsurf
+
+Add the `mcpServers` entry above to
+`%USERPROFILE%\.codeium\windsurf\mcp_config.json` (**Cascade → MCP servers →
+Manage → View raw config**), then hit **Refresh**.
+
+### Other clients (Cline, …)
+
+Anything that speaks MCP takes the same launch command, and most reuse the
+`mcpServers` shape — `wordlive install-mcp --print` (or `--config PATH` to write a
+specific file) gives you the snippet. Drop it wherever that client keeps its
+server list (e.g. Cline: **MCP Servers → Configure → Installed**).
 
 ## What the agent works with
 
