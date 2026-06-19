@@ -63,8 +63,15 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "format_shape": ("anchor_id",),
     "set_shape_alt_text": ("anchor_id", "text"),
     "set_shape_text": ("anchor_id", "text"),
+    "set_shape_rotation": ("anchor_id", "degrees"),
+    "set_shape_z_order": ("anchor_id", "order"),
+    "set_shape_text_frame": ("anchor_id",),
     "replace_shape_image": ("anchor_id",),  # exactly one of path/base64 (checked in apply_op)
     "delete_shape": ("anchor_id",),
+    "group_shapes": ("shapes",),
+    "ungroup_shape": ("anchor_id",),
+    "set_image_alt_text": ("anchor_id", "text"),
+    "set_image_size": ("anchor_id",),
     "replace": ("anchor_id", "text"),
     "find_replace": ("find", "text"),
     "apply_style": ("anchor_id", "name"),
@@ -256,8 +263,21 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "format_shape": ("fill", "border", "border_weight"),
     "set_shape_alt_text": (),
     "set_shape_text": (),
+    "set_shape_rotation": (),
+    "set_shape_z_order": (),
+    "set_shape_text_frame": (
+        "margin_left",
+        "margin_right",
+        "margin_top",
+        "margin_bottom",
+        "word_wrap",
+    ),
     "replace_shape_image": ("path", "base64"),
     "delete_shape": (),
+    "group_shapes": (),
+    "ungroup_shape": (),
+    "set_image_alt_text": (),
+    "set_image_size": ("width", "height", "lock_aspect"),
     "replace": (),
     "find_replace": ("in", "all", "occurrence"),
     "apply_style": (),
@@ -625,6 +645,23 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             anchor.add_trendline(**kwargs)
         else:  # set_series_color
             anchor.set_series_color(op["color"], **kwargs)
+    elif kind == "group_shapes":
+        shapes = op["shapes"]
+        if not isinstance(shapes, (list, tuple)) or len(shapes) < 2:
+            raise OpError("op 'group_shapes' requires 'shapes': a list of two or more shape:N ids")
+        group = doc.group_shapes(*shapes)
+        return {"shape": group.index, "anchor_id": group.anchor_id}
+    elif kind in ("set_image_alt_text", "set_image_size"):
+        from ._anchors import ImageAnchor  # lazy: avoid an _ops → _anchors import cycle
+
+        anchor = doc.anchor_by_id(op["anchor_id"])
+        if not isinstance(anchor, ImageAnchor):
+            raise OpError(f"{op['anchor_id']!r} is not an image; {kind} needs an image:N anchor")
+        if kind == "set_image_alt_text":
+            anchor.set_alt_text(op["text"])
+        else:  # set_image_size
+            kwargs = {k: op[k] for k in OP_OPTIONAL_FIELDS[kind] if k in op}
+            anchor.set_size(**kwargs)
     elif kind in (
         "set_shape_wrap",
         "set_shape_position",
@@ -632,8 +669,12 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         "format_shape",
         "set_shape_alt_text",
         "set_shape_text",
+        "set_shape_rotation",
+        "set_shape_z_order",
+        "set_shape_text_frame",
         "replace_shape_image",
         "delete_shape",
+        "ungroup_shape",
     ):
         from ._anchors import ShapeAnchor  # lazy: avoid an _ops → _anchors import cycle
 
@@ -654,11 +695,20 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             anchor.set_alt_text(op["text"])
         elif kind == "set_shape_text":
             anchor.set_text(op["text"])
+        elif kind == "set_shape_rotation":
+            anchor.set_rotation(op["degrees"])
+        elif kind == "set_shape_z_order":
+            anchor.set_z_order(op["order"])
+        elif kind == "set_shape_text_frame":
+            anchor.set_text_frame(**kwargs)
         elif kind == "replace_shape_image":
             if ("path" in op) == ("base64" in op):
                 raise OpError("op 'replace_shape_image' requires exactly one of 'path' or 'base64'")
             repl_image: str | Path = Path(op["path"]) if "path" in op else op["base64"]
             anchor.replace_image(repl_image)
+        elif kind == "ungroup_shape":
+            members = anchor.ungroup()
+            return {"anchor_ids": [m.anchor_id for m in members], "count": len(members)}
         else:  # delete_shape
             anchor.delete()
     elif kind == "replace":

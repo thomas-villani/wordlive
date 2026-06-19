@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import difflib
+import secrets
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import _com, _findreplace, _linting, _proofing, _snapshot
+from . import _com, _findreplace, _linting, _proofing, _shapes, _snapshot
 from ._anchors import (
     _WL_PREFIX,
     Bookmark,
@@ -23,6 +24,7 @@ from ._anchors import (
     Paragraph,
     ParagraphCollection,
     RangeAnchor,
+    ShapeAnchor,
     ShapeCollection,
     StartAnchor,
     TextBoxCollection,
@@ -462,6 +464,36 @@ class Document:
         """
         return TextBoxCollection(self)
 
+    def group_shapes(self, *anchor_ids: str) -> ShapeAnchor:
+        """Group two or more floating shapes into a single group shape.
+
+        Each `anchor_id` is a `shape:N` (the members must all be floating shapes).
+        Returns the new group's [`ShapeAnchor`][wordlive.ShapeAnchor] (`shape:N`,
+        `shape_type == "group"`) — move / size / delete it as one unit, or
+        [`ungroup`][wordlive.ShapeAnchor.ungroup] it to get the members back. Word
+        requires members to allow overlap, so this enables that first. Wrap in
+        `doc.edit(...)` for atomic undo. Raises `OpError` for fewer than two
+        shapes or a non-shape anchor.
+        """
+        if len(anchor_ids) < 2:
+            raise OpError("group_shapes needs at least two shape anchors")
+        with _com.translate_com_errors():
+            coms: list[Any] = []
+            for aid in anchor_ids:
+                anchor = self.anchor_by_id(aid)
+                if not isinstance(anchor, ShapeAnchor):
+                    raise OpError(f"{aid!r} is not a shape; group_shapes needs shape:N anchors")
+                coms.append(anchor._shape())
+            group = _shapes.group_shapes(self.com, coms)
+            # Locate the new group by a unique temp name — don't assume "last".
+            orig_name = str(group.Name or "")
+            probe_name = f"_wl_shape_{secrets.token_hex(8)}"
+            group.Name = probe_name
+            index = _shapes.index_of_named(self.com, probe_name)
+            if orig_name:
+                group.Name = orig_name
+        return ShapeAnchor(self, index)
+
     @property
     def sections(self) -> SectionCollection:
         """Indexable view over the document's sections, headers, and footers.
@@ -883,6 +915,7 @@ class Document:
           - `equation:N`       — Nth equation (1-based, Word's OMaths order)
           - `chart:N`          — Nth chart (1-based, document order over chart inline shapes)
           - `shape:N`          — Nth floating shape (1-based, document order: text box / image / WordArt)
+          - `textbox:N`        — Nth text box (alias onto its canonical `shape:N`)
           - `table:N:R:C`      — cell at 1-based (row, column) of the Nth table
           - `range:START-END`  — arbitrary character span (the form `find()` emits)
           - `header:S:WHICH`   — the WHICH header of section S (WHICH = primary/first/even)
@@ -973,6 +1006,17 @@ class Document:
                 return self.shapes[idx]
             except AnchorNotFoundError as e:
                 raise AnchorNotFoundError("shape", anchor_id) from e
+        if kind == "textbox":
+            # A thin alias onto the text-box subset of shape:N — the returned
+            # ShapeAnchor reports its canonical shape:N id, not textbox:N.
+            try:
+                idx = int(value)
+            except ValueError as e:
+                raise AnchorNotFoundError("text box", anchor_id) from e
+            try:
+                return self.text_boxes[idx]
+            except AnchorNotFoundError as e:
+                raise AnchorNotFoundError("text box", anchor_id) from e
         if kind == "table":
             parts = value.split(":")
             if len(parts) != 3:
@@ -1021,7 +1065,7 @@ class Document:
             hint=(
                 f"unknown anchor type {kind!r}; expected one of "
                 "start/end/heading/para/bookmark/pin/cc/footnote/endnote/image/equation/"
-                "chart/shape/table/range/header/footer"
+                "chart/shape/textbox/table/range/header/footer"
             ),
         )
 

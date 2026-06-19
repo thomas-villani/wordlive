@@ -35,6 +35,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     earlier shape is added/removed, so re-list rather than cache (the `image:N` /
     `chart:N` rule). (`MsoShapeType` / `WdStoryType` and `WdRelative*Position.PAGE`
     added to `constants`.)
+- **Shape depth, inline-image restyle & a `textbox:N` alias** (building on
+  `shape:N`):
+  - **Shape depth.** `ShapeAnchor` gains `set_rotation(degrees)`,
+    `set_z_order("front"|"back"|"forward"|"backward")` (restack within the float
+    layer — distinct from wrap's in-front-of/behind-text), and
+    `set_text_frame(margin_*/word_wrap)` for a text box's internal insets;
+    `doc.shapes.list()` now reports `rotation` and `z_order`. **Group / ungroup:**
+    `doc.group_shapes(*shape_ids)` collapses two or more floats into one group
+    `shape:N` (it enables `AllowOverlap` on the members first — the live-probed
+    prerequisite), and `ShapeAnchor.ungroup()` dissolves a group back into its
+    members' `ShapeAnchor`s. (No autosize: Word's "resize-to-fit-text" doesn't
+    set cleanly over COM — `TextFrame.AutoSize` no-ops and `TextFrame2.AutoSize`
+    rejects the value — so it's intentionally omitted.)
+  - **Inline-image restyle.** `ImageAnchor` (`image:N`) gains `set_alt_text` and
+    `set_size(width/height/lock_aspect)` — alt text and resize for an *inline*
+    picture without floating it (re-wrapping an image is still `insert_image`,
+    which crosses it into `shape:N`).
+  - **`textbox:N` addressing alias.** `doc.anchor_by_id("textbox:N")` resolves to
+    the Nth text box, returning a `ShapeAnchor` that reports its canonical
+    `shape:M` id (a thin alias, not a second id space).
+  - Wired across Python / CLI (`set-shape-rotation`, `set-shape-z-order`,
+    `set-shape-text-frame`, `group-shapes`, `ungroup-shape`, `set-image-alt-text`,
+    `set-image-size`) / `exec` ops (same names) / MCP (`word_write` commands of
+    the same names). (`MsoZOrderCmd` added to `constants`.)
 - **Post-creation restyle parity — content controls & hyperlinks.** Two objects
   that accepted styling/config at insert time but had no way to change it
   afterward now have in-place mutators (the iterate-without-delete-and-reinsert

@@ -261,6 +261,7 @@ class _FakeInlineShape:
         doc_shapes = getattr(self._owner, "_doc_shapes", None)
         anchor_start = int(getattr(self._owner, "_anchor_start", 0))
         owner = doc_shapes if doc_shapes is not None else _FakeFloatingShapes()
+        count = len(owner._items) if doc_shapes is not None else 0
         shape = _FakeFloatingShape(
             owner,
             shape_type=13,  # msoPicture
@@ -268,6 +269,7 @@ class _FakeInlineShape:
             width=self.Width,
             height=self.Height,
             alt_text=self.AlternativeText,
+            name=f"Picture {count + 1}",  # auto-named like live Word
         )
         if doc_shapes is not None:
             doc_shapes._items.append(shape)
@@ -1688,17 +1690,57 @@ _WHICH_INDEX = {"primary": 1, "first": 2, "even": 3}
 
 
 class _FakeTextFrame:
-    """Mimics Shape.TextFrame — a TextRange whose `.Text` drives `HasText`."""
+    """Mimics Shape.TextFrame — a TextRange whose `.Text` drives `HasText`,
+    plus the internal margins / word-wrap `set_text_frame` writes."""
 
     def __init__(self, text: str = "") -> None:
         self.TextRange = MagicMock(name="TextRange")
         self.TextRange.Text = text
         self.TextRange.Font = MagicMock(name="TextRange.Font")
         self.TextRange.ParagraphFormat = MagicMock(name="TextRange.ParagraphFormat")
+        self.MarginLeft = 7.2
+        self.MarginRight = 7.2
+        self.MarginTop = 3.6
+        self.MarginBottom = 3.6
+        self.WordWrap = -1
 
     @property
     def HasText(self) -> bool:
         return bool(self.TextRange.Text)
+
+
+class _FakeShapeRange:
+    """Mimics a ShapeRange (Document.Shapes.Range / Shape.Ungroup result).
+
+    Carries the selected shapes; `Group()` collapses them into one group shape
+    (removing the members from the owner and appending the group), mirroring live
+    Word's grouping.
+    """
+
+    def __init__(self, owner: _FakeFloatingShapes, shapes: list[_FakeFloatingShape]) -> None:
+        self._owner = owner
+        self._shapes = list(shapes)
+
+    @property
+    def Count(self) -> int:
+        return len(self._shapes)
+
+    def Item(self, index: int) -> _FakeFloatingShape:
+        return self._shapes[int(index) - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(list(self._shapes))
+
+    def Group(self) -> _FakeFloatingShape:
+        children = list(self._shapes)
+        for s in children:
+            self._owner._items.remove(s)
+        group = _FakeFloatingShape(
+            self._owner, shape_type=6, name=f"Group {len(self._owner._items) + 1}"
+        )  # msoGroup
+        group._children = children
+        self._owner._items.append(group)
+        return group
 
 
 class _FakeFloatingShape:
@@ -1738,11 +1780,44 @@ class _FakeFloatingShape:
         self.RelativeVerticalPosition = 0
         self.WrapFormat = _FakeWrapFormat()
         self.TextFrame = _FakeTextFrame(text)
+        self._children: list[_FakeFloatingShape] = []
         anchor = _make_range(anchor_start, anchor_start)
         anchor.StoryType = story_type
         self.Anchor = anchor
         for child in ("TextEffect", "Line", "Fill"):
             setattr(self, child, MagicMock(name=f"Shape.{child}"))
+
+    @property
+    def ZOrderPosition(self) -> int:
+        # 1-based index in the owner's stack (back-to-front); higher = nearer the front.
+        try:
+            return self._owner._items.index(self) + 1
+        except ValueError:
+            return 0
+
+    def ZOrder(self, cmd: int) -> None:
+        items = self._owner._items
+        i = items.index(self)
+        items.remove(self)
+        if int(cmd) == 0:  # msoBringToFront
+            items.append(self)
+        elif int(cmd) == 1:  # msoSendToBack
+            items.insert(0, self)
+        elif int(cmd) == 2:  # msoBringForward
+            items.insert(min(i + 1, len(items)), self)
+        else:  # msoSendBackward
+            items.insert(max(i - 1, 0), self)
+
+    @property
+    def GroupItems(self) -> _FakeShapeRange:
+        return _FakeShapeRange(self._owner, self._children)
+
+    def Ungroup(self) -> _FakeShapeRange:
+        children = list(self._children)
+        self._owner._items.remove(self)
+        for c in children:
+            self._owner._items.append(c)
+        return _FakeShapeRange(self._owner, children)
 
     def Delete(self) -> None:
         self._owner._remove(self)
@@ -1767,10 +1842,18 @@ class _FakeFloatingShapes:
     def __iter__(self) -> Iterable[Any]:
         return iter(list(self._items))
 
+    def Range(self, names: Any) -> _FakeShapeRange:
+        wanted = [names] if isinstance(names, str) else list(names)
+        selected = [s for s in self._items if str(s.Name or "") in wanted]
+        return _FakeShapeRange(self, selected)
+
     def AddTextEffect(
         self, PresetTextEffect: int = 0, Text: str = "", **kwargs: Any
     ) -> _FakeFloatingShape:
-        shape = _FakeFloatingShape(self, text=str(Text), shape_type=15)  # msoTextEffect (WordArt)
+        # msoTextEffect (WordArt); auto-named like live Word so it can be grouped.
+        shape = _FakeFloatingShape(
+            self, text=str(Text), shape_type=15, name=f"WordArt {len(self._items) + 1}"
+        )
         self._items.append(shape)
         return shape
 
@@ -1779,7 +1862,12 @@ class _FakeFloatingShapes:
     ) -> _FakeFloatingShape:
         start = int(getattr(Anchor, "Start", 0)) if Anchor is not None else 0
         shape = _FakeFloatingShape(
-            self, shape_type=17, anchor_start=start, width=float(Width), height=float(Height)
+            self,
+            shape_type=17,
+            anchor_start=start,
+            width=float(Width),
+            height=float(Height),
+            name=f"Text Box {len(self._items) + 1}",  # auto-named like live Word
         )
         self._items.append(shape)
         return shape

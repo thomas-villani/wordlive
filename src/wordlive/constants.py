@@ -186,6 +186,21 @@ class MsoShapeType(IntEnum):
     TEXT_BOX = 17
 
 
+class MsoZOrderCmd(IntEnum):
+    """`Shape.ZOrder(...)` commands — restack a floating shape in the float layer.
+
+    The four canonical reorder verbs `ShapeAnchor.set_z_order` exposes
+    (``"front"`` / ``"back"`` / ``"forward"`` / ``"backward"``). The
+    in-front-of-text / behind-text commands are a wrap concern (`set_wrap`'s
+    ``"front"`` / ``"behind"``), not a z-order one, so they're left out here.
+    """
+
+    BRING_TO_FRONT = 0
+    SEND_TO_BACK = 1
+    BRING_FORWARD = 2
+    SEND_BACKWARD = 3
+
+
 class MsoPresetTextEffect(IntEnum):
     """`Shapes.AddTextEffect(PresetTextEffect=...)` — the plain WordArt preset.
 

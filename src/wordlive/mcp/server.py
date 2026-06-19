@@ -899,17 +899,38 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         "format_shape",
         "set_shape_alt_text",
         "set_shape_text",
+        "set_shape_rotation",
+        "set_shape_z_order",
+        "set_shape_text_frame",
         "delete_shape",
+        "ungroup_shape",
     ):
         op = {"op": command, "anchor_id": need("anchor_id")}
         if command == "set_shape_wrap":
             op["wrap"] = need("wrap")
         if command in ("set_shape_alt_text", "set_shape_text"):
             op["text"] = need("text")
+        if command == "set_shape_rotation":
+            op["degrees"] = need("degrees")
+        if command == "set_shape_z_order":
+            op["order"] = need("order")
         for k in OP_OPTIONAL_FIELDS[command]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command in ("set_image_alt_text", "set_image_size"):
+        op = {"op": command, "anchor_id": need("anchor_id")}
+        if command == "set_image_alt_text":
+            op["text"] = need("text")
+        for k in OP_OPTIONAL_FIELDS[command]:
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "group_shapes":
+        shapes = p.get("shapes")
+        if not isinstance(shapes, list) or len(shapes) < 2:
+            raise OpError("group_shapes requires 'shapes': a list of two or more shape:N ids")
+        return {"op": "group_shapes", "shapes": shapes}
     if command == "replace_shape_image":
         if (p.get("image_base64") is None) == (p.get("path") is None):
             raise OpError("replace_shape_image requires exactly one of 'image_base64' or 'path'")
@@ -1253,8 +1274,15 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "format_shape",
             "set_shape_alt_text",
             "set_shape_text",
+            "set_shape_rotation",
+            "set_shape_z_order",
+            "set_shape_text_frame",
             "replace_shape_image",
             "delete_shape",
+            "group_shapes",
+            "ungroup_shape",
+            "set_image_alt_text",
+            "set_image_size",
             "insert_break",
             "insert_field",
             "update_fields",
@@ -1451,6 +1479,14 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         left: str | float | None = None,
         top: str | float | None = None,
         relative_to: str | None = None,
+        degrees: float | None = None,
+        order: str | None = None,
+        margin_left: str | float | None = None,
+        margin_right: str | float | None = None,
+        margin_top: str | float | None = None,
+        margin_bottom: str | float | None = None,
+        word_wrap: bool | None = None,
+        shapes: list[str] | None = None,
         rules: Any = None,
         within: str | None = None,
         dry_run: bool | None = None,
@@ -1604,6 +1640,14 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             lengths or "center" · set_shape_size {anchor_id=shape:N, [width,height,lock_aspect]} ·
         format_shape {anchor_id=shape:N, [fill,border,border_weight]} — fill/outline a text box or
             shape (border=false none / true default / a colour) ·
+        set_shape_rotation {anchor_id=shape:N, degrees} — rotate clockwise ·
+        set_shape_z_order {anchor_id=shape:N, order=front|back|forward|backward} — restack in the
+            float layer · set_shape_text_frame {anchor_id=shape:N,
+            [margin_left,margin_right,margin_top,margin_bottom,word_wrap]} — a text box's insets/wrap ·
+        group_shapes {shapes=[shape:N,…]} — group two or more into one (returns the group's shape:N) ·
+        ungroup_shape {anchor_id=shape:N} — dissolve a group into its members ·
+        set_image_alt_text {anchor_id=image:N, text} · set_image_size {anchor_id=image:N,
+            [width,height,lock_aspect]} — alt text / resize an INLINE picture (re-wrap via insert_image) ·
         set_shape_alt_text {anchor_id=shape:N, text} · set_shape_text {anchor_id=shape:N, text} —
             replace a text box's contents ·
         replace_shape_image {anchor_id=shape:N, image_base64|path} — swap a floating picture's
@@ -1776,6 +1820,14 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "left": left,
             "top": top,
             "relative_to": relative_to,
+            "degrees": degrees,
+            "order": order,
+            "margin_left": margin_left,
+            "margin_right": margin_right,
+            "margin_top": margin_top,
+            "margin_bottom": margin_bottom,
+            "word_wrap": word_wrap,
+            "shapes": shapes,
             "rules": rules,
             "within": within,
             "dry_run": dry_run,
@@ -1839,6 +1891,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           set_series_color {anchor_id=chart:N,color,[series=1,point]} — recolour a series or one 1-based point/slice ·
           set_shape_wrap/set_shape_position/set_shape_size/format_shape/set_shape_alt_text/set_shape_text/replace_shape_image/delete_shape {anchor_id=shape:N,…} —
             restyle a floating shape (text box / image): wrap, position (left/top/relative_to), size (width/height/lock_aspect), fill/border, alt text, text-box contents, picture swap (path|base64), or delete ·
+          set_shape_rotation {anchor_id=shape:N,degrees} · set_shape_z_order {anchor_id=shape:N,order=front|back|forward|backward} ·
+          set_shape_text_frame {anchor_id=shape:N,[margin_left,margin_right,margin_top,margin_bottom,word_wrap]} — a text box's insets / word-wrap ·
+          group_shapes {shapes=[shape:N,…]} — group two or more floats into one (returns the group's shape:N) · ungroup_shape {anchor_id=shape:N} — dissolve a group ·
+          set_image_alt_text {anchor_id=image:N,text} · set_image_size {anchor_id=image:N,[width,height,lock_aspect]} — alt text / resize an INLINE picture (re-wrap floats it via insert_image) ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
           regularize {[rules],[within],[dry_run]} — apply the fixable word_read lint findings in one atomic step (targeted, idempotent); returns {applied,skipped,findings} ·

@@ -143,8 +143,16 @@ wordlive set-shape-size   --anchor-id shape:N [--width W] [--height H] [--lock-a
 wordlive format-shape     --anchor-id shape:N [--fill C] [--border-color C | --no-border | --default-border] [--border-weight W]
 wordlive set-shape-alt-text --anchor-id shape:N --text "…"
 wordlive set-shape-text   --anchor-id shape:N --text "…"     # text boxes only
+wordlive set-shape-rotation --anchor-id shape:N --degrees 30
+wordlive set-shape-z-order --anchor-id shape:N --order front|back|forward|backward
+wordlive set-shape-text-frame --anchor-id shape:N [--margin-left L] [--margin-right R] [--margin-top T] [--margin-bottom B] [--word-wrap|--no-word-wrap]   # text boxes only
 wordlive replace-shape-image --anchor-id shape:N (--path FILE | --base64 VALUE)   # picture shapes only
+wordlive group-shapes     --anchor-id shape:N --anchor-id shape:M [...]   # two or more → one group
+wordlive ungroup-shape    --anchor-id shape:N                            # group shapes only
 wordlive delete-shape     --anchor-id shape:N
+# inline pictures (image:N) — alt text / resize without floating them:
+wordlive set-image-alt-text --anchor-id image:N --text "…"
+wordlive set-image-size   --anchor-id image:N [--width W] [--height H] [--lock-aspect|--no-lock-aspect]
 ```
 - `shape:N` addresses the document's **floating** shapes (a text box from
   `insert-text-box`, a floating image from `insert-image`, WordArt) in document
@@ -153,10 +161,24 @@ wordlive delete-shape     --anchor-id shape:N
   `--left`/`--top` are lengths (`2in`) or `center`.
 - `replace-shape-image` swaps a floating picture's image **in place** (delete +
   reinsert at the same anchor), preserving wrap / position / size / alt text.
+- `group-shapes` collapses two or more floating shapes into one group `shape:N`
+  (move / size / delete as a unit); `ungroup-shape` dissolves it back, returning
+  the members' `shape:N` ids. `set-shape-z-order` restacks within the float layer
+  (distinct from wrap's front/behind-text) — and because `Shapes` orders by
+  z-order, it **renumbers `shape:N`**, so re-run `shapes` after one.
+  `set-shape-rotation` is an absolute angle. There is no autosize knob — Word's
+  "resize-to-fit-text" doesn't expose cleanly over COM.
+- `set-image-alt-text` / `set-image-size` restyle an **inline** picture (`image:N`)
+  without floating it. *Re-wrapping* an image (floating it) is `insert-image
+  --wrap`, which converts it to a `shape:N`.
+- `textbox:N` is an addressing alias onto a text box's canonical `shape:N` (so
+  `anchor-id textbox:1` ≡ the first text box's `shape:M`).
 - These are the post-insert restyle handles `insert-text-box` and a floating
   `insert-image` hand back — the exec ops are `set_shape_wrap`,
   `set_shape_position`, `set_shape_size`, `format_shape`, `set_shape_alt_text`,
-  `set_shape_text`, `replace_shape_image`, `delete_shape`.
+  `set_shape_text`, `set_shape_rotation`, `set_shape_z_order`,
+  `set_shape_text_frame`, `replace_shape_image`, `delete_shape`, `group_shapes`,
+  `ungroup_shape`, `set_image_alt_text`, `set_image_size`.
 
 ## Equations
 ```
@@ -283,7 +305,9 @@ Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `append_inline`, `prepend`, `prepend_inline`, `insert_image`, `insert_equation`,
 `insert_chart`, `format_chart`, `format_axis`, `add_trendline`, `set_series_color`,
 `set_shape_wrap`, `set_shape_position`, `set_shape_size`, `format_shape`,
-`set_shape_alt_text`, `set_shape_text`, `replace_shape_image`, `delete_shape`,
+`set_shape_alt_text`, `set_shape_text`, `set_shape_rotation`, `set_shape_z_order`,
+`set_shape_text_frame`, `replace_shape_image`, `delete_shape`, `group_shapes`,
+`ungroup_shape`, `set_image_alt_text`, `set_image_size`,
 `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`,
 `set_borders`, `drop_cap`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,

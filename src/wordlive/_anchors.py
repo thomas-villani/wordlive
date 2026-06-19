@@ -3566,6 +3566,35 @@ class ImageAnchor(Anchor):
         with _com.translate_com_errors():
             return str(self._shape().AlternativeText or "")
 
+    def set_alt_text(self, text: str) -> ImageAnchor:
+        """Set the picture's accessibility (alt) text. Returns `self` (chainable);
+        wrap in `doc.edit(...)` for atomic undo."""
+        with _com.translate_com_errors():
+            self._shape().AlternativeText = text
+        return self
+
+    def set_size(
+        self, *, width: Any = None, height: Any = None, lock_aspect: bool | None = None
+    ) -> ImageAnchor:
+        """Resize the inline picture. `width` / `height` are lengths (points /
+        ``"3in"``); `lock_aspect` toggles proportional scaling (dropped
+        automatically when both dimensions are given, so both stick). To *re-wrap*
+        a picture (float it) use `insert_image(wrap=…)` — that crosses it into
+        `shape:N`. Returns `self` (chainable). Bad input raises `OpError`."""
+        self._apply(_shapes.apply_shape_size, width=width, height=height, lock_aspect=lock_aspect)
+        return self
+
+    def _apply(self, fn: Any, *args: Any, **kwargs: Any) -> None:
+        """Run a `_shapes` size helper on this inline picture (`InlineShape` shares
+        the `Width` / `Height` / `LockAspectRatio` surface), translating COM and
+        bad-input errors into the wordlive hierarchy (`OpError`)."""
+        shape = self._shape()
+        try:
+            with _com.translate_com_errors():
+                fn(shape, *args, **kwargs)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
     def set_text(self, text: str) -> None:
         raise OpError("an image anchor has no text to set; use read_image() to extract its bytes")
 
@@ -4161,6 +4190,18 @@ class ShapeAnchor(Anchor):
             except Exception:
                 return ""
 
+    @property
+    def rotation(self) -> float:
+        """The shape's clockwise rotation in degrees (``0.0`` if unrotated)."""
+        with _com.translate_com_errors():
+            return float(self._shape().Rotation)
+
+    @property
+    def z_order(self) -> int:
+        """The shape's 1-based stacking position (`ZOrderPosition`; higher = nearer the front)."""
+        with _com.translate_com_errors():
+            return int(self._shape().ZOrderPosition)
+
     def set_wrap(self, wrap: str) -> ShapeAnchor:
         """Set how body text flows around the shape — ``"square"`` / ``"tight"`` /
         ``"through"`` / ``"top-bottom"`` / ``"front"`` / ``"behind"``. Returns
@@ -4186,6 +4227,47 @@ class ShapeAnchor(Anchor):
         dimensions are given, so both stick). Returns `self`. Bad input raises
         `OpError`."""
         self._apply(_shapes.apply_shape_size, width=width, height=height, lock_aspect=lock_aspect)
+        return self
+
+    def set_rotation(self, degrees: Any) -> ShapeAnchor:
+        """Rotate the shape clockwise by `degrees` (absolute angle, e.g. `30` or
+        `-15`). Returns `self` (chainable). Bad input raises `OpError`."""
+        self._apply(_shapes.apply_shape_rotation, degrees)
+        return self
+
+    def set_z_order(self, order: str) -> ShapeAnchor:
+        """Restack the shape in the floating layer — ``"front"`` / ``"back"`` /
+        ``"forward"`` / ``"backward"`` (this is the stacking order *among floats*,
+        distinct from `set_wrap`'s in-front-of / behind-text).
+
+        Note: `Document.Shapes` orders by z-order, so this **renumbers `shape:N`** —
+        the returned `self` keeps its old index and may now address a different
+        shape. Re-list (`doc.shapes`) before using a `shape:N` id again. Returns
+        `self` for chaining the call itself; bad input raises `OpError`."""
+        self._apply(_shapes.apply_shape_zorder, order)
+        return self
+
+    def set_text_frame(
+        self,
+        *,
+        margin_left: Any = None,
+        margin_right: Any = None,
+        margin_top: Any = None,
+        margin_bottom: Any = None,
+        word_wrap: bool | None = None,
+    ) -> ShapeAnchor:
+        """Set a text box's internal margins and word-wrap. `margin_*` are lengths
+        (points / ``"0.1in"``); `word_wrap` toggles whether text wraps to the box
+        width. Only valid on a text box; raises `OpError` on a picture / WordArt /
+        group. Returns `self` (chainable)."""
+        self._apply(
+            _shapes.apply_text_frame,
+            margin_left=margin_left,
+            margin_right=margin_right,
+            margin_top=margin_top,
+            margin_bottom=margin_bottom,
+            word_wrap=word_wrap,
+        )
         return self
 
     def format(
@@ -4230,6 +4312,29 @@ class ShapeAnchor(Anchor):
             if _shapes.shape_kind(shape) not in ("text_box", "auto_shape"):
                 raise OpError("this shape has no text frame to set; set_text needs a text box")
             shape.TextFrame.TextRange.Text = text
+
+    def ungroup(self) -> list[ShapeAnchor]:
+        """Dissolve a group shape into its members, returning their `ShapeAnchor`s.
+
+        The children become top-level floating shapes again (each keeps its own
+        `shape:N` slot — re-list, don't cache). Only valid on a ``"group"`` shape;
+        raises `OpError` otherwise. Wrap in `doc.edit(...)` for atomic undo. The
+        inverse of [`Document.group_shapes`][wordlive.Document.group_shapes]."""
+        with _com.translate_com_errors():
+            shape = self._shape()
+            if _shapes.shape_kind(shape) != "group":
+                raise OpError("this shape is not a group; ungroup needs a group:N shape")
+            names = _shapes.ungroup_shape(shape)
+            anchors: list[ShapeAnchor] = []
+            for name in names:
+                if not name:
+                    continue
+                try:
+                    idx = _shapes.index_of_named(self._doc.com, name)
+                except OpError:
+                    continue
+                anchors.append(ShapeAnchor(self._doc, idx))
+        return anchors
 
     def delete(self) -> None:
         """Delete the floating shape itself (not its anchoring paragraph)."""
@@ -4280,11 +4385,12 @@ class ShapeCollection:
 
     def list(self) -> list[dict[str, Any]]:
         """Every floating shape as `{index, anchor_id, shape_type, name, width,
-        height, wrap, alt_text, has_text, para}`.
+        height, rotation, z_order, wrap, alt_text, has_text, para}`.
 
-        `shape_type` is the kind string; `width` / `height` are points; `wrap` the
-        text-wrap keyword; `has_text` whether a text frame holds text; `para` the
-        `para:N` the shape is anchored in.
+        `shape_type` is the kind string; `width` / `height` are points; `rotation`
+        the clockwise angle in degrees; `z_order` the 1-based stacking position;
+        `wrap` the text-wrap keyword; `has_text` whether a text frame holds text;
+        `para` the `para:N` the shape is anchored in.
         """
         out: list[dict[str, Any]] = []
         with _com.translate_com_errors():
@@ -4295,6 +4401,10 @@ class ShapeCollection:
                     wrap: str | None = _shapes.WRAP_TO_NAME.get(int(shape.WrapFormat.Type))
                 except Exception:
                     wrap = None
+                try:
+                    z_order: int | None = int(shape.ZOrderPosition)
+                except Exception:
+                    z_order = None
                 try:
                     has_text = kind in ("text_box", "auto_shape") and bool(shape.TextFrame.HasText)
                 except Exception:
@@ -4319,6 +4429,8 @@ class ShapeCollection:
                         "name": str(getattr(shape, "Name", "") or ""),
                         "width": _safe_float(shape, "Width"),
                         "height": _safe_float(shape, "Height"),
+                        "rotation": _safe_float(shape, "Rotation"),
+                        "z_order": z_order,
                         "wrap": wrap,
                         "alt_text": alt_text,
                         "has_text": has_text,

@@ -138,8 +138,15 @@ def register(group: click.Group) -> None:
     group.add_command(format_shape_cmd)
     group.add_command(set_shape_alt_text_cmd)
     group.add_command(set_shape_text_cmd)
+    group.add_command(set_shape_rotation_cmd)
+    group.add_command(set_shape_z_order_cmd)
+    group.add_command(set_shape_text_frame_cmd)
     group.add_command(replace_shape_image_cmd)
     group.add_command(delete_shape_cmd)
+    group.add_command(group_shapes_cmd)
+    group.add_command(ungroup_shape_cmd)
+    group.add_command(set_image_alt_text_cmd)
+    group.add_command(set_image_size_cmd)
     group.add_command(bookmark)
     group.add_command(pin_cmd)
     group.add_command(pin_outline_cmd)
@@ -4210,6 +4217,225 @@ def delete_shape_cmd(ctx: click.Context, anchor_id: str) -> None:
     _run(ctx, go)
 
 
+@click.command(name="set-shape-rotation")
+@click.option("--anchor-id", "anchor_id", required=True, help="Shape anchor (shape:N).")
+@click.option("--degrees", "degrees", required=True, help="Clockwise rotation in degrees.")
+@click.pass_context
+def set_shape_rotation_cmd(ctx: click.Context, anchor_id: str, degrees: str) -> None:
+    """Rotate a floating shape (atomic-undo). Absolute angle in degrees."""
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set shape rotation {anchor_id}"):
+                anchor.set_rotation(degrees)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "rotation": float(degrees)},
+                as_text=not ctx.obj["as_json"],
+                text=f"rotated {anchor_id} -> {degrees}deg",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="set-shape-z-order")
+@click.option("--anchor-id", "anchor_id", required=True, help="Shape anchor (shape:N).")
+@click.option(
+    "--order",
+    "order",
+    required=True,
+    type=click.Choice(["front", "back", "forward", "backward"]),
+    help="Restack the shape in the floating layer.",
+)
+@click.pass_context
+def set_shape_z_order_cmd(ctx: click.Context, anchor_id: str, order: str) -> None:
+    """Restack a floating shape (atomic-undo) — front / back / forward / backward."""
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set shape z-order {anchor_id}"):
+                anchor.set_z_order(order)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "order": order},
+                as_text=not ctx.obj["as_json"],
+                text=f"restacked {anchor_id} -> {order}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="set-shape-text-frame")
+@click.option("--anchor-id", "anchor_id", required=True, help="Text-box shape anchor (shape:N).")
+@click.option("--margin-left", "margin_left", default=None, help="Left inset (pt / '0.1in').")
+@click.option("--margin-right", "margin_right", default=None, help="Right inset (pt / '0.1in').")
+@click.option("--margin-top", "margin_top", default=None, help="Top inset (pt / '0.1in').")
+@click.option("--margin-bottom", "margin_bottom", default=None, help="Bottom inset (pt / '0.1in').")
+@click.option(
+    "--word-wrap/--no-word-wrap",
+    "word_wrap",
+    default=None,
+    help="Wrap text to the box width.",
+)
+@click.pass_context
+def set_shape_text_frame_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    margin_left: str | None,
+    margin_right: str | None,
+    margin_top: str | None,
+    margin_bottom: str | None,
+    word_wrap: bool | None,
+) -> None:
+    """Set a text box's internal margins and word-wrap (atomic-undo). Pass at least one option."""
+    raw: dict[str, Any] = {
+        "margin_left": margin_left,
+        "margin_right": margin_right,
+        "margin_top": margin_top,
+        "margin_bottom": margin_bottom,
+        "word_wrap": word_wrap,
+    }
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one of --margin-* / --word-wrap")
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set shape text frame {anchor_id}"):
+                anchor.set_text_frame(**kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"set text frame of {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="group-shapes")
+@click.option(
+    "--anchor-id",
+    "anchor_ids",
+    required=True,
+    multiple=True,
+    help="A shape to group (pass two or more times).",
+)
+@click.pass_context
+def group_shapes_cmd(ctx: click.Context, anchor_ids: tuple[str, ...]) -> None:
+    """Group two or more floating shapes into one (atomic-undo). Returns the group's shape:N."""
+    if len(anchor_ids) < 2:
+        raise click.UsageError("pass --anchor-id at least twice (group needs two or more shapes)")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: group {len(anchor_ids)} shapes"):
+                group = doc.group_shapes(*anchor_ids)
+            emit(
+                {"ok": True, "anchor_id": group.anchor_id, "members": list(anchor_ids)},
+                as_text=not ctx.obj["as_json"],
+                text=f"grouped {list(anchor_ids)} -> {group.anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="ungroup-shape")
+@click.option("--anchor-id", "anchor_id", required=True, help="Group shape anchor (shape:N).")
+@click.pass_context
+def ungroup_shape_cmd(ctx: click.Context, anchor_id: str) -> None:
+    """Dissolve a group shape into its members (atomic-undo). Returns the members' shape:N ids."""
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: ungroup {anchor_id}"):
+                members = anchor.ungroup()
+            ids = [m.anchor_id for m in members]
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "members": ids},
+                as_text=not ctx.obj["as_json"],
+                text=f"ungrouped {anchor_id} -> {ids}",
+            )
+
+    _run(ctx, go)
+
+
+def _image_anchor(word: Any, doc_name: str | None, anchor_id: str) -> Any:
+    """Resolve `anchor_id` to an inline image, raising a clean usage error otherwise."""
+    from .._anchors import ImageAnchor
+
+    doc = _pick_doc(word, doc_name)
+    anchor = doc.anchor_by_id(anchor_id)
+    if not isinstance(anchor, ImageAnchor):
+        raise click.UsageError(f"{anchor_id!r} is not an inline image; pass an image:N anchor")
+    return doc, anchor
+
+
+@click.command(name="set-image-alt-text")
+@click.option("--anchor-id", "anchor_id", required=True, help="Inline image anchor (image:N).")
+@click.option("--text", "text", required=True, help="Accessibility (alt) text.")
+@click.pass_context
+def set_image_alt_text_cmd(ctx: click.Context, anchor_id: str, text: str) -> None:
+    """Set an inline picture's accessibility (alt) text (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _image_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set image alt text {anchor_id}"):
+                anchor.set_alt_text(text)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "alt_text": text},
+                as_text=not ctx.obj["as_json"],
+                text=f"set alt text of {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="set-image-size")
+@click.option("--anchor-id", "anchor_id", required=True, help="Inline image anchor (image:N).")
+@click.option("--width", "width", default=None, help="Width (pt or '3in').")
+@click.option("--height", "height", default=None, help="Height (pt or '2cm').")
+@click.option(
+    "--lock-aspect/--no-lock-aspect",
+    "lock_aspect",
+    default=None,
+    help="Lock the aspect ratio for proportional scaling.",
+)
+@click.pass_context
+def set_image_size_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    width: str | None,
+    height: str | None,
+    lock_aspect: bool | None,
+) -> None:
+    """Resize an inline picture (atomic-undo). Pass at least one option.
+
+    Re-wrapping (floating) an image isn't here — that crosses it into shape:N
+    via insert-image --wrap.
+    """
+    raw: dict[str, Any] = {"width": width, "height": height, "lock_aspect": lock_aspect}
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one of --width / --height / --lock-aspect")
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _image_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set image size {anchor_id}"):
+                anchor.set_size(**kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"resized {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
 # ---------------------------------------------------------------------------
 # snapshot [--anchor-id ID | --page N | --pages A-B] [--out FILE] [--dpi N]
 # ---------------------------------------------------------------------------
@@ -6677,7 +6903,9 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     delete_paragraph, append, append_inline, prepend, prepend_inline,
     insert_image, insert_equation, insert_chart, format_chart, format_axis, add_trendline,
     set_series_color, set_shape_wrap, set_shape_position, set_shape_size, format_shape,
-    set_shape_alt_text, set_shape_text, replace_shape_image, delete_shape,
+    set_shape_alt_text, set_shape_text, set_shape_rotation, set_shape_z_order,
+    set_shape_text_frame, replace_shape_image, delete_shape, group_shapes, ungroup_shape,
+    set_image_alt_text, set_image_size,
     replace, find_replace, apply_style, format_paragraph,
     format_run, set_shading, set_borders, drop_cap, add_tab_stop, add_style, set_style,
     insert_field, set_page_setup, update_fields, regularize, insert_footnote, insert_endnote,
