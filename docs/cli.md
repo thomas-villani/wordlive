@@ -1470,12 +1470,17 @@ inside it. Prefer `--base64`/stdin for untrusted (e.g. LLM-supplied) images.
 anchor's text run — use it with `--before` at a heading so the image lands on its
 own line above the heading instead of joining the heading text.
 
+A **floating** wrap (anything but `inline`) leaves the text flow, so the image is
+no longer an `image:N`; the output then carries a `shape:N` handle (see
+**Floating shapes**) to re-wrap / reposition / resize / replace it. An `inline`
+image stays `image:N` and reports `"shape": null`.
+
 ```bash
 $ wordlive insert-image --anchor-id heading:2 --path diagram.png --wrap auto
-{"ok": true, "anchor_id": "heading:2", "anchor": {"kind": "heading", "name": "Risks"}, "wrap": "auto", "where": "after"}
+{"ok": true, "anchor_id": "heading:2", "anchor": {"kind": "heading", "name": "Risks"}, "shape": "shape:1", "wrap": "auto", "where": "after"}
 
 $ base64 logo.png | wordlive insert-image --anchor-id bookmark:Header --base64 - --wrap square --width 96
-{"ok": true, "anchor_id": "bookmark:Header", "anchor": {"kind": "bookmark", "name": "Header"}, "wrap": "square", "where": "after"}
+{"ok": true, "anchor_id": "bookmark:Header", "anchor": {"kind": "bookmark", "name": "Header"}, "shape": "shape:1", "wrap": "square", "where": "after"}
 ```
 
 Failures: `1` the image is missing, unreadable, or not a recognised raster
@@ -1519,14 +1524,51 @@ Insert a floating text box / pull quote anchored to the anchor's paragraph.
 `--width`/`--height` accept points or unit strings (`3in`, `8cm`); `--wrap` is
 how body text flows around it (the `insert-image` vocabulary minus `inline`).
 `--fill` sets a background colour and `--no-border` / `--border-color` control
-the outline. One atomic-undo step.
+the outline. One atomic-undo step. The output carries the new text box's
+`shape:N` id (see **Floating shapes** below) for restyling it afterward.
 
 ```bash
 $ wordlive insert-text-box --anchor-id heading:2 --text "Key takeaway" --width 2.5in --fill "#eeeeff"
-{"ok": true, "anchor_id": "heading:2", "wrap": "square"}
+{"ok": true, "anchor_id": "shape:1", "wrap": "square"}
 ```
 
 Failures: `2` anchor not found or invalid `--wrap`; `3` Word busy.
+
+## Floating shapes — `shapes` / `set-shape-*` / `format-shape` / `replace-shape-image` / `delete-shape`
+
+```
+wordlive shapes [--doc DOC_NAME]
+wordlive set-shape-wrap     --anchor-id shape:N --wrap square|tight|through|top-bottom|front|behind
+wordlive set-shape-position --anchor-id shape:N [--left L] [--top T] [--relative-to margin|page]
+wordlive set-shape-size     --anchor-id shape:N [--width W] [--height H] [--lock-aspect | --no-lock-aspect]
+wordlive format-shape       --anchor-id shape:N [--fill C] [--border-color C | --no-border | --default-border] [--border-weight W]
+wordlive set-shape-alt-text --anchor-id shape:N --text "…"
+wordlive set-shape-text     --anchor-id shape:N --text "…"
+wordlive replace-shape-image --anchor-id shape:N (--path FILE | --base64 VALUE)
+wordlive delete-shape       --anchor-id shape:N
+```
+
+`shape:N` addresses the document's **floating** shapes — a text box from
+`insert-text-box`, a floating image from `insert-image` (any `--wrap` but
+`inline`), or WordArt — in document order; header-story watermarks are excluded.
+`shapes` lists them (id, kind, size, wrap, the `para:N` they're anchored in).
+`shape:N` is **positional**: inserting or deleting a shape renumbers the rest, so
+re-list rather than caching an id (the `image:N` / `chart:N` rule).
+
+`--left`/`--top` are lengths (`2in`) or `center`. `set-shape-text` needs a text
+box; `replace-shape-image` needs a picture shape and swaps its image **in place**
+(delete + reinsert at the same anchor, preserving wrap / position / size / alt
+text) — pass exactly one of `--path` / `--base64`, and `--path` is screened like
+`insert-image`. The exec ops are `set_shape_wrap`, `set_shape_position`,
+`set_shape_size`, `format_shape`, `set_shape_alt_text`, `set_shape_text`,
+`replace_shape_image`, `delete_shape`.
+
+```bash
+$ wordlive set-shape-size --anchor-id shape:1 --width 3in --no-lock-aspect
+{"ok": true, "anchor_id": "shape:1", "applied": {"width": "3in", "lock_aspect": false}}
+```
+
+Failures: `2` anchor not found or not a `shape:N`; `3` Word busy.
 
 ## `insert-equation --anchor-id ID (--unicodemath … | --latex … | --mathml …)` / `equations`
 

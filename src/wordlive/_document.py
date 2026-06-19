@@ -23,7 +23,9 @@ from ._anchors import (
     Paragraph,
     ParagraphCollection,
     RangeAnchor,
+    ShapeCollection,
     StartAnchor,
+    TextBoxCollection,
     _bookmarks_including_hidden,
     _IndexedHeading,
     _mint_wl_bookmark,
@@ -432,6 +434,33 @@ class Document:
         [`insert_chart`][wordlive.Anchor.insert_chart].
         """
         return ChartCollection(self)
+
+    @property
+    def shapes(self) -> ShapeCollection:
+        """Iterable view over the document's floating shapes (`doc.shapes`).
+
+        Index a shape by 1-based position (`doc.shapes[2]`) to get a
+        [`ShapeAnchor`][wordlive.ShapeAnchor] (`shape:N`) — a text box, a floating
+        image, or WordArt — then restyle it in place (`set_wrap` / `set_position`
+        / `set_size` / `format` / `replace_image`). `list()` summarises each shape
+        (kind, size, wrap, the `para:N` it's anchored in). Header-story watermarks
+        are excluded; positions follow document order and renumber as shapes come
+        and go. The write mirror is any anchor's
+        [`insert_text_box`][wordlive.Anchor.insert_text_box] / a floating
+        [`insert_image`][wordlive.Anchor.insert_image].
+        """
+        return ShapeCollection(self)
+
+    @property
+    def text_boxes(self) -> TextBoxCollection:
+        """The text boxes among `doc.shapes` — the ``shape_type == "text_box"`` subset.
+
+        A discovery filter, not a second id space: `doc.text_boxes[1]` returns a
+        [`ShapeAnchor`][wordlive.ShapeAnchor] that keeps its canonical `shape:N`
+        id (its position among *all* floating shapes). Created by any anchor's
+        [`insert_text_box`][wordlive.Anchor.insert_text_box].
+        """
+        return TextBoxCollection(self)
 
     @property
     def sections(self) -> SectionCollection:
@@ -853,6 +882,7 @@ class Document:
           - `image:N`          — Nth embedded image (1-based, Word's InlineShapes order)
           - `equation:N`       — Nth equation (1-based, Word's OMaths order)
           - `chart:N`          — Nth chart (1-based, document order over chart inline shapes)
+          - `shape:N`          — Nth floating shape (1-based, document order: text box / image / WordArt)
           - `table:N:R:C`      — cell at 1-based (row, column) of the Nth table
           - `range:START-END`  — arbitrary character span (the form `find()` emits)
           - `header:S:WHICH`   — the WHICH header of section S (WHICH = primary/first/even)
@@ -934,6 +964,15 @@ class Document:
                 return self.charts[idx]
             except AnchorNotFoundError as e:
                 raise AnchorNotFoundError("chart", anchor_id) from e
+        if kind == "shape":
+            try:
+                idx = int(value)
+            except ValueError as e:
+                raise AnchorNotFoundError("shape", anchor_id) from e
+            try:
+                return self.shapes[idx]
+            except AnchorNotFoundError as e:
+                raise AnchorNotFoundError("shape", anchor_id) from e
         if kind == "table":
             parts = value.split(":")
             if len(parts) != 3:
@@ -981,8 +1020,8 @@ class Document:
             anchor_id,
             hint=(
                 f"unknown anchor type {kind!r}; expected one of "
-                "start/end/heading/para/bookmark/pin/cc/footnote/endnote/image/table/range/"
-                "header/footer"
+                "start/end/heading/para/bookmark/pin/cc/footnote/endnote/image/equation/"
+                "chart/shape/table/range/header/footer"
             ),
         )
 

@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from . import _charts, _com, _equations, _images, _lists, _revisions
+from . import _charts, _com, _equations, _images, _lists, _revisions, _shapes
 from ._format import bgr_to_hex, to_bgr, to_points
 from .constants import (
     WD_UNDEFINED,
@@ -587,15 +587,9 @@ def _coerce_line_weight(value: Any) -> int:
 
 
 # Floating wrap keywords -> WdWrapType. "inline" and "auto" are handled
-# specially by insert_image and are not in this map.
-_WRAP_NAMES: dict[str, WdWrapType] = {
-    "square": WdWrapType.SQUARE,
-    "tight": WdWrapType.TIGHT,
-    "through": WdWrapType.THROUGH,
-    "top-bottom": WdWrapType.TOP_BOTTOM,
-    "front": WdWrapType.FRONT,
-    "behind": WdWrapType.BEHIND,
-}
+# specially by insert_image and are not in this map. Single source of truth:
+# `_shapes.WRAP_NAMES` (the floating-shape mutators share the same vocabulary).
+_WRAP_NAMES: dict[str, WdWrapType] = _shapes.WRAP_NAMES
 _WRAP_VALUES: frozenset[str] = frozenset({"inline", "auto", *_WRAP_NAMES})
 
 
@@ -1396,7 +1390,7 @@ class Anchor(ABC):
         height: float | None = None,
         alt_text: str | None = None,
         lock_aspect: bool = True,
-    ) -> None:
+    ) -> ShapeAnchor | None:
         """Insert an image at this anchor (atomic-undo when inside `doc.edit()`).
 
         `image` is a file path, raw image bytes, or a base64 string — a `str`
@@ -1422,6 +1416,12 @@ class Anchor(ABC):
         drops the image on its own line *above* the heading instead of joining
         the heading text. Without it, an inline image anchored at a heading lands
         mid-run and the heading text trails it on the same line.
+
+        A floating image (any `wrap` other than ``"inline"``) leaves the inline
+        text flow, so `image:N` no longer addresses it — this returns its floating
+        [`ShapeAnchor`][wordlive.ShapeAnchor] (`shape:N`) for restyle
+        (re-wrap / reposition / resize / `replace_image`). An ``"inline"`` image
+        stays an `InlineShape` (addressed as `image:N`) and returns ``None``.
 
         Raises `ImageSourceError` for a missing/unreadable/invalid image and
         `ValueError` for an unknown `wrap` or `where`.
@@ -1460,13 +1460,23 @@ class Anchor(ABC):
                 if alt_text is not None:
                     ish.AlternativeText = alt_text
                 if wrap == "inline":
-                    return
+                    return None
                 wrap_type = _resolve_wrap(wrap, ish, insert_rng)
                 shape = ish.ConvertToShape()
                 shape.WrapFormat.Type = int(wrap_type)
                 if alt_text is not None:
                     # AlternativeText doesn't always survive the conversion.
                     shape.AlternativeText = alt_text
+                # The picture left InlineShapes (image:N no longer addresses it),
+                # so hand back its floating shape:N handle for restyle. Locate by a
+                # unique temp name — don't assume "last" (other floats can reorder).
+                orig_name = str(shape.Name or "")
+                probe_name = f"_wl_shape_{secrets.token_hex(8)}"
+                shape.Name = probe_name
+                index = _shapes.index_of_named(doc_com, probe_name)
+                if orig_name:
+                    shape.Name = orig_name
+            return ShapeAnchor(self._doc, index)
 
     def insert_text_box(
         self,
@@ -1483,7 +1493,7 @@ class Anchor(ABC):
         alignment: str | None = None,
         fill: str | None = None,
         border: str | bool | None = None,
-    ) -> None:
+    ) -> ShapeAnchor:
         """Insert a floating text box (a pull quote / call-out) anchored here.
 
         A `Shapes.AddTextbox` floating shape is anchored to this anchor's
@@ -1501,10 +1511,12 @@ class Anchor(ABC):
         (``"#eeeeff"`` / ``"navy"``) and `border` is ``False`` for no outline, a
         colour string for a coloured outline, or ``True`` for the default.
 
-        Floating shapes are off the anchor model (no `textbox:N` id) — for
-        absolute positioning or fancier styling, reach the returned shape through
-        `.com` on the document's `Shapes`. Wrap in `doc.edit(...)` for atomic
-        undo; raises `ValueError` for an unknown `wrap` / `where`.
+        Returns the text box's floating [`ShapeAnchor`][wordlive.ShapeAnchor]
+        (`shape:N`) so it can be restyled in place afterwards (`set_text` /
+        `set_wrap` / `set_position` / `set_size` / `format`); discover text boxes
+        later via [`doc.text_boxes`][wordlive.Document.text_boxes]. Wrap in
+        `doc.edit(...)` for atomic undo; raises `ValueError` for an unknown
+        `wrap` / `where`.
         """
         if wrap not in _WRAP_NAMES:
             raise ValueError(
@@ -1557,6 +1569,15 @@ class Anchor(ABC):
             elif border_bgr is not None:
                 shape.Line.Visible = int(MsoTriState.TRUE)
                 shape.Line.ForeColor.RGB = border_bgr
+            # Hand back the new text box's shape:N handle (locate by a unique temp
+            # name — don't assume "last", other floats can reorder).
+            orig_name = str(shape.Name or "")
+            probe_name = f"_wl_shape_{secrets.token_hex(8)}"
+            shape.Name = probe_name
+            index = _shapes.index_of_named(doc_com, probe_name)
+            if orig_name:
+                shape.Name = orig_name
+        return ShapeAnchor(self._doc, index)
 
     def insert_chart(
         self,
@@ -4069,6 +4090,284 @@ class ChartCollection:
                     }
                 )
         return out
+
+
+class ShapeAnchor(Anchor):
+    """A floating shape located by 1-based index — `shape:N`.
+
+    Indexes the document's body-story floating shapes (text boxes, floating
+    images, WordArt) in document order — the restyle handle that
+    [`insert_text_box`][wordlive.Anchor.insert_text_box] and a floating
+    [`insert_image`][wordlive.Anchor.insert_image] return. `shape_type` reports
+    the kind (``"text_box"`` / ``"picture"`` / ``"wordart"`` / …). Restyle in
+    place with `set_wrap` / `set_position` / `set_size` / `format` /
+    `set_alt_text`; a text box's contents edit via `set_text`, a floating
+    picture's image swaps via `replace_image`. Discover shapes via
+    [`doc.shapes`][wordlive.Document.shapes] (or just the text boxes via
+    [`doc.text_boxes`][wordlive.Document.text_boxes]).
+
+    A floating shape anchors to a *paragraph*, not a character position, so
+    positions renumber as shapes come and go — re-list, don't cache. Watermarks
+    live in the header story and are excluded.
+    """
+
+    kind = "shape"
+
+    def __init__(self, doc: Document, index: int) -> None:
+        super().__init__(doc, name=f"shape:{index}")
+        self._index = index
+
+    @property
+    def index(self) -> int:
+        return self._index
+
+    @property
+    def anchor_id(self) -> str:
+        return f"shape:{self._index}"
+
+    def _shape(self) -> Any:
+        shapes = _shapes.body_shapes(self._doc.com)
+        if not (1 <= self._index <= len(shapes)):
+            raise AnchorNotFoundError("shape", f"shape:{self._index}")
+        return shapes[self._index - 1]
+
+    def _range(self) -> Any:
+        # A floating shape has no character position of its own; this is the
+        # anchoring paragraph range, so inherited verbs (apply_style,
+        # insert_caption) act on the paragraph the shape hangs off.
+        return self._shape().Anchor
+
+    @property
+    def shape_type(self) -> str:
+        """The shape kind — ``"text_box"`` / ``"picture"`` / ``"wordart"`` / ``"group"`` / …."""
+        with _com.translate_com_errors():
+            return _shapes.shape_kind(self._shape())
+
+    @property
+    def alt_text(self) -> str:
+        """The shape's accessibility (alt) text, or ``""`` if unset."""
+        with _com.translate_com_errors():
+            return str(self._shape().AlternativeText or "")
+
+    @property
+    def text(self) -> str:
+        """A text box's contents (``""`` for a shape with no text frame)."""
+        with _com.translate_com_errors():
+            shape = self._shape()
+            if _shapes.shape_kind(shape) not in ("text_box", "auto_shape"):
+                return ""
+            try:
+                return str(shape.TextFrame.TextRange.Text or "")
+            except Exception:
+                return ""
+
+    def set_wrap(self, wrap: str) -> ShapeAnchor:
+        """Set how body text flows around the shape — ``"square"`` / ``"tight"`` /
+        ``"through"`` / ``"top-bottom"`` / ``"front"`` / ``"behind"``. Returns
+        `self` (chainable). Bad input raises `OpError`."""
+        self._apply(_shapes.apply_shape_wrap, wrap)
+        return self
+
+    def set_position(
+        self, *, left: Any = None, top: Any = None, relative_to: str | None = None
+    ) -> ShapeAnchor:
+        """Reposition the shape. `left` / `top` are lengths (points / ``"2in"``) or
+        ``"center"``; `relative_to` is the frame they're measured from
+        (``"margin"`` (default) or ``"page"``). Returns `self`. Bad input raises
+        `OpError`."""
+        self._apply(_shapes.apply_shape_position, left=left, top=top, relative_to=relative_to)
+        return self
+
+    def set_size(
+        self, *, width: Any = None, height: Any = None, lock_aspect: bool | None = None
+    ) -> ShapeAnchor:
+        """Resize the shape. `width` / `height` are lengths (points / ``"3in"``);
+        `lock_aspect` toggles proportional scaling (dropped automatically when both
+        dimensions are given, so both stick). Returns `self`. Bad input raises
+        `OpError`."""
+        self._apply(_shapes.apply_shape_size, width=width, height=height, lock_aspect=lock_aspect)
+        return self
+
+    def format(
+        self, *, fill: Any = None, border: str | bool | None = None, border_weight: Any = None
+    ) -> ShapeAnchor:
+        """Set the shape's fill and outline. `fill` is any colour; `border` is
+        ``False`` (no outline), ``True`` (default), or a colour string;
+        `border_weight` is the outline thickness (points / ``"1.5pt"``). Returns
+        `self`. Bad input raises `OpError`."""
+        self._apply(
+            _shapes.apply_shape_format, fill=fill, border=border, border_weight=border_weight
+        )
+        return self
+
+    def set_alt_text(self, text: str) -> ShapeAnchor:
+        """Set the shape's accessibility (alt) text. Returns `self`."""
+        with _com.translate_com_errors():
+            self._shape().AlternativeText = text
+        return self
+
+    def replace_image(self, image: str | Path | bytes) -> ShapeAnchor:
+        """Swap this floating picture's image in place.
+
+        Delete + reinsert at the same anchor, preserving wrap / position / size /
+        alt text — `image` is a path, raw bytes, or a base64 string (like
+        `insert_image`). Only valid on a ``"picture"`` shape; raises `OpError`
+        otherwise, `ImageSourceError` for a bad image. Returns `self` (chainable);
+        wrap in `doc.edit(...)` for atomic undo."""
+        with _images.image_on_disk(image) as disk_path:
+            try:
+                with _com.translate_com_errors():
+                    _shapes.replace_shape_image(self._doc.com, self._shape(), disk_path)
+            except (ValueError, TypeError) as e:
+                raise OpError(str(e)) from e
+        return self
+
+    def set_text(self, text: str) -> None:
+        """Replace a text box's contents. Raises `OpError` on a shape with no text
+        frame (a picture / WordArt)."""
+        with _com.translate_com_errors():
+            shape = self._shape()
+            if _shapes.shape_kind(shape) not in ("text_box", "auto_shape"):
+                raise OpError("this shape has no text frame to set; set_text needs a text box")
+            shape.TextFrame.TextRange.Text = text
+
+    def delete(self) -> None:
+        """Delete the floating shape itself (not its anchoring paragraph)."""
+        with _com.translate_com_errors():
+            self._shape().Delete()
+
+    def _apply(self, fn: Any, *args: Any, **kwargs: Any) -> None:
+        """Run a `_shapes` mutator on this shape, translating COM and bad-input
+        errors into the wordlive hierarchy (`OpError`)."""
+        shape = self._shape()
+        try:
+            with _com.translate_com_errors():
+                fn(shape, *args, **kwargs)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+
+class ShapeCollection:
+    """Iterable view over the document's floating shapes (`doc.shapes`).
+
+    Index a shape by 1-based position (`doc.shapes[2]`) to get a
+    [`ShapeAnchor`][wordlive.ShapeAnchor] (`shape:N`); `list()` summarises every
+    shape — id, kind, size, wrap, and the `para:N` it's anchored in. Positions
+    follow document order over the body story (header-story watermarks excluded),
+    and renumber as shapes come and go — re-list, don't cache. The write mirror is
+    [`insert_text_box`][wordlive.Anchor.insert_text_box] / a floating
+    [`insert_image`][wordlive.Anchor.insert_image].
+    """
+
+    def __init__(self, doc: Document) -> None:
+        self._doc = doc
+
+    def __len__(self) -> int:
+        with _com.translate_com_errors():
+            return len(_shapes.body_shapes(self._doc.com))
+
+    def __getitem__(self, index: int) -> ShapeAnchor:
+        if isinstance(index, bool) or not isinstance(index, int):
+            raise TypeError(f"shape index must be int, got {type(index).__name__}")
+        n = len(self)
+        if not (1 <= index <= n):
+            raise AnchorNotFoundError("shape", str(index))
+        return ShapeAnchor(self._doc, index)
+
+    def __iter__(self) -> Iterator[ShapeAnchor]:
+        for i in range(1, len(self) + 1):
+            yield ShapeAnchor(self._doc, i)
+
+    def list(self) -> list[dict[str, Any]]:
+        """Every floating shape as `{index, anchor_id, shape_type, name, width,
+        height, wrap, alt_text, has_text, para}`.
+
+        `shape_type` is the kind string; `width` / `height` are points; `wrap` the
+        text-wrap keyword; `has_text` whether a text frame holds text; `para` the
+        `para:N` the shape is anchored in.
+        """
+        out: list[dict[str, Any]] = []
+        with _com.translate_com_errors():
+            shapes = _shapes.body_shapes(self._doc.com)
+            for i, shape in enumerate(shapes, start=1):
+                kind = _shapes.shape_kind(shape)
+                try:
+                    wrap: str | None = _shapes.WRAP_TO_NAME.get(int(shape.WrapFormat.Type))
+                except Exception:
+                    wrap = None
+                try:
+                    has_text = kind in ("text_box", "auto_shape") and bool(shape.TextFrame.HasText)
+                except Exception:
+                    has_text = False
+                try:
+                    alt_text = str(shape.AlternativeText or "")
+                except Exception:
+                    alt_text = ""
+                try:
+                    start: int | None = int(shape.Anchor.Start)
+                except Exception:
+                    start = None
+                para_id: str | None = None
+                if start is not None:
+                    para = self._doc.paragraphs.at(start)
+                    para_id = para.anchor_id if para is not None else None
+                out.append(
+                    {
+                        "index": i,
+                        "anchor_id": f"shape:{i}",
+                        "shape_type": kind,
+                        "name": str(getattr(shape, "Name", "") or ""),
+                        "width": _safe_float(shape, "Width"),
+                        "height": _safe_float(shape, "Height"),
+                        "wrap": wrap,
+                        "alt_text": alt_text,
+                        "has_text": has_text,
+                        "para": para_id,
+                    }
+                )
+        return out
+
+
+class TextBoxCollection:
+    """Iterable view over the document's text boxes (`doc.text_boxes`).
+
+    The ``shape_type == "text_box"`` subset of [`doc.shapes`]
+    [wordlive.Document.shapes] — a discovery filter, *not* a second id space: each
+    text box keeps its canonical `shape:N` id (its position among *all* floating
+    shapes), so `doc.text_boxes[1].anchor_id` may be e.g. `shape:3`. Index 1-based
+    over the text boxes; `list()` is the text-box rows of `doc.shapes.list()`.
+    """
+
+    def __init__(self, doc: Document) -> None:
+        self._doc = doc
+
+    def _indices(self) -> list[int]:
+        """1-based `shape:N` indices (over all body shapes) that are text boxes."""
+        shapes = _shapes.body_shapes(self._doc.com)
+        return [i for i, s in enumerate(shapes, start=1) if _shapes.shape_kind(s) == "text_box"]
+
+    def __len__(self) -> int:
+        with _com.translate_com_errors():
+            return len(self._indices())
+
+    def __getitem__(self, index: int) -> ShapeAnchor:
+        if isinstance(index, bool) or not isinstance(index, int):
+            raise TypeError(f"text box index must be int, got {type(index).__name__}")
+        with _com.translate_com_errors():
+            idxs = self._indices()
+        if not (1 <= index <= len(idxs)):
+            raise AnchorNotFoundError("text box", str(index))
+        return ShapeAnchor(self._doc, idxs[index - 1])
+
+    def __iter__(self) -> Iterator[ShapeAnchor]:
+        with _com.translate_com_errors():
+            idxs = self._indices()
+        for unfiltered in idxs:
+            yield ShapeAnchor(self._doc, unfiltered)
+
+    def list(self) -> list[dict[str, Any]]:
+        """The text-box rows of `doc.shapes.list()` (each keeping its `shape:N` id)."""
+        return [row for row in ShapeCollection(self._doc).list() if row["shape_type"] == "text_box"]
 
 
 def _safe_float(obj: Any, attr: str) -> float | None:

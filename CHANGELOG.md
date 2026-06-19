@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Floating-shape anchor model — `shape:N`.** A new positional anchor over the
+  document's body-story floating shapes (text boxes, floating images, WordArt),
+  in document order — the restyle handle the deferred "image polish" cluster was
+  blocked on. Resolves via `doc.anchor_by_id("shape:N")`, `doc.shapes` (all body
+  shapes), and `doc.text_boxes` (the text-box subset, a discovery filter that
+  keeps each box's canonical `shape:N` id). `ShapeAnchor` carries `shape_type`
+  (`text_box`/`picture`/`wordart`/…) and the in-place mutators `set_wrap`,
+  `set_position(left/top/relative_to)`, `set_size(width/height/lock_aspect)`,
+  `format(fill/border/border_weight)`, `set_alt_text`, `set_text` (text boxes),
+  `replace_image` (floating pictures), and `delete` — wired across Python / CLI
+  (`shapes`, `set-shape-wrap`, `set-shape-position`, `set-shape-size`,
+  `format-shape`, `set-shape-alt-text`, `set-shape-text`, `replace-shape-image`,
+  `delete-shape`) / `exec` ops (same names with `set_shape_*` / `format_shape` /
+  `replace_shape_image` / `delete_shape`) / MCP (`word_read command=shapes`,
+  `word_write` commands of the same names).
+  - **`insert_text_box` now returns its `ShapeAnchor`** (was `None`), and a
+    **floating `insert_image` returns the picture's `ShapeAnchor`** (an `inline`
+    image still returns `None` and stays `image:N`) — so a just-placed shape can
+    be restyled without re-discovering it.
+  - `replace_image` swaps a floating picture's bits **in place** by delete +
+    reinsert at the same anchor, preserving wrap / position / size / alt text
+    (live-probed: `Shape.Fill.UserPicture` only *overlays* a second picture-fill
+    on a picture shape, so it's not a true replace). Header-story watermarks are
+    excluded from `doc.shapes`. `shape:N` is positional — it renumbers when an
+    earlier shape is added/removed, so re-list rather than cache (the `image:N` /
+    `chart:N` rule). (`MsoShapeType` / `WdStoryType` and `WdRelative*Position.PAGE`
+    added to `constants`.)
 - **Post-creation restyle parity — content controls & hyperlinks.** Two objects
   that accepted styling/config at insert time but had no way to change it
   afterward now have in-place mutators (the iterate-without-delete-and-reinsert

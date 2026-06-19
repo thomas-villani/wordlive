@@ -190,9 +190,8 @@ it needs no `doc.edit(...)`.
 
 ::: wordlive.ImageCollection
 
-## Watermarks & text boxes
+## Watermarks, text boxes & floating shapes
 
-The floating-shape flourishes, both documented on their host classes above.
 `Document.set_watermark(text, …)` stamps a WordArt text watermark
 (DRAFT / CONFIDENTIAL) behind every page via each section's header story —
 `layout="diagonal"`/`"horizontal"`, `color`, `font`, `semitransparent`; it
@@ -201,9 +200,28 @@ replaces any prior text watermark rather than stacking, and
 drops a floating text box / pull quote anchored to any anchor's paragraph, with
 `width`/`height` (points or unit strings), `wrap` (the `insert_image` vocabulary
 minus `"inline"`), `where`, the text-format kwargs, and `fill`/`border`. Both are
-edits — wrap in `doc.edit(...)` for atomic undo. Floating shapes are off the
-anchor model (no `textbox:N` id); for precise positioning reach the shape via
-`.com` on `doc.com.Shapes`.
+edits — wrap in `doc.edit(...)` for atomic undo.
+
+Floating shapes — text boxes, **floating images**, and WordArt — *are* on the
+anchor model, addressed `shape:N`. `Anchor.insert_text_box` returns a
+[`ShapeAnchor`](#wordlive.ShapeAnchor), and a **floating** `insert_image` (any
+`wrap` other than `"inline"`) returns the picture's `ShapeAnchor` too — an
+`"inline"` image stays an `InlineShape` (`image:N`) and returns `None`. Discover
+them via [`doc.shapes`](#wordlive.Document.shapes) (all body shapes;
+header-story watermarks excluded) or [`doc.text_boxes`](#wordlive.Document.text_boxes)
+(the text-box subset, a discovery filter that keeps each box's canonical
+`shape:N` id). Restyle in place: `set_wrap`, `set_position(left/top/relative_to)`,
+`set_size(width/height/lock_aspect)`, `format(fill/border/border_weight)`,
+`set_alt_text`; `set_text` edits a text box's contents and `replace_image` swaps
+a floating picture's bits (delete + reinsert at the same anchor, preserving
+wrap / position / size). `shape:N` is *positional* in document order, so adding
+or removing a shape renumbers the rest — re-list rather than caching an id.
+
+::: wordlive.ShapeAnchor
+
+::: wordlive.ShapeCollection
+
+::: wordlive.TextBoxCollection
 
 ## Equations
 

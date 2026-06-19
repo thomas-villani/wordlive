@@ -228,6 +228,8 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.equations.list()
             if command == "charts":
                 return doc.charts.list()
+            if command == "shapes":
+                return doc.shapes.list()
             if command == "hyperlinks":
                 return doc.hyperlinks.list()
             if command == "fields":
@@ -890,6 +892,33 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command in (
+        "set_shape_wrap",
+        "set_shape_position",
+        "set_shape_size",
+        "format_shape",
+        "set_shape_alt_text",
+        "set_shape_text",
+        "delete_shape",
+    ):
+        op = {"op": command, "anchor_id": need("anchor_id")}
+        if command == "set_shape_wrap":
+            op["wrap"] = need("wrap")
+        if command in ("set_shape_alt_text", "set_shape_text"):
+            op["text"] = need("text")
+        for k in OP_OPTIONAL_FIELDS[command]:
+            if p.get(k) is not None:
+                op[k] = p[k]
+        return op
+    if command == "replace_shape_image":
+        if (p.get("image_base64") is None) == (p.get("path") is None):
+            raise OpError("replace_shape_image requires exactly one of 'image_base64' or 'path'")
+        op = {"op": "replace_shape_image", "anchor_id": need("anchor_id")}
+        if p.get("image_base64") is not None:
+            op["base64"] = p["image_base64"]
+        else:
+            op["path"] = p["path"]
+        return op
     raise OpError(f"unknown write command: {command!r}")
 
 
@@ -1063,6 +1092,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "read_image",
             "equations",
             "charts",
+            "shapes",
             "hyperlinks",
             "fields",
             "properties",
@@ -1124,6 +1154,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         an image:N id or any single-image anchor) ·
         equations (math zones: equation:N id, type, linear preview, para) ·
         charts (Excel-backed charts: chart:N id, kind, title, chart_style, has_legend, para) ·
+        shapes (floating shapes: shape:N id, shape_type=text_box|picture|wordart, size, wrap,
+        alt_text, para — text boxes / floating images / WordArt; the restyle handles) ·
         hyperlinks (links: text, address/sub_address, range:START-END id — the read
         mirror of add_hyperlink) · fields (PAGE/REF/TOC/…: kind, code, rendered
         result, range id — the read mirror of insert_field) ·
@@ -1215,6 +1247,14 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "format_axis",
             "add_trendline",
             "set_series_color",
+            "set_shape_wrap",
+            "set_shape_position",
+            "set_shape_size",
+            "format_shape",
+            "set_shape_alt_text",
+            "set_shape_text",
+            "replace_shape_image",
+            "delete_shape",
             "insert_break",
             "insert_field",
             "update_fields",
@@ -1407,6 +1447,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         semitransparent: bool | None = None,
         remove: bool | None = None,
         border: str | bool | None = None,
+        border_weight: str | float | None = None,
+        left: str | float | None = None,
+        top: str | float | None = None,
+        relative_to: str | None = None,
         rules: Any = None,
         within: str | None = None,
         dry_run: bool | None = None,
@@ -1535,10 +1579,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             a text watermark behind every page (DRAFT/CONFIDENTIAL); remove:true clears it ·
         text_box {anchor_id,text,[width,height,wrap=square|tight|through|top-bottom|front|behind,
             before,font,size,bold,italic,alignment,fill,border]} — a floating text box / pull quote;
-            border=false for no outline, a colour for a coloured one ·
+            border=false for no outline, a colour for a coloured one; returns its shape:N handle ·
         insert_image {anchor_id,wrap, image_base64|path,
             [before,block,width,height,alt_text,lock_aspect]} — block puts the image on its
-            own new line instead of in the anchor's text run ·
+            own new line instead of in the anchor's text run; a floating wrap returns the
+            image's shape:N handle (inline stays image:N) ·
         insert_equation {anchor_id, unicodemath|latex|mathml, [display=true,before]} — a math
             equation on its own paragraph; unicodemath is native, latex needs the server's
             latex extra, mathml uses Office's transform; display centres it, else inline ·
@@ -1554,6 +1599,15 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             moving_average|polynomial|power,display_equation,display_r_squared,forward,backward]} ·
         set_series_color {anchor_id=chart:N, color, [series=1,point]} — recolour a series or one
             1-based point/slice (color = name, hex, or [r,g,b]) ·
+        set_shape_wrap {anchor_id=shape:N, wrap=square|tight|through|top-bottom|front|behind} ·
+        set_shape_position {anchor_id=shape:N, [left,top,relative_to=margin|page]} — left/top are
+            lengths or "center" · set_shape_size {anchor_id=shape:N, [width,height,lock_aspect]} ·
+        format_shape {anchor_id=shape:N, [fill,border,border_weight]} — fill/outline a text box or
+            shape (border=false none / true default / a colour) ·
+        set_shape_alt_text {anchor_id=shape:N, text} · set_shape_text {anchor_id=shape:N, text} —
+            replace a text box's contents ·
+        replace_shape_image {anchor_id=shape:N, image_base64|path} — swap a floating picture's
+            image in place (preserves wrap/position/size) · delete_shape {anchor_id=shape:N} ·
         save {} — save to the document's existing file (must already be saved) ·
         save_as {path,[overwrite]} — save a .docx to path ·
         export_pdf {path,[from_page,to_page]} — export a PDF (the deliverable path).
@@ -1718,6 +1772,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "semitransparent": semitransparent,
             "remove": remove,
             "border": border,
+            "border_weight": border_weight,
+            "left": left,
+            "top": top,
+            "relative_to": relative_to,
             "rules": rules,
             "within": within,
             "dry_run": dry_run,
@@ -1779,6 +1837,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           format_axis {anchor_id=chart:N,which=value|y|category|x,[title,minimum,maximum,scale=linear|log,number_format,gridlines]} ·
           add_trendline {anchor_id=chart:N,[series=1,kind=linear|exponential|logarithmic|moving_average|polynomial|power,display_equation,display_r_squared,forward,backward]} ·
           set_series_color {anchor_id=chart:N,color,[series=1,point]} — recolour a series or one 1-based point/slice ·
+          set_shape_wrap/set_shape_position/set_shape_size/format_shape/set_shape_alt_text/set_shape_text/replace_shape_image/delete_shape {anchor_id=shape:N,…} —
+            restyle a floating shape (text box / image): wrap, position (left/top/relative_to), size (width/height/lock_aspect), fill/border, alt text, text-box contents, picture swap (path|base64), or delete ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
           regularize {[rules],[within],[dry_run]} — apply the fixable word_read lint findings in one atomic step (targeted, idempotent); returns {applied,skipped,findings} ·

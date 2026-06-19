@@ -236,42 +236,56 @@ def _list_application() -> MagicMock:
 
 
 class _FakeWrapFormat:
-    """Mimics Shape.WrapFormat — only `.Type` is exercised."""
+    """Mimics Shape.WrapFormat — `.Type` (+ `.AllowOverlap` / `.Side` for watermarks)."""
 
     def __init__(self) -> None:
-        self.Type = 7  # wdWrapInline until ConvertToShape sets a real wrap
-
-
-class _FakeShape:
-    """A floating Shape, as produced by InlineShape.ConvertToShape()."""
-
-    def __init__(self, width: float, height: float, alt_text: str) -> None:
-        self.Width = width
-        self.Height = height
-        self.AlternativeText = alt_text
-        self.WrapFormat = _FakeWrapFormat()
+        self.Type = 7  # wdWrapInline until ConvertToShape / set_wrap sets a real wrap
+        self.AllowOverlap = False
+        self.Side = 0
 
 
 class _FakeInlineShape:
     """The InlineShape returned by Range.InlineShapes.AddPicture()."""
 
-    def __init__(self) -> None:
+    def __init__(self, owner: _FakeInlineShapes) -> None:
+        self._owner = owner
         self.Width = 100.0
         self.Height = 80.0
         self.AlternativeText = ""
         self.LockAspectRatio = -1
-        self.converted = None  # the _FakeShape, once ConvertToShape() runs
+        self.converted = None  # the floating _FakeFloatingShape, once ConvertToShape() runs
 
-    def ConvertToShape(self) -> _FakeShape:
-        self.converted = _FakeShape(self.Width, self.Height, self.AlternativeText)
-        return self.converted
+    def ConvertToShape(self) -> _FakeFloatingShape:
+        # A floating picture shape — appended to the document's body Shapes (so
+        # insert_image can hand back a shape:N handle), mirroring live Word.
+        doc_shapes = getattr(self._owner, "_doc_shapes", None)
+        anchor_start = int(getattr(self._owner, "_anchor_start", 0))
+        owner = doc_shapes if doc_shapes is not None else _FakeFloatingShapes()
+        shape = _FakeFloatingShape(
+            owner,
+            shape_type=13,  # msoPicture
+            anchor_start=anchor_start,
+            width=self.Width,
+            height=self.Height,
+            alt_text=self.AlternativeText,
+        )
+        if doc_shapes is not None:
+            doc_shapes._items.append(shape)
+        self.converted = shape
+        return shape
 
 
 class _FakeInlineShapes:
-    """Mimics Range.InlineShapes: AddPicture records its call and returns a shape."""
+    """Mimics Range.InlineShapes: AddPicture records its call and returns a shape.
+
+    `_doc_shapes` / `_anchor_start` are wired by the document's range factory so a
+    `ConvertToShape()` lands the floating picture in `Document.Shapes`.
+    """
 
     def __init__(self) -> None:
-        self.shape = _FakeInlineShape()
+        self._doc_shapes: _FakeFloatingShapes | None = None
+        self._anchor_start = 0
+        self.shape = _FakeInlineShape(self)
         self.AddPicture = MagicMock(name="AddPicture", return_value=self.shape)
 
     @property
@@ -1673,14 +1687,61 @@ class _FakeLists:
 _WHICH_INDEX = {"primary": 1, "first": 2, "even": 3}
 
 
-class _FakeFloatingShape:
-    """A floating shape (WordArt watermark / text box): a settable Name + Delete."""
+class _FakeTextFrame:
+    """Mimics Shape.TextFrame — a TextRange whose `.Text` drives `HasText`."""
 
-    def __init__(self, owner: _FakeFloatingShapes, *, name: str = "", text: str = "") -> None:
+    def __init__(self, text: str = "") -> None:
+        self.TextRange = MagicMock(name="TextRange")
+        self.TextRange.Text = text
+        self.TextRange.Font = MagicMock(name="TextRange.Font")
+        self.TextRange.ParagraphFormat = MagicMock(name="TextRange.ParagraphFormat")
+
+    @property
+    def HasText(self) -> bool:
+        return bool(self.TextRange.Text)
+
+
+class _FakeFloatingShape:
+    """A floating shape (text box / picture / WordArt) — the `shape:N` restyle surface.
+
+    Carries the layout/appearance attributes the floating-shape mutators read and
+    write (Type, Width/Height, Left/Top, Relative*Position, LockAspectRatio,
+    AlternativeText, WrapFormat, TextFrame) plus an Anchor range whose `StoryType`
+    keeps body shapes apart from header-story watermarks.
+    """
+
+    def __init__(
+        self,
+        owner: _FakeFloatingShapes,
+        *,
+        name: str = "",
+        text: str = "",
+        shape_type: int = 17,  # msoTextBox
+        anchor_start: int = 0,
+        story_type: int = 1,  # wdMainTextStory
+        width: float = 200.0,
+        height: float = 100.0,
+        alt_text: str = "",
+    ) -> None:
         self._owner = owner
         self.Name = name
+        self.Type = shape_type
         self.Text = text
-        for child in ("TextEffect", "Line", "Fill", "WrapFormat", "TextFrame"):
+        self.Width = width
+        self.Height = height
+        self.LockAspectRatio = -1
+        self.AlternativeText = alt_text
+        self.Left = 0.0
+        self.Top = 0.0
+        self.Rotation = 0.0
+        self.RelativeHorizontalPosition = 0
+        self.RelativeVerticalPosition = 0
+        self.WrapFormat = _FakeWrapFormat()
+        self.TextFrame = _FakeTextFrame(text)
+        anchor = _make_range(anchor_start, anchor_start)
+        anchor.StoryType = story_type
+        self.Anchor = anchor
+        for child in ("TextEffect", "Line", "Fill"):
             setattr(self, child, MagicMock(name=f"Shape.{child}"))
 
     def Delete(self) -> None:
@@ -1688,7 +1749,7 @@ class _FakeFloatingShape:
 
 
 class _FakeFloatingShapes:
-    """Mimics Range.Shapes / Document.Shapes: AddTextEffect/AddTextbox, Count, 1-based lookup."""
+    """Mimics Range.Shapes / Document.Shapes: AddTextEffect/AddTextbox, Count, lookup."""
 
     def __init__(self) -> None:
         self._items: list[_FakeFloatingShape] = []
@@ -1697,8 +1758,11 @@ class _FakeFloatingShapes:
     def Count(self) -> int:
         return len(self._items)
 
+    def Item(self, index: int) -> _FakeFloatingShape:
+        return self._items[int(index) - 1]
+
     def __call__(self, index: int) -> _FakeFloatingShape:
-        return self._items[index - 1]
+        return self._items[int(index) - 1]
 
     def __iter__(self) -> Iterable[Any]:
         return iter(list(self._items))
@@ -1706,12 +1770,17 @@ class _FakeFloatingShapes:
     def AddTextEffect(
         self, PresetTextEffect: int = 0, Text: str = "", **kwargs: Any
     ) -> _FakeFloatingShape:
-        shape = _FakeFloatingShape(self, text=str(Text))
+        shape = _FakeFloatingShape(self, text=str(Text), shape_type=15)  # msoTextEffect (WordArt)
         self._items.append(shape)
         return shape
 
-    def AddTextbox(self, **kwargs: Any) -> _FakeFloatingShape:
-        shape = _FakeFloatingShape(self)
+    def AddTextbox(
+        self, Anchor: Any = None, Width: float = 200.0, Height: float = 100.0, **kwargs: Any
+    ) -> _FakeFloatingShape:
+        start = int(getattr(Anchor, "Start", 0)) if Anchor is not None else 0
+        shape = _FakeFloatingShape(
+            self, shape_type=17, anchor_start=start, width=float(Width), height=float(Height)
+        )
         self._items.append(shape)
         return shape
 
@@ -1892,6 +1961,10 @@ def _make_document(
         rng = _range_cache.get(key)
         if rng is None:
             rng = _make_range(start, end)
+            # Wire the range's InlineShapes so a ConvertToShape() (floating
+            # insert_image) lands the picture in this document's body Shapes.
+            rng.InlineShapes._doc_shapes = doc.Shapes
+            rng.InlineShapes._anchor_start = int(start)
             _range_cache[key] = rng
         return rng
 

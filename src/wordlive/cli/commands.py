@@ -131,6 +131,15 @@ def register(group: click.Group) -> None:
     group.add_command(format_axis_cmd)
     group.add_command(add_trendline_cmd)
     group.add_command(set_series_color_cmd)
+    group.add_command(shapes_cmd)
+    group.add_command(set_shape_wrap_cmd)
+    group.add_command(set_shape_position_cmd)
+    group.add_command(set_shape_size_cmd)
+    group.add_command(format_shape_cmd)
+    group.add_command(set_shape_alt_text_cmd)
+    group.add_command(set_shape_text_cmd)
+    group.add_command(replace_shape_image_cmd)
+    group.add_command(delete_shape_cmd)
     group.add_command(bookmark)
     group.add_command(pin_cmd)
     group.add_command(pin_outline_cmd)
@@ -3387,7 +3396,7 @@ def insert_image_cmd(
             doc = _pick_doc(word, ctx.obj["doc_name"])
             anchor = doc.anchor_by_id(anchor_id)
             with doc.edit(f"CLI: insert image {where} {anchor_id}"):
-                anchor.insert_image(
+                shape = anchor.insert_image(
                     image,
                     wrap=wrap,
                     where=where,
@@ -3397,17 +3406,21 @@ def insert_image_cmd(
                     alt_text=alt_text,
                     lock_aspect=lock_aspect,
                 )
+            # A floating image returns its shape:N handle (inline stays None).
+            shape_id = shape.anchor_id if shape is not None else None
+            text = f"inserted image {where} {anchor_id} (wrap={wrap})"
             emit(
                 {
                     "ok": True,
                     "anchor_id": anchor_id,
                     "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "shape": shape_id,
                     "wrap": wrap,
                     "where": where,
                     "block": block,
                 },
                 as_text=not ctx.obj["as_json"],
-                text=f"inserted image {where} {anchor_id} (wrap={wrap})",
+                text=(f"{text} -> {shape_id}" if shape_id else text),
             )
 
     _run(ctx, go)
@@ -3894,6 +3907,304 @@ def set_series_color_cmd(
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"recoloured {target} of {anchor_id} -> {color}",
+            )
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# shapes | set-shape-wrap | set-shape-position | set-shape-size | format-shape
+#        | set-shape-alt-text | set-shape-text | replace-shape-image | delete-shape
+# ---------------------------------------------------------------------------
+
+
+def _fmt_shapes(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "(no shapes)"
+    lines: list[str] = []
+    for r in rows:
+        para = r.get("para") or ""
+        w, h = r.get("width"), r.get("height")
+        dims = f"{round(w)}x{round(h)}pt" if w is not None and h is not None else ""
+        lines.append(
+            f"[{r['anchor_id']}] {r.get('shape_type', '?')}  {dims}  "
+            f"wrap={r.get('wrap')}  {para}".rstrip()
+        )
+    return "\n".join(lines)
+
+
+@click.command(name="shapes")
+@click.pass_context
+def shapes_cmd(ctx: click.Context) -> None:
+    """List the document's floating shapes (shape:N id, kind, size, wrap, para:N).
+
+    Text boxes, floating images, and WordArt — the things `shape:N` addresses.
+    Restyle one with set-shape-wrap / -position / -size / format-shape /
+    replace-shape-image. Non-mutating.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            rows = doc.shapes.list()
+            emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_shapes(rows))
+
+    _run(ctx, go)
+
+
+def _shape_anchor(word: Any, doc_name: str | None, anchor_id: str) -> Any:
+    """Resolve `anchor_id` to a floating shape, raising a clean usage error otherwise."""
+    from .._anchors import ShapeAnchor
+
+    doc = _pick_doc(word, doc_name)
+    anchor = doc.anchor_by_id(anchor_id)
+    if not isinstance(anchor, ShapeAnchor):
+        raise click.UsageError(f"{anchor_id!r} is not a shape; pass a shape:N anchor")
+    return doc, anchor
+
+
+@click.command(name="set-shape-wrap")
+@click.option("--anchor-id", "anchor_id", required=True, help="Shape anchor (shape:N).")
+@click.option(
+    "--wrap",
+    "wrap",
+    required=True,
+    type=click.Choice(["square", "tight", "through", "top-bottom", "front", "behind"]),
+    help="How body text flows around the shape.",
+)
+@click.pass_context
+def set_shape_wrap_cmd(ctx: click.Context, anchor_id: str, wrap: str) -> None:
+    """Set how body text wraps around a floating shape (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set shape wrap {anchor_id}"):
+                anchor.set_wrap(wrap)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "wrap": wrap},
+                as_text=not ctx.obj["as_json"],
+                text=f"set wrap of {anchor_id} -> {wrap}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="set-shape-position")
+@click.option("--anchor-id", "anchor_id", required=True, help="Shape anchor (shape:N).")
+@click.option("--left", "left", default=None, help="Horizontal offset (pt / '2in' / 'center').")
+@click.option("--top", "top", default=None, help="Vertical offset (pt / '2in' / 'center').")
+@click.option(
+    "--relative-to",
+    "relative_to",
+    type=click.Choice(["margin", "page"]),
+    default=None,
+    help="Frame the offsets are measured from.",
+)
+@click.pass_context
+def set_shape_position_cmd(
+    ctx: click.Context, anchor_id: str, left: str | None, top: str | None, relative_to: str | None
+) -> None:
+    """Reposition a floating shape (atomic-undo). Pass at least one option."""
+    raw: dict[str, Any] = {"left": left, "top": top, "relative_to": relative_to}
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one of --left / --top / --relative-to")
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set shape position {anchor_id}"):
+                anchor.set_position(**kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"repositioned {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="set-shape-size")
+@click.option("--anchor-id", "anchor_id", required=True, help="Shape anchor (shape:N).")
+@click.option("--width", "width", default=None, help="Width (pt or '3in').")
+@click.option("--height", "height", default=None, help="Height (pt or '2cm').")
+@click.option(
+    "--lock-aspect/--no-lock-aspect",
+    "lock_aspect",
+    default=None,
+    help="Lock the aspect ratio for proportional scaling.",
+)
+@click.pass_context
+def set_shape_size_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    width: str | None,
+    height: str | None,
+    lock_aspect: bool | None,
+) -> None:
+    """Resize a floating shape (atomic-undo). Pass at least one option."""
+    raw: dict[str, Any] = {"width": width, "height": height, "lock_aspect": lock_aspect}
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one of --width / --height / --lock-aspect")
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set shape size {anchor_id}"):
+                anchor.set_size(**kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"resized {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="format-shape")
+@click.option("--anchor-id", "anchor_id", required=True, help="Shape anchor (shape:N).")
+@click.option("--fill", "fill", default=None, help="Fill colour (e.g. '#eeeeff' / 'navy').")
+@click.option("--border-color", "border_color", default=None, help="Outline colour.")
+@click.option("--no-border", "no_border", is_flag=True, default=False, help="No outline.")
+@click.option(
+    "--default-border", "default_border", is_flag=True, default=False, help="Default outline."
+)
+@click.option(
+    "--border-weight", "border_weight", default=None, help="Outline thickness (pt / '1.5pt')."
+)
+@click.pass_context
+def format_shape_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    fill: str | None,
+    border_color: str | None,
+    no_border: bool,
+    default_border: bool,
+    border_weight: str | None,
+) -> None:
+    """Set a floating shape's fill and outline (atomic-undo). Pass at least one option."""
+    if sum(bool(x) for x in (no_border, default_border, border_color is not None)) > 1:
+        raise click.UsageError(
+            "pass at most one of --no-border / --default-border / --border-color"
+        )
+    border: str | bool | None = None
+    if no_border:
+        border = False
+    elif default_border:
+        border = True
+    elif border_color is not None:
+        border = border_color
+    raw: dict[str, Any] = {"fill": fill, "border": border, "border_weight": border_weight}
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one formatting option")
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: format shape {anchor_id}"):
+                anchor.format(**kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"formatted {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="set-shape-alt-text")
+@click.option("--anchor-id", "anchor_id", required=True, help="Shape anchor (shape:N).")
+@click.option("--text", "text", required=True, help="Accessibility (alt) text.")
+@click.pass_context
+def set_shape_alt_text_cmd(ctx: click.Context, anchor_id: str, text: str) -> None:
+    """Set a floating shape's accessibility (alt) text (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set shape alt text {anchor_id}"):
+                anchor.set_alt_text(text)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "alt_text": text},
+                as_text=not ctx.obj["as_json"],
+                text=f"set alt text of {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="set-shape-text")
+@click.option("--anchor-id", "anchor_id", required=True, help="Text-box shape anchor (shape:N).")
+@click.option("--text", "text", required=True, help="New text-box contents.")
+@click.pass_context
+def set_shape_text_cmd(ctx: click.Context, anchor_id: str, text: str) -> None:
+    """Replace a text box's contents (atomic-undo). Needs a text-box shape."""
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set shape text {anchor_id}"):
+                anchor.set_text(text)
+            emit(
+                {"ok": True, "anchor_id": anchor_id},
+                as_text=not ctx.obj["as_json"],
+                text=f"set text of {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="replace-shape-image")
+@click.option("--anchor-id", "anchor_id", required=True, help="Picture shape anchor (shape:N).")
+@click.option("--path", "path", default=None, help="Replacement image file (local only).")
+@click.option("--base64", "base64_value", default=None, help="Replacement image as base64.")
+@click.pass_context
+def replace_shape_image_cmd(
+    ctx: click.Context, anchor_id: str, path: str | None, base64_value: str | None
+) -> None:
+    """Swap a floating picture's image in place (atomic-undo). Needs a picture shape.
+
+    Pass exactly one of --path / --base64. Preserves wrap / position / size / alt
+    text (delete + reinsert at the same anchor).
+    """
+    if (path is None) == (base64_value is None):
+        raise click.UsageError("pass exactly one of --path / --base64")
+    image: str = path if path is not None else base64_value  # type: ignore[assignment]
+
+    def go() -> None:
+        if path is not None:
+            ctx.obj["policy"].screen_image_path(path)
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: replace shape image {anchor_id}"):
+                anchor.replace_image(image)
+            emit(
+                {"ok": True, "anchor_id": anchor_id},
+                as_text=not ctx.obj["as_json"],
+                text=f"replaced image of {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="delete-shape")
+@click.option("--anchor-id", "anchor_id", required=True, help="Shape anchor (shape:N).")
+@click.pass_context
+def delete_shape_cmd(ctx: click.Context, anchor_id: str) -> None:
+    """Delete a floating shape (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: delete shape {anchor_id}"):
+                anchor.delete()
+            emit(
+                {"ok": True, "anchor_id": anchor_id},
+                as_text=not ctx.obj["as_json"],
+                text=f"deleted {anchor_id}",
             )
 
     _run(ctx, go)
@@ -5856,7 +6167,7 @@ def insert_text_box_cmd(
             doc = _pick_doc(word, ctx.obj["doc_name"])
             anchor = doc.anchor_by_id(anchor_id)
             with doc.edit(f"CLI: insert text box {where} {anchor_id}"):
-                anchor.insert_text_box(
+                shape = anchor.insert_text_box(
                     text,
                     width=width,
                     height=height,
@@ -5871,9 +6182,9 @@ def insert_text_box_cmd(
                     border=border,
                 )
             emit(
-                {"ok": True, "anchor_id": anchor_id, "wrap": wrap},
+                {"ok": True, "anchor_id": shape.anchor_id, "wrap": wrap},
                 as_text=not ctx.obj["as_json"],
-                text=f"inserted text box {where} {anchor_id}",
+                text=f"inserted text box {where} {anchor_id} -> {shape.anchor_id}",
             )
 
     _run(ctx, go)
@@ -6365,7 +6676,9 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     insert_section, insert_markdown, replace_section,
     delete_paragraph, append, append_inline, prepend, prepend_inline,
     insert_image, insert_equation, insert_chart, format_chart, format_axis, add_trendline,
-    set_series_color, replace, find_replace, apply_style, format_paragraph,
+    set_series_color, set_shape_wrap, set_shape_position, set_shape_size, format_shape,
+    set_shape_alt_text, set_shape_text, replace_shape_image, delete_shape,
+    replace, find_replace, apply_style, format_paragraph,
     format_run, set_shading, set_borders, drop_cap, add_tab_stop, add_style, set_style,
     insert_field, set_page_setup, update_fields, regularize, insert_footnote, insert_endnote,
     insert_toc, add_bookmark, pin, pin_outline, add_hyperlink, set_hyperlink,
