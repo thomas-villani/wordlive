@@ -18,6 +18,9 @@ rule registry already carries `kind`, so they slot in without rework; the
 aggressive `Font.Reset()` strip-to-style fix (§7c); the content-changing fixes
 (`stray-empty-paragraph` delete, `figure-caption-present` insert); and the
 `docx-plus` cascade-provenance hybrid (§7c).
+**Backlog (v2, brainstormed 2026-06-19):** a primitive-driven catalogue of ~40
+more rules for publishing/academia — typography hygiene, finalization, captions /
+cross-references / citations, layout & notices — see **§5b**.
 
 > Audit a document for publishing-quality defects (`doc.lint()`), then autofix the
 > mechanical ones in one atomic-undo step (`doc.regularize()`). Pure composition
@@ -165,6 +168,153 @@ and how it's **fixed** (the wordlive verb / exec op). All fixes are idempotent
 | `table-repeat-header` | structural | a table spanning >1 page (`location().page != end_page`) whose row 1 isn't a heading row | `set_heading_row(1)` |
 | `figure-caption-present` | structural | an inline image / table with no adjacent `Caption`-styled paragraph or `SEQ` field | **opt-in fix:** `insert_caption(label=…)` with an empty title placeholder to fill (adds content — off by default, report-only) |
 | `caption-style-consistent` | consistency | a caption paragraph not on the `Caption` style | `apply_style("Caption")` |
+
+## 5b. Catalogue v2 — brainstormed backlog (2026-06-19)
+
+The v1 catalogue (§5) only needed the `format_info()` override probe. The backlog
+below — gathered from a publishing/academia pass — pushes into **four new
+detection primitives**. Each primitive unlocks a *cluster*, so we **batch by
+primitive**, not by category. Build the primitive once, light up its rules.
+
+**Default stance (decided 2026-06-19):** new **policy / opinion** rules ship
+**off unless tagged-in** — consistent with §2 (policy needs a profile). Even
+opinion-flavored *consistency* rules (sentence-spacing, em-dash, justify-on-short)
+default **off**; the user enables a cluster by **tag** (`--rules academia`) or a
+profile. Structural rules that are unambiguous defects (broken field, leftover
+comments) stay **on** by default like the v1 structural set. Anything that
+**adds content** or is **loud/irreversible** is **report-only** with an opt-in
+fix flag (new Finding field `adds_content: bool`, gated by surfaces — same
+treatment v1 gives `stray-empty-paragraph` / `figure-caption-present`).
+
+### Detection primitives (build order for the backlog)
+
+| Primitive | COM surface | Unlocks |
+|---|---|---|
+| **P1 · Field-code walk** | `Range.Fields` (SEQ, REF/PAGEREF, PAGE, TOC, HYPERLINK, CITATION) | caption-as-reference, xref-as-text, broken-ref, page-numbers, stale-fields, citation rules |
+| **P2 · Run-walk / text scan** | `Range.Words` + wildcard `find` | manual-heading, typed-manual-lists, space-before-punct, em-dash, en-dash ranges, curly quotes |
+| **P3 · Revision / markup state** | `Document.Revisions`, `.Comments`, `TrackRevisions` | leftover comments, unaccepted changes, track-changes-on |
+| **P4 · Section / header-footer walk** | `_sections.py` (have it) + `Range.Fields` | page-numbers, confidentiality / copyright notice, header-footer consistency |
+
+### A. Whitespace & typography hygiene  *(P2; cheap, high-frequency)*
+
+| id | kind | detect | fix | default |
+|---|---|---|---|---|
+| `sentence-spacing-consistent` | consistency | dominant 1-vs-2 spaces after `.?!`; flag the minority | `find_replace` to dominant | off (tag) |
+| `trailing-whitespace` | structural | para text ends in space/tab | trim | on |
+| `leading-whitespace` | structural | para starts with spaces/tabs used as indent | clear → real indent | on |
+| `space-before-punctuation` | consistency | ` ,` ` .` ` ;` ` :` ` )` | collapse | on |
+| `tabs-for-layout` | consistency | 2+ consecutive tabs / tab runs mid-para | report-only | off (tag) |
+| `manual-line-break` | structural | `Chr(11)` Shift-Enter where a paragraph break belongs | report-only | off (tag) |
+| `nbsp-missing` | policy | space in `Figure 3`, `5 km`, ` %`, before units/refs | insert nbsp | off (tag) |
+| `straight-quotes` | consistency | `'`/`"` where the doc is otherwise curly (skip code styles) | smart-quote replace | off (tag) |
+| `hyphen-as-range` | consistency | `1990-1995`, `pp. 10-15` using hyphen not en-dash | replace en-dash | off (tag) |
+| `em-dash-usage` | policy | `—` present (the "AI tell") | report / optional `--` | off (tag) |
+
+(`double-space`, `stray-empty-paragraph` already in v1.)
+
+### B. Heading & document structure  *(P2 + outline walk)*
+
+| id | kind | detect | fix | default |
+|---|---|---|---|---|
+| `manual-heading-formatting` | structural | a bold/large `Normal` para that looks like a heading but isn't styled | report → suggest `apply_style("Heading N")` | on (report) |
+| `heading-level-skip` | structural | outline jumps H1→H3 with no H2 | report-only | on (report) |
+| `heading-numbering-manual` | consistency | heading text starts with literal `3.1` not list-numbered | report | off (tag) |
+| `heading-trailing-period` | consistency | heading text ends with `.` | strip | off (tag) |
+| `empty-heading` | structural | heading paragraph with no text | report | on (report) |
+| `adjacent-headings` | structural | two headings, no body between | report | off (tag) |
+| `toc-present-and-current` | structural | doc has Heading 1s but no TOC field / TOC stale | `update_fields` or report | off (tag) |
+
+### C. Captions & cross-references  *(P1 — the academia backbone)*
+
+| id | kind | detect | fix | default |
+|---|---|---|---|---|
+| `caption-manual-numbering` | structural | a `Caption` para whose number is **literal text**, not a `SEQ` field | report → rebuild with SEQ (adds content, opt-in) | on (report) |
+| `xref-as-literal-text` | structural | `see Figure 3` / `Table 2` typed as text, not a `REF` field | report (auto-fix needs target match) | on (report) |
+| `caption-label-consistent` | consistency | mix of `Fig.`/`Figure`, `Table`/`Tbl`, `Eq.`/`Equation` | normalize label | off (tag) |
+| `caption-position-consistent` | consistency | some figure captions above, some below the image | report | off (tag) |
+| `broken-cross-reference` | structural | `REF`/`PAGEREF` rendering `Error! Reference source not found` | report | on |
+
+### D. Citations & bibliography  *(P1; deep-academia, stageable)*
+
+| id | kind | detect | fix | default |
+|---|---|---|---|---|
+| `citation-as-literal-text` | structural | `(Smith 2020)` typed, no `CITATION` / reference-manager field | report | off (tag) |
+| `footnote-numbering-manual` | structural | footnote refs typed as superscript text, not real footnotes | report | off (tag) |
+| `mixed-citation-styles` | consistency | numeric `[1]` and author-date `(Smith, 2020)` both present | report | off (tag) |
+| `orphan-citation` | structural | cited key absent from bibliography (needs parse) | report | off (later) |
+
+### E. Tables  *(extends v1)*
+
+| id | kind | detect | fix | default |
+|---|---|---|---|---|
+| `table-style-consistent` | consistency | tables using different `Table.Style`; flag minority vs dominant | `apply` dominant style | on |
+| `table-empty` | structural | table with all-empty cells | report | off (tag) |
+| `table-overflows-margin` | structural | `PreferredWidth` / right edge > text width | report | off (tag) |
+
+### F. Alignment & justification
+
+| id | kind | detect | fix | default |
+|---|---|---|---|---|
+| `justify-misapplied` | consistency | `wdAlignParagraphJustify` on a heading, list item, or short/one-line para (gappy last line) | clear → left / style default | off (tag) |
+| `paragraph-too-long` | policy | single para spans > ½ page (`location()` page geometry or char threshold) | report-only | off (tag) |
+
+(`body-justified`, `table-numeric-right-align` already in v1, policy.)
+
+### G. Review-leftover & finalization hygiene  *(P3; "is this actually final?")*
+
+| id | kind | detect | fix | default |
+|---|---|---|---|---|
+| `unaccepted-revisions` | structural | `Document.Revisions.Count > 0` | report (accept is loud) | on (report) |
+| `track-changes-on` | structural | `TrackRevisions == True` | report / turn off | on (report) |
+| `comments-present` | structural | `Document.Comments.Count > 0` | report | on (report) |
+| `leftover-highlight` | consistency | highlight color present in body | clear highlight | off (tag) |
+| `hidden-text-present` | structural | `Font.Hidden` runs | report | on (report) |
+| `stale-fields` | structural | TOC/SEQ/REF/PAGE fields needing update | `update_fields` | on |
+
+These cluster as a coherent **`finalization`** tag — useful as a standalone
+"is-this-ready-to-send?" check (and a building block for *prepare-for-sharing*).
+
+### H. Page layout & document-level  *(P4)*
+
+| id | kind | detect | fix | default |
+|---|---|---|---|---|
+| `page-numbers-present` | policy | no `PAGE` field in any footer/header | insert (adds content, opt-in) | off (tag) |
+| `confidentiality-notice` | policy | profile-supplied text not found in H/F or body | report (insert opt-in) | off (profile) |
+| `copyright-notice` | policy | profile `©` / text not present | report | off (profile) |
+| `header-footer-consistent` | consistency | H/F text/format differs across sections unexpectedly | report | off (tag) |
+| `document-properties-filled` | policy | Title / Author core props empty | set | off (tag) |
+| `draft-watermark-present` | structural | a "DRAFT" watermark / shape still in final | report | off (tag) |
+
+### I. Hyperlinks  *(print / sharing)*
+
+| id | kind | detect | fix | default |
+|---|---|---|---|---|
+| `hyperlink-bare-for-print` | policy | hyperlink display text ≠ target URL (URL invisible on paper) | report / append `(url)` (opt-in) | off (profile: print) |
+| `hyperlink-broken-internal` | structural | internal `HYPERLINK \l anchor` with no matching bookmark | report | on |
+| `hyperlink-display-is-raw-url` | consistency | long raw URL shown inline where a label is wanted | report | off (tag) |
+
+### Tag taxonomy
+
+Rules carry **tags** so a user enables a *cluster* instead of naming ids. Proposed
+top-level tags: `typography`, `headings`, `lists`, `tables`, `captions`,
+`crossref`, `citations` (alias `academia` = captions + crossref + citations +
+nbsp + en-dash), `finalization`, `layout`, `print`, `accessibility`. `--rules
+academia` / `--rules finalization` become the headline ergonomics; profiles
+(§6) toggle tags + supply policy targets.
+
+### Suggested batch order (primitive-driven)
+
+1. **Batch 1 — Typography hygiene (P2):** the §A rules + `manual-heading-formatting`,
+   `table-style-consistent`. Highest hit-rate, cheapest, no field plumbing.
+2. **Batch 2 — Finalization (P3, §G):** all report-only, one small COM surface,
+   very safe — ships the `finalization` tag.
+3. **Batch 3 — Field-code backbone (P1, §C):** build `Range.Fields` walk, then
+   caption-manual-numbering, xref-as-literal-text, broken-cross-reference,
+   page-numbers-present. The academia centerpiece.
+4. **Batch 4 — Layout / notices (§H), hyperlinks (§I) + the profile/house-style
+   loader** (the already-deferred v1 step-5).
+5. **Later — citations cluster (§D) + the accessibility sub-product** (with
+   *prepare-for-sharing*, §9).
 
 ## 6. Profiles (policy rules + house style)
 
@@ -341,10 +491,11 @@ targeted strategy is the default.
 ## 9. Deferred (v1 boundaries)
 
 - Cross-reference/bookmark/field-integrity rules (broken `REF`, dangling
-  cross-ref) — valuable, but a different detection family (walk `doc.fields`);
-  fold in once the formatting rules land.
-- Reading-order / accessibility rules — belongs with **prepare-for-sharing**
-  (Part II Priority 6), which can call the linter.
+  cross-ref) — a different detection family (the **P1 field-code walk**, §5b);
+  now scoped in the v2 backlog (§5b·C/D, Batch 3), not open-ended.
+- Reading-order / accessibility rules — tagged `accessibility` in §5b; the cheap
+  structural ones (`heading-level-skip`) ship early, the rest belong with
+  **prepare-for-sharing** (Part II Priority 6), which can call the linter.
 - A custom-rule plugin API — start with the built-in catalogue; add extensibility
   only on a concrete need.
 - Spelling/grammar — already covered by `doc.proofing()`; the linter is structure
@@ -362,3 +513,8 @@ targeted strategy is the default.
 5. Policy rules + the profile loader (`body-justified`, `table-numeric-right-align`).
 6. Wire CLI / exec op / MCP; docs (`docs/cli.md`, `docs/mcp.md`, `SKILL.md`,
    `cookbook.md` entry: "hand-off a clean document").
+
+Steps 1–4 + wiring shipped (foundation slice). The **v2 backlog (§5b)** continues
+the build, primitive-driven: Batch 1 typography (P2) · Batch 2 finalization (P3) ·
+Batch 3 field-code backbone (P1) · Batch 4 layout/notices + profile loader ·
+later citations + accessibility.

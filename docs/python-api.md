@@ -458,6 +458,13 @@ names the control so it's addressable later as `cc:TITLE`; the returned wrapper
 works even unnamed. `doc.content_controls.add(anchor, kind=…, **kwargs)` takes an
 `Anchor` or an anchor-id string.
 
+A control's metadata is editable in place — no delete + reinsert.
+`cc.set_properties(title=…, tag=…, lock_contents=…, lock_control=…)` re-sets the
+labels and locks (tri-state: omit to leave, `None`/`""` to clear `title`/`tag`; a
+rename changes the `cc:NAME` anchor id), and `cc.set_items([...])` replaces a
+combo_box/dropdown's choice list. Both are chainable and raise `OpError` on a
+wrong-kind control or bad input.
+
 ::: wordlive.BookmarkCollection
 
 ## Styles
@@ -553,14 +560,24 @@ gone), so the original wording lives only on the delete revisions.
 
 ## Hyperlinks & fields
 
-`Document.hyperlinks` and `Document.fields` are read-only discovery collections —
-the read mirrors of [`Anchor.link_to`](#wordlive.Anchor) /
+`Document.hyperlinks` and `Document.fields` are discovery collections — the read
+mirrors of [`Anchor.link_to`](#wordlive.Anchor) /
 [`Anchor.insert_field`](#wordlive.Anchor). `doc.hyperlinks.list()` reports each
 link's visible text, external `address` or internal `sub_address` bookmark,
 screen tip, and a `range:START-END` / `para:N`; `doc.fields.list()` reports each
 field's `kind` (the code's leading keyword — `PAGE` / `REF` / `TOC` / …), raw
 `code`, rendered `result`, `locked`, and a `range:START-END` / `para:N`. Index
 either (`doc.hyperlinks[2]`, `doc.fields[2]`) for the single-item wrapper.
+
+Hyperlinks are also editable in place — no delete + reinsert. On the indexed
+[`Hyperlink`](#wordlive.Hyperlink), `h.update(address=…, sub_address=…, text=…,
+screen_tip=…)` (or the individual `set_address` / `set_sub_address` / `set_text` /
+`set_screen_tip`) retargets or relabels the link; omitted fields are left
+untouched, the setters are chainable, and `address` / `sub_address` stay
+orthogonal. They *retarget*, they don't unlink: `sub_address` / `screen_tip`
+clear with `""`, but Word keeps every link pointing somewhere with visible text,
+so `address` / `text` can't be emptied (raises `OpError`). Fields remain
+read-only.
 
 ::: wordlive.HyperlinkCollection
 

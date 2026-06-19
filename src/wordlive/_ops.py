@@ -79,9 +79,12 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "pin": ("anchor_id",),
     "pin_outline": (),
     "add_hyperlink": ("anchor_id",),
+    "set_hyperlink": ("index",),
     "insert_cross_reference": ("anchor_id", "target"),
     "insert_caption": ("anchor_id",),
     "create_content_control": ("anchor_id",),
+    "set_cc_properties": ("anchor_id",),
+    "set_cc_items": ("anchor_id", "items"),
     "mark_index_entry": ("anchor_id", "entry"),
     "insert_index": ("anchor_id",),
     "insert_table_of_figures": ("anchor_id",),
@@ -265,6 +268,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "pin": ("name",),
     "pin_outline": ("levels",),
     "add_hyperlink": ("url", "bookmark", "text", "screen_tip"),
+    "set_hyperlink": ("address", "sub_address", "text", "screen_tip"),
     "insert_cross_reference": ("kind", "hyperlink", *_WHERE_FIELDS),
     "insert_caption": ("label", "text", "position", *_WHERE_FIELDS),
     "create_content_control": (
@@ -276,6 +280,8 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         "lock_contents",
         "lock_control",
     ),
+    "set_cc_properties": ("title", "tag", "lock_contents", "lock_control"),
+    "set_cc_items": (),
     "mark_index_entry": ("cross_reference", "bold", "italic"),
     "insert_index": ("columns", "run_in", "right_align_page_numbers", *_WHERE_FIELDS),
     "insert_table_of_figures": (
@@ -711,6 +717,15 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             text=op.get("text"),
             screen_tip=op.get("screen_tip"),
         )
+    elif kind == "set_hyperlink":
+        fields = OP_OPTIONAL_FIELDS["set_hyperlink"]
+        kwargs = {k: op[k] for k in fields if k in op}
+        if not kwargs:
+            raise OpError(
+                "op 'set_hyperlink' needs at least one of "
+                "'address', 'sub_address', 'text', 'screen_tip'"
+            )
+        doc.hyperlinks[op["index"]].update(**kwargs)
     elif kind == "insert_cross_reference":
         kwargs = {k: op[k] for k in ("kind", "hyperlink") if k in op}
         doc.anchor_by_id(op["anchor_id"]).insert_cross_reference(
@@ -736,6 +751,25 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             "content_control": cc.name or None,
             "anchor_id": cc.anchor_id if cc.name else None,
         }
+    elif kind in ("set_cc_properties", "set_cc_items"):
+        from ._anchors import ContentControl  # lazy: avoid an _ops -> _anchors cycle
+
+        anchor = doc.anchor_by_id(op["anchor_id"])
+        if not isinstance(anchor, ContentControl):
+            raise OpError(
+                f"{op['anchor_id']!r} is not a content control; {kind} needs a cc:NAME anchor"
+            )
+        if kind == "set_cc_properties":
+            fields = OP_OPTIONAL_FIELDS["set_cc_properties"]
+            kwargs = {k: op[k] for k in fields if k in op}
+            if not kwargs:
+                raise OpError(
+                    "op 'set_cc_properties' needs at least one of "
+                    "'title', 'tag', 'lock_contents', 'lock_control'"
+                )
+            anchor.set_properties(**kwargs)
+        else:  # set_cc_items
+            anchor.set_items(op["items"])
     elif kind == "mark_index_entry":
         mk = {k: op[k] for k in ("cross_reference", "bold", "italic") if k in op}
         doc.anchor_by_id(op["anchor_id"]).mark_index_entry(op["entry"], **mk)

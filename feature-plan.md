@@ -352,8 +352,10 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 > and the **profile / house-style** loader (the registry already carries `kind`,
 > so they slot in cleanly); the opt-in `Font.Reset()` strip-to-style fix; the
 > content-adding fixes (`stray-empty-paragraph`, `figure-caption-present`); and
-> the `docx-plus` cascade-provenance hybrid. See `spec-linter.md` (§6, §7c, §9)
-> and `CHANGELOG.md`.
+> the `docx-plus` cascade-provenance hybrid. A **v2 rule backlog** (~40 more
+> rules for publishing/academia, primitive-driven batches) was brainstormed
+> 2026-06-19 — see `spec-linter.md` **§5b**. See also `spec-linter.md` (§6, §7c,
+> §9) and `CHANGELOG.md`.
 
 The highest-utility next feature: a declarative rule set that **audits** a document
 for publishing-quality defects and **autofixes** the mechanical ones. Pure
@@ -441,10 +443,58 @@ design, like the constrained-subset import).
 Small, well-scoped cuts rounding out shipped clusters. COM detail for each is in
 Part III's catalogue (promoted here, not re-derived).
 
-### 5. Table polish
-Merged / split cells (the addressing model assumes a rectangular grid — needs a
-story for how a merged cell reports its `table:N:R:C` id), `add_column` /
-`delete_column`. (AutoFit + repeating heading rows already shipped.)
+### 5. Table styling & polish
+
+Two strands: a **table-styling surface** (the agent-publishing need — restyle
+cells/rows/columns and whole tables with ease) and the **structural polish**
+parked from earlier sweeps.
+
+**What's shipped today (the baseline this builds on):**
+- **Whole-table style at *creation* only** — `insert_table(style="…")` /
+  `table create --style` / `create_table` op set `table_com.Style`; `style=None`
+  defaults to the built-in `"Table Grid"`. Any built-in table style works by
+  name (live-probed 2026-06-19: all **247** table-type styles are present in
+  `doc.Styles` on a fresh doc — `"Plain Table 3"`, `"Grid Table 4 - Accent 1"`,
+  etc. all resolve; the latent-style worry was unfounded on this build).
+  `style list` filtered to `type=="table"` discovers them.
+- **Cell-level styling** (a `Cell` *is* an `Anchor`): `apply_style`,
+  `format_paragraph`, `format_run`, `set_shading(fill=…)`, `set_borders(…)`.
+- **Structure:** `Table.autofit` (content/window/fixed), `set_heading_row`
+  (repeating header + `AllowBreakAcrossPages`), `header=True` row-1 bolding.
+
+**The gaps (this item):**
+- **Restyle an *existing* table** — no verb takes a `table:N` and sets its table
+  style; `table_com.Style = …` is reachable only at creation. The headline ask.
+  → a `Table.set_style(name)` / `table set-style` CLI / `set_table_style` op.
+- **Row / column styling in one call** — today you loop cells. Want
+  `table.row(R).set_shading/​set_borders/​apply_style/​format_run` and a
+  `table.column(C)` peer (a column is `Table.Columns(C).Cells` — its own
+  range), so "shade the header row", "right-align the totals column",
+  "bold column 1" are single ops. Decide the addressing: extend the anchor
+  scheme (`table:N:row:R` / `table:N:col:C`) vs. methods on the `Table` wrapper.
+- **Banding** — `Table.set_banding(rows=True, columns=False)` toggling
+  `Table.Style*` band conditions (`wdTableStyleApply*`) / the table-style options
+  (first-row / last-row / first-col / last-col / banded-row / banded-col), the
+  knobs Word's "Table Style Options" ribbon group exposes. These ride on top of
+  the applied table style.
+- **Whole-table alignment & borders** — table alignment on the page
+  (`Table.Rows.Alignment` left/center/right), and **table-wide** borders
+  (`Table.Borders`) — currently explicitly out of scope in `set_borders`, which
+  is per-range/per-cell only. A `Table.set_borders(…)` for the whole grid.
+- **Cell vertical alignment** — `Cell.VerticalAlignment` (top/center/bottom);
+  pairs naturally with the cell-styling surface.
+
+**Structural polish (parked from the 2026-06-01 sweep):**
+- Merged / split cells — the addressing model assumes a rectangular grid; needs
+  a story for how a merged cell reports its `table:N:R:C` id.
+- `add_column` / `delete_column` (mirrors `add_row` / `delete_row`).
+
+Surfaces, as ever: Python + CLI (`table` group) + `exec` ops + MCP. **Probe
+before shipping:** band toggles and table-wide borders only behave sensibly once
+a real table style is applied — validate the interaction live (a styleless table
+ignores band conditions). Restyle must preserve cell-level direct overrides the
+user set (Word reapplies the style's conditional formatting — confirm it doesn't
+clobber explicit shading/borders, or document that it does).
 
 ### 6. List polish
 Per-level bullet / number format, custom list-template authoring, multi-section
@@ -587,9 +637,13 @@ that works *alongside* the user in a live session. Feasibility **proven live**
   import from template, `UpdateStyles`, style-usage inventory ("used vs. defined",
   "style near this anchor"). (Basic style creation/modification shipped v0.12.0;
   document themes shipped v0.16.0.)
-- **Table polish** — merged/split cells (addressing assumes rectangular),
-  `add_column`/`delete_column`. (AutoFit shipped v0.15.0 as `Table.autofit`.)
-  **→ promoted to Part II Priority 5.**
+- **Table styling & polish** — restyle an existing table's style
+  (`Table.set_style`), row/column styling in one call, banding / table-style
+  options, whole-table alignment + borders, cell vertical alignment; plus
+  merged/split cells (addressing assumes rectangular) and
+  `add_column`/`delete_column`. (AutoFit shipped v0.15.0 as `Table.autofit`;
+  whole-table style settable at *creation* via `insert_table(style=…)`.)
+  **→ promoted to Part II Priority 3 (item 5, table styling & polish).**
 - **List polish** — custom list-template authoring, per-level bullet/number
   format, multi-section `LinkToPrevious` editing. **→ promoted to Part II Priority 6.**
 - **Comment/revision polish** — comment replies (`comment.reply`), author/date
@@ -726,6 +780,57 @@ application/window/view surfaces (group I) are in real tension with *politeness*
   Do **not** deepen the tree for tidiness — the LLM's primary surface is MCP's
   four dispatch tools, not `--help`. **Explicitly rejected:** folding the
   `insert-*` family into an `insert` group (breaks the op parallel).
+- **Post-creation restyle parity — the "create-but-can't-edit" gaps (audited
+  2026-06-19).** A recurring asymmetry: several objects accept styling/config at
+  `insert_*` time but expose **no setter** to change it afterward, so an agent's
+  only recourse is delete-and-reinsert (lossy — re-typing content) or dropping to
+  `.com`. This fights the iterative edit-review-refine loop agents actually run.
+  The fix is uniform: give each its mutator surface, wired Python + CLI + `exec`
+  op + MCP, idempotent where it makes sense. **Charts are the template that got
+  it right** (`format`/`set_axis`/`add_trendline`/`set_series_color` on the
+  post-insert handle); **Styles** (writable), **Themes** (`set_colors`/
+  `set_fonts`), and **PageSetup** (`set_page_setup`) already mutate cleanly too —
+  so the pattern exists, coverage is just uneven. The gaps, ranked by agent
+  leverage:
+  - **Tables** — the flagship; restyle style / banding / cell-row-column. **→
+    fully specced in Part II Priority 3, item 5 (table styling & polish).**
+  - **Content controls** — ✅ **done.** `ContentControl.set_properties(...)` +
+    `set_items(...)` (Python + CLI `set-cc-properties`/`set-cc-items` + exec ops
+    `set_cc_properties`/`set_cc_items` + MCP). Form-building is now iterable in
+    place (relabel a field, lock it once filled, edit dropdown choices).
+  - **Hyperlinks** — ✅ **done.** `doc.hyperlinks` is writable:
+    `Hyperlink.update(...)` + `set_address`/`set_sub_address`/`set_text`/
+    `set_screen_tip` (CLI `set-hyperlink --index N`, exec op `set_hyperlink` by
+    1-based index, MCP `set_hyperlink` with `url`→address/`bookmark`→sub_address).
+    Creation stays via `link_to`; a first-class `insert_hyperlink` was not needed.
+  - **Images** — *deferred.* `wrap`/`width`/`height`/`alt_text`/`lock_aspect` set
+    at insert; `ImageAnchor.alt_text` is read-only and there's no
+    wrap/resize/reposition/replace-in-place. `image:N` indexes **inline shapes
+    only** — changing wrap calls `ConvertToShape()`, which removes the picture
+    from `InlineShapes` and invalidates the anchor — so the restyle subset can't
+    land coherently until the floating-shape / `textbox:N` anchor model exists.
+    Revisit alongside that work (it's also catalogued in Part III "Image polish").
+  - **Text boxes** — `insert_text_box` takes size/`wrap`/font/`fill`/`border`/
+    `alignment` and returns **`None`** (floating shapes are deliberately off the
+    anchor model). A `textbox:N` handle + a restyle surface would close it; until
+    then `.com` is the only path (as documented). *Lower priority — the "off the
+    model" call was intentional.*
+  - **Reference objects (TOC / index / TOF / TOA)** — only `.update()` /
+    `update_page_numbers()`; changing levels/columns/format flags means
+    delete+reinsert. Somewhat **inherent** (Word rebuilds these from field
+    switches), but a `reconfigure(...)` that rewrites the field switches in place
+    would be more polite than a teardown. *Medium; partly inherent.*
+  - **Fields** — `Field.code`/`result` are read-only; no edit-field-code path.
+    *Niche / low — most field edits are better done via the typed verb that
+    created them.*
+
+  **Not gaps** (already mutable, listed so the audit is closed): styles, themes,
+  page setup, watermark (`set`/`remove`), lists (`apply_list_template` re-applies
+  a whole list), revisions, track-changes, bibliography style, document
+  properties/variables. **Probe per object:** confirm Word lets the property be
+  re-set on an existing instance under late binding (some COM props are
+  create-only or byref-only — the kind of thing the table/chart probes already
+  surfaced).
 
 ## Open papercuts
 

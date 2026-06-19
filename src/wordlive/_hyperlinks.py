@@ -1,13 +1,14 @@
-"""Hyperlinks — read the document's links as structured data.
+"""Hyperlinks — read and edit the document's links as structured data.
 
-wordlive can already *create* links (`anchor.link_to(...)` / the `add_hyperlink`
-op); `doc.hyperlinks` is the read mirror — the discovery half. It reports every
-link's visible text, its destination (an external `address` or an internal
-`sub_address` bookmark), and a `range:START-END` id over the link so a hit can be
-fed straight back into `read` / `replace` / `comments.add`.
+wordlive *creates* links via `anchor.link_to(...)` / the `add_hyperlink` op;
+`doc.hyperlinks` is the discovery + edit mirror. It reports every link's visible
+text, its destination (an external `address` or an internal `sub_address`
+bookmark), and a `range:START-END` id over the link so a hit can be fed straight
+back into `read` / `replace` / `comments.add` — and a `Hyperlink.update(...)`
+retargets / relabels it in place (the `set_hyperlink` op / CLI / MCP).
 
 Hyperlinks are addressed by 1-based index (`doc.hyperlinks[2]`), matching Word's
-own `Hyperlinks(n)` ordering (document order). Reading is non-mutating.
+own `Hyperlinks(n)` ordering (document order). Listing is non-mutating.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from . import _com
-from .exceptions import AnchorNotFoundError
+from .exceptions import AnchorNotFoundError, OpError
 
 if TYPE_CHECKING:
     from ._document import Document
@@ -89,13 +90,79 @@ class Hyperlink:
             "para": para_id,
         }
 
+    def update(
+        self,
+        *,
+        address: str | None = None,
+        sub_address: str | None = None,
+        text: str | None = None,
+        screen_tip: str | None = None,
+    ) -> Hyperlink:
+        """Retarget / relabel this link in place — no delete + reinsert.
+
+        Pass a string to set a field; omit it (or pass ``None``) to leave it.
+        `address` is the external destination (URL / mailto / file path);
+        `sub_address` is the in-document target (a bookmark name); `text` is the
+        visible clickable text; `screen_tip` is the hover tooltip. `address` and
+        `sub_address` stay orthogonal — setting one does not clear the other.
+
+        These setters *retarget*, they don't unlink. `sub_address` and
+        `screen_tip` can be emptied with ``""``, but Word keeps every link
+        pointing somewhere with visible text, so `address` and `text` **cannot**
+        be cleared (passing ``""`` raises `OpError` — delete the link via `.com`
+        to remove it). Returns `self` (chainable); wrap in `doc.edit(...)` for
+        atomic undo. Bad input raises `OpError`.
+        """
+        try:
+            with _com.translate_com_errors():
+                if address is not None:
+                    if address == "":
+                        raise ValueError(
+                            "a hyperlink's address cannot be cleared; delete the link to remove it"
+                        )
+                    self._com.Address = str(address)
+                if sub_address is not None:
+                    self._com.SubAddress = str(sub_address)
+                if text is not None:
+                    if text == "":
+                        raise ValueError(
+                            "a hyperlink's visible text cannot be cleared; "
+                            "delete the link to remove it"
+                        )
+                    self._com.TextToDisplay = str(text)
+                if screen_tip is not None:
+                    self._com.ScreenTip = str(screen_tip)
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+        return self
+
+    def set_address(self, address: str) -> Hyperlink:
+        """Set the external destination (URL / mailto / file path)."""
+        return self.update(address=address)
+
+    def set_sub_address(self, sub_address: str) -> Hyperlink:
+        """Set the in-document target (a bookmark name); ``""`` clears it."""
+        return self.update(sub_address=sub_address)
+
+    def set_text(self, text: str) -> Hyperlink:
+        """Set the visible (clickable) text."""
+        return self.update(text=text)
+
+    def set_screen_tip(self, screen_tip: str) -> Hyperlink:
+        """Set the hover tooltip; ``""`` clears it."""
+        return self.update(screen_tip=screen_tip)
+
     def __repr__(self) -> str:
         dest = self.address or self.sub_address or "?"
         return f"<Hyperlink {self._index} -> {dest!r}>"
 
 
 class HyperlinkCollection:
-    """Indexable, iterable, read-only view over a document's hyperlinks (`doc.hyperlinks`)."""
+    """Indexable, iterable view over a document's hyperlinks (`doc.hyperlinks`).
+
+    Listing is read-only; index a [`Hyperlink`][wordlive.Hyperlink] to edit it
+    in place (`doc.hyperlinks[2].update(...)`).
+    """
 
     def __init__(self, doc: Document) -> None:
         self._doc = doc
