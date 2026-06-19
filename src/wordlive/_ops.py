@@ -71,6 +71,7 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_field": ("anchor_id", "kind"),
     "set_page_setup": ("section",),
     "update_fields": (),
+    "regularize": (),
     "insert_footnote": ("anchor_id", "text"),
     "insert_endnote": ("anchor_id", "text"),
     "insert_toc": ("anchor_id",),
@@ -256,6 +257,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_field": ("text", *_WHERE_FIELDS),
     "set_page_setup": _PAGE_SETUP_FIELDS,
     "update_fields": (),
+    "regularize": ("rules", "within", "dry_run"),
     "insert_footnote": _WHERE_FIELDS,
     "insert_endnote": _WHERE_FIELDS,
     "insert_toc": ("levels", "use_heading_styles", "hyperlinks", *_WHERE_FIELDS),
@@ -663,6 +665,20 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         doc.sections[op["section"]].set_page_setup(**kwargs)
     elif kind == "update_fields":
         doc.update_fields()
+    elif kind == "regularize":
+        # A write op so it joins an atomic batch; returns its {applied, skipped,
+        # findings} report as the op output. `own_undo=False` because the batch's
+        # own doc.edit already wraps us — applying fixes via apply_op here avoids a
+        # nested UndoRecord. `lint`/`format_info` stay reads (no op).
+        from . import _linting
+
+        return _linting.regularize(
+            doc,
+            rules=op.get("rules"),
+            within=op.get("within"),
+            dry_run=bool(op.get("dry_run", False)),
+            own_undo=False,
+        )
     elif kind == "insert_footnote":
         note = doc.anchor_by_id(op["anchor_id"]).insert_footnote(
             op["text"], where=("before" if op_before(op) else "after")

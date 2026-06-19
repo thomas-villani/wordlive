@@ -114,6 +114,8 @@ def register(group: click.Group) -> None:
     group.add_command(locate_cmd)
     group.add_command(stats_cmd)
     group.add_command(proofing_cmd)
+    group.add_command(lint_cmd)
+    group.add_command(regularize_cmd)
     group.add_command(hyperlinks_cmd)
     group.add_command(fields_cmd)
     group.add_command(properties)
@@ -429,6 +431,42 @@ def read_section(ctx: click.Context, heading: str | None, anchor_id: str | None)
                 as_text=not ctx.obj["as_json"],
                 text=body,
             )
+
+    _run(ctx, go)
+
+
+def _fmt_format_info(info: dict[str, Any]) -> str:
+    lines = [f"{info['anchor_id']}  style={info['style']!r}"]
+    for group in ("paragraph", "font"):
+        for field, cell in info[group].items():
+            if field == "mixed":
+                continue
+            mark = " *override*" if cell.get("override") else ""
+            lines.append(f"  {field}: {cell['value']} (style {cell['style']}){mark}")
+    if info["font"].get("mixed"):
+        lines.append(f"  mixed runs: {', '.join(info['font']['mixed'])}")
+    return "\n".join(lines)
+
+
+@read.command(name="format")
+@click.option(
+    "--anchor-id", "anchor_id", required=True, help="Anchor to read effective formatting from."
+)
+@click.pass_context
+def read_format(ctx: click.Context, anchor_id: str) -> None:
+    """Effective paragraph + character formatting at an anchor.
+
+    The read mirror of `format-paragraph` / `format-run`: each field carries its
+    effective `value`, the applied style's `style` baseline, and whether a direct
+    `override` sits on top — the substrate the linter's consistency rules use.
+    `font.mixed` lists fields that vary across the range's runs. Pure read.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            info = doc.anchor_by_id(anchor_id).format_info()
+            emit(info, as_text=not ctx.obj["as_json"], text=_fmt_format_info(info))
 
     _run(ctx, go)
 
@@ -1520,6 +1558,110 @@ def proofing_cmd(ctx: click.Context) -> None:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             data = doc.proofing()
             emit(data, as_text=not ctx.obj["as_json"], text=_fmt_proofing(data))
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# lint / regularize  (audit + autofix publishing-quality defects)
+# ---------------------------------------------------------------------------
+
+
+def _rules_selector(rule: tuple[str, ...], exclude: tuple[str, ...]) -> Any:
+    """Build the `rules=` selector from the repeatable --rule / --exclude flags."""
+    if rule and exclude:
+        raise click.UsageError("pass either --rule or --exclude, not both")
+    if rule:
+        return list(rule)
+    if exclude:
+        return {"exclude": list(exclude)}
+    return None
+
+
+def _fmt_lint(findings: list[dict[str, Any]]) -> str:
+    if not findings:
+        return "(no findings)"
+    lines = []
+    for f in findings:
+        fix = " [fixable]" if f.get("fixable") else ""
+        lines.append(f"[{f['severity']}] {f['rule']} ({f['anchor_id']}): {f['message']}{fix}")
+    return "\n".join(lines)
+
+
+def _fmt_regularize(report: dict[str, Any]) -> str:
+    applied, skipped = report.get("applied", []), report.get("skipped", [])
+    verb = "would fix" if report.get("dry_run") else "fixed"
+    lines = [f"{verb} {len(applied)}; skipped {len(skipped)} (report-only / not fixable)"]
+    for f in applied:
+        lines.append(f"  {verb}: {f['rule']} ({f['anchor_id']})")
+    return "\n".join(lines)
+
+
+@click.command(name="lint")
+@click.option("--rule", "rule", multiple=True, help="Only run these rule ids/tags (repeatable).")
+@click.option("--exclude", "exclude", multiple=True, help="Skip these rule ids/tags (repeatable).")
+@click.option(
+    "--within",
+    "within",
+    default=None,
+    help="Scope the audit to an anchor id (heading:N, range:S-E, table:N:R:C).",
+)
+@click.pass_context
+def lint_cmd(
+    ctx: click.Context, rule: tuple[str, ...], exclude: tuple[str, ...], within: str | None
+) -> None:
+    """Audit the document for publishing-quality defects (pure read).
+
+    Emits a severity-ranked list of findings — dangling headings, multi-page
+    tables with no repeating header, numbered lists Word split into independent
+    runs, direct formatting that drifted from the applied style. Each `fixable`
+    finding can be applied by `regularize`. `--rule`/`--exclude` select rules by
+    id or tag; `--within` scopes to an anchor.
+    """
+    selector = _rules_selector(rule, exclude)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            findings = doc.lint(rules=selector, within=within)
+            emit(findings, as_text=not ctx.obj["as_json"], text=_fmt_lint(findings))
+
+    _run(ctx, go)
+
+
+@click.command(name="regularize")
+@click.option("--rule", "rule", multiple=True, help="Only run these rule ids/tags (repeatable).")
+@click.option("--exclude", "exclude", multiple=True, help="Skip these rule ids/tags (repeatable).")
+@click.option("--within", "within", default=None, help="Scope to an anchor id.")
+@click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    default=False,
+    help="Plan the fixes (in the findings) without writing anything.",
+)
+@click.pass_context
+def regularize_cmd(
+    ctx: click.Context,
+    rule: tuple[str, ...],
+    exclude: tuple[str, ...],
+    within: str | None,
+    dry_run: bool,
+) -> None:
+    """Apply the fixable lint findings in one atomic-undo step.
+
+    Runs `lint`, then applies every fixable finding's fix inside a single
+    edit (one Ctrl-Z reverts the whole pass; selection/scroll preserved). The
+    default fixes are targeted and idempotent — a second `regularize` is a no-op.
+    Returns `{applied, skipped, findings}`. `--dry-run` plans without writing.
+    """
+    selector = _rules_selector(rule, exclude)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            report = doc.regularize(rules=selector, within=within, dry_run=dry_run)
+            emit(report, as_text=not ctx.obj["as_json"], text=_fmt_regularize(report))
 
     _run(ctx, go)
 
@@ -6072,7 +6214,7 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     insert_image, insert_equation, insert_chart, format_chart, format_axis, add_trendline,
     set_series_color, replace, find_replace, apply_style, format_paragraph,
     format_run, set_shading, set_borders, drop_cap, add_tab_stop, add_style, set_style,
-    insert_field, set_page_setup, update_fields, insert_footnote, insert_endnote,
+    insert_field, set_page_setup, update_fields, regularize, insert_footnote, insert_endnote,
     insert_toc, add_bookmark, pin, pin_outline, add_hyperlink, insert_cross_reference,
     insert_caption, create_content_control, mark_index_entry, insert_index,
     insert_table_of_figures, set_bibliography_style, add_source, insert_citation,

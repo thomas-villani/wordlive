@@ -64,6 +64,7 @@ not-a-heading, the nearest heading, and a nudge to pin).
 - `wordlive hyperlinks` — every link's text, external `address`/internal `sub_address`, and `range:`/`para:` (the read mirror of `link`). `wordlive fields` — every field's `kind` (`PAGE`/`REF`/`TOC`/…), raw `code`, and rendered `result` (the read mirror of `insert-field`; run `update-fields` first to refresh).
 - `wordlive properties list` — built-in + custom document properties (metadata). `wordlive variables list` — invisible `{ DOCVARIABLE }` storage as `{name: value}`.
 - `wordlive proofing` — spelling/grammar errors (count + flagged runs with `range:` ids) and readability statistics (Flesch Reading Ease, Flesch-Kincaid Grade Level, …). Heavier than `stats` (it (re)checks the doc).
+- `wordlive lint [--rule ID/tag] [--exclude ID/tag] [--within ID]` — audit publishing-quality defects (dangling headings, multi-page tables with no repeating header, numbered lists Word split into independent runs, direct formatting drifted from the applied style). Severity-ranked findings, each `fixable` one carrying the op `regularize` would run. Then `wordlive regularize [--dry-run] [--rule …] [--within ID]` applies the fixable subset in one atomic-undo step (targeted + idempotent — a second pass is a no-op). `read format --anchor-id ID` is the underlying probe: effective paragraph/character formatting with each field's style baseline and an `override` flag (the read mirror of `format-paragraph`/`format-run`).
 - `wordlive locate --anchor-id ID` — where an anchor sits in the laid-out doc: `page`/`end_page` span, `line`, `column`, `in_table`. Answers "what page is this on" without a `snapshot`. `wordlive stats` — one-shot summary: page/word/char/paragraph/line counts plus section/heading/table/image/comment/revision counts and `saved`. Both repaginate first (selection/scroll untouched); reads, non-mutating.
 
 ## Writing — each command is one atomic undo
@@ -256,7 +257,7 @@ Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`,
 `set_borders`, `drop_cap`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,
-`set_page_setup`, `update_fields`, `insert_footnote`, `insert_endnote`,
+`set_page_setup`, `update_fields`, `regularize`, `insert_footnote`, `insert_endnote`,
 `insert_toc`, `add_bookmark`, `pin`, `pin_outline`, `add_hyperlink`, `insert_cross_reference`,
 `insert_caption`, `create_content_control`, `mark_index_entry`, `insert_index`,
 `insert_table_of_figures`, `set_bibliography_style`, `add_source`, `insert_citation`,

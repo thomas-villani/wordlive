@@ -242,6 +242,11 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.theme.list_available()
             if command == "proofing":
                 return doc.proofing()
+            if command == "lint":
+                return doc.lint(rules=p.get("rules"), within=p.get("within"))
+            if command == "format_info":
+                anchor_id = _need(p, "anchor_id", command)
+                return doc.anchor_by_id(anchor_id).format_info()
             if command == "read_image":
                 anchor_id = _need(p, "anchor_id", command)
                 data, mime = doc.anchor_by_id(anchor_id).read_image()
@@ -448,6 +453,12 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         return op
     if command == "update_fields":
         return {"op": "update_fields"}
+    if command == "regularize":
+        op = {"op": "regularize"}
+        for key in ("rules", "within", "dry_run"):
+            if p.get(key) is not None:
+                op[key] = p[key]
+        return op
     if command == "set_property":
         op = {"op": "set_property", "name": need("name"), "value": need("value")}
         if p.get("custom") is not None:
@@ -1027,6 +1038,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "properties",
             "variables",
             "proofing",
+            "lint",
+            "format_info",
             "location",
             "stats",
             "theme",
@@ -1049,6 +1062,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         direction: str | None = None,
         limit: int | None = None,
         min_score: float | None = None,
+        rules: Any = None,
+        within: str | None = None,
     ) -> Any:
         """Read from the open Word document. Dispatch on `command`:
 
@@ -1086,6 +1101,13 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         variables (invisible named storage: {name: value}) ·
         proofing (spelling/grammar errors with counts + flagged runs, and readability
         statistics — heavier than stats; it (re)checks the document) ·
+        lint {[rules],[within]} (audit publishing-quality defects: dangling headings,
+        multi-page tables with no repeating header, split numbered lists, direct
+        formatting drifted from the style — severity-ranked findings, each fixable one
+        carrying the op regularize would run; rules selects ids/tags or {exclude:[…]}) ·
+        format_info {anchor_id} (effective paragraph + character formatting at an anchor,
+        each field with its style baseline and an override flag, plus font.mixed — the
+        read mirror of format_paragraph/format_run, and the linter's substrate) ·
         location {anchor_id} (where an anchor sits in the laid-out document:
         page/end_page span, line, column, in_table — "what page is this on"
         without a snapshot) ·
@@ -1116,6 +1138,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "direction": direction,
             "limit": limit,
             "min_score": min_score,
+            "rules": rules,
+            "within": within,
         }
         try:
             return _read_impl(w, command, params)
@@ -1164,6 +1188,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "insert_break",
             "insert_field",
             "update_fields",
+            "regularize",
             "set_property",
             "delete_property",
             "set_variable",
@@ -1349,6 +1374,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         semitransparent: bool | None = None,
         remove: bool | None = None,
         border: str | bool | None = None,
+        rules: Any = None,
+        within: str | None = None,
+        dry_run: bool | None = None,
     ) -> dict[str, Any]:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
@@ -1648,6 +1676,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "semitransparent": semitransparent,
             "remove": remove,
             "border": border,
+            "rules": rules,
+            "within": within,
+            "dry_run": dry_run,
         }
         try:
             return _write_impl(w, command, params, policy=policy)
@@ -1708,6 +1739,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           set_series_color {anchor_id=chart:N,color,[series=1,point]} — recolour a series or one 1-based point/slice ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
+          regularize {[rules],[within],[dry_run]} — apply the fixable word_read lint findings in one atomic step (targeted, idempotent); returns {applied,skipped,findings} ·
           insert_footnote/insert_endnote {anchor_id,text,[before]} — returns the new footnote:N/endnote:N in outputs ·
           insert_toc {anchor_id,[levels=[upper,lower],use_heading_styles,hyperlinks,before]} — update_fields after to fill page numbers ·
           add_bookmark {name,anchor_id} · pin {anchor_id,[name]} — durable pin:CODE handle that

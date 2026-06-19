@@ -123,6 +123,8 @@ a.apply_style("Heading 2")
 a.format_paragraph(alignment="center", space_before=6, line_spacing=1.5,  # leading: 1.5/"double"/"14pt"
                    page_break_before=True, keep_with_next=True, keep_together=True, widow_control=True)
 a.format_run(bold=True, color="#FF0000", highlight="yellow", size="12pt")  # character formatting
+a.format_info()                         # read mirror of format_paragraph/format_run: {style, paragraph, font}
+                                        #   each field → {value, style, override}; font.mixed = fields varying across runs
 a.set_shading(fill="navy")              # range/cell background fill
 a.set_borders(sides="all", style="single", weight=0.5, color="black")
 a.drop_cap(3, position="dropped", font="Georgia")  # oversized initial letter; position="none" removes
@@ -449,13 +451,21 @@ doc.variables.list()                 # {"ClientName": "Acme"}
 doc.hyperlinks.list()                # read mirror of link_to: [{text, address, sub_address, anchor_id, …}]
 doc.fields.list()                    # read mirror of insert_field: [{kind, code, result, anchor_id, …}]
 doc.proofing()                       # {spelling:{count,errors}, grammar:{…}, readability:{flesch_reading_ease,…}}
+doc.lint(within="heading:3")         # audit: [{rule, kind, severity, anchor_id, message, fixable, fix, …}] (pure read)
+doc.lint(rules={"exclude": ["mixed-run-format"]})  # rules=None → default set; list to include; {"exclude":[…]} to drop
+doc.regularize(within="heading:3", dry_run=True)   # plan the fixable findings (no write)
+doc.regularize()                     # apply them in one atomic-undo → {applied, skipped, findings}; idempotent
 ```
 
 `doc.properties` (read/write) and `doc.variables` (read/write) manage the file's
 metadata and named storage; `doc.hyperlinks` and `doc.fields` are read-only
 discovery collections — the read mirrors of `link_to` / `insert_field`.
 `doc.proofing()` runs Word's spelling/grammar/readability tools (a pure read, but
-heavier than `stats()` — it (re)checks the document). Wrap the writes in
+heavier than `stats()` — it (re)checks the document). `doc.lint()` audits
+formatting/structural/policy issues (a severity-ranked list; each finding's `fix`
+is an exec op when `fixable`), and `doc.regularize()` applies the fixable ones in
+one `doc.edit("Regularize formatting")` — idempotent (each writes the style's own
+value back), Track-Changes-aware, `dry_run=True` to preview. Wrap the writes in
 `doc.edit(...)` for atomic undo.
 
 ### The explicit cursor surface

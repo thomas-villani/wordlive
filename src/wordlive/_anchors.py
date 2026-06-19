@@ -14,8 +14,9 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from . import _charts, _com, _equations, _images, _lists, _revisions
-from ._format import to_bgr, to_points
+from ._format import bgr_to_hex, to_bgr, to_points
 from .constants import (
+    WD_UNDEFINED,
     MsoTextOrientation,
     MsoTriState,
     WdBorderType,
@@ -278,6 +279,152 @@ def _apply_paragraph_format(
         pf.KeepWithNext = bool(keep_with_next)
     if widow_control is not None:
         pf.WidowControl = bool(widow_control)
+
+
+# Reverse maps for the read mirror (`format_info`). Word stores alignment / line
+# spacing as ints; these turn them back into the same keywords the write verbs
+# accept, so read and write share one vocabulary. Unknown ints fall back to their
+# string form rather than guessing.
+_ALIGNMENT_BY_INT: dict[int, str] = {
+    int(WdParagraphAlignment.LEFT): "left",
+    int(WdParagraphAlignment.CENTER): "center",
+    int(WdParagraphAlignment.RIGHT): "right",
+    int(WdParagraphAlignment.JUSTIFY): "justify",
+}
+
+_LINE_SPACING_RULE_BY_INT: dict[int, str] = {
+    int(WdLineSpacing.SINGLE): "single",
+    int(WdLineSpacing.ONE_POINT_FIVE): "1.5",
+    int(WdLineSpacing.DOUBLE): "double",
+    int(WdLineSpacing.AT_LEAST): "at_least",
+    int(WdLineSpacing.EXACTLY): "exactly",
+    int(WdLineSpacing.MULTIPLE): "multiple",
+}
+
+# Word's "automatic" font colour sentinel (wdColorAutomatic) — a negative
+# OLE_COLOR that `bgr_to_hex` (which expects 0x000000-0xFFFFFF) can't render, so
+# `format_info` reports it as the keyword `"auto"`.
+_WD_COLOR_AUTOMATIC = -16777216
+
+
+def _pts(value: Any) -> float | None:
+    """A `ParagraphFormat` length read as rounded points, or `None` if mixed.
+
+    Word returns `WD_UNDEFINED` for a length that varies across a multi-paragraph
+    range; surface that as `None` rather than a bogus 9999999.
+    """
+    v = float(value)
+    if int(v) == WD_UNDEFINED:
+        return None
+    return round(v, 2)
+
+
+def _tri(value: Any) -> bool | None:
+    """A boolean `Font` property read as a tri-state: `True`/`False`, or `None`
+    when Word reports `WD_UNDEFINED` (the property varies across runs)."""
+    v = int(value)
+    if v == WD_UNDEFINED:
+        return None
+    return bool(v)
+
+
+def _line_spacing_repr(rule: int, value: float) -> str | None:
+    """Render `(LineSpacingRule, LineSpacing)` as one comparable keyword/string.
+
+    Mirrors `_coerce_line_spacing` in reverse: the named rules
+    (`single`/`1.5`/`double`) drop their companion value; `multiple` renders as
+    the multiple of single spacing (`13.8pt` -> `"1.15"`); `exactly`/`at_least`
+    render as an exact length (`"14pt"` / `"at_least:14pt"`). `None` if the rule
+    is unknown. One string keeps the `format_info` field shape uniform and the
+    consistency-rule override compare a plain equality.
+    """
+    name = _LINE_SPACING_RULE_BY_INT.get(int(rule))
+    if name in ("single", "1.5", "double"):
+        return name
+    if name == "multiple":
+        return f"{round(float(value) / 12.0, 3):g}"
+    if name == "exactly":
+        return f"{round(float(value), 2):g}pt"
+    if name == "at_least":
+        return f"at_least:{round(float(value), 2):g}pt"
+    return None
+
+
+def _read_paragraph_format(pf: Any) -> dict[str, Any]:
+    """Read a COM `ParagraphFormat` into the same field vocabulary `format_para-
+    graph` writes — the effective values, no override annotation (that's added by
+    `format_info` once it also has the style baseline)."""
+    return {
+        "alignment": _ALIGNMENT_BY_INT.get(int(pf.Alignment), str(int(pf.Alignment))),
+        "left_indent": _pts(pf.LeftIndent),
+        "right_indent": _pts(pf.RightIndent),
+        "first_line_indent": _pts(pf.FirstLineIndent),
+        "space_before": _pts(pf.SpaceBefore),
+        "space_after": _pts(pf.SpaceAfter),
+        "line_spacing": _line_spacing_repr(int(pf.LineSpacingRule), float(pf.LineSpacing)),
+        "page_break_before": _tri(pf.PageBreakBefore),
+        "keep_together": _tri(pf.KeepTogether),
+        "keep_with_next": _tri(pf.KeepWithNext),
+        "widow_control": _tri(pf.WidowControl),
+    }
+
+
+def _read_font(font: Any) -> tuple[dict[str, Any], list[str]]:
+    """Read a COM `Font` into the same vocabulary `format_run` writes.
+
+    Returns `(values, mixed)` — the effective character formatting, and the list
+    of fields that read `WD_UNDEFINED` (i.e. vary across the range's runs). A
+    mixed field's value is `None`; the field name appears in `mixed`. `color`
+    renders as a `#RRGGBB` hex string, `"auto"` for Word's automatic colour, or
+    `None` when mixed.
+    """
+    mixed: list[str] = []
+
+    def _name() -> str | None:
+        n = str(font.Name)
+        # An empty name is Word's signal that the run fonts differ.
+        if n == "":
+            mixed.append("name")
+            return None
+        return n
+
+    def _size() -> float | None:
+        s = float(font.Size)
+        if int(s) == WD_UNDEFINED:
+            mixed.append("size")
+            return None
+        return round(s, 2)
+
+    def _flag(field: str, raw: Any) -> bool | None:
+        v = _tri(raw)
+        if v is None:
+            mixed.append(field)
+        return v
+
+    def _color() -> str | None:
+        c = int(font.Color)
+        if c == WD_UNDEFINED:
+            mixed.append("color")
+            return None
+        if c < 0:  # wdColorAutomatic and friends are negative OLE_COLORs.
+            return "auto"
+        return bgr_to_hex(c)
+
+    values = {
+        "name": _name(),
+        "size": _size(),
+        "bold": _flag("bold", font.Bold),
+        "italic": _flag("italic", font.Italic),
+        "underline": _flag("underline", font.Underline),
+        "strikethrough": _flag("strikethrough", font.StrikeThrough),
+        "color": _color(),
+        "subscript": _flag("subscript", font.Subscript),
+        "superscript": _flag("superscript", font.Superscript),
+        "small_caps": _flag("small_caps", font.SmallCaps),
+        "all_caps": _flag("all_caps", font.AllCaps),
+        "spacing": _pts(font.Spacing),
+    }
+    return values, mixed
 
 
 # Border-side keywords -> the WdBorderType edges they cover. "all"/"box" hit the
@@ -2792,6 +2939,58 @@ class Anchor(ABC):
                     rng.HighlightColorIndex = _coerce_highlight(highlight)
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
+
+    def format_info(self) -> dict[str, Any]:
+        """The effective paragraph + character formatting on this anchor — the
+        read mirror of [`format_paragraph`][wordlive.Anchor.format_paragraph] and
+        [`format_run`][wordlive.Anchor.format_run]. Pure read.
+
+        Returns `{anchor_id, style, paragraph, font}`. `style` is the applied
+        paragraph style's name. `paragraph` and `font` carry one entry per field,
+        each `{value, style, override}`:
+
+        - `value` — the *effective* value (what's actually rendered);
+        - `style` — the value the applied **style** would give on its own;
+        - `override` — `True` when `value != style`, i.e. a **direct override**
+          sits on top of the style (the signal the consistency linter rules act
+          on). A mixed field (`value is None`) is never flagged as an override.
+
+        `font.mixed` lists the character fields that read `wdUndefined` because
+        they vary across the range's runs (e.g. a heading with one bold word) —
+        those carry `value: null` rather than a bogus number. Lengths are in
+        points; `color` is `#RRGGBB` (or `"auto"`); `alignment`/`line_spacing`
+        use the same keywords the write verbs accept.
+
+        The field vocabulary is identical to the write side, so a value read here
+        can be written straight back through `format_paragraph`/`format_run`.
+        """
+        with _com.translate_com_errors():
+            rng = self._range()
+            style = rng.ParagraphStyle
+            eff_para = _read_paragraph_format(rng.ParagraphFormat)
+            sty_para = _read_paragraph_format(style.ParagraphFormat)
+            eff_font, mixed = _read_font(rng.Font)
+            sty_font, _ = _read_font(style.Font)
+            style_name = str(style.NameLocal)
+
+        def _annotate(eff: dict[str, Any], sty: dict[str, Any]) -> dict[str, Any]:
+            return {
+                key: {
+                    "value": eff[key],
+                    "style": sty[key],
+                    "override": eff[key] is not None and eff[key] != sty[key],
+                }
+                for key in eff
+            }
+
+        font = _annotate(eff_font, sty_font)
+        font["mixed"] = mixed
+        return {
+            "anchor_id": self.anchor_id,
+            "style": style_name,
+            "paragraph": _annotate(eff_para, sty_para),
+            "font": font,
+        }
 
     def set_shading(self, *, fill: Any = None, pattern: Any = None) -> None:
         """Set the background (fill) shading of this anchor's range.

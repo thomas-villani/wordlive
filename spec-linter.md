@@ -1,7 +1,23 @@
 # Linter + formatting regularizer — design sketch
 
-Status: **sketch** (2026-06-17). Roadmap home: `feature-plan.md` Part II, Priority 1,
+Status: **foundation slice shipped (Unreleased, 2026-06-19)** — design was a
+**sketch** (2026-06-17). Roadmap home: `feature-plan.md` Part II, Priority 1,
 item 1. This is the detailed design; the roadmap keeps the one-paragraph summary.
+
+**Shipped (build order §10 steps 1–4 + full wiring):** `anchor.format_info()`
+(the read mirror + direct-override detection, §7), the three structural rules
+(`heading-keep-with-next`, `table-repeat-header`, `list-numbering-continuity`),
+the heading/font/spacing consistency rules + `mixed-run-format` (report-only),
+`doc.lint()` / `doc.regularize()` with the **targeted, idempotent** default fix
+and the idempotency test, wired across Python / CLI (`lint`, `regularize`, `read
+format`) / `regularize` exec op / MCP. Live-validated against Word 16 (multi-page
+table, split list, heading override → fix → idempotent re-run).
+**Deferred to a follow-up:** the **policy** rules (`body-justified`,
+`table-numeric-right-align`) and the **profile / house-style** loader (§6) — the
+rule registry already carries `kind`, so they slot in without rework; the
+aggressive `Font.Reset()` strip-to-style fix (§7c); the content-changing fixes
+(`stray-empty-paragraph` delete, `figure-caption-present` insert); and the
+`docx-plus` cascade-provenance hybrid (§7c).
 
 > Audit a document for publishing-quality defects (`doc.lint()`), then autofix the
 > mechanical ones in one atomic-undo step (`doc.regularize()`). Pure composition

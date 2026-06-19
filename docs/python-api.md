@@ -101,7 +101,25 @@ length such as `"14pt"`) and the pagination controls `keep_together`,
 layout.
 `format_run(...)` sets character formatting (bold/italic/underline, `font`,
 `size`, `color`, `highlight`, sub/superscript, caps, `spacing`) — the run-level
-layer, ideal with a `range:START-END` anchor to style a phrase. `set_shading`,
+layer, ideal with a `range:START-END` anchor to style a phrase.
+`format_info()` (no args) is the **read mirror** of `format_paragraph` /
+`format_run`: it returns `{anchor_id, style, paragraph, font}`, where `style` is
+the applied paragraph style's name and `paragraph` / `font` each map a field name
+to `{value, style, override}` — the effective `value`, the value the applied
+style contributes (`style`), and `override=True` when the two differ (a direct
+override). `font` also carries a `mixed` key listing the font fields that read
+`wdUndefined` because they vary across the range's runs (their `value` is `None`,
+never flagged as an override). Lengths are points (floats); `color` is `#RRGGBB`
+or `"auto"`; `alignment` is `left`/`center`/`right`/`justify`; `line_spacing` is
+`single`/`1.5`/`double`, `"1.15"` (a multiple), `"14pt"` (exactly), or
+`"at_least:14pt"`. The paragraph fields are `alignment`, `left_indent`,
+`right_indent`, `first_line_indent`, `space_before`, `space_after`,
+`line_spacing`, `page_break_before`, `keep_together`, `keep_with_next`,
+`widow_control`; the font fields are `name`, `size`, `bold`, `italic`,
+`underline`, `strikethrough`, `color`, `subscript`, `superscript`, `small_caps`,
+`all_caps`, `spacing`. It's a pure read — diff the `override` flags to see what a
+paragraph carries beyond its style (the input [`doc.regularize()`](#wordlive.Document)
+writes back). `set_shading`,
 `set_borders`, and `add_tab_stop` add range/cell fill, borders, and tab stops;
 colours accept a name, hex, or `(r, g, b)` and sizes/positions accept points or
 a unit string (`"12pt"`, `"1in"`). `drop_cap(lines=3, position="dropped"|"margin"|"none", …)`
@@ -574,6 +592,52 @@ asks Word to (re)check the document. Documented on [`Document`](#wordlive.Docume
 ::: wordlive.PropertyCollection
 
 ::: wordlive.VariableCollection
+
+## Linting & regularizing
+
+`Document.lint(rules=None, within=None)` audits the document for formatting
+inconsistency, structural slips, and policy breaches — the "what's off before I
+hand this over" read. It returns a severity-ranked list of findings, each a dict
+`{rule, kind, severity, anchor_id, message, fixable, fix, observed, expected}`
+where `kind` is `"consistency"` / `"structural"` / `"policy"`, `severity` is
+`"error"` / `"warning"` / `"info"`, and `fix` (present iff `fixable`) is an
+op-shaped dict — literally the `exec` op [`regularize`](#wordlive.Document) would
+run. `rules=None` runs the default set (every consistency + structural rule;
+policy rules are off — none ship yet); pass a list of rule ids/tags to include
+just those, or `{"exclude": [ids/tags]}` to drop some. `within` scopes the audit
+to one anchor (`heading:N` / `range:S-E` / `table:N:R:C`, or an
+[`Anchor`](#wordlive.Anchor)). It's a pure read: layout rules repaginate
+content-neutrally, leaving selection, scroll, and `Saved` untouched. v1 rules —
+structural: `heading-keep-with-next`, `table-repeat-header`,
+`list-numbering-continuity`; consistency: `heading-font-consistent`,
+`heading-spacing-consistent`, `body-font-consistent`, and `mixed-run-format`
+(report-only, not fixable).
+
+`Document.regularize(rules=None, within=None, dry_run=False)` is the **write**
+side: it applies the fixable findings in one `doc.edit("Regularize formatting")`
+(one Ctrl-Z reverts them all; selection and scroll preserved) and returns
+`{applied, skipped, findings}` (plus `ops_run`, and `dry_run` when set). The
+default fixes are **targeted and idempotent** — each writes the style's own value
+back as a direct property, so a second `regularize` applies nothing (a tested
+invariant). `dry_run=True` plans without writing; `rules` / `within` select the
+same way as `lint`. Content-changing fixes (deletes, caption inserts) are out of
+scope — this is a formatting/structure regularizer only — and it's
+Track-Changes-aware (the edits are tracked when Track Changes is on).
+
+```python
+findings = doc.lint(within="heading:3")          # audit one section
+for f in findings:
+    print(f["rule"], f["severity"], f["fixable"])
+doc.regularize(rules=["heading-keep-with-next"], dry_run=True)  # preview
+doc.regularize(within="heading:3")               # apply, one atomic undo
+```
+
+A finding is also available as the exported [`Finding`](#wordlive.Finding)
+dataclass (`from wordlive import Finding`) — a frozen dataclass carrying the
+fields above, with a `.to_dict()`. `lint` / `regularize` are documented on
+[`Document`](#wordlive.Document).
+
+::: wordlive.Finding
 
 ## Lists & numbering
 

@@ -8,6 +8,12 @@ from __future__ import annotations
 
 from enum import IntEnum
 
+# Word's `wdUndefined` sentinel — returned by `Font.Size`/`Font.Bold`/etc. when a
+# property varies across the runs of a range (i.e. mixed formatting). The format
+# read mirror (`Anchor.format_info`) special-cases it into a `mixed` list rather
+# than reporting a bogus 9999999.
+WD_UNDEFINED = 9999999
+
 
 class WdParagraphAlignment(IntEnum):
     LEFT = 0

@@ -213,6 +213,48 @@ $ wordlive read nearest-heading --anchor-id para:42 --direction before
 
 Failures: `1` bad `--direction`; `2` anchor not found.
 
+## `read format --anchor-id ID`
+
+```
+wordlive read format --anchor-id ID [--doc DOC_NAME]
+```
+
+Read the **effective formatting** at an anchor — the read mirror of
+`format-paragraph` / `format-run`. Returns `{anchor_id, style, paragraph,
+font}`, where `style` is the applied paragraph style's name and `paragraph` /
+`font` each map a field name to `{value, style, override}`: `value` is the
+effective value, `style` is the value the applied style contributes as its
+baseline, and `override` is `true` when `value` differs from `style` (a direct
+override Word would show with the style cleared). `font` also carries a `mixed`
+key — the font fields that read `wdUndefined` because they vary across the
+range's runs (their `value` is `null` and they're never flagged as overrides).
+
+Lengths are in **points** (floats); `color` is `#RRGGBB` or `"auto"`;
+`alignment` is `left`/`center`/`right`/`justify`; `line_spacing` is
+`single`/`1.5`/`double`, `"1.15"` (a multiple), `"14pt"` (exactly), or
+`"at_least:14pt"`. Paragraph fields: `alignment`, `left_indent`, `right_indent`,
+`first_line_indent`, `space_before`, `space_after`, `line_spacing`,
+`page_break_before`, `keep_together`, `keep_with_next`, `widow_control`. Font
+fields: `name`, `size`, `bold`, `italic`, `underline`, `strikethrough`, `color`,
+`subscript`, `superscript`, `small_caps`, `all_caps`, `spacing`. Non-mutating.
+
+```bash
+$ wordlive read format --anchor-id heading:3
+{"anchor_id": "heading:3",
+ "style": "Heading 2",
+ "paragraph": {"alignment": {"value": "center", "style": "left", "override": true},
+               "space_before": {"value": 6.0, "style": 12.0, "override": true}},
+ "font": {"name": {"value": "Calibri Light", "style": "Calibri Light", "override": false},
+          "bold": {"value": true, "style": true, "override": false},
+          "size": {"value": null, "style": 13.0, "override": false}},
+ "mixed": ["size"]}
+```
+
+Diff `override: true` to see what a paragraph carries beyond its style — the
+input for `regularize`, which writes those back to the style's own value.
+
+Failures: `2` anchor not found, `3` Word busy, `4` Word not running.
+
 ## `write bookmark NAME (--text "…" | --create --anchor-id ID)`
 
 ```
@@ -1036,6 +1078,80 @@ $ wordlive proofing
 ```
 
 Failures: `3` Word busy, `4` Word not running.
+
+## `lint`
+
+```
+wordlive lint [--rule ID|TAG ...] [--exclude ID|TAG ...] [--within ID] [--doc DOC_NAME]
+```
+
+Audit the document for formatting inconsistency, structural slips, and policy
+breaches — the read that answers "what's off about this document before I hand
+it over". Returns a severity-ranked list of findings, each
+`{rule, kind, severity, anchor_id, message, fixable, fix, observed, expected}`:
+`kind` is `consistency` / `structural` / `policy`, `severity` is `error` /
+`warning` / `info`, and when `fixable` is `true` the `fix` is an op-shaped dict
+(or list of them) — literally an `exec` op `regularize` would run.
+
+`--rule` / `--exclude` (repeatable, mutually exclusive) narrow the rule set by
+id or tag; with neither, the **default set** runs (every consistency +
+structural rule; policy rules are off — none ship yet). `--within` scopes the
+audit to one anchor (`heading:N` / `range:S-E` / `table:N:R:C`). It's a pure
+read: layout rules repaginate content-neutrally, leaving selection, scroll, and
+the document's `Saved` state untouched.
+
+v1 rules — structural: `heading-keep-with-next`, `table-repeat-header`,
+`list-numbering-continuity`; consistency: `heading-font-consistent`,
+`heading-spacing-consistent`, `body-font-consistent`, and `mixed-run-format`
+(report-only, not fixable).
+
+```bash
+$ wordlive lint --within heading:3
+[{"rule": "heading-keep-with-next", "kind": "structural", "severity": "warning",
+  "anchor_id": "heading:3", "message": "Heading does not keep with next paragraph.",
+  "fixable": true, "observed": false, "expected": true,
+  "fix": {"op": "format_paragraph", "anchor_id": "heading:3", "keep_with_next": true}}]
+```
+
+`fixable` findings feed straight into `regularize`; report-only ones
+(`mixed-run-format`) are yours to resolve by hand.
+
+Failures: `1` unknown rule id/tag, `2` `--within` anchor not found,
+`3` Word busy, `4` Word not running.
+
+## `regularize`
+
+```
+wordlive regularize [--rule ID|TAG ...] [--exclude ID|TAG ...] [--within ID] [--dry-run] [--doc DOC_NAME]
+```
+
+Apply the **fixable** `lint` findings in one atomic-undo edit (labelled
+"Regularize formatting", so one Ctrl-Z reverts them all; selection and scroll
+are preserved). Returns `{applied, skipped, findings}` plus `ops_run` (and
+`dry_run` when set). The default fixes are **targeted and idempotent** — each
+writes the style's own value back as a direct property, so a *second*
+`regularize` applies nothing (a tested invariant). `--dry-run` plans without
+writing. Same `--rule` / `--exclude` / `--within` selection as `lint`.
+
+Content-changing fixes (deletes, caption inserts) are out of scope — this is a
+formatting/structure regularizer only. It's Track-Changes-aware: with Track
+Changes on, the edits are recorded as revisions.
+
+```bash
+$ wordlive regularize --within heading:3 --dry-run
+{"applied": 0, "skipped": 0, "dry_run": true, "ops_run": 1,
+ "findings": [{"rule": "heading-keep-with-next", "anchor_id": "heading:3", "fixable": true}]}
+
+$ wordlive regularize --within heading:3
+{"applied": 1, "skipped": 0, "ops_run": 1,
+ "findings": [{"rule": "heading-keep-with-next", "anchor_id": "heading:3", "fixable": true}]}
+```
+
+Run `lint` first to preview; `regularize --dry-run` to see exactly which fixes
+would fire. Atomic-undo.
+
+Failures: `1` unknown rule id/tag, `2` `--within` anchor not found,
+`3` Word busy, `4` Word not running.
 
 ## `hyperlinks`
 
@@ -2509,6 +2625,7 @@ Script shape:
 | `set_style`            | `name`                                     | `based_on`, `next_style`, plus the `format_paragraph` / `format_run` formatting fields |
 | `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after`, `line_spacing` (a multiple `1`/`1.5`/`2`, `single`/`1.5`/`double`, or an exact length like `14pt`), `page_break_before`, `keep_together`, `keep_with_next`, `widow_control` |
 | `format_run`           | `anchor_id`                                | `bold`, `italic`, `underline`, `strikethrough`, `font`, `size`, `color`, `highlight`, `subscript`, `superscript`, `small_caps`, `all_caps`, `spacing` |
+| `regularize`           | —                                          | `rules`, `within`, `dry_run`      |
 | `set_shading`          | `anchor_id`                                | `fill`, `pattern`                 |
 | `set_borders`          | `anchor_id`                                | `sides` (`all`/`box`/`top`/`bottom`/`left`/`right`/`horizontal`/`vertical`), `style` (a.k.a. `line_style`: `single`/`double`/`dot`/`dash`/`none`/…), `weight`, `color` |
 | `drop_cap`             | `anchor_id`                                | `position` (`dropped`/`normal`/`margin`/`none`), `lines` (default 3), `distance`, `font` |
@@ -2615,6 +2732,13 @@ style without a stray break character. The `keep_together`, `keep_with_next`,
 and `widow_control` bools are the matching pagination controls (keep a
 paragraph's lines together, keep it with the next paragraph, suppress widows/
 orphans).
+
+`regularize` runs the [`regularize`](#regularize) command inside the batch: it
+applies the fixable `lint` findings (selected by the optional `rules` / `within`
+fields) as one step of the batch's atomic undo, and returns its
+`{applied, skipped, findings}` report in the batch outputs. With `dry_run: true`
+it plans without writing — the natural lead-off op when you want to audit-then-fix
+in a single round-trip.
 
 `set_cell`, `add_row`, `delete_row`, and `set_heading_row` operate on tables by
 1-based `table` index. `set_cell` is shorthand for a `replace` on a `table:N:R:C`
