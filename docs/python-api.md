@@ -186,6 +186,13 @@ a range with no image, or more than one, raises
 [`ImageSourceError`](#wordlive.ImageSourceError). Extraction is non-mutating, so
 it needs no `doc.edit(...)`.
 
+An [`ImageAnchor`](#wordlive.ImageAnchor) is also lightly *writable*:
+`set_alt_text(text)` and `set_size(width/height/lock_aspect)` restyle an inline
+picture in place (chainable; wrap in `doc.edit(...)`). These cover the non-wrap
+subset — *re-wrapping* an image (floating it) is `insert_image(wrap=…)`, which
+converts it to a `shape:N` (see below). To change the picture's bytes, delete and
+re-insert.
+
 ::: wordlive.ImageAnchor
 
 ::: wordlive.ImageCollection
@@ -216,6 +223,20 @@ header-story watermarks excluded) or [`doc.text_boxes`](#wordlive.Document.text_
 a floating picture's bits (delete + reinsert at the same anchor, preserving
 wrap / position / size). `shape:N` is *positional* in document order, so adding
 or removing a shape renumbers the rest — re-list rather than caching an id.
+
+Deeper layout knobs round it out: `set_rotation(degrees)` (absolute angle),
+`set_z_order("front"|"back"|"forward"|"backward")` (restack within the floating
+layer — distinct from wrap's in-front-of/behind-text; because `Document.Shapes`
+orders by z-order, a restack **renumbers `shape:N`** — re-list before reusing an
+id), and
+`set_text_frame(margin_left/right/top/bottom, word_wrap)` for a text box's
+internal insets. **Grouping:** [`doc.group_shapes(*shape_ids)`](#wordlive.Document.group_shapes)
+collapses two or more floats into one group `shape:N` (moved / sized / deleted as
+a unit), and [`ShapeAnchor.ungroup()`](#wordlive.ShapeAnchor) dissolves it back
+into its members' `ShapeAnchor`s. There is no autosize ("resize-to-fit-text")
+control — Word doesn't expose it cleanly over COM. The `textbox:N` id is an alias
+onto a text box's canonical `shape:N` (`anchor_by_id("textbox:1")` ≡ the first
+text box).
 
 ::: wordlive.ShapeAnchor
 

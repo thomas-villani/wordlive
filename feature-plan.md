@@ -65,6 +65,7 @@ Quick index (capability → real release):
 | Format read mirror (`anchor.format_info` — effective vs style, per-field `override`, `mixed` runs) | Unreleased |
 | Linter + regularizer foundation (`doc.lint`/`doc.regularize`; 3 structural + heading/font/spacing consistency rules; targeted idempotent fixes; `regularize` exec op) | Unreleased |
 | Floating-shape anchor model (`shape:N`: `doc.shapes`/`doc.text_boxes`; `ShapeAnchor` set_wrap/position/size/format/alt_text/text/replace_image/delete; `insert_text_box`+floating `insert_image` return it) | Unreleased |
+| Shape depth + inline restyle + `textbox:N` (`ShapeAnchor` set_rotation/set_z_order/set_text_frame; `doc.group_shapes`/`ungroup`; `ImageAnchor` set_alt_text/set_size; `textbox:N` alias) | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -87,9 +88,15 @@ reports "unknown anchor type".
   `shape_type` and the in-place mutators (`set_wrap`/`set_position`/`set_size`/
   `format`/`set_alt_text`/`set_text`/`replace_image`/`delete`). `doc.shapes` is the
   full collection; `doc.text_boxes` is the text-box subset (a discovery filter, each
-  keeping its canonical `shape:N` id). Positional ⇒ renumbers when a shape is
-  added/removed; re-list, don't cache (the `image:N`/`chart:N` rule). Helpers live
-  in `_shapes.py` (mirrors `_charts.py`).
+  keeping its canonical `shape:N` id); `textbox:N` is an addressing alias onto a text
+  box's canonical `shape:N`. Positional ⇒ renumbers when a shape is added/removed —
+  and a **`set_z_order` restack also renumbers** (`Document.Shapes` orders by
+  z-order); re-list, don't cache (the `image:N`/`chart:N` rule). Depth knobs:
+  `set_rotation`/`set_z_order`/`set_text_frame`; `doc.group_shapes(*ids)` collapses
+  floats into a `group` shape (enables `AllowOverlap` first), `ShapeAnchor.ungroup`
+  reverses it. **No autosize** (Word's resize-to-fit-text doesn't set over COM).
+  Inline `image:N` gains `set_alt_text`/`set_size` (re-wrap still floats it). Helpers
+  live in `_shapes.py` (mirrors `_charts.py`).
 
 - **`chart:N`** is positional over the document's chart inline shapes
   (`HasChart`), in document order — it renumbers when an earlier chart is
@@ -188,6 +195,19 @@ escaping — path-bearing batches should use `--script FILE` or `--ops -`.
   temp `Shape.Name` (don't assume "last" — other floats can reorder). All restyle
   verbs operate on the `Shape` object directly (no `.Select()`), so they're polite
   (selection/scroll unmoved); the live smoke confirmed atomic single-undo too.
+- **Shape depth + group/ungroup — live-probed 2026-06-19 (Slice 2).** `Shape.Rotation`
+  (absolute degrees), `Shape.ZOrder(MsoZOrderCmd)` / `ZOrderPosition`, and
+  `TextFrame.MarginLeft/Right/Top/Bottom` + `WordWrap` all set cleanly under late
+  binding. **`ZOrder` renumbers `shape:N`** — `Document.Shapes.Item(i)` orders by
+  z-order, so a restack moves the shape to a different `Item` index (re-list after
+  `set_z_order`). **Grouping needs `WrapFormat.AllowOverlap = True` on each member**
+  first (else `Shapes.Range([names]).Group()` raises "Grouping is disabled"); members
+  must be named (live Word auto-names). `Shape.Ungroup()` returns a ShapeRange —
+  capture child names from `GroupItems` *before* dissolving, then re-locate each
+  `shape:N` by name. **Autosize is unsettable** and intentionally omitted:
+  `TextFrame.AutoSize` silently no-ops, `TextFrame2.AutoSize` raises "value out of
+  range". Inline `image:N` shares `Width`/`Height`/`LockAspectRatio`/`AlternativeText`
+  with floating shapes, so `set_size`/`set_alt_text` reuse the same `_shapes` helper.
 - **Floating shapes live on the HeaderFooter / Document, not on `Range`.** A
   `Range` has **no** `.Shapes` (an AttributeError); the watermark draws into
   `Section.Headers(wdHeaderFooterPrimary).Shapes.AddTextEffect(...)` (WordArt,
@@ -676,13 +696,18 @@ that works *alongside* the user in a live session. Feasibility **proven live**
   format, multi-section `LinkToPrevious` editing. **→ promoted to Part II Priority 6.**
 - **Comment/revision polish** — comment replies (`comment.reply`), author/date
   filtering on `list()`. (Per-revision accept/reject is active backlog — Part II.)
-- **Image polish** — *partly shipped* (Unreleased): the floating-shape model
+- **Image polish** — *mostly shipped* (Unreleased): the floating-shape model
   (`shape:N`) delivered re-wrap, absolute/relative positioning (`Left`/`Top` via
   `set_position`), resize, alt-text, and **replace-in-place** (`replace_image`)
-  for **floating** images. *Still open:* wrap *side* + text distance; cropping;
-  EMF/WMF; chart-image export; OLE extraction; an MCP `ImageContent` block so the
-  model *sees* the extracted original directly; and the same restyle subset for
-  **inline** `image:N` pictures.
+  for **floating** images; Slice 2 added the **inline `image:N` restyle** subset
+  (`set_alt_text` / `set_size` — non-wrap) plus **shape depth** (`set_rotation`,
+  `set_z_order`, `set_text_frame`), **group/ungroup** (`doc.group_shapes` /
+  `ShapeAnchor.ungroup`), and the **`textbox:N`** alias. *Still open:* wrap *side*
+  + text distance; cropping; EMF/WMF; chart-image export; OLE extraction; an MCP
+  `ImageContent` block so the model *sees* the extracted original directly.
+  *Declined:* text-box **autosize** ("resize-to-fit-text") — no clean COM path
+  (`TextFrame.AutoSize` no-ops; `TextFrame2.AutoSize` rejects the value,
+  live-probed 2026-06-19).
 - **Cursor/inline polish** — raw inline `insert_before`/`insert_after` (no new
   paragraph) on the CLI; a `write_cursor` exec op (fights `EditScope`'s
   cursor-restore in a batch).
@@ -754,10 +779,12 @@ application/window/view surfaces (group I) are in real tension with *politeness*
 
 ### G. Drawing layer (floating shapes & embedded objects)
 
-- **General `Document.Shapes`** — lines, connectors, freeform, grouping, z-order,
-  fill/gradient, shadow/3D. The watermark / text-box flourishes (Part II) are the
-  thin edge; the full drawing layer is large and floating-only (hard to read
-  back, fights the anchor model). *Weight: low — cherry-pick specific shapes.*
+- **General `Document.Shapes`** — *grouping + z-order shipped (Unreleased)* via
+  `doc.group_shapes` / `ShapeAnchor.ungroup` / `set_z_order`; *still open:* lines,
+  connectors, freeform, fill/gradient, shadow/3D. The watermark / text-box
+  flourishes (Part II) + the `shape:N` model are the thin edge; the rest of the
+  drawing layer is large and floating-only (hard to read back, fights the anchor
+  model). *Weight: low — cherry-pick specific shapes.*
 - **Embedded / OLE objects** — `InlineShapes.AddOLEObject` (embed an Excel range,
   a PDF, another doc). *Medium-niche; pairs with charts.*
 

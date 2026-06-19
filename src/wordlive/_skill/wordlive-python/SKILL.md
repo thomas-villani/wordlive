@@ -78,7 +78,8 @@ from its id with `doc.anchor_by_id(...)`, or use the typed accessors:
 | `image:N` | `doc.images[N]` | the Nth embedded picture (1-based, Word's `InlineShapes` order) |
 | `equation:N` | `doc.equations[N]` | the Nth equation (1-based, Word's `OMaths` order) |
 | `chart:N` | `doc.charts[N]` | the Nth chart (1-based, document order) |
-| `shape:N` | `doc.shapes[N]` | the Nth floating shape — text box / floating image / WordArt (1-based, document order) |
+| `shape:N` | `doc.shapes[N]` | the Nth floating shape — text box / floating image / WordArt / group (1-based, document order) |
+| `textbox:N` | `doc.text_boxes[N]` | the Nth text box — an alias onto its canonical `shape:N` |
 | `table:N:R:C` | `doc.tables[N].cell(R, C)` | a table cell |
 | `range:START-END` | `doc.anchor_by_id("range:412-429")` | a raw character span (what `find()` emits) |
 | `header:S:WHICH` / `footer:S:WHICH` | `doc.sections[S].header(WHICH)` | header/footer (`primary`/`first`/`even`) |
@@ -152,9 +153,14 @@ a.read_image()                          # → (bytes, mime) — extract the one 
 tb = a.insert_text_box("Key takeaway", width="2.5in", fill="#eeeeff")  # → ShapeAnchor (shape:N)
 tb.set_wrap("tight").set_size(width="3in", height="1in").format(border="navy")  # chainable restyle-in-place
 tb.set_position(left="center", relative_to="margin"); tb.set_text("Revised")    # left/top = length or "center"
+tb.set_rotation(15).set_z_order("front")                          # absolute angle; restack within the float layer
+tb.set_text_frame(margin_left="0.1in", word_wrap=False)          # a text box's internal insets / word-wrap
 img.replace_image("v2.png")             # swap a floating picture's bits in place (preserves wrap/position/size)
+g = doc.group_shapes("shape:1", "shape:2"); members = g.ungroup()  # group two+ floats into one; ungroup → [ShapeAnchor]
+doc.images[1].set_alt_text("Fig. 1").set_size(width="3in")        # restyle an INLINE picture (re-wrap = float = insert_image)
 # doc.shapes lists every floating shape; doc.text_boxes is the text-box subset (each keeps its shape:N id)
 # shape:N is positional (document order) — it renumbers as shapes are added/removed; re-list, don't cache
+# (no autosize knob: Word's "resize-to-fit-text" doesn't expose cleanly over COM)
 a.insert_equation(unicodemath="x=(-b±√(b^2-4ac))/(2a)")   # native; or latex= (needs the `latex` extra) / mathml=
 a.insert_equation(latex=r"\frac{-b}{2a}", display=False)  # → EquationAnchor; display=True→centred "Equation" style, False→Normal+left
 # equation:N is positional (OMaths order) — inserting one before another renumbers it; re-list, don't cache the id

@@ -30,6 +30,7 @@ from ._format import to_bgr, to_points
 from .constants import (
     MsoShapeType,
     MsoTriState,
+    MsoZOrderCmd,
     WdRelativeHorizontalPosition,
     WdRelativeVerticalPosition,
     WdShapePosition,
@@ -62,6 +63,17 @@ WRAP_NAMES: dict[str, WdWrapType] = {
     "behind": WdWrapType.BEHIND,
 }
 WRAP_TO_NAME: dict[int, str] = {int(v): k for k, v in WRAP_NAMES.items()}
+
+# Z-order keyword -> MsoZOrderCmd (the four reorder verbs `set_z_order` exposes).
+ZORDER_NAMES: dict[str, int] = {
+    "front": int(MsoZOrderCmd.BRING_TO_FRONT),
+    "back": int(MsoZOrderCmd.SEND_TO_BACK),
+    "forward": int(MsoZOrderCmd.BRING_FORWARD),
+    "backward": int(MsoZOrderCmd.SEND_BACKWARD),
+}
+
+# Shape kinds that carry a text frame (so `set_text` / `set_text_frame` apply).
+_TEXT_FRAME_KINDS = ("text_box", "auto_shape")
 
 # Position-frame keyword -> (horizontal enum, vertical enum) for `set_position`.
 RELATIVE_TO: dict[str, tuple[int, int]] = {
@@ -225,6 +237,91 @@ def apply_shape_format(
         shape.Line.ForeColor.RGB = to_bgr(border)
     if border_weight is not None:
         shape.Line.Weight = to_points(border_weight)
+
+
+def apply_shape_rotation(shape: Any, degrees: Any) -> None:
+    """Rotate the shape clockwise by `degrees` (absolute, not relative)."""
+    try:
+        deg = float(degrees)
+    except (ValueError, TypeError) as e:
+        raise OpError(f"rotation must be a number of degrees; got {degrees!r}") from e
+    shape.Rotation = deg
+
+
+def apply_shape_zorder(shape: Any, order: str) -> None:
+    """Restack the shape in the floating layer — ``"front"`` / ``"back"`` /
+    ``"forward"`` / ``"backward"``."""
+    if order not in ZORDER_NAMES:
+        raise OpError(f"unknown z-order {order!r}; expected one of {sorted(ZORDER_NAMES)}")
+    shape.ZOrder(ZORDER_NAMES[order])
+
+
+def apply_text_frame(
+    shape: Any,
+    *,
+    margin_left: Any = None,
+    margin_right: Any = None,
+    margin_top: Any = None,
+    margin_bottom: Any = None,
+    word_wrap: bool | None = None,
+) -> None:
+    """Set a text box's internal margins and word-wrap.
+
+    `margin_*` are lengths (points / ``"0.1in"``); `word_wrap` toggles whether
+    text wraps to the box width (off lets a line run past the box edge). Raises
+    `OpError` on a shape with no text frame (a picture / WordArt / group).
+    """
+    if shape_kind(shape) not in _TEXT_FRAME_KINDS:
+        raise OpError("set_text_frame needs a text box (a shape with a text frame)")
+    frame = shape.TextFrame
+    if margin_left is not None:
+        frame.MarginLeft = to_points(margin_left)
+    if margin_right is not None:
+        frame.MarginRight = to_points(margin_right)
+    if margin_top is not None:
+        frame.MarginTop = to_points(margin_top)
+    if margin_bottom is not None:
+        frame.MarginBottom = to_points(margin_bottom)
+    if word_wrap is not None:
+        frame.WordWrap = int(MsoTriState.TRUE if word_wrap else MsoTriState.FALSE)
+
+
+def group_shapes(doc_com: Any, shapes: list[Any]) -> Any:
+    """Group `shapes` (two or more floating shapes) into one group shape.
+
+    Word disables grouping for shapes that can't overlap, so each member's
+    `WrapFormat.AllowOverlap` is enabled first (the live-probed prerequisite).
+    Returns the new group `Shape`. Raises `OpError` for fewer than two shapes or
+    an unnamed member (the group is built via `Shapes.Range([names])`).
+    """
+    if len(shapes) < 2:
+        raise OpError("grouping needs at least two shapes")
+    names: list[str] = []
+    for s in shapes:
+        try:
+            s.WrapFormat.AllowOverlap = True
+        except Exception:
+            pass  # best-effort; Group() will report if the shape still can't group
+        name = str(s.Name or "")
+        if not name:
+            raise OpError("cannot group a shape with no name")
+        names.append(name)
+    return doc_com.Shapes.Range(names).Group()
+
+
+def ungroup_shape(shape: Any) -> list[str]:
+    """Dissolve a group shape into its members; return the members' names.
+
+    The children become top-level floating shapes again (keeping their names), so
+    the caller re-locates each `shape:N` by name. Raises `OpError` if `shape`
+    isn't a group.
+    """
+    if shape_kind(shape) != "group":
+        raise OpError("ungroup needs a group shape")
+    items = shape.GroupItems
+    names = [str(items.Item(i).Name or "") for i in range(1, int(items.Count) + 1)]
+    shape.Ungroup()
+    return names
 
 
 def replace_shape_image(doc_com: Any, shape: Any, disk_path: str) -> Any:

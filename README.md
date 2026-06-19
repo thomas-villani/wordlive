@@ -192,10 +192,13 @@ wordlive watermark --text DRAFT                            # …or --remove
 wordlive insert-text-box --anchor-id heading:2 --text "Key takeaway" --width 2.5in  # → shape:N
 
 # …then restyle any floating shape in place (text box, floating image, WordArt) by shape:N:
-wordlive shapes                                            # list shape:N ids, kind, size, wrap
+wordlive shapes                                            # list shape:N ids, kind, size, rotation, z-order, wrap
 wordlive set-shape-size --anchor-id shape:1 --width 3in --no-lock-aspect
 wordlive format-shape --anchor-id shape:1 --fill navy --border-color white
+wordlive set-shape-rotation --anchor-id shape:1 --degrees 15   # rotate; set-shape-z-order restacks
 wordlive replace-shape-image --anchor-id shape:2 --path v2.png   # swap a floating picture in place
+wordlive group-shapes --anchor-id shape:1 --anchor-id shape:2   # group → one shape:N (ungroup-shape reverses)
+wordlive set-image-size --anchor-id image:1 --width 3in         # resize an inline picture (no floating)
 
 # Equations — UnicodeMath (native), LaTeX (needs the `latex` extra), or MathML:
 wordlive insert-equation --anchor-id heading:3 --unicodemath "x=(-b±√(b^2-4ac))/(2a)"

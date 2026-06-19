@@ -1534,7 +1534,7 @@ $ wordlive insert-text-box --anchor-id heading:2 --text "Key takeaway" --width 2
 
 Failures: `2` anchor not found or invalid `--wrap`; `3` Word busy.
 
-## Floating shapes — `shapes` / `set-shape-*` / `format-shape` / `replace-shape-image` / `delete-shape`
+## Floating shapes — `shapes` / `set-shape-*` / `format-shape` / `group-shapes` / `ungroup-shape` / `replace-shape-image` / `delete-shape` / `set-image-*`
 
 ```
 wordlive shapes [--doc DOC_NAME]
@@ -1544,24 +1544,41 @@ wordlive set-shape-size     --anchor-id shape:N [--width W] [--height H] [--lock
 wordlive format-shape       --anchor-id shape:N [--fill C] [--border-color C | --no-border | --default-border] [--border-weight W]
 wordlive set-shape-alt-text --anchor-id shape:N --text "…"
 wordlive set-shape-text     --anchor-id shape:N --text "…"
+wordlive set-shape-rotation --anchor-id shape:N --degrees 30
+wordlive set-shape-z-order  --anchor-id shape:N --order front|back|forward|backward
+wordlive set-shape-text-frame --anchor-id shape:N [--margin-left L] [--margin-right R] [--margin-top T] [--margin-bottom B] [--word-wrap | --no-word-wrap]
 wordlive replace-shape-image --anchor-id shape:N (--path FILE | --base64 VALUE)
+wordlive group-shapes       --anchor-id shape:N --anchor-id shape:M [...]
+wordlive ungroup-shape      --anchor-id shape:N
 wordlive delete-shape       --anchor-id shape:N
+wordlive set-image-alt-text --anchor-id image:N --text "…"
+wordlive set-image-size     --anchor-id image:N [--width W] [--height H] [--lock-aspect | --no-lock-aspect]
 ```
 
 `shape:N` addresses the document's **floating** shapes — a text box from
 `insert-text-box`, a floating image from `insert-image` (any `--wrap` but
 `inline`), or WordArt — in document order; header-story watermarks are excluded.
-`shapes` lists them (id, kind, size, wrap, the `para:N` they're anchored in).
-`shape:N` is **positional**: inserting or deleting a shape renumbers the rest, so
-re-list rather than caching an id (the `image:N` / `chart:N` rule).
+`shapes` lists them (id, kind, size, rotation, z-order, wrap, the `para:N` they're
+anchored in). `shape:N` is **positional**: inserting or deleting a shape renumbers
+the rest, so re-list rather than caching an id (the `image:N` / `chart:N` rule).
+`textbox:N` is an addressing alias onto a text box's canonical `shape:N`.
 
-`--left`/`--top` are lengths (`2in`) or `center`. `set-shape-text` needs a text
-box; `replace-shape-image` needs a picture shape and swaps its image **in place**
-(delete + reinsert at the same anchor, preserving wrap / position / size / alt
-text) — pass exactly one of `--path` / `--base64`, and `--path` is screened like
-`insert-image`. The exec ops are `set_shape_wrap`, `set_shape_position`,
-`set_shape_size`, `format_shape`, `set_shape_alt_text`, `set_shape_text`,
-`replace_shape_image`, `delete_shape`.
+`--left`/`--top` are lengths (`2in`) or `center`. `set-shape-text` /
+`set-shape-text-frame` need a text box; `set-shape-z-order` restacks within the
+float layer (distinct from wrap's front/behind-text); `set-shape-rotation` is an
+absolute angle. `group-shapes` collapses two or more floats into one group
+`shape:N` (pass `--anchor-id` twice or more), and `ungroup-shape` dissolves a
+group back into its members. `replace-shape-image` needs a picture shape and swaps
+its image **in place** (delete + reinsert at the same anchor, preserving wrap /
+position / size / alt text) — pass exactly one of `--path` / `--base64`, and
+`--path` is screened like `insert-image`. `set-image-*` restyle an **inline**
+picture (`image:N`) without floating it (re-wrapping is `insert-image --wrap`).
+There is no autosize knob — Word's resize-to-fit-text doesn't expose over COM.
+The exec ops are `set_shape_wrap`, `set_shape_position`, `set_shape_size`,
+`format_shape`, `set_shape_alt_text`, `set_shape_text`, `set_shape_rotation`,
+`set_shape_z_order`, `set_shape_text_frame`, `replace_shape_image`,
+`delete_shape`, `group_shapes`, `ungroup_shape`, `set_image_alt_text`,
+`set_image_size`.
 
 ```bash
 $ wordlive set-shape-size --anchor-id shape:1 --width 3in --no-lock-aspect
