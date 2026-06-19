@@ -352,8 +352,10 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 > and the **profile / house-style** loader (the registry already carries `kind`,
 > so they slot in cleanly); the opt-in `Font.Reset()` strip-to-style fix; the
 > content-adding fixes (`stray-empty-paragraph`, `figure-caption-present`); and
-> the `docx-plus` cascade-provenance hybrid. See `spec-linter.md` (§6, §7c, §9)
-> and `CHANGELOG.md`.
+> the `docx-plus` cascade-provenance hybrid. A **v2 rule backlog** (~40 more
+> rules for publishing/academia, primitive-driven batches) was brainstormed
+> 2026-06-19 — see `spec-linter.md` **§5b**. See also `spec-linter.md` (§6, §7c,
+> §9) and `CHANGELOG.md`.
 
 The highest-utility next feature: a declarative rule set that **audits** a document
 for publishing-quality defects and **autofixes** the mechanical ones. Pure
@@ -792,21 +794,22 @@ application/window/view surfaces (group I) are in real tension with *politeness*
   leverage:
   - **Tables** — the flagship; restyle style / banding / cell-row-column. **→
     fully specced in Part II Priority 3, item 5 (table styling & polish).**
-  - **Content controls** — `insert_content_control` sets `title`/`tag`/
-    `lock_contents`/`lock_control`/`items`, but `ContentControl` has only
-    `text`/`set_text`. Form-building is inherently iterative (relabel a field,
-    lock it once filled, edit dropdown choices), so this is the highest-value
-    non-table gap. → `ContentControl.set_properties(...)` + `set_items(...)`.
-  - **Hyperlinks** — `doc.hyperlinks` is **read-only** (`address`/`text`/
-    `sub_address` are get-only). Can't retarget a moved URL or relabel display
-    text without delete+reinsert. → `Hyperlink.set_address`/`set_text` (and a
-    first-class `insert_hyperlink` if creation is still only a side effect of
-    cross-references).
-  - **Images** — `wrap`/`width`/`height`/`alt_text`/`lock_aspect` set at insert;
-    `ImageAnchor.alt_text` is read-only and there's no wrap/resize/reposition/
-    replace-in-place. Alt-text editing is also an accessibility/linter need.
-    **Partly catalogued in Part III "Image polish"** — promote the *restyle*
-    subset (set alt-text, set wrap, resize) as the near-term cut.
+  - **Content controls** — ✅ **done.** `ContentControl.set_properties(...)` +
+    `set_items(...)` (Python + CLI `set-cc-properties`/`set-cc-items` + exec ops
+    `set_cc_properties`/`set_cc_items` + MCP). Form-building is now iterable in
+    place (relabel a field, lock it once filled, edit dropdown choices).
+  - **Hyperlinks** — ✅ **done.** `doc.hyperlinks` is writable:
+    `Hyperlink.update(...)` + `set_address`/`set_sub_address`/`set_text`/
+    `set_screen_tip` (CLI `set-hyperlink --index N`, exec op `set_hyperlink` by
+    1-based index, MCP `set_hyperlink` with `url`→address/`bookmark`→sub_address).
+    Creation stays via `link_to`; a first-class `insert_hyperlink` was not needed.
+  - **Images** — *deferred.* `wrap`/`width`/`height`/`alt_text`/`lock_aspect` set
+    at insert; `ImageAnchor.alt_text` is read-only and there's no
+    wrap/resize/reposition/replace-in-place. `image:N` indexes **inline shapes
+    only** — changing wrap calls `ConvertToShape()`, which removes the picture
+    from `InlineShapes` and invalidates the anchor — so the restyle subset can't
+    land coherently until the floating-shape / `textbox:N` anchor model exists.
+    Revisit alongside that work (it's also catalogued in Part III "Image polish").
   - **Text boxes** — `insert_text_box` takes size/`wrap`/font/`fill`/`border`/
     `alignment` and returns **`None`** (floating shapes are deliberately off the
     anchor model). A `textbox:N` handle + a restyle surface would close it; until

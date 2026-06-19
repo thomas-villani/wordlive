@@ -144,6 +144,8 @@ a.link_to(address="https://x")          # hyperlink; or link_to(bookmark="Intro"
 a.insert_cross_reference("bookmark:Intro", kind="page")  # ref a bookmark/heading/footnote/endnote
 a.insert_caption("Figure", text="System overview")       # own-paragraph caption (Table→above, else below; position= to override)
 a.insert_content_control(kind="dropdown", title="Status", items=["Open", "Done"])  # wrap the range in a CC; cc:Status addresses it
+doc.content_controls["Status"].set_properties(title="Stage", lock_contents=True)   # edit a CC in place (no delete+reinsert)
+doc.content_controls["Status"].set_items(["Open", "Done", "Blocked"])             # replace a combo_box/dropdown's choices
 a.insert_image("diagram.png", wrap="auto")
 a.read_image()                          # → (bytes, mime) — extract the one image in the range
 a.insert_equation(unicodemath="x=(-b±√(b^2-4ac))/(2a)")   # native; or latex= (needs the `latex` extra) / mathml=
@@ -449,6 +451,7 @@ with doc.edit("Set metadata"):
     doc.variables.set("ClientName", "Acme")         # invisible { DOCVARIABLE } storage
 doc.variables.list()                 # {"ClientName": "Acme"}
 doc.hyperlinks.list()                # read mirror of link_to: [{text, address, sub_address, anchor_id, …}]
+doc.hyperlinks[1].update(address="https://new.example", text="New")  # retarget/relabel a link in place (1-based index)
 doc.fields.list()                    # read mirror of insert_field: [{kind, code, result, anchor_id, …}]
 doc.proofing()                       # {spelling:{count,errors}, grammar:{…}, readability:{flesch_reading_ease,…}}
 doc.lint(within="heading:3")         # audit: [{rule, kind, severity, anchor_id, message, fixable, fix, …}] (pure read)
@@ -458,8 +461,10 @@ doc.regularize()                     # apply them in one atomic-undo → {applie
 ```
 
 `doc.properties` (read/write) and `doc.variables` (read/write) manage the file's
-metadata and named storage; `doc.hyperlinks` and `doc.fields` are read-only
-discovery collections — the read mirrors of `link_to` / `insert_field`.
+metadata and named storage; `doc.hyperlinks` and `doc.fields` are discovery
+collections — the read mirrors of `link_to` / `insert_field` — and a
+`doc.hyperlinks[N]` is editable in place via `update` / `set_address` / `set_text`
+(fields stay read-only).
 `doc.proofing()` runs Word's spelling/grammar/readability tools (a pure read, but
 heavier than `stats()` — it (re)checks the document). `doc.lint()` audits
 formatting/structural/policy issues (a severity-ranked list; each finding's `fix`

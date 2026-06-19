@@ -117,6 +117,7 @@ def register(group: click.Group) -> None:
     group.add_command(lint_cmd)
     group.add_command(regularize_cmd)
     group.add_command(hyperlinks_cmd)
+    group.add_command(set_hyperlink_cmd)
     group.add_command(fields_cmd)
     group.add_command(properties)
     group.add_command(variables)
@@ -137,6 +138,8 @@ def register(group: click.Group) -> None:
     group.add_command(cross_ref_cmd)
     group.add_command(caption_cmd)
     group.add_command(create_content_control_cmd)
+    group.add_command(set_cc_properties_cmd)
+    group.add_command(set_cc_items_cmd)
     group.add_command(mark_index_entry_cmd)
     group.add_command(insert_index_cmd)
     group.add_command(table_of_figures_cmd)
@@ -1702,6 +1705,56 @@ def hyperlinks_cmd(ctx: click.Context) -> None:
     _run(ctx, go)
 
 
+@click.command(name="set-hyperlink")
+@click.option(
+    "--index", "index", type=int, required=True, help="1-based hyperlink index (see `hyperlinks`)."
+)
+@click.option("--address", "address", default=None, help="External URL to retarget to.")
+@click.option(
+    "--sub-address", "sub_address", default=None, help='In-document bookmark ("" clears it).'
+)
+@click.option("--text", "text", default=None, help="Visible link text.")
+@click.option("--screen-tip", "screen_tip", default=None, help='Hover tooltip ("" clears it).')
+@click.pass_context
+def set_hyperlink_cmd(
+    ctx: click.Context,
+    index: int,
+    address: str | None,
+    sub_address: str | None,
+    text: str | None,
+    screen_tip: str | None,
+) -> None:
+    """Retarget or relabel an existing hyperlink in place (atomic-undo).
+
+    Address the link by its 1-based --index (from `hyperlinks`). Pass at least
+    one field; omitting one leaves it untouched. These retarget a link, they
+    don't unlink it: --sub-address / --screen-tip clear with "", but --address /
+    --text cannot be emptied (Word keeps a link pointing somewhere).
+    """
+    raw: dict[str, Any] = {
+        "address": address,
+        "sub_address": sub_address,
+        "text": text,
+        "screen_tip": screen_tip,
+    }
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one of --address/--sub-address/--text/--screen-tip")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            with doc.edit(f"CLI: set hyperlink {index}"):
+                doc.hyperlinks[index].update(**kwargs)
+            emit(
+                {"ok": True, "index": index, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"updated hyperlink {index}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
 def _fmt_fields(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return "(no fields)"
@@ -2277,6 +2330,106 @@ def create_content_control_cmd(
                 as_text=not ctx.obj["as_json"],
                 text=f"created {kind} content control at {anchor_id}"
                 + (f" (cc:{name})" if name else ""),
+            )
+
+    _run(ctx, go)
+
+
+def _cc_anchor(word: Any, doc_name: str | None, anchor_id: str) -> Any:
+    """Resolve `anchor_id` to a content control, raising a clean usage error otherwise."""
+    from .._anchors import ContentControl
+
+    doc = _pick_doc(word, doc_name)
+    anchor = doc.anchor_by_id(anchor_id)
+    if not isinstance(anchor, ContentControl):
+        raise click.UsageError(f"{anchor_id!r} is not a content control; pass a cc:NAME anchor")
+    return doc, anchor
+
+
+@click.command(name="set-cc-properties")
+@click.option("--anchor-id", "anchor_id", required=True, help="Content control anchor (cc:NAME).")
+@click.option("--title", "title", default=None, help='Control title (pass "" to clear it).')
+@click.option("--tag", "tag", default=None, help='Control tag (pass "" to clear it).')
+@click.option(
+    "--lock-contents/--no-lock-contents",
+    "lock_contents",
+    default=None,
+    help="Stop / allow edits to the value.",
+)
+@click.option(
+    "--lock-control/--no-lock-control",
+    "lock_control",
+    default=None,
+    help="Stop / allow deletion of the control.",
+)
+@click.pass_context
+def set_cc_properties_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    title: str | None,
+    tag: str | None,
+    lock_contents: bool | None,
+    lock_control: bool | None,
+) -> None:
+    """Re-set a content control's title/tag/locks in place (atomic-undo).
+
+    Pass at least one option; "" clears --title/--tag, omitting leaves it. A
+    title (or tag) rename changes the control's cc:NAME anchor id.
+    """
+    raw: dict[str, Any] = {
+        "title": title,
+        "tag": tag,
+        "lock_contents": lock_contents,
+        "lock_control": lock_control,
+    }
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one of --title/--tag/--lock-contents/--lock-control")
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _cc_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set content control properties {anchor_id}"):
+                anchor.set_properties(**kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"updated {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="set-cc-items")
+@click.option("--anchor-id", "anchor_id", required=True, help="Content control anchor (cc:NAME).")
+@click.option(
+    "--item",
+    "items",
+    multiple=True,
+    required=True,
+    help="A choice (repeatable). 'Text' or 'Text=Value'. Replaces the existing list.",
+)
+@click.pass_context
+def set_cc_items_cmd(ctx: click.Context, anchor_id: str, items: tuple[str, ...]) -> None:
+    """Replace a combo_box/dropdown's choice list in place (atomic-undo).
+
+    Pass --item once per choice ('Text' or 'Text=Value'); the new list replaces
+    the existing entries. Only valid on a combo_box/dropdown control.
+    """
+    parsed_items: list[Any] = []
+    for raw in items:
+        label, sep, value = raw.partition("=")
+        parsed_items.append({"text": label, "value": value} if sep else label)
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _cc_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: set content control items {anchor_id}"):
+                anchor.set_items(parsed_items)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": {"items": parsed_items}},
+                as_text=not ctx.obj["as_json"],
+                text=f"set {len(parsed_items)} item(s) on {anchor_id}",
             )
 
     _run(ctx, go)
@@ -6215,8 +6368,10 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     set_series_color, replace, find_replace, apply_style, format_paragraph,
     format_run, set_shading, set_borders, drop_cap, add_tab_stop, add_style, set_style,
     insert_field, set_page_setup, update_fields, regularize, insert_footnote, insert_endnote,
-    insert_toc, add_bookmark, pin, pin_outline, add_hyperlink, insert_cross_reference,
-    insert_caption, create_content_control, mark_index_entry, insert_index,
+    insert_toc, add_bookmark, pin, pin_outline, add_hyperlink, set_hyperlink,
+    insert_cross_reference,
+    insert_caption, create_content_control, set_cc_properties, set_cc_items,
+    mark_index_entry, insert_index,
     insert_table_of_figures, set_bibliography_style, add_source, insert_citation,
     insert_bibliography, mark_citation, insert_table_of_authorities,
     apply_theme, set_theme_colors, set_theme_fonts,
