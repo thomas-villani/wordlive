@@ -509,6 +509,23 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command == "set_hyperlink":
+        # Vocabulary parity with add_hyperlink: url -> address, bookmark ->
+        # sub_address. The op/CLI layer uses Word's own terms.
+        op = {"op": "set_hyperlink", "index": need("index")}
+        for mcp_key, op_key in (
+            ("url", "address"),
+            ("bookmark", "sub_address"),
+            ("text", "text"),
+            ("screen_tip", "screen_tip"),
+        ):
+            if p.get(mcp_key) is not None:
+                op[op_key] = p[mcp_key]
+        if len(op) == 2:  # only "op" and "index" set
+            raise OpError(
+                "set_hyperlink needs at least one of 'url', 'bookmark', 'text', 'screen_tip'"
+            )
+        return op
     if command == "insert_cross_reference":
         op = {
             "op": "insert_cross_reference",
@@ -537,6 +554,19 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command == "set_cc_properties":
+        op = {"op": "set_cc_properties", "anchor_id": need("anchor_id")}
+        for k in OP_OPTIONAL_FIELDS["set_cc_properties"]:
+            if p.get(k) is not None:
+                op[k] = p[k]
+        if len(op) == 2:  # only "op" and "anchor_id" set
+            raise OpError(
+                "set_cc_properties needs at least one of 'title', 'tag', "
+                "'lock_contents', 'lock_control'"
+            )
+        return op
+    if command == "set_cc_items":
+        return {"op": "set_cc_items", "anchor_id": need("anchor_id"), "items": need("items")}
     if command == "mark_index_entry":
         op = {"op": "mark_index_entry", "anchor_id": need("anchor_id"), "entry": need("entry")}
         for k in ("cross_reference", "bold", "italic"):
@@ -1200,9 +1230,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "pin",
             "pin_outline",
             "add_hyperlink",
+            "set_hyperlink",
             "insert_cross_reference",
             "insert_caption",
             "create_content_control",
+            "set_cc_properties",
+            "set_cc_items",
             "mark_index_entry",
             "insert_index",
             "insert_table_of_figures",
@@ -1448,6 +1481,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             (idempotent; levels = an inclusive [lo,hi] band) ·
         add_hyperlink {anchor_id, url | bookmark, [text,screen_tip]} — external URL or internal
             bookmark jump; text sets the visible link text ·
+        set_hyperlink {index, [url, bookmark, text, screen_tip]} — retarget/relabel an existing link
+            in place (index is 1-based, from word_read hyperlinks); url=external, bookmark=in-document;
+            pass at least one; bookmark/screen_tip clear with "", but url/text can't be emptied
+            (delete the link to unlink) ·
         insert_cross_reference {anchor_id,target,[kind=text|page|number|above_below,hyperlink,before]} —
             target is a bookmark:/heading:/footnote:/endnote: id ·
         insert_caption {anchor_id,[label=Figure,text,position=above|below]} — a numbered
@@ -1457,6 +1494,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             lock_contents, lock_control]} — a form control; where=wrap surrounds the anchor's range
             (else insert an empty one); title makes it addressable as cc:TITLE; items=[..] fills a
             combo_box/dropdown (each a string or {text,value}) ·
+        set_cc_properties {anchor_id=cc:NAME, [title, tag, lock_contents, lock_control]} — re-set a
+            control's metadata in place; pass at least one; "" clears title/tag; a rename changes
+            its cc:NAME id ·
+        set_cc_items {anchor_id=cc:NAME, items} — replace a combo_box/dropdown's choice list (items
+            replaces, not appends; each a string or {text,value}) ·
         mark_index_entry {anchor_id, entry, [cross_reference, bold, italic]} — mark a range as a
             back-of-book index entry (use "main:sub" for a subentry); build the list with insert_index ·
         insert_index {[anchor_id=end], columns=2, [run_in, right_align_page_numbers, before]} —
@@ -1745,11 +1787,18 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           add_bookmark {name,anchor_id} · pin {anchor_id,[name]} — durable pin:CODE handle that
             survives renumbering · pin_outline {[levels]} — pin every heading, returns {heading:N: pin:CODE} ·
           add_hyperlink {anchor_id, url|bookmark, [text,screen_tip]} ·
+          set_hyperlink {index, [url,bookmark,text,screen_tip]} — retarget/relabel an existing link
+            in place (index is 1-based, from word_read hyperlinks); url=external, bookmark=in-document;
+            pass at least one; bookmark/screen_tip clear with "", url/text can't be emptied ·
           insert_cross_reference {anchor_id,target,[kind,hyperlink,before]} — target is a bookmark:/heading:/footnote:/endnote: id ·
           insert_caption {anchor_id,[label,text,position=above|below]} — own-paragraph caption ·
           create_content_control {anchor_id,[kind=rich_text|text|picture|combo_box|dropdown|date|checkbox|
             building_block|group|repeating_section,title,tag,items,where=wrap|before|after,lock_contents,lock_control]} —
             a form control; where=wrap surrounds the anchor's range; title makes it cc:TITLE; items fills a list; returns the cc: id in outputs ·
+          set_cc_properties {anchor_id=cc:NAME,[title,tag,lock_contents,lock_control]} — re-set a control's
+            metadata in place; pass at least one; "" clears title/tag; a rename changes its cc:NAME id ·
+          set_cc_items {anchor_id=cc:NAME, items} — replace a combo_box/dropdown's choice list (items
+            replaces, not appends; each is a string or {text,value}) ·
           mark_index_entry {anchor_id,entry,[cross_reference,bold,italic]} — mark a range as a back-of-book index entry ("main:sub" for a subentry) ·
           insert_index {[anchor_id=end],[columns=2,run_in,right_align_page_numbers,before]} — gather marked entries; update_fields after to fill page numbers ·
           insert_table_of_figures {[anchor_id=start],[label=Figure,include_label,hyperlinks,right_align_page_numbers,before]} — a table of captions of one label; update_fields after ·

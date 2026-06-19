@@ -915,6 +915,44 @@ $ wordlive create-content-control --anchor-id range:120-140 --kind dropdown \
 
 Failures: `1` bad input; `2` anchor not found; `3` Word busy.
 
+## `set-cc-properties --anchor-id cc:NAME [--title T] [--tag T] [--lock-contents] [--lock-control]`
+
+```
+wordlive set-cc-properties --anchor-id cc:NAME [--title T] [--tag T]
+    [--lock-contents | --no-lock-contents] [--lock-control | --no-lock-control] [--doc DOC_NAME]
+```
+
+Re-set an existing content control's metadata in place — no delete + reinsert.
+Pass at least one option; `""` clears `--title` / `--tag` while omitting one
+leaves it untouched. `--lock-contents` / `--no-lock-contents` toggle whether the
+value is editable; `--lock-control` / `--no-lock-control` whether the control can
+be deleted. A title (or tag, when untitled) rename changes the control's
+`cc:NAME` anchor id.
+
+```bash
+$ wordlive set-cc-properties --anchor-id cc:Status --title Stage --lock-contents
+{"ok": true, "anchor_id": "cc:Status", "applied": {"title": "Stage", "lock_contents": true}}
+```
+
+Failures: `1` bad input / wrong-kind anchor; `2` anchor not found; `3` Word busy.
+
+## `set-cc-items --anchor-id cc:NAME --item ... [--item ...]`
+
+```
+wordlive set-cc-items --anchor-id cc:NAME --item 'Text' [--item 'Label=Value' ...] [--doc DOC_NAME]
+```
+
+Replace a `combo_box` / `dropdown` control's choice list in place — the new
+`--item` set *replaces* the existing entries (it does not append). Each `--item`
+is `'Text'` or `'Label=Value'`. Only valid on a combo_box / dropdown control.
+
+```bash
+$ wordlive set-cc-items --anchor-id cc:Status --item "Open" --item "Done=closed"
+{"ok": true, "anchor_id": "cc:Status", "applied": {"items": ["Open", {"text": "Done", "value": "closed"}]}}
+```
+
+Failures: `1` bad input / not a list control; `2` anchor not found; `3` Word busy.
+
 ## `footnotes` / `endnotes`
 
 ```
@@ -1170,6 +1208,30 @@ $ wordlive hyperlinks
 ```
 
 Failures: `3` Word busy, `4` Word not running.
+
+## `set-hyperlink --index N [--address URL] [--sub-address BM] [--text T] [--screen-tip T]`
+
+```
+wordlive set-hyperlink --index N [--address URL] [--sub-address BOOKMARK]
+    [--text T] [--screen-tip T] [--doc DOC_NAME]
+```
+
+Retarget or relabel an existing hyperlink in place — no delete + reinsert.
+Address the link by its 1-based `--index` (from `hyperlinks`). `--address` is the
+external destination (URL / mailto / file path); `--sub-address` is the
+in-document bookmark target; `--text` is the visible link text; `--screen-tip`
+the hover tooltip. Pass at least one; omitting one leaves it untouched.
+`--address` and `--sub-address` are left orthogonal (setting one does not clear
+the other). These *retarget* a link, they don't unlink it: `--sub-address` /
+`--screen-tip` clear with `""`, but `--address` / `--text` cannot be emptied
+(Word keeps every link pointing somewhere with visible text).
+
+```bash
+$ wordlive set-hyperlink --index 1 --address https://new.example --text "New site"
+{"ok": true, "index": 1, "applied": {"address": "https://new.example", "text": "New site"}}
+```
+
+Failures: `1` bad input; `2` index out of range; `3` Word busy.
 
 ## `fields`
 
@@ -2659,9 +2721,12 @@ Script shape:
 | `pin`                  | `anchor_id`                                | `name` (a readable slug)          |
 | `pin_outline`          | —                                          | `levels` (an `[lo, hi]` band)     |
 | `add_hyperlink`        | `anchor_id`, and one of `url` / `bookmark` | `text`, `screen_tip`              |
+| `set_hyperlink`        | `index` (1-based, from `hyperlinks`)       | `address`, `sub_address`, `text`, `screen_tip` (pass ≥1; `sub_address`/`screen_tip` clear with `""`, `address`/`text` can't be emptied) |
 | `insert_cross_reference` | `anchor_id`, `target`                    | `kind` (`text`/`page`/`number`/`above_below`), `hyperlink`, `where` or `before: true` |
 | `insert_caption`       | `anchor_id`                                | `label`, `text`, `position` (`above`/`below`; default above for `Table`, else below) |
 | `create_content_control` | `anchor_id`                              | `kind`, `title`, `tag`, `items`, `where` (`wrap`/`before`/`after`), `lock_contents`, `lock_control` |
+| `set_cc_properties`    | `anchor_id` (`cc:NAME`)                    | `title`, `tag`, `lock_contents`, `lock_control` (pass ≥1; `""` clears `title`/`tag`) |
+| `set_cc_items`         | `anchor_id` (`cc:NAME`), `items`           | — (replaces the combo_box/dropdown choice list) |
 | `apply_theme`          | `theme`                                    | —                                 |
 | `set_theme_colors`     | —                                          | `scheme`, `colors`                |
 | `set_theme_fonts`      | —                                          | `scheme`, `major`, `minor`        |
@@ -2801,6 +2866,15 @@ overrides the default placement (above for a `Table`, below otherwise), and on a
 `table:N:R:C` anchor the caption attaches to the whole table. Refresh
 cross-reference page numbers with an `update_fields` op after the document
 settles.
+
+`set_hyperlink` retargets / relabels an existing link in place (addressed by its
+1-based `index` from the `hyperlinks` reader) rather than delete-and-reinsert —
+pass any of `address` / `sub_address` / `text` / `screen_tip`. It retargets, it
+doesn't unlink: `sub_address` / `screen_tip` clear with `""`, but `address` /
+`text` can't be emptied (Word keeps a link pointing somewhere).
+Likewise `set_cc_properties` re-sets a content control's `title` / `tag` /
+`lock_contents` / `lock_control`, and `set_cc_items` replaces a combo_box /
+dropdown's choice list — both addressed by the control's `cc:NAME` anchor.
 
 `add_comment`, `resolve_comment`, and `delete_comment` mirror the `comment`
 verbs — `add_comment` attaches a side-channel annotation to an `anchor_id`

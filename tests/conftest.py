@@ -64,6 +64,43 @@ class _FakeBookmarkRegistry:
         return iter([self(name) for name in self._items])
 
 
+class _FakeDropdownEntry:
+    def __init__(self, text: str, value: str) -> None:
+        self.Text = text
+        self.Value = value
+
+
+class _FakeDropdownListEntries:
+    """Mimics ContentControl.DropdownListEntries: Add/Clear/Count/Item/iterate.
+
+    `Add` is a recording MagicMock (side-effect appends a real entry) so the
+    positional (Text, Value) call args stay assertable while `set_items`
+    (Clear + re-add) still round-trips against the readable entry list.
+    """
+
+    def __init__(self, items: list[tuple[str, str]] | None = None) -> None:
+        self._entries = [_FakeDropdownEntry(t, v) for t, v in (items or [])]
+        self.Add = MagicMock(name="DropdownListEntriesAdd", side_effect=self._add)
+
+    def _add(self, Text: str, Value: str | None = None) -> _FakeDropdownEntry:  # positional
+        entry = _FakeDropdownEntry(Text, Value if Value is not None else Text)
+        self._entries.append(entry)
+        return entry
+
+    def Clear(self) -> None:
+        self._entries.clear()
+
+    @property
+    def Count(self) -> int:
+        return len(self._entries)
+
+    def Item(self, index: int) -> _FakeDropdownEntry:  # 1-based, like Word
+        return self._entries[index - 1]
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(self._entries)
+
+
 class _FakeContentControls:
     def __init__(self, controls: list[dict[str, Any]]) -> None:
         self._items = []
@@ -71,8 +108,17 @@ class _FakeContentControls:
             mock = MagicMock(name=f"CC[{cc.get('title', '?')}]")
             mock.Title = cc.get("title", "")
             mock.Tag = cc.get("tag", "")
+            mock.Type = cc.get("kind", 0)  # WdContentControlType int (0 = rich_text)
+            mock.LockContents = cc.get("lock_contents", False)
+            mock.LockContentControl = cc.get("lock_control", False)
             mock.Range = _make_range(cc.get("start", 0), cc.get("end", 0))
             mock.Range.Text = cc.get("text", "")
+            raw_items = cc.get("items") or []
+            pairs = [
+                (i, i) if isinstance(i, str) else (i["text"], i.get("value", i["text"]))
+                for i in raw_items
+            ]
+            mock.DropdownListEntries = _FakeDropdownListEntries(pairs)
             self._items.append(mock)
         # Add(Type, Range) is a recording MagicMock so tests can assert the
         # control type; it appends a settable control (Title/Tag default to "" so
@@ -86,6 +132,7 @@ class _FakeContentControls:
         mock.Tag = ""
         mock.LockContents = False
         mock.LockContentControl = False
+        mock.DropdownListEntries = _FakeDropdownListEntries()
         rng = _make_range(0, 0)
         rng.Text = ""
         mock.Range = rng

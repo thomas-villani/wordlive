@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Post-creation restyle parity — content controls & hyperlinks.** Two objects
+  that accepted styling/config at insert time but had no way to change it
+  afterward now have in-place mutators (the iterate-without-delete-and-reinsert
+  pattern Charts already set):
+  - **Content controls** — `ContentControl.set_properties(title=…, tag=…,
+    lock_contents=…, lock_control=…)` re-sets a control's metadata (tri-state;
+    a rename changes its `cc:NAME` id) and `ContentControl.set_items([...])`
+    replaces a combo_box/dropdown's choice list. CLI `set-cc-properties` /
+    `set-cc-items`; exec ops `set_cc_properties` / `set_cc_items`; MCP
+    `word_write` commands of the same names.
+  - **Hyperlinks** — `doc.hyperlinks` is no longer read-only:
+    `Hyperlink.update(address=…, sub_address=…, text=…, screen_tip=…)` (and the
+    individual `set_address` / `set_sub_address` / `set_text` / `set_screen_tip`)
+    retarget or relabel a link in place. CLI `set-hyperlink --index N …`; exec op
+    `set_hyperlink` (addressed by 1-based `index`); MCP `word_write` command
+    `set_hyperlink` (`url`→address, `bookmark`→sub_address, matching
+    `add_hyperlink`'s vocabulary).
 - **Format read mirror — `anchor.format_info()`.** The missing read counterpart
   of `format_paragraph` / `format_run`: returns an anchor's *effective* paragraph
   and character formatting over the same field vocabulary the write verbs accept,
