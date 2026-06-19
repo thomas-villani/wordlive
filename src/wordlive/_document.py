@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import _com, _findreplace, _proofing, _snapshot
+from . import _com, _findreplace, _linting, _proofing, _snapshot
 from ._anchors import (
     _WL_PREFIX,
     Bookmark,
@@ -1543,6 +1543,57 @@ class Document:
         `None` count / empty readability rather than failing.
         """
         return _proofing.read_proofing(self)
+
+    def lint(
+        self, *, rules: Any = None, within: str | Anchor | None = None
+    ) -> list[dict[str, Any]]:
+        """Audit the document for publishing-quality defects — a pure read.
+
+        Returns a severity-ranked list of findings, each
+        `{rule, kind, severity, anchor_id, message, fixable, fix, observed,
+        expected}`. `kind` is `consistency` (a direct override fighting the
+        applied style — a `Heading 1` at 15pt), `structural` (an objective layout
+        defect — a heading that may dangle at a page foot, a multi-page table with
+        no repeating header, a numbered list Word split into independent "1."
+        runs), or `policy` (a house-style target — none ship yet). A `fixable`
+        finding carries an op-shaped `fix` describing exactly what
+        [`regularize`][wordlive.Document.regularize] would change.
+
+        `rules` selects which rules run: `None` is the default set (all
+        consistency + structural); a list of rule ids / tags
+        (`["headings", "lists"]`) includes only those; `{"exclude": [...]}` runs
+        the default set minus the listed ids/tags. `within=anchor` scopes the
+        audit to an anchor's range (a heading's section, a `range:`, a table).
+
+        Read-only — selection, scroll, and `Saved` are untouched (the layout
+        rules repaginate content-neutrally, like [`stats`][wordlive.Document.stats]).
+        """
+        return [f.to_dict() for f in _linting.run_lint(self, rules=rules, within=within)]
+
+    def regularize(
+        self,
+        *,
+        rules: Any = None,
+        within: str | Anchor | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Apply the fixable [`lint`][wordlive.Document.lint] findings in one
+        atomic-undo step. Returns `{applied, skipped, findings}`.
+
+        Each fixable finding's `fix` op(s) run through the batch op loop inside a
+        single `doc.edit("Regularize formatting")`, so one Ctrl-Z reverts the
+        whole pass and the user's selection/scroll are preserved. The default
+        fixes are **targeted and idempotent** — they bring a drifted direct
+        override back to its style's value, so running `regularize` twice applies
+        nothing the second time. `rules` / `within` are as for `lint`.
+        `dry_run=True` plans the fixes (returning them in `findings`) without
+        writing.
+
+        Content-changing fixes (deleting stray paragraphs, inserting captions)
+        are out of scope here — formatting/structure fixes only. If Track Changes
+        is on, the edits are tracked like any other for the user to review.
+        """
+        return _linting.regularize(self, rules=rules, within=within, dry_run=dry_run)
 
     def _page_of(self, position: int) -> int:
         """1-based page number that document offset `position` falls on."""

@@ -145,6 +145,9 @@ wordlive read text --anchor-id para:5 --view original  # text as if changes were
 wordlive stats               # pages/words/…/tables/images/comments + saved, one read
 wordlive locate --anchor-id heading:8   # {page, end_page, line, column, in_table}
 wordlive proofing            # spelling/grammar errors + readability (Flesch, …)
+wordlive read format --anchor-id heading:3   # effective style/paragraph/font, with override flags
+wordlive lint                # audit formatting/structure: severity-ranked findings (some fixable)
+wordlive regularize          # apply the fixable lint findings in one atomic-undo (--dry-run to preview)
 
 # Document metadata, variables, and the read mirrors of link / insert-field:
 wordlive properties list                         # built-in + custom document properties

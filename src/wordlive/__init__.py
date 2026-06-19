@@ -48,6 +48,7 @@ from ._edit import EditScope
 from ._fields import Field, FieldCollection
 from ._hyperlinks import Hyperlink, HyperlinkCollection
 from ._index import Index
+from ._linting import Finding
 from ._lists import ListCollection
 from ._notes import Endnote, EndnoteCollection, Footnote, FootnoteCollection
 from ._properties import PropertyCollection
@@ -109,6 +110,7 @@ __all__ = [
     "ExcelNotAvailableError",
     "Field",
     "FieldCollection",
+    "Finding",
     "Footnote",
     "FootnoteCollection",
     "Heading",

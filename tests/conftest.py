@@ -104,8 +104,11 @@ class _FakeParagraphs:
             mock.OutlineLevel = p.get("level", 10)
             mock.Range = _make_range(p.get("start", 0), p.get("end", 0))
             mock.Range.Text = p.get("text", "") + "\r"
-            # Applied paragraph style name, surfaced by ParagraphCollection.list().
-            mock.Range.Style.NameLocal = p.get("style", "Normal")
+            # Applied paragraph style name, surfaced by ParagraphCollection.list()
+            # (via Style) and format_info() (via ParagraphStyle); keep both in sync.
+            style_name = p.get("style", "Normal")
+            mock.Range.Style.NameLocal = style_name
+            mock.Range.ParagraphStyle.NameLocal = style_name
             self._items.append(mock)
 
     def __iter__(self) -> Iterable[Any]:
@@ -938,6 +941,58 @@ def _flat_opc(parts: list[tuple[str, bytes]]) -> str:
     return "".join(pieces)
 
 
+def _fake_font(**kw: Any) -> MagicMock:
+    """A `Range.Font` / `Style.Font` mock pre-populated with Word-like defaults.
+
+    Real values where set (so `format_info`'s `float(Font.Size)` etc. work and
+    `format_run` writes round-trip through the same handle), MagicMock fallback
+    for anything not modelled. Defaults match Aptos 12pt, no emphasis, black.
+    """
+    f = MagicMock(name="Font")
+    f.Name = kw.get("Name", "Aptos")
+    f.Size = kw.get("Size", 12.0)
+    f.Bold = kw.get("Bold", 0)
+    f.Italic = kw.get("Italic", 0)
+    f.Underline = kw.get("Underline", 0)
+    f.StrikeThrough = kw.get("StrikeThrough", 0)
+    f.Color = kw.get("Color", 0)
+    f.Subscript = kw.get("Subscript", 0)
+    f.Superscript = kw.get("Superscript", 0)
+    f.SmallCaps = kw.get("SmallCaps", 0)
+    f.AllCaps = kw.get("AllCaps", 0)
+    f.Spacing = kw.get("Spacing", 0.0)
+    return f
+
+
+def _fake_paragraph_format(**kw: Any) -> MagicMock:
+    """A `Range.ParagraphFormat` / `Style.ParagraphFormat` mock with real defaults
+    (single spacing, 8pt after, widow control on — Word's Normal baseline)."""
+    pf = MagicMock(name="ParagraphFormat")
+    pf.Alignment = kw.get("Alignment", 0)
+    pf.LeftIndent = kw.get("LeftIndent", 0.0)
+    pf.RightIndent = kw.get("RightIndent", 0.0)
+    pf.FirstLineIndent = kw.get("FirstLineIndent", 0.0)
+    pf.SpaceBefore = kw.get("SpaceBefore", 0.0)
+    pf.SpaceAfter = kw.get("SpaceAfter", 8.0)
+    pf.LineSpacingRule = kw.get("LineSpacingRule", 0)  # wdLineSpaceSingle
+    pf.LineSpacing = kw.get("LineSpacing", 12.0)
+    pf.PageBreakBefore = kw.get("PageBreakBefore", 0)
+    pf.KeepTogether = kw.get("KeepTogether", 0)
+    pf.KeepWithNext = kw.get("KeepWithNext", 0)
+    pf.WidowControl = kw.get("WidowControl", -1)
+    return pf
+
+
+def _fake_para_style(name: str = "Normal") -> MagicMock:
+    """A `Range.ParagraphStyle` mock — the applied style's baseline that
+    `format_info` compares the effective formatting against."""
+    st = MagicMock(name=f"ParagraphStyle[{name}]")
+    st.NameLocal = name
+    st.Font = _fake_font()
+    st.ParagraphFormat = _fake_paragraph_format()
+    return st
+
+
 def _make_range(start: int, end: int) -> MagicMock:
     rng = MagicMock(name=f"Range[{start},{end}]")
     rng.Start = start
@@ -970,6 +1025,13 @@ def _make_range(start: int, end: int) -> MagicMock:
     # Revision support: a range scopes accept_all/reject_all(within=...). Empty by
     # default — tests that need a populated range seed rng.Revisions themselves.
     rng.Revisions = _FakeRevisions([])
+    # Format-read support: real Font / ParagraphFormat values (so format_info and
+    # the consistency linter rules can probe them) plus the applied ParagraphStyle
+    # baseline they compare against. A clean range reads no overrides because the
+    # effective values and the style baseline share the same defaults.
+    rng.Font = _fake_font()
+    rng.ParagraphFormat = _fake_paragraph_format()
+    rng.ParagraphStyle = _fake_para_style()
     return rng
 
 
@@ -1060,16 +1122,14 @@ class _FakeTable:
 
     @staticmethod
     def _mk_cell_range(text: str) -> MagicMock:
-        rng = MagicMock(name="CellRange")
+        # Build on _make_range so a cell has the full range surface (Information /
+        # Font / ParagraphFormat), which the linter's table-repeat-header rule
+        # probes via cell().location(). Default Information -> page 1.
+        rng = _make_range(0, 0)
         # Word terminates cell text with CR + the cell mark; populated cells
         # (set via Range.Text) carry no markers, so only seed them for non-empty
         # seed text to mirror both states.
         rng.Text = (text + "\r\x07") if text else "\r\x07"
-        rng.Start = 0
-        # No inline shapes by default, so range_text() reads cell text verbatim.
-        ish = MagicMock(name="CellInlineShapes")
-        ish.Count = 0
-        rng.InlineShapes = ish
         return rng
 
     @property
@@ -1129,6 +1189,11 @@ class _FakeRows:
             row = MagicMock(name=f"Row[{index}]")
             rows = self._rows
             row.Delete = lambda: rows.__delitem__(index - 1)
+            # Real defaults (not truthy MagicMocks) so the linter's
+            # table-repeat-header rule reads "no heading row" until set_heading_row
+            # flips HeadingFormat; set_heading_row writes both back here.
+            row.HeadingFormat = False
+            row.AllowBreakAcrossPages = True
             self._row_mocks[index] = row
         return row
 

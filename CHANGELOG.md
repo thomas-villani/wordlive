@@ -5,6 +5,50 @@ All notable changes to **wordlive** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Format read mirror — `anchor.format_info()`.** The missing read counterpart
+  of `format_paragraph` / `format_run`: returns an anchor's *effective* paragraph
+  and character formatting over the same field vocabulary the write verbs accept,
+  each field annotated `{value, style, override}` — the effective value, the
+  applied style's baseline, and whether a **direct override** sits on top.
+  `font.mixed` lists fields that read `wdUndefined` because they vary across the
+  range's runs (so they're never reported as a bogus number). Lengths in points,
+  colour as `#RRGGBB` / `"auto"`, alignment/line-spacing as the same keywords the
+  write side takes. Pure read. CLI `wordlive read format --anchor-id ID`; MCP
+  `word_read` command `format_info`. (`WD_UNDEFINED` added to `constants`.)
+- **Linter + formatting regularizer — `doc.lint()` / `doc.regularize()`.** A
+  declarative rule set that audits a document for publishing-quality defects and
+  autofixes the mechanical ones. Pure composition over shipped write primitives —
+  no new COM write surface.
+  - `doc.lint(rules=None, within=None)` → a severity-ranked list of findings
+    `{rule, kind, severity, anchor_id, message, fixable, fix, observed,
+    expected}`. `kind` is **consistency** (a direct override fighting the applied
+    style — a `Heading 1` at 15pt), **structural** (an objective layout defect),
+    or **policy** (a house-style target — none ship yet). A `fixable` finding
+    carries an op-shaped `fix` (literally an `exec` op) describing exactly what
+    `regularize` will change. Pure read.
+  - `doc.regularize(rules=None, within=None, dry_run=False)` → applies the fixable
+    subset in one `doc.edit("Regularize formatting")` (one Ctrl-Z reverts the
+    whole pass). Returns `{applied, skipped, findings}`. The default fixes are
+    **targeted and idempotent** — they write the style's own value back as a
+    direct property, so a second `regularize` is a no-op (a tested invariant).
+  - **Rules (v1):** structural — `heading-keep-with-next` (a heading that may
+    dangle at a page foot), `table-repeat-header` (a multi-page table with no
+    repeating header row → `set_heading_row(1)`), `list-numbering-continuity` (a
+    numbered list Word split into independent "1." runs → remove + reapply one
+    list); consistency — `heading-font-consistent` / `heading-spacing-consistent`
+    / `body-font-consistent` (direct overrides drifted from the style → write the
+    style value back), `mixed-run-format` (a heading with mixed runs, report-only).
+  - `rules` selects by id / tag (`["headings", "lists"]`) or `{"exclude": [...]}`;
+    `within=anchor` scopes the audit to a heading section / `range:` / table.
+  - Surfaces: Python `doc.lint` / `doc.regularize`; CLI `wordlive lint` /
+    `wordlive regularize [--dry-run]` (`--rule` / `--exclude` / `--within`);
+    `regularize` **exec op** (a write, for the atomic-undo batch); MCP
+    `word_read` command `lint`, `word_write` command `regularize`. `Finding` is
+    exported from the package. Detailed design: `spec-linter.md`.
+
 ## 0.17.0
 
 ### Added

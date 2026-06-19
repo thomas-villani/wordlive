@@ -62,6 +62,8 @@ Quick index (capability → real release):
 | Charts (Excel-backed: `anchor.insert_chart`, `doc.charts`, `chart:N`; bar/pie/line/scatter; `ExcelNotAvailableError`, exit 6) | Unreleased |
 | Chart formatting & design (`ChartAnchor.format`/`set_axis`/`add_trendline`/`set_series_color`; `chart_style`/`has_legend` reads) | Unreleased |
 | Structural query helpers (`doc.between`, `doc.nearest_heading`, `doc.find_paragraphs`; content-under-heading already shipped) | Unreleased |
+| Format read mirror (`anchor.format_info` — effective vs style, per-field `override`, `mixed` runs) | Unreleased |
+| Linter + regularizer foundation (`doc.lint`/`doc.regularize`; 3 structural + heading/font/spacing consistency rules; targeted idempotent fixes; `regularize` exec op) | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -131,6 +133,19 @@ Inline `exec --ops '{…}'` with backslash paths mangles under PowerShell + JSON
 escaping — path-bearing batches should use `--script FILE` or `--ops -`.
 
 ### Live-Word gotchas (hard-won; don't re-learn these)
+
+- **Direct-override detection = effective vs `Range.ParagraphStyle` baseline**
+  (the linter's substrate, live-validated 2026-06-19). `anchor.format_info()`
+  compares `Range.Font`/`ParagraphFormat` (the rendered values) against
+  `Range.ParagraphStyle.Font`/`.ParagraphFormat` (the applied style's resolved
+  baseline — built-in styles resolve concrete values, no `BaseStyle` walk
+  needed); they differ ⇒ a direct `override`. A font field reading **`9999999`
+  (`WD_UNDEFINED`)** means the property *varies across runs* (mixed) — surfaced in
+  `font.mixed`, never as a number. `regularize`'s default fix writes the **style's
+  own value back as a direct property** (not `Font.Reset()`), which is why a
+  second pass is a no-op — the idempotency invariant. Note Word 16's default
+  `Heading 1` is **20pt with KeepWithNext on**, so `heading-keep-with-next` won't
+  fire on a clean default heading (no false positive).
 
 - **Tracked text is the FINAL view in `Range.Text`** (live-probed 2026-06-16):
   Word's `Range.Text` returns the *accepted* text — inserted runs present,
@@ -325,6 +340,20 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 ## Priority 1 — Document quality & change tracking (the agent-publishing core)
 
 ### 1. Linter + formatting regularizer — `doc.lint()` / `doc.regularize()`
+
+> **Foundation slice — ✅ shipped (Unreleased, 2026-06-19).** `anchor.format_info()`
+> (the read mirror + direct-override detection), the three structural rules
+> (`heading-keep-with-next`, `table-repeat-header`, `list-numbering-continuity`),
+> the heading/font/spacing consistency rules + report-only `mixed-run-format`,
+> and `doc.lint()` / `doc.regularize()` with the **targeted, idempotent** default
+> fix — wired across Python / CLI (`lint`, `regularize`, `read format`) /
+> `regularize` exec op / MCP, and live-validated. **Still open (a follow-up
+> pass):** the **policy** rules (`body-justified`, `table-numeric-right-align`)
+> and the **profile / house-style** loader (the registry already carries `kind`,
+> so they slot in cleanly); the opt-in `Font.Reset()` strip-to-style fix; the
+> content-adding fixes (`stray-empty-paragraph`, `figure-caption-present`); and
+> the `docx-plus` cascade-provenance hybrid. See `spec-linter.md` (§6, §7c, §9)
+> and `CHANGELOG.md`.
 
 The highest-utility next feature: a declarative rule set that **audits** a document
 for publishing-quality defects and **autofixes** the mechanical ones. Pure

@@ -1,0 +1,376 @@
+"""Linter + formatting regularizer — `doc.lint()` / `doc.regularize()`.
+
+Audit a document for publishing-quality defects (`lint`, a pure read), then
+autofix the mechanical ones in one atomic-undo step (`regularize`, a write). Pure
+composition over shipped primitives — `format_info` (the format probe),
+`format_paragraph`, `apply_list`/`remove_list`, `set_heading_row` — so there is
+**no new COM write surface** here; the new work is the rule engine.
+
+Each rule is `consistency` (a direct override fighting the applied style),
+`structural` (an objective layout/structure defect), or `policy` (a value that
+deviates from a configured house-style target — deferred to a later pass). A
+rule emits [`Finding`][wordlive._linting.Finding]s; a *fixable* finding carries
+an op-shaped `fix` (literally an `exec` op, or a list of them), so `regularize`
+is "lint, then run each finding's `fix` through the existing `run_batch` loop" —
+the fix path reuses the audited op vocabulary rather than a parallel writer.
+
+Design: `spec-linter.md`. Mirrors `_proofing.py`'s module shape (rule functions +
+a `run_lint` entry that `Document.lint` delegates to).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterator
+from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING, Any
+
+from . import _com
+
+if TYPE_CHECKING:
+    from ._anchors import Anchor
+    from ._document import Document
+
+# A finding's fix is one exec op, or a list of ops applied in order (the
+# list-continuity repair is remove-then-reapply).
+FixOps = dict[str, Any] | list[dict[str, Any]]
+
+_SEVERITY_RANK = {"error": 0, "warning": 1, "info": 2}
+
+
+@dataclass(frozen=True)
+class Finding:
+    """One linter result. `fix` is present iff `fixable` — an op-shaped dict (or
+    list of them) `regularize` runs verbatim through the batch op loop."""
+
+    rule: str
+    kind: str  # consistency | structural | policy
+    severity: str  # error | warning | info
+    anchor_id: str
+    message: str
+    fixable: bool = False
+    fix: FixOps | None = None
+    observed: str | None = None
+    expected: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+# A span is an inclusive-ish (start, end) character range used by `within=` to
+# scope the audit; `None` means the whole document.
+Span = tuple[int, int]
+
+
+@dataclass(frozen=True)
+class Rule:
+    """A registered rule: identity/metadata plus a `check` that yields findings.
+
+    `check(doc, span)` walks the document (optionally clipped to `span`) and
+    yields `Finding`s. `tags` lets a caller select a family (`["headings"]`) as
+    well as by id.
+    """
+
+    id: str
+    kind: str
+    severity: str
+    tags: tuple[str, ...]
+    check: Callable[[Document, Span | None], Iterator[Finding]]
+
+
+# ---------------------------------------------------------------------------
+# small COM/range helpers
+# ---------------------------------------------------------------------------
+
+
+def _anchor_span(anchor: Anchor) -> Span:
+    rng = anchor.com
+    return int(rng.Start), int(rng.End)
+
+
+def _overlaps(span: Span | None, lo: int, hi: int) -> bool:
+    """Does `[lo, hi]` intersect the audit `span` (None = whole doc)?"""
+    if span is None:
+        return True
+    return lo <= span[1] and hi >= span[0]
+
+
+# ---------------------------------------------------------------------------
+# structural rules (no config; objective defects)
+# ---------------------------------------------------------------------------
+
+
+def _check_heading_keep_with_next(doc: Document, span: Span | None) -> Iterator[Finding]:
+    """A heading paragraph with keep-with-next off can be stranded at a page foot,
+    its body starting on the next page. Fix: turn keep-with-next on."""
+    for row in doc.outline():
+        anchor_id = row["anchor_id"]
+        anchor = doc.anchor_by_id(anchor_id)
+        lo, hi = _anchor_span(anchor)
+        if not _overlaps(span, lo, hi):
+            continue
+        kwn = anchor.format_info()["paragraph"]["keep_with_next"]["value"]
+        if kwn is False:
+            yield Finding(
+                rule="heading-keep-with-next",
+                kind="structural",
+                severity="warning",
+                anchor_id=anchor_id,
+                message=(
+                    f"Heading {row['text']!r} has keep-with-next off; "
+                    "it may dangle at the foot of a page."
+                ),
+                fixable=True,
+                fix={"op": "format_paragraph", "anchor_id": anchor_id, "keep_with_next": True},
+                observed="keep_with_next=false",
+                expected="keep_with_next=true",
+            )
+
+
+def _check_table_repeat_header(doc: Document, span: Span | None) -> Iterator[Finding]:
+    """A table that breaks across a page boundary should repeat its header row so
+    the column labels carry over. Fix: mark row 1 as a heading row."""
+    for table in doc.tables:
+        try:
+            first = table.cell(1, 1).location()
+            last = table.cell(table.row_count, table.column_count).location()
+        except Exception:
+            # A merged/odd grid or a transient COM hiccup — skip rather than fail
+            # the whole lint.
+            continue
+        if int(first["page"]) == int(last["end_page"]):
+            continue  # single-page table; no repeating header needed
+        try:
+            lo = int(table.com.Range.Start)
+        except Exception:
+            lo = 0
+        if not _overlaps(span, lo, lo):
+            continue
+        try:
+            already = bool(table.com.Rows(1).HeadingFormat)
+        except Exception:
+            already = False
+        if already:
+            continue
+        anchor_id = f"table:{table.index}:1:1"
+        yield Finding(
+            rule="table-repeat-header",
+            kind="structural",
+            severity="warning",
+            anchor_id=anchor_id,
+            message=(
+                f"Table {table.index} spans pages {first['page']}–{last['end_page']} "
+                "but row 1 doesn't repeat as a header."
+            ),
+            fixable=True,
+            fix={"op": "set_heading_row", "table": table.index, "row": 1},
+            observed="heading_row=false",
+            expected="heading_row=true",
+        )
+
+
+def _numbered_list_spans(doc: Document) -> list[Span]:
+    """The character spans of every *numbered* (or outline-numbered) Word list,
+    in document order. Word models each distinct list as one `Document.Lists`
+    entry, so a numbered list that got split into independent "1." lists shows up
+    as several entries whose ranges abut."""
+    spans: list[Span] = []
+    with _com.translate_com_errors():
+        count = int(doc.com.Lists.Count)
+        for i in range(1, count + 1):
+            rng = doc.com.Lists(i).Range
+            start, end = int(rng.Start), int(rng.End)
+            from ._lists import read_list_info
+
+            if read_list_info(rng)["type"] in ("numbered", "outline"):
+                spans.append((start, end))
+    return sorted(spans)
+
+
+def _check_list_numbering_continuity(doc: Document, span: Span | None) -> Iterator[Finding]:
+    """The "N independent 1. lists" footgun: a run of numbered paragraphs Word
+    split into separate lists, each restarting at 1. Detected as numbered lists
+    whose character ranges **abut** (no body content between). Fix: drop the list
+    formatting over the whole run and reapply one numbered list."""
+    spans = _numbered_list_spans(doc)
+    if len(spans) < 2:
+        return
+    # Chain runs of abutting numbered lists (next starts at/before prev's end).
+    chains: list[list[Span]] = []
+    current: list[Span] = [spans[0]]
+    for prev, nxt in zip(spans, spans[1:], strict=False):
+        if nxt[0] <= prev[1]:
+            current.append(nxt)
+        else:
+            chains.append(current)
+            current = [nxt]
+    chains.append(current)
+
+    for chain in chains:
+        if len(chain) < 2:
+            continue
+        lo = chain[0][0]
+        hi = chain[-1][1]
+        if not _overlaps(span, lo, hi):
+            continue
+        anchor_id = f"range:{lo}-{hi}"
+        yield Finding(
+            rule="list-numbering-continuity",
+            kind="structural",
+            severity="warning",
+            anchor_id=anchor_id,
+            message=(
+                f"{len(chain)} adjacent numbered lists look like one list Word split "
+                "into independent runs (each restarts at 1)."
+            ),
+            fixable=True,
+            fix=[
+                {"op": "remove_list", "anchor_id": anchor_id},
+                {"op": "apply_list", "anchor_id": anchor_id, "type": "numbered"},
+            ],
+            observed=f"{len(chain)} abutting numbered lists",
+            expected="one continuous numbered list",
+        )
+
+
+# ---------------------------------------------------------------------------
+# registry
+# ---------------------------------------------------------------------------
+
+# Consistency rules are appended in `_register_consistency_rules` (Step 3) to keep
+# this list readable; structural rules live here.
+_RULES: list[Rule] = [
+    Rule(
+        id="heading-keep-with-next",
+        kind="structural",
+        severity="warning",
+        tags=("headings", "pagination"),
+        check=_check_heading_keep_with_next,
+    ),
+    Rule(
+        id="table-repeat-header",
+        kind="structural",
+        severity="warning",
+        tags=("tables", "pagination"),
+        check=_check_table_repeat_header,
+    ),
+    Rule(
+        id="list-numbering-continuity",
+        kind="structural",
+        severity="warning",
+        tags=("lists",),
+        check=_check_list_numbering_continuity,
+    ),
+]
+
+
+def _registry() -> dict[str, Rule]:
+    return {r.id: r for r in _RULES}
+
+
+def _select_rules(rules: Any) -> list[Rule]:
+    """Resolve the `rules=` selector into the concrete rule set to run.
+
+    - `None` — the default set: every consistency + structural rule (policy rules
+      stay off until a profile enables them; none ship in this slice).
+    - a list of ids/tags — only rules matching an id or carrying a tag.
+    - `{"exclude": [...]}` — the default set minus the listed ids/tags.
+    """
+    default = [r for r in _RULES if r.kind in ("consistency", "structural")]
+    if rules is None:
+        return default
+    if isinstance(rules, dict):
+        excluded = set(rules.get("exclude", []))
+        return [r for r in default if not (r.id in excluded or excluded & set(r.tags))]
+    wanted = set(rules)
+    return [r for r in _RULES if r.id in wanted or wanted & set(r.tags)]
+
+
+# ---------------------------------------------------------------------------
+# public entry points (Document.lint / Document.regularize delegate here)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_span(doc: Document, within: Any) -> Span | None:
+    if within is None:
+        return None
+    anchor = doc.anchor_by_id(within) if isinstance(within, str) else within
+    return _anchor_span(anchor)
+
+
+def run_lint(doc: Document, *, rules: Any = None, within: Any = None) -> list[Finding]:
+    """Run the selected rules and return findings, ranked by severity.
+
+    Pure read. The layout rules repaginate (content-neutrally, via
+    `anchor.location()`), but nothing is mutated. See
+    [`Document.lint`][wordlive.Document.lint].
+    """
+    span = _resolve_span(doc, within)
+    findings: list[Finding] = []
+    for rule in _select_rules(rules):
+        findings.extend(rule.check(doc, span))
+    findings.sort(key=lambda f: _SEVERITY_RANK.get(f.severity, 9))
+    return findings
+
+
+def _fix_ops(fix: FixOps) -> list[dict[str, Any]]:
+    return list(fix) if isinstance(fix, list) else [fix]
+
+
+def regularize(
+    doc: Document,
+    *,
+    rules: Any = None,
+    within: Any = None,
+    dry_run: bool = False,
+    own_undo: bool = True,
+) -> dict[str, Any]:
+    """Apply the fixable findings; return the `{applied, skipped, findings}` report.
+
+    Runs `run_lint`, then applies every fixable finding's `fix` op(s). With
+    `own_undo=True` (the `Document.regularize` path) the fixes run through
+    `run_batch` — one `doc.edit("Regularize formatting")`, one Ctrl-Z. With
+    `own_undo=False` (the `regularize` *exec op*, already inside a batch's
+    `doc.edit`) they apply via `apply_op` directly, so the surrounding batch stays
+    a single undo record rather than nesting one. `dry_run=True` plans without
+    writing. See [`Document.regularize`][wordlive.Document.regularize].
+    """
+    from ._ops import apply_op, run_batch
+
+    findings = run_lint(doc, rules=rules, within=within)
+    fixable = [f for f in findings if f.fixable and f.fix is not None]
+    skipped = [f.to_dict() for f in findings if not (f.fixable and f.fix is not None)]
+    report: dict[str, Any] = {
+        "applied": [],
+        "skipped": skipped,
+        "findings": [f.to_dict() for f in findings],
+    }
+    if dry_run or not fixable:
+        report["dry_run"] = dry_run
+        return report
+
+    ops: list[dict[str, Any]] = []
+    for f in fixable:
+        ops.extend(_fix_ops(f.fix))  # type: ignore[arg-type]
+    if own_undo:
+        result, exc = run_batch(doc, ops, label="Regularize formatting")
+        if exc is not None:
+            raise exc
+        report["ops_run"] = result.get("ops_run", 0)
+        if result.get("warnings"):
+            report["warnings"] = result["warnings"]
+    else:
+        for op in ops:
+            apply_op(doc, op)
+        report["ops_run"] = len(ops)
+    report["applied"] = [f.to_dict() for f in fixable]
+    return report
+
+
+def _register_rule(rule: Rule) -> None:
+    """Append a rule to the registry (used by the consistency-rule module split)."""
+    _RULES.append(rule)
+
+
+# Defer consistency-rule registration to keep import order simple; the module is
+# imported for its side effect of extending `_RULES`.
+from . import _linting_consistency  # noqa: E402,F401
