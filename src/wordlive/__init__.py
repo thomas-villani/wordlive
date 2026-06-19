@@ -38,7 +38,10 @@ from ._anchors import (
     Paragraph,
     ParagraphCollection,
     RangeAnchor,
+    ShapeAnchor,
+    ShapeCollection,
     StartAnchor,
+    TextBoxCollection,
 )
 from ._app import Word, attach, connect
 from ._citations import Bibliography, Citation
@@ -136,6 +139,8 @@ __all__ = [
     "SectionCollection",
     "Selection",
     "SelectionSnapshot",
+    "ShapeAnchor",
+    "ShapeCollection",
     "Snapshot",
     "SnapshotError",
     "Source",
@@ -147,6 +152,7 @@ __all__ = [
     "TableCollection",
     "TableOfAuthorities",
     "TableOfFigures",
+    "TextBoxCollection",
     "Toc",
     "VariableCollection",
     "Word",

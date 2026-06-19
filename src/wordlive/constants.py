@@ -167,6 +167,25 @@ class MsoTextOrientation(IntEnum):
     HORIZONTAL = 1
 
 
+class MsoShapeType(IntEnum):
+    """`Shape.Type` — discriminates the floating shapes `shape:N` addresses.
+
+    A narrow slice of Office's full `MsoShapeType`: the kinds a wordlive document
+    actually grows. `TEXT_BOX` is what `insert_text_box` adds; `PICTURE` is what a
+    floating `insert_image` (`InlineShape.ConvertToShape`) becomes; `TEXT_EFFECT`
+    is WordArt (e.g. a watermark, though those live in the header story and so are
+    excluded from the body-shape collection); `GROUP` / `AUTO_SHAPE` round out the
+    common cases. `_shapes.shape_kind` maps these onto the public `shape_type`
+    string and falls back to ``"other"`` for anything unmapped.
+    """
+
+    AUTO_SHAPE = 1
+    GROUP = 6
+    PICTURE = 13
+    TEXT_EFFECT = 15
+    TEXT_BOX = 17
+
+
 class MsoPresetTextEffect(IntEnum):
     """`Shapes.AddTextEffect(PresetTextEffect=...)` — the plain WordArt preset.
 
@@ -185,21 +204,42 @@ class WdShapePosition(IntEnum):
 
 
 class WdRelativeHorizontalPosition(IntEnum):
-    """`Shape.RelativeHorizontalPosition` — what `Shape.Left` is measured from."""
+    """`Shape.RelativeHorizontalPosition` — what `Shape.Left` is measured from.
+
+    A narrow slice: the page margin (default) and the page edge — the two frames
+    `set_position` exposes for a floating shape's horizontal offset.
+    """
 
     MARGIN = 0
+    PAGE = 1
 
 
 class WdRelativeVerticalPosition(IntEnum):
-    """`Shape.RelativeVerticalPosition` — what `Shape.Top` is measured from."""
+    """`Shape.RelativeVerticalPosition` — what `Shape.Top` is measured from.
+
+    A narrow slice: the page margin (default) and the page edge — the two frames
+    `set_position` exposes for a floating shape's vertical offset.
+    """
 
     MARGIN = 0
+    PAGE = 1
 
 
 class WdWrapSideType(IntEnum):
     """`Shape.WrapFormat.Side` — which sides of a floating shape text flows past."""
 
     BOTH = 0
+
+
+class WdStoryType(IntEnum):
+    """`Range.StoryType` / `Shape.Anchor.StoryType` — which story a range lives in.
+
+    Only the main text story is named: it's the guard `_shapes.body_shapes` uses
+    to keep header/footer-anchored shapes (watermarks) out of the body-shape
+    collection, even though `Document.Shapes` already separates the stories.
+    """
+
+    MAIN_TEXT = 1
 
 
 class WdSaveFormat(IntEnum):

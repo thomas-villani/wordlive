@@ -189,7 +189,13 @@ wordlive read-image --anchor-id image:1 --out logo.png     # extract bytes + mim
 
 # Floating-shape flourishes — a watermark behind every page, a pull-quote box:
 wordlive watermark --text DRAFT                            # …or --remove
-wordlive insert-text-box --anchor-id heading:2 --text "Key takeaway" --width 2.5in
+wordlive insert-text-box --anchor-id heading:2 --text "Key takeaway" --width 2.5in  # → shape:N
+
+# …then restyle any floating shape in place (text box, floating image, WordArt) by shape:N:
+wordlive shapes                                            # list shape:N ids, kind, size, wrap
+wordlive set-shape-size --anchor-id shape:1 --width 3in --no-lock-aspect
+wordlive format-shape --anchor-id shape:1 --fill navy --border-color white
+wordlive replace-shape-image --anchor-id shape:2 --path v2.png   # swap a floating picture in place
 
 # Equations — UnicodeMath (native), LaTeX (needs the `latex` extra), or MathML:
 wordlive insert-equation --anchor-id heading:3 --unicodemath "x=(-b±√(b^2-4ac))/(2a)"

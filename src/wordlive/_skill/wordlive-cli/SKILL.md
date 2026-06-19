@@ -129,6 +129,34 @@ wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP 
 - `--block` puts the image on its own new line (a `Normal` paragraph) instead of
   in the anchor's text run — use with `--before` at a heading to land it above
   the heading rather than mid-line.
+- A **floating** wrap (anything but `inline`) leaves the text flow, so the image
+  is no longer an `image:N` — `insert-image` then reports a **`shape:N`** handle
+  (an `inline` image stays `image:N`). Use that `shape:N` to re-wrap / reposition
+  / resize / replace the floating image (see **Floating shapes**).
+
+## Floating shapes (`shape:N`) — text boxes, floating images, WordArt
+```
+wordlive shapes                       # list shape:N ids, kind, size, wrap, para:N
+wordlive set-shape-wrap   --anchor-id shape:N --wrap square|tight|through|top-bottom|front|behind
+wordlive set-shape-position --anchor-id shape:N [--left L] [--top T] [--relative-to margin|page]
+wordlive set-shape-size   --anchor-id shape:N [--width W] [--height H] [--lock-aspect|--no-lock-aspect]
+wordlive format-shape     --anchor-id shape:N [--fill C] [--border-color C | --no-border | --default-border] [--border-weight W]
+wordlive set-shape-alt-text --anchor-id shape:N --text "…"
+wordlive set-shape-text   --anchor-id shape:N --text "…"     # text boxes only
+wordlive replace-shape-image --anchor-id shape:N (--path FILE | --base64 VALUE)   # picture shapes only
+wordlive delete-shape     --anchor-id shape:N
+```
+- `shape:N` addresses the document's **floating** shapes (a text box from
+  `insert-text-box`, a floating image from `insert-image`, WordArt) in document
+  order — header-story watermarks are excluded. It's **positional**: inserting a
+  shape earlier renumbers it, so re-list with `shapes` rather than caching an id.
+  `--left`/`--top` are lengths (`2in`) or `center`.
+- `replace-shape-image` swaps a floating picture's image **in place** (delete +
+  reinsert at the same anchor), preserving wrap / position / size / alt text.
+- These are the post-insert restyle handles `insert-text-box` and a floating
+  `insert-image` hand back — the exec ops are `set_shape_wrap`,
+  `set_shape_position`, `set_shape_size`, `format_shape`, `set_shape_alt_text`,
+  `set_shape_text`, `replace_shape_image`, `delete_shape`.
 
 ## Equations
 ```
@@ -254,6 +282,8 @@ Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `insert_markdown`, `replace_section`, `delete_paragraph`, `append`,
 `append_inline`, `prepend`, `prepend_inline`, `insert_image`, `insert_equation`,
 `insert_chart`, `format_chart`, `format_axis`, `add_trendline`, `set_series_color`,
+`set_shape_wrap`, `set_shape_position`, `set_shape_size`, `format_shape`,
+`set_shape_alt_text`, `set_shape_text`, `replace_shape_image`, `delete_shape`,
 `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`,
 `set_borders`, `drop_cap`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,

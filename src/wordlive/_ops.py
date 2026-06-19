@@ -57,6 +57,14 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "format_axis": ("anchor_id", "which"),
     "add_trendline": ("anchor_id",),
     "set_series_color": ("anchor_id", "color"),
+    "set_shape_wrap": ("anchor_id", "wrap"),
+    "set_shape_position": ("anchor_id",),
+    "set_shape_size": ("anchor_id",),
+    "format_shape": ("anchor_id",),
+    "set_shape_alt_text": ("anchor_id", "text"),
+    "set_shape_text": ("anchor_id", "text"),
+    "replace_shape_image": ("anchor_id",),  # exactly one of path/base64 (checked in apply_op)
+    "delete_shape": ("anchor_id",),
     "replace": ("anchor_id", "text"),
     "find_replace": ("find", "text"),
     "apply_style": ("anchor_id", "name"),
@@ -242,6 +250,14 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         "backward",
     ),
     "set_series_color": ("series", "point"),
+    "set_shape_wrap": (),
+    "set_shape_position": ("left", "top", "relative_to"),
+    "set_shape_size": ("width", "height", "lock_aspect"),
+    "format_shape": ("fill", "border", "border_weight"),
+    "set_shape_alt_text": (),
+    "set_shape_text": (),
+    "replace_shape_image": ("path", "base64"),
+    "delete_shape": (),
     "replace": (),
     "find_replace": ("in", "all", "occurrence"),
     "apply_style": (),
@@ -573,9 +589,12 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         kwargs = {
             k: op[k] for k in ("block", "width", "height", "alt_text", "lock_aspect") if k in op
         }
-        doc.anchor_by_id(op["anchor_id"]).insert_image(
+        shape = doc.anchor_by_id(op["anchor_id"]).insert_image(
             image, wrap=op["wrap"], where=("before" if op_before(op) else "after"), **kwargs
         )
+        # A floating image returns its shape:N handle (inline stays None / image:N).
+        if shape is not None:
+            return {"shape": shape.index, "anchor_id": shape.anchor_id}
     elif kind == "insert_equation":
         eq_kwargs = {k: op[k] for k in ("unicodemath", "latex", "mathml", "display") if k in op}
         equation = doc.anchor_by_id(op["anchor_id"]).insert_equation(
@@ -606,6 +625,42 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             anchor.add_trendline(**kwargs)
         else:  # set_series_color
             anchor.set_series_color(op["color"], **kwargs)
+    elif kind in (
+        "set_shape_wrap",
+        "set_shape_position",
+        "set_shape_size",
+        "format_shape",
+        "set_shape_alt_text",
+        "set_shape_text",
+        "replace_shape_image",
+        "delete_shape",
+    ):
+        from ._anchors import ShapeAnchor  # lazy: avoid an _ops → _anchors import cycle
+
+        anchor = doc.anchor_by_id(op["anchor_id"])
+        if not isinstance(anchor, ShapeAnchor):
+            raise OpError(f"{op['anchor_id']!r} is not a shape; {kind} needs a shape:N anchor")
+        fields = OP_OPTIONAL_FIELDS[kind]
+        kwargs = {k: op[k] for k in fields if k in op}
+        if kind == "set_shape_wrap":
+            anchor.set_wrap(op["wrap"])
+        elif kind == "set_shape_position":
+            anchor.set_position(**kwargs)
+        elif kind == "set_shape_size":
+            anchor.set_size(**kwargs)
+        elif kind == "format_shape":
+            anchor.format(**kwargs)
+        elif kind == "set_shape_alt_text":
+            anchor.set_alt_text(op["text"])
+        elif kind == "set_shape_text":
+            anchor.set_text(op["text"])
+        elif kind == "replace_shape_image":
+            if ("path" in op) == ("base64" in op):
+                raise OpError("op 'replace_shape_image' requires exactly one of 'path' or 'base64'")
+            repl_image: str | Path = Path(op["path"]) if "path" in op else op["base64"]
+            anchor.replace_image(repl_image)
+        else:  # delete_shape
+            anchor.delete()
     elif kind == "replace":
         doc.anchor_by_id(op["anchor_id"]).set_text(op["text"])
     elif kind == "find_replace":
@@ -945,7 +1000,7 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
     elif kind == "remove_watermark":
         doc.remove_watermark()
     elif kind == "insert_text_box":
-        doc.anchor_by_id(op["anchor_id"]).insert_text_box(
+        text_box = doc.anchor_by_id(op["anchor_id"]).insert_text_box(
             op["text"],
             width=op.get("width", 200),
             height=op.get("height", 100),
@@ -959,6 +1014,7 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             fill=op.get("fill"),
             border=op.get("border"),
         )
+        return {"shape": text_box.index, "anchor_id": text_box.anchor_id}
     elif kind == "apply_list":
         continue_previous = bool(op.get("continue_previous", op.get("continue", False)))
         doc.anchor_by_id(op["anchor_id"]).apply_list(

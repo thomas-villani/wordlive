@@ -64,6 +64,7 @@ Quick index (capability → real release):
 | Structural query helpers (`doc.between`, `doc.nearest_heading`, `doc.find_paragraphs`; content-under-heading already shipped) | Unreleased |
 | Format read mirror (`anchor.format_info` — effective vs style, per-field `override`, `mixed` runs) | Unreleased |
 | Linter + regularizer foundation (`doc.lint`/`doc.regularize`; 3 structural + heading/font/spacing consistency rules; targeted idempotent fixes; `regularize` exec op) | Unreleased |
+| Floating-shape anchor model (`shape:N`: `doc.shapes`/`doc.text_boxes`; `ShapeAnchor` set_wrap/position/size/format/alt_text/text/replace_image/delete; `insert_text_box`+floating `insert_image` return it) | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -74,9 +75,21 @@ from the shipped clusters above.
 
 `heading:N`, `para:N`, `bookmark:NAME`, `cc:NAME`, `table:N:R:C`,
 `range:START-END`, `header:S:WHICH` / `footer:S:WHICH`, `footnote:N`,
-`endnote:N`, `image:N`, `equation:N`, `chart:N`, `pin:CODE`, `start`, `end`. One
-resolver: `doc.anchor_by_id(id)`. A malformed scheme (`banana:7`) reports
-"unknown anchor type".
+`endnote:N`, `image:N`, `equation:N`, `chart:N`, `shape:N`, `pin:CODE`, `start`,
+`end`. One resolver: `doc.anchor_by_id(id)`. A malformed scheme (`banana:7`)
+reports "unknown anchor type".
+
+- **`shape:N`** is positional over the document's **body-story floating shapes**
+  (`Document.Shapes`, document order) — text boxes, **floating images**
+  (post-`ConvertToShape`), and WordArt — header-story watermarks excluded. It's the
+  restyle handle `insert_text_box` and a floating `insert_image` now **return**
+  (inline `insert_image` stays `image:N` / returns `None`). `ShapeAnchor` carries
+  `shape_type` and the in-place mutators (`set_wrap`/`set_position`/`set_size`/
+  `format`/`set_alt_text`/`set_text`/`replace_image`/`delete`). `doc.shapes` is the
+  full collection; `doc.text_boxes` is the text-box subset (a discovery filter, each
+  keeping its canonical `shape:N` id). Positional ⇒ renumbers when a shape is
+  added/removed; re-list, don't cache (the `image:N`/`chart:N` rule). Helpers live
+  in `_shapes.py` (mirrors `_charts.py`).
 
 - **`chart:N`** is positional over the document's chart inline shapes
   (`HasChart`), in document order — it renumbers when an earlier chart is
@@ -160,6 +173,21 @@ escaping — path-bearing batches should use `--script FILE` or `--ops -`.
   scope the bulk op). An **anchor's range is literal** — `accept_all(within=heading)`
   covers only the heading line, not its section body (use a range/paragraph that
   actually spans the revisions).
+- **Floating-shape model (`shape:N`) — live-probed 2026-06-19.** `Shape.Type`
+  discriminates the kind cleanly under late binding: picture = `13`, text box =
+  `17`, WordArt = `15` (`MsoShapeType`). **Replacing a floating picture's image is
+  delete + reinsert at the same anchor** (preserving wrap/position/size): probed
+  `Shape.Fill.UserPicture` only *overlays* a second picture-fill on a picture shape
+  (the range then holds **two** images) — it is **not** a true replace, so it's
+  rejected. The `Shape.Left = wdShapeCenter` / `RelativeHorizontalPosition` position
+  constants (the ones `set_watermark` uses on a *header* shape) work the same on a
+  **body** shape, and `Shape.Anchor.StoryType` reads cleanly (`== 1` for the main
+  text story — the body-vs-header guard). Watermarks are WordArt in the *header*
+  story, so `Document.Shapes` (body) excludes them for free; `body_shapes` keeps a
+  name-prefix + story-type guard anyway. A just-inserted shape is located by a unique
+  temp `Shape.Name` (don't assume "last" — other floats can reorder). All restyle
+  verbs operate on the `Shape` object directly (no `.Select()`), so they're polite
+  (selection/scroll unmoved); the live smoke confirmed atomic single-undo too.
 - **Floating shapes live on the HeaderFooter / Document, not on `Range`.** A
   `Range` has **no** `.Shapes` (an AttributeError); the watermark draws into
   `Section.Headers(wdHeaderFooterPrimary).Shapes.AddTextEffect(...)` (WordArt,
@@ -648,10 +676,13 @@ that works *alongside* the user in a live session. Feasibility **proven live**
   format, multi-section `LinkToPrevious` editing. **→ promoted to Part II Priority 6.**
 - **Comment/revision polish** — comment replies (`comment.reply`), author/date
   filtering on `list()`. (Per-revision accept/reject is active backlog — Part II.)
-- **Image polish** — wrap *side* + text distance; absolute/relative positioning
-  (`Left`/`Top`); cropping; replace-in-place; EMF/WMF; floating-shape / chart-image
-  export; OLE extraction; an MCP `ImageContent` block so the model *sees* the
-  extracted original directly.
+- **Image polish** — *partly shipped* (Unreleased): the floating-shape model
+  (`shape:N`) delivered re-wrap, absolute/relative positioning (`Left`/`Top` via
+  `set_position`), resize, alt-text, and **replace-in-place** (`replace_image`)
+  for **floating** images. *Still open:* wrap *side* + text distance; cropping;
+  EMF/WMF; chart-image export; OLE extraction; an MCP `ImageContent` block so the
+  model *sees* the extracted original directly; and the same restyle subset for
+  **inline** `image:N` pictures.
 - **Cursor/inline polish** — raw inline `insert_before`/`insert_after` (no new
   paragraph) on the CLI; a `write_cursor` exec op (fights `EditScope`'s
   cursor-restore in a batch).
@@ -803,18 +834,18 @@ application/window/view surfaces (group I) are in real tension with *politeness*
     `set_screen_tip` (CLI `set-hyperlink --index N`, exec op `set_hyperlink` by
     1-based index, MCP `set_hyperlink` with `url`→address/`bookmark`→sub_address).
     Creation stays via `link_to`; a first-class `insert_hyperlink` was not needed.
-  - **Images** — *deferred.* `wrap`/`width`/`height`/`alt_text`/`lock_aspect` set
-    at insert; `ImageAnchor.alt_text` is read-only and there's no
-    wrap/resize/reposition/replace-in-place. `image:N` indexes **inline shapes
-    only** — changing wrap calls `ConvertToShape()`, which removes the picture
-    from `InlineShapes` and invalidates the anchor — so the restyle subset can't
-    land coherently until the floating-shape / `textbox:N` anchor model exists.
-    Revisit alongside that work (it's also catalogued in Part III "Image polish").
-  - **Text boxes** — `insert_text_box` takes size/`wrap`/font/`fill`/`border`/
-    `alignment` and returns **`None`** (floating shapes are deliberately off the
-    anchor model). A `textbox:N` handle + a restyle surface would close it; until
-    then `.com` is the only path (as documented). *Lower priority — the "off the
-    model" call was intentional.*
+  - **Images (floating)** — ✅ **done** (Unreleased). The floating-shape model
+    closed this: a floating `insert_image` now returns a `shape:N`
+    [`ShapeAnchor`] with `set_wrap`/`set_position`/`set_size`/`set_alt_text`/
+    `replace_image` (in-place picture swap) — see Part I's `shape:N` taxonomy +
+    live-Word gotcha. *Still inline-only / open:* `image:N` (inline pictures)
+    stays read-only for alt-text/resize, and cropping / EMF-WMF / OLE extraction
+    remain in "Image polish" below.
+  - **Text boxes** — ✅ **done** (Unreleased). `insert_text_box` now **returns a
+    `shape:N` [`ShapeAnchor`]** (was `None`); restyle in place via
+    `set_wrap`/`set_position`/`set_size`/`format`/`set_text`. Folded into the
+    unified floating-shape model (no separate `textbox:N` — `shape:N` covers text
+    boxes, floating images, and WordArt).
   - **Reference objects (TOC / index / TOF / TOA)** — only `.update()` /
     `update_page_numbers()`; changing levels/columns/format flags means
     delete+reinsert. Somewhat **inherent** (Word rebuilds these from field

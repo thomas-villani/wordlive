@@ -78,6 +78,7 @@ from its id with `doc.anchor_by_id(...)`, or use the typed accessors:
 | `image:N` | `doc.images[N]` | the Nth embedded picture (1-based, Word's `InlineShapes` order) |
 | `equation:N` | `doc.equations[N]` | the Nth equation (1-based, Word's `OMaths` order) |
 | `chart:N` | `doc.charts[N]` | the Nth chart (1-based, document order) |
+| `shape:N` | `doc.shapes[N]` | the Nth floating shape — text box / floating image / WordArt (1-based, document order) |
 | `table:N:R:C` | `doc.tables[N].cell(R, C)` | a table cell |
 | `range:START-END` | `doc.anchor_by_id("range:412-429")` | a raw character span (what `find()` emits) |
 | `header:S:WHICH` / `footer:S:WHICH` | `doc.sections[S].header(WHICH)` | header/footer (`primary`/`first`/`even`) |
@@ -146,8 +147,14 @@ a.insert_caption("Figure", text="System overview")       # own-paragraph caption
 a.insert_content_control(kind="dropdown", title="Status", items=["Open", "Done"])  # wrap the range in a CC; cc:Status addresses it
 doc.content_controls["Status"].set_properties(title="Stage", lock_contents=True)   # edit a CC in place (no delete+reinsert)
 doc.content_controls["Status"].set_items(["Open", "Done", "Blocked"])             # replace a combo_box/dropdown's choices
-a.insert_image("diagram.png", wrap="auto")
+img = a.insert_image("diagram.png", wrap="auto")  # floating wrap → ShapeAnchor (shape:N); wrap="inline" → None (stays image:N)
 a.read_image()                          # → (bytes, mime) — extract the one image in the range
+tb = a.insert_text_box("Key takeaway", width="2.5in", fill="#eeeeff")  # → ShapeAnchor (shape:N)
+tb.set_wrap("tight").set_size(width="3in", height="1in").format(border="navy")  # chainable restyle-in-place
+tb.set_position(left="center", relative_to="margin"); tb.set_text("Revised")    # left/top = length or "center"
+img.replace_image("v2.png")             # swap a floating picture's bits in place (preserves wrap/position/size)
+# doc.shapes lists every floating shape; doc.text_boxes is the text-box subset (each keeps its shape:N id)
+# shape:N is positional (document order) — it renumbers as shapes are added/removed; re-list, don't cache
 a.insert_equation(unicodemath="x=(-b±√(b^2-4ac))/(2a)")   # native; or latex= (needs the `latex` extra) / mathml=
 a.insert_equation(latex=r"\frac{-b}{2a}", display=False)  # → EquationAnchor; display=True→centred "Equation" style, False→Normal+left
 # equation:N is positional (OMaths order) — inserting one before another renumbers it; re-list, don't cache the id
