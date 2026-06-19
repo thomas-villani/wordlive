@@ -196,9 +196,12 @@ wordlive shapes                                            # list shape:N ids, k
 wordlive set-shape-size --anchor-id shape:1 --width 3in --no-lock-aspect
 wordlive format-shape --anchor-id shape:1 --fill navy --border-color white
 wordlive set-shape-rotation --anchor-id shape:1 --degrees 15   # rotate; set-shape-z-order restacks
+wordlive set-shape-wrap --anchor-id shape:1 --side left --distance-top 0.1in   # which sides text flows past + standoff
+wordlive set-shape-crop --anchor-id shape:2 --left 0.2in --bottom 6   # trim a picture shape in from its edges
 wordlive replace-shape-image --anchor-id shape:2 --path v2.png   # swap a floating picture in place
 wordlive group-shapes --anchor-id shape:1 --anchor-id shape:2   # group → one shape:N (ungroup-shape reverses)
 wordlive set-image-size --anchor-id image:1 --width 3in         # resize an inline picture (no floating)
+wordlive set-image-crop --anchor-id image:1 --right 0.1in       # crop an inline picture in from its edges
 
 # Equations — UnicodeMath (native), LaTeX (needs the `latex` extra), or MathML:
 wordlive insert-equation --anchor-id heading:3 --unicodemath "x=(-b±√(b^2-4ac))/(2a)"

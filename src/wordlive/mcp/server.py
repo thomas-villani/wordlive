@@ -108,6 +108,17 @@ def _need(p: dict[str, Any], key: str, command: str) -> Any:
     return value
 
 
+def _image_format(mime: str | None) -> str:
+    """The FastMCP `Image(format=...)` token for an `image/*` MIME type.
+
+    `read_image` only yields raster types (PNG/JPEG/GIF/BMP/TIFF), so the subtype
+    after the slash is the format token Office and FastMCP both expect — `image/
+    jpeg` → ``"jpeg"``. Falls back to ``"png"`` for anything unexpected."""
+    if mime and "/" in mime:
+        return mime.rsplit("/", 1)[-1] or "png"
+    return "png"
+
+
 def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
     if command == "guide":
         # The full agent guide — the same text served by the wordlive://guide
@@ -906,8 +917,6 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         "ungroup_shape",
     ):
         op = {"op": command, "anchor_id": need("anchor_id")}
-        if command == "set_shape_wrap":
-            op["wrap"] = need("wrap")
         if command in ("set_shape_alt_text", "set_shape_text"):
             op["text"] = need("text")
         if command == "set_shape_rotation":
@@ -917,6 +926,19 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         for k in OP_OPTIONAL_FIELDS[command]:
             if p.get(k) is not None:
                 op[k] = p[k]
+        return op
+    if command in ("set_shape_crop", "set_image_crop"):
+        # crop_* params keep the model from confusing crop edges with a shape's
+        # position left/top; map them onto the op's left/top/right/bottom fields.
+        op = {"op": command, "anchor_id": need("anchor_id")}
+        for src, dst in (
+            ("crop_left", "left"),
+            ("crop_top", "top"),
+            ("crop_right", "right"),
+            ("crop_bottom", "bottom"),
+        ):
+            if p.get(src) is not None:
+                op[dst] = p[src]
         return op
     if command in ("set_image_alt_text", "set_image_size"):
         op = {"op": command, "anchor_id": need("anchor_id")}
@@ -1170,13 +1192,14 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         original|segments resolves tracked changes — final=as if accepted,
         original=as if rejected, segments=per-run insert/delete breakdown) ·
         track (is Track Changes on?) · sections · footnotes · endnotes ·
-        images (embedded pictures: image:N id, mime, size, alt, para) ·
-        read_image {anchor_id} (an embedded picture's bytes as base64 + mime — pass
-        an image:N id or any single-image anchor) ·
+        images (embedded pictures: image:N id, mime, size, crop, alt, para) ·
+        read_image {anchor_id} (SEE an embedded picture: returns it as an inline
+        image block — like word_snapshot — plus a {anchor_id,mime,bytes} label;
+        pass an image:N id or any single-image anchor) ·
         equations (math zones: equation:N id, type, linear preview, para) ·
         charts (Excel-backed charts: chart:N id, kind, title, chart_style, has_legend, para) ·
         shapes (floating shapes: shape:N id, shape_type=text_box|picture|wordart, size, wrap,
-        alt_text, para — text boxes / floating images / WordArt; the restyle handles) ·
+        wrap_side, crop, alt_text, para — text boxes / floating images / WordArt; the restyle handles) ·
         hyperlinks (links: text, address/sub_address, range:START-END id — the read
         mirror of add_hyperlink) · fields (PAGE/REF/TOC/…: kind, code, rendered
         result, range id — the read mirror of insert_field) ·
@@ -1225,9 +1248,20 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "within": within,
         }
         try:
-            return _read_impl(w, command, params)
+            result = _read_impl(w, command, params)
         except WordliveError as exc:
             raise _tool_error(exc) from exc
+        if command == "read_image" and isinstance(result, dict) and result.get("base64"):
+            # Hand the model the actual pixels (an ImageContent block, like
+            # word_snapshot) plus a compact metadata block — not base64 text it
+            # can't see. The raw base64 stays out of the returned content.
+            meta = {k: result[k] for k in ("anchor_id", "mime", "bytes") if k in result}
+            data = base64.b64decode(result["base64"])
+            return [
+                TextContent(type="text", text=json.dumps(meta)),
+                Image(data=data, format=_image_format(result.get("mime"))).to_image_content(),
+            ]
+        return result
 
     @mcp.tool()
     def word_write(
@@ -1269,6 +1303,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "add_trendline",
             "set_series_color",
             "set_shape_wrap",
+            "set_shape_crop",
             "set_shape_position",
             "set_shape_size",
             "format_shape",
@@ -1283,6 +1318,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "ungroup_shape",
             "set_image_alt_text",
             "set_image_size",
+            "set_image_crop",
             "insert_break",
             "insert_field",
             "update_fields",
@@ -1486,6 +1522,15 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         margin_top: str | float | None = None,
         margin_bottom: str | float | None = None,
         word_wrap: bool | None = None,
+        side: str | None = None,
+        distance_top: str | float | None = None,
+        distance_bottom: str | float | None = None,
+        distance_left: str | float | None = None,
+        distance_right: str | float | None = None,
+        crop_left: str | float | None = None,
+        crop_top: str | float | None = None,
+        crop_right: str | float | None = None,
+        crop_bottom: str | float | None = None,
         shapes: list[str] | None = None,
         rules: Any = None,
         within: str | None = None,
@@ -1635,7 +1680,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             moving_average|polynomial|power,display_equation,display_r_squared,forward,backward]} ·
         set_series_color {anchor_id=chart:N, color, [series=1,point]} — recolour a series or one
             1-based point/slice (color = name, hex, or [r,g,b]) ·
-        set_shape_wrap {anchor_id=shape:N, wrap=square|tight|through|top-bottom|front|behind} ·
+        set_shape_wrap {anchor_id=shape:N, [wrap=square|tight|through|top-bottom|front|behind,
+            side=both|left|right|largest,distance_top,distance_bottom,distance_left,distance_right]}
+            — wrap style / which sides text flows past (side honoured by square/tight/through) /
+            standoff gaps; pass at least one ·
+        set_shape_crop {anchor_id=shape:N, [crop_left,crop_top,crop_right,crop_bottom]} — trim a
+            floating PICTURE shape in from its edges (lengths; shrinks displayed size) ·
         set_shape_position {anchor_id=shape:N, [left,top,relative_to=margin|page]} — left/top are
             lengths or "center" · set_shape_size {anchor_id=shape:N, [width,height,lock_aspect]} ·
         format_shape {anchor_id=shape:N, [fill,border,border_weight]} — fill/outline a text box or
@@ -1648,6 +1698,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         ungroup_shape {anchor_id=shape:N} — dissolve a group into its members ·
         set_image_alt_text {anchor_id=image:N, text} · set_image_size {anchor_id=image:N,
             [width,height,lock_aspect]} — alt text / resize an INLINE picture (re-wrap via insert_image) ·
+        set_image_crop {anchor_id=image:N, [crop_left,crop_top,crop_right,crop_bottom]} — trim an
+            inline picture in from its edges ·
         set_shape_alt_text {anchor_id=shape:N, text} · set_shape_text {anchor_id=shape:N, text} —
             replace a text box's contents ·
         replace_shape_image {anchor_id=shape:N, image_base64|path} — swap a floating picture's
@@ -1827,6 +1879,15 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "margin_top": margin_top,
             "margin_bottom": margin_bottom,
             "word_wrap": word_wrap,
+            "side": side,
+            "distance_top": distance_top,
+            "distance_bottom": distance_bottom,
+            "distance_left": distance_left,
+            "distance_right": distance_right,
+            "crop_left": crop_left,
+            "crop_top": crop_top,
+            "crop_right": crop_right,
+            "crop_bottom": crop_bottom,
             "shapes": shapes,
             "rules": rules,
             "within": within,
@@ -1890,11 +1951,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           add_trendline {anchor_id=chart:N,[series=1,kind=linear|exponential|logarithmic|moving_average|polynomial|power,display_equation,display_r_squared,forward,backward]} ·
           set_series_color {anchor_id=chart:N,color,[series=1,point]} — recolour a series or one 1-based point/slice ·
           set_shape_wrap/set_shape_position/set_shape_size/format_shape/set_shape_alt_text/set_shape_text/replace_shape_image/delete_shape {anchor_id=shape:N,…} —
-            restyle a floating shape (text box / image): wrap, position (left/top/relative_to), size (width/height/lock_aspect), fill/border, alt text, text-box contents, picture swap (path|base64), or delete ·
+            restyle a floating shape (text box / image): wrap (style/side/distance_*), position (left/top/relative_to), size (width/height/lock_aspect), fill/border, alt text, text-box contents, picture swap (path|base64), or delete ·
+          set_shape_crop {anchor_id=shape:N,[crop_left,crop_top,crop_right,crop_bottom]} — trim a floating PICTURE shape in from its edges ·
           set_shape_rotation {anchor_id=shape:N,degrees} · set_shape_z_order {anchor_id=shape:N,order=front|back|forward|backward} ·
           set_shape_text_frame {anchor_id=shape:N,[margin_left,margin_right,margin_top,margin_bottom,word_wrap]} — a text box's insets / word-wrap ·
           group_shapes {shapes=[shape:N,…]} — group two or more floats into one (returns the group's shape:N) · ungroup_shape {anchor_id=shape:N} — dissolve a group ·
-          set_image_alt_text {anchor_id=image:N,text} · set_image_size {anchor_id=image:N,[width,height,lock_aspect]} — alt text / resize an INLINE picture (re-wrap floats it via insert_image) ·
+          set_image_alt_text {anchor_id=image:N,text} · set_image_size {anchor_id=image:N,[width,height,lock_aspect]} · set_image_crop {anchor_id=image:N,[crop_left,crop_top,crop_right,crop_bottom]} — alt text / resize / crop an INLINE picture (re-wrap floats it via insert_image) ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
           regularize {[rules],[within],[dry_run]} — apply the fixable word_read lint findings in one atomic step (targeted, idempotent); returns {applied,skipped,findings} ·

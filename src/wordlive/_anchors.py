@@ -3584,10 +3584,21 @@ class ImageAnchor(Anchor):
         self._apply(_shapes.apply_shape_size, width=width, height=height, lock_aspect=lock_aspect)
         return self
 
+    def set_crop(
+        self, *, left: Any = None, top: Any = None, right: Any = None, bottom: Any = None
+    ) -> ImageAnchor:
+        """Crop the inline picture in from its edges. `left` / `top` / `right` /
+        `bottom` are the amounts trimmed off each edge (lengths in points /
+        ``"0.2in"``); cropping shrinks the displayed size. At least one edge is
+        required. Returns `self` (chainable). Bad input raises `OpError`."""
+        self._apply(_shapes.apply_shape_crop, left=left, top=top, right=right, bottom=bottom)
+        return self
+
     def _apply(self, fn: Any, *args: Any, **kwargs: Any) -> None:
-        """Run a `_shapes` size helper on this inline picture (`InlineShape` shares
-        the `Width` / `Height` / `LockAspectRatio` surface), translating COM and
-        bad-input errors into the wordlive hierarchy (`OpError`)."""
+        """Run a `_shapes` size/crop helper on this inline picture (`InlineShape`
+        shares the `Width` / `Height` / `LockAspectRatio` / `PictureFormat`
+        surface), translating COM and bad-input errors into the wordlive hierarchy
+        (`OpError`)."""
         shape = self._shape()
         try:
             with _com.translate_com_errors():
@@ -3631,14 +3642,16 @@ class ImageCollection:
             yield ImageAnchor(self._doc, i)
 
     def list(self) -> list[dict[str, Any]]:
-        """Every image as `{index, anchor_id, mime, width, height, alt_text, para}`.
+        """Every image as `{index, anchor_id, mime, width, height, crop, alt_text, para}`.
 
         `mime` is the picture's content type (read from its package XML —
         ``None`` if the shape isn't a raster image, e.g. an embedded chart or OLE
-        object). `width`/`height` are in points. `para` is the `para:N` anchor of
-        the paragraph the image sits in (or ``None`` if it can't be located).
-        Reads each image's content type but not its (potentially large) bytes —
-        call [`read_image`][wordlive.Anchor.read_image] for those.
+        object). `width`/`height` are in points; `crop` the `{left, top, right,
+        bottom}` insets in points (or ``None`` if uncropped). `para` is the
+        `para:N` anchor of the paragraph the image sits in (or ``None`` if it
+        can't be located). Reads each image's content type but not its
+        (potentially large) bytes — call [`read_image`][wordlive.Anchor.read_image]
+        for those.
         """
         out: list[dict[str, Any]] = []
         with _com.translate_com_errors():
@@ -3669,6 +3682,7 @@ class ImageCollection:
                         "mime": mime,
                         "width": _safe_float(shape, "Width"),
                         "height": _safe_float(shape, "Height"),
+                        "crop": _shapes.crop_values(shape),
                         "alt_text": _safe_str(shape, "AlternativeText"),
                         "para": para_id,
                     }
@@ -4202,11 +4216,52 @@ class ShapeAnchor(Anchor):
         with _com.translate_com_errors():
             return int(self._shape().ZOrderPosition)
 
-    def set_wrap(self, wrap: str) -> ShapeAnchor:
-        """Set how body text flows around the shape — ``"square"`` / ``"tight"`` /
-        ``"through"`` / ``"top-bottom"`` / ``"front"`` / ``"behind"``. Returns
-        `self` (chainable). Bad input raises `OpError`."""
-        self._apply(_shapes.apply_shape_wrap, wrap)
+    def set_wrap(
+        self,
+        wrap: str | None = None,
+        *,
+        side: str | None = None,
+        distance_top: Any = None,
+        distance_bottom: Any = None,
+        distance_left: Any = None,
+        distance_right: Any = None,
+    ) -> ShapeAnchor:
+        """Set how body text flows around the shape.
+
+        `wrap` is the style — ``"square"`` / ``"tight"`` / ``"through"`` /
+        ``"top-bottom"`` / ``"front"`` / ``"behind"``. `side` is which sides text
+        flows past — ``"both"`` / ``"left"`` / ``"right"`` / ``"largest"`` (only
+        ``"square"`` / ``"tight"`` / ``"through"`` honour it; Word ignores it for
+        the others). `distance_*` are the standoff gaps between text and the shape
+        (lengths in points / ``"0.1in"``). At least one argument is required.
+        Returns `self` (chainable). Bad input raises `OpError`."""
+        self._apply(
+            _shapes.apply_shape_wrap,
+            wrap,
+            side=side,
+            distance_top=distance_top,
+            distance_bottom=distance_bottom,
+            distance_left=distance_left,
+            distance_right=distance_right,
+        )
+        return self
+
+    def set_crop(
+        self, *, left: Any = None, top: Any = None, right: Any = None, bottom: Any = None
+    ) -> ShapeAnchor:
+        """Crop a floating picture in from its edges. `left` / `top` / `right` /
+        `bottom` are the amounts trimmed off each edge (lengths in points /
+        ``"0.2in"``); cropping shrinks the displayed size. At least one edge is
+        required. Only valid on a ``"picture"`` shape; raises `OpError` on a text
+        box / WordArt / group. Returns `self` (chainable)."""
+        self._apply(
+            _shapes.apply_shape_crop,
+            left=left,
+            top=top,
+            right=right,
+            bottom=bottom,
+            require_picture=True,
+        )
         return self
 
     def set_position(
@@ -4385,12 +4440,15 @@ class ShapeCollection:
 
     def list(self) -> list[dict[str, Any]]:
         """Every floating shape as `{index, anchor_id, shape_type, name, width,
-        height, rotation, z_order, wrap, alt_text, has_text, para}`.
+        height, rotation, z_order, wrap, wrap_side, crop, alt_text, has_text,
+        para}`.
 
         `shape_type` is the kind string; `width` / `height` are points; `rotation`
         the clockwise angle in degrees; `z_order` the 1-based stacking position;
-        `wrap` the text-wrap keyword; `has_text` whether a text frame holds text;
-        `para` the `para:N` the shape is anchored in.
+        `wrap` the text-wrap keyword and `wrap_side` which sides text flows past;
+        `crop` the picture's `{left, top, right, bottom}` insets in points (or
+        `None`); `has_text` whether a text frame holds text; `para` the `para:N`
+        the shape is anchored in.
         """
         out: list[dict[str, Any]] = []
         with _com.translate_com_errors():
@@ -4401,6 +4459,13 @@ class ShapeCollection:
                     wrap: str | None = _shapes.WRAP_TO_NAME.get(int(shape.WrapFormat.Type))
                 except Exception:
                     wrap = None
+                try:
+                    wrap_side: str | None = _shapes.WRAP_SIDE_TO_NAME.get(
+                        int(shape.WrapFormat.Side)
+                    )
+                except Exception:
+                    wrap_side = None
+                crop = _shapes.crop_values(shape) if kind == "picture" else None
                 try:
                     z_order: int | None = int(shape.ZOrderPosition)
                 except Exception:
@@ -4432,6 +4497,8 @@ class ShapeCollection:
                         "rotation": _safe_float(shape, "Rotation"),
                         "z_order": z_order,
                         "wrap": wrap,
+                        "wrap_side": wrap_side,
+                        "crop": crop,
                         "alt_text": alt_text,
                         "has_text": has_text,
                         "para": para_id,

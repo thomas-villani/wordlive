@@ -241,9 +241,18 @@ class WdRelativeVerticalPosition(IntEnum):
 
 
 class WdWrapSideType(IntEnum):
-    """`Shape.WrapFormat.Side` — which sides of a floating shape text flows past."""
+    """`Shape.WrapFormat.Side` — which sides of a floating shape text flows past.
+
+    Only meaningful for the `square` / `tight` / `through` wraps; for
+    `top-bottom` / `front` / `behind` Word silently coerces `Side` back to
+    `BOTH` (live-probed 2026-06-19). `LARGEST` lets text flow only past the
+    wider side.
+    """
 
     BOTH = 0
+    LEFT = 1
+    RIGHT = 2
+    LARGEST = 3
 
 
 class WdStoryType(IntEnum):

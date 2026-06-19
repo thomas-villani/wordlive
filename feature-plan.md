@@ -702,12 +702,20 @@ that works *alongside* the user in a live session. Feasibility **proven live**
   for **floating** images; Slice 2 added the **inline `image:N` restyle** subset
   (`set_alt_text` / `set_size` — non-wrap) plus **shape depth** (`set_rotation`,
   `set_z_order`, `set_text_frame`), **group/ungroup** (`doc.group_shapes` /
-  `ShapeAnchor.ungroup`), and the **`textbox:N`** alias. *Still open:* wrap *side*
-  + text distance; cropping; EMF/WMF; chart-image export; OLE extraction; an MCP
-  `ImageContent` block so the model *sees* the extracted original directly.
+  `ShapeAnchor.ungroup`), and the **`textbox:N`** alias; Slice 3 added **wrap
+  *side* + text distance** (`set_wrap(side=…, distance_*=…)`, `WrapFormat.Side` /
+  `Distance*`), **cropping** (`ShapeAnchor.set_crop` for a floating picture +
+  `ImageAnchor.set_crop` for an inline one, `PictureFormat.Crop*`), and the **MCP
+  `ImageContent` block** — `word_read command=read_image` now hands a vision model
+  the actual picture (an inline image content block, like `word_snapshot`) instead
+  of base64 text. *Still open:* EMF/WMF; chart-image export; OLE extraction.
   *Declined:* text-box **autosize** ("resize-to-fit-text") — no clean COM path
   (`TextFrame.AutoSize` no-ops; `TextFrame2.AutoSize` rejects the value,
-  live-probed 2026-06-19).
+  live-probed 2026-06-19). Live-probed 2026-06-19 (Slice 3): `WrapFormat.Side`
+  is silently coerced back to `both` for `top-bottom`/`front`/`behind`;
+  `PictureFormat.Crop*` raises on a non-picture shape (hence the `set_crop`
+  picture guard); inline `InlineShape` shares `PictureFormat`, so one helper
+  covers both.
 - **Cursor/inline polish** — raw inline `insert_before`/`insert_after` (no new
   paragraph) on the CLI; a `write_cursor` exec op (fights `EditScope`'s
   cursor-restore in a batch).

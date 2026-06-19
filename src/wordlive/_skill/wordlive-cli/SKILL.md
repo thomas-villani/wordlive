@@ -137,7 +137,8 @@ wordlive insert-image --anchor-id ID (--path FILE | --base64 VALUE) --wrap WRAP 
 ## Floating shapes (`shape:N`) — text boxes, floating images, WordArt
 ```
 wordlive shapes                       # list shape:N ids, kind, size, wrap, para:N
-wordlive set-shape-wrap   --anchor-id shape:N --wrap square|tight|through|top-bottom|front|behind
+wordlive set-shape-wrap   --anchor-id shape:N [--wrap square|tight|through|top-bottom|front|behind] [--side both|left|right|largest] [--distance-top D] [--distance-bottom D] [--distance-left D] [--distance-right D]
+wordlive set-shape-crop   --anchor-id shape:N [--left L] [--top T] [--right R] [--bottom B]   # picture shapes only
 wordlive set-shape-position --anchor-id shape:N [--left L] [--top T] [--relative-to margin|page]
 wordlive set-shape-size   --anchor-id shape:N [--width W] [--height H] [--lock-aspect|--no-lock-aspect]
 wordlive format-shape     --anchor-id shape:N [--fill C] [--border-color C | --no-border | --default-border] [--border-weight W]
@@ -153,6 +154,7 @@ wordlive delete-shape     --anchor-id shape:N
 # inline pictures (image:N) — alt text / resize without floating them:
 wordlive set-image-alt-text --anchor-id image:N --text "…"
 wordlive set-image-size   --anchor-id image:N [--width W] [--height H] [--lock-aspect|--no-lock-aspect]
+wordlive set-image-crop   --anchor-id image:N [--left L] [--top T] [--right R] [--bottom B]
 ```
 - `shape:N` addresses the document's **floating** shapes (a text box from
   `insert-text-box`, a floating image from `insert-image`, WordArt) in document
@@ -174,11 +176,11 @@ wordlive set-image-size   --anchor-id image:N [--width W] [--height H] [--lock-a
 - `textbox:N` is an addressing alias onto a text box's canonical `shape:N` (so
   `anchor-id textbox:1` ≡ the first text box's `shape:M`).
 - These are the post-insert restyle handles `insert-text-box` and a floating
-  `insert-image` hand back — the exec ops are `set_shape_wrap`,
+  `insert-image` hand back — the exec ops are `set_shape_wrap`, `set_shape_crop`,
   `set_shape_position`, `set_shape_size`, `format_shape`, `set_shape_alt_text`,
   `set_shape_text`, `set_shape_rotation`, `set_shape_z_order`,
   `set_shape_text_frame`, `replace_shape_image`, `delete_shape`, `group_shapes`,
-  `ungroup_shape`, `set_image_alt_text`, `set_image_size`.
+  `ungroup_shape`, `set_image_alt_text`, `set_image_size`, `set_image_crop`.
 
 ## Equations
 ```
@@ -304,10 +306,11 @@ Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `insert_markdown`, `replace_section`, `delete_paragraph`, `append`,
 `append_inline`, `prepend`, `prepend_inline`, `insert_image`, `insert_equation`,
 `insert_chart`, `format_chart`, `format_axis`, `add_trendline`, `set_series_color`,
-`set_shape_wrap`, `set_shape_position`, `set_shape_size`, `format_shape`,
-`set_shape_alt_text`, `set_shape_text`, `set_shape_rotation`, `set_shape_z_order`,
-`set_shape_text_frame`, `replace_shape_image`, `delete_shape`, `group_shapes`,
-`ungroup_shape`, `set_image_alt_text`, `set_image_size`,
+`set_shape_wrap`, `set_shape_crop`, `set_shape_position`, `set_shape_size`,
+`format_shape`, `set_shape_alt_text`, `set_shape_text`, `set_shape_rotation`,
+`set_shape_z_order`, `set_shape_text_frame`, `replace_shape_image`,
+`delete_shape`, `group_shapes`, `ungroup_shape`, `set_image_alt_text`,
+`set_image_size`, `set_image_crop`,
 `replace`,
 `find_replace`, `apply_style`, `format_paragraph`, `format_run`, `set_shading`,
 `set_borders`, `drop_cap`, `add_tab_stop`, `add_style`, `set_style`, `insert_field`,

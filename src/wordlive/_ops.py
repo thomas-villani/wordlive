@@ -57,7 +57,8 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "format_axis": ("anchor_id", "which"),
     "add_trendline": ("anchor_id",),
     "set_series_color": ("anchor_id", "color"),
-    "set_shape_wrap": ("anchor_id", "wrap"),
+    "set_shape_wrap": ("anchor_id",),  # at least one of wrap/side/distance_* (apply_op)
+    "set_shape_crop": ("anchor_id",),  # at least one of left/top/right/bottom (apply_op)
     "set_shape_position": ("anchor_id",),
     "set_shape_size": ("anchor_id",),
     "format_shape": ("anchor_id",),
@@ -72,6 +73,7 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "ungroup_shape": ("anchor_id",),
     "set_image_alt_text": ("anchor_id", "text"),
     "set_image_size": ("anchor_id",),
+    "set_image_crop": ("anchor_id",),  # at least one of left/top/right/bottom (apply_op)
     "replace": ("anchor_id", "text"),
     "find_replace": ("find", "text"),
     "apply_style": ("anchor_id", "name"),
@@ -257,7 +259,15 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         "backward",
     ),
     "set_series_color": ("series", "point"),
-    "set_shape_wrap": (),
+    "set_shape_wrap": (
+        "wrap",
+        "side",
+        "distance_top",
+        "distance_bottom",
+        "distance_left",
+        "distance_right",
+    ),
+    "set_shape_crop": ("left", "top", "right", "bottom"),
     "set_shape_position": ("left", "top", "relative_to"),
     "set_shape_size": ("width", "height", "lock_aspect"),
     "format_shape": ("fill", "border", "border_weight"),
@@ -278,6 +288,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "ungroup_shape": (),
     "set_image_alt_text": (),
     "set_image_size": ("width", "height", "lock_aspect"),
+    "set_image_crop": ("left", "top", "right", "bottom"),
     "replace": (),
     "find_replace": ("in", "all", "occurrence"),
     "apply_style": (),
@@ -651,19 +662,22 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             raise OpError("op 'group_shapes' requires 'shapes': a list of two or more shape:N ids")
         group = doc.group_shapes(*shapes)
         return {"shape": group.index, "anchor_id": group.anchor_id}
-    elif kind in ("set_image_alt_text", "set_image_size"):
+    elif kind in ("set_image_alt_text", "set_image_size", "set_image_crop"):
         from ._anchors import ImageAnchor  # lazy: avoid an _ops → _anchors import cycle
 
         anchor = doc.anchor_by_id(op["anchor_id"])
         if not isinstance(anchor, ImageAnchor):
             raise OpError(f"{op['anchor_id']!r} is not an image; {kind} needs an image:N anchor")
+        kwargs = {k: op[k] for k in OP_OPTIONAL_FIELDS[kind] if k in op}
         if kind == "set_image_alt_text":
             anchor.set_alt_text(op["text"])
-        else:  # set_image_size
-            kwargs = {k: op[k] for k in OP_OPTIONAL_FIELDS[kind] if k in op}
+        elif kind == "set_image_size":
             anchor.set_size(**kwargs)
+        else:  # set_image_crop
+            anchor.set_crop(**kwargs)
     elif kind in (
         "set_shape_wrap",
+        "set_shape_crop",
         "set_shape_position",
         "set_shape_size",
         "format_shape",
@@ -684,7 +698,9 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         fields = OP_OPTIONAL_FIELDS[kind]
         kwargs = {k: op[k] for k in fields if k in op}
         if kind == "set_shape_wrap":
-            anchor.set_wrap(op["wrap"])
+            anchor.set_wrap(**kwargs)
+        elif kind == "set_shape_crop":
+            anchor.set_crop(**kwargs)
         elif kind == "set_shape_position":
             anchor.set_position(**kwargs)
         elif kind == "set_shape_size":

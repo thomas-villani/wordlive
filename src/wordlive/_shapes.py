@@ -35,6 +35,7 @@ from .constants import (
     WdRelativeVerticalPosition,
     WdShapePosition,
     WdStoryType,
+    WdWrapSideType,
     WdWrapType,
 )
 from .exceptions import OpError
@@ -63,6 +64,16 @@ WRAP_NAMES: dict[str, WdWrapType] = {
     "behind": WdWrapType.BEHIND,
 }
 WRAP_TO_NAME: dict[int, str] = {int(v): k for k, v in WRAP_NAMES.items()}
+
+# Wrap-side keyword -> WdWrapSideType (which sides text flows past — only the
+# square/tight/through wraps honour it; the others coerce back to "both").
+WRAP_SIDE_NAMES: dict[str, int] = {
+    "both": int(WdWrapSideType.BOTH),
+    "left": int(WdWrapSideType.LEFT),
+    "right": int(WdWrapSideType.RIGHT),
+    "largest": int(WdWrapSideType.LARGEST),
+}
+WRAP_SIDE_TO_NAME: dict[int, str] = {v: k for k, v in WRAP_SIDE_NAMES.items()}
 
 # Z-order keyword -> MsoZOrderCmd (the four reorder verbs `set_z_order` exposes).
 ZORDER_NAMES: dict[str, int] = {
@@ -161,11 +172,102 @@ def _position_value(value: Any) -> float:
 # inherently polite (the user's cursor/scroll never moves).
 
 
-def apply_shape_wrap(shape: Any, wrap: str) -> None:
-    """Set how body text flows around the shape (the floating wrap keywords)."""
-    if wrap not in WRAP_NAMES:
-        raise OpError(f"unknown wrap {wrap!r}; expected one of {sorted(WRAP_NAMES)}")
-    shape.WrapFormat.Type = int(WRAP_NAMES[wrap])
+def apply_shape_wrap(
+    shape: Any,
+    wrap: str | None = None,
+    *,
+    side: str | None = None,
+    distance_top: Any = None,
+    distance_bottom: Any = None,
+    distance_left: Any = None,
+    distance_right: Any = None,
+) -> None:
+    """Set how body text flows around the shape.
+
+    `wrap` is the wrap style (`square` / `tight` / `through` / `top-bottom` /
+    `front` / `behind`); `side` is which sides text flows past (`both` / `left`
+    / `right` / `largest` — honoured only by square/tight/through, ignored by the
+    rest); `distance_*` are the standoff gaps between text and the shape (lengths
+    in points / ``"0.1in"``). At least one argument must be given.
+    """
+    if (
+        wrap is None
+        and side is None
+        and distance_top is None
+        and distance_bottom is None
+        and distance_left is None
+        and distance_right is None
+    ):
+        raise OpError("set_wrap needs at least one of wrap / side / distance_*")
+    wf = shape.WrapFormat
+    if wrap is not None:
+        if wrap not in WRAP_NAMES:
+            raise OpError(f"unknown wrap {wrap!r}; expected one of {sorted(WRAP_NAMES)}")
+        wf.Type = int(WRAP_NAMES[wrap])
+    if side is not None:
+        if side not in WRAP_SIDE_NAMES:
+            raise OpError(f"unknown wrap side {side!r}; expected one of {sorted(WRAP_SIDE_NAMES)}")
+        wf.Side = WRAP_SIDE_NAMES[side]
+    if distance_top is not None:
+        wf.DistanceTop = to_points(distance_top)
+    if distance_bottom is not None:
+        wf.DistanceBottom = to_points(distance_bottom)
+    if distance_left is not None:
+        wf.DistanceLeft = to_points(distance_left)
+    if distance_right is not None:
+        wf.DistanceRight = to_points(distance_right)
+
+
+def apply_shape_crop(
+    shape: Any,
+    *,
+    left: Any = None,
+    top: Any = None,
+    right: Any = None,
+    bottom: Any = None,
+    require_picture: bool = False,
+) -> None:
+    """Crop a picture in from its edges. `left` / `top` / `right` / `bottom` are
+    the amounts trimmed off each edge (lengths in points / ``"0.2in"``); cropping
+    shrinks the displayed size. At least one edge must be given.
+
+    `require_picture` guards the floating-shape path: cropping a non-picture
+    `Shape` raises an opaque COM error, so `ShapeAnchor.set_crop` asks for a clean
+    `OpError` instead. Inline images (`ImageAnchor`) are always pictures and skip
+    the guard."""
+    if left is None and top is None and right is None and bottom is None:
+        raise OpError("set_crop needs at least one of left / top / right / bottom")
+    if require_picture and shape_kind(shape) != "picture":
+        raise OpError(
+            f"crop is only valid on a picture shape; this is a {shape_kind(shape)!r} shape"
+        )
+    pf = shape.PictureFormat
+    if left is not None:
+        pf.CropLeft = to_points(left)
+    if top is not None:
+        pf.CropTop = to_points(top)
+    if right is not None:
+        pf.CropRight = to_points(right)
+    if bottom is not None:
+        pf.CropBottom = to_points(bottom)
+
+
+def crop_values(shape: Any) -> dict[str, float] | None:
+    """The shape's crop insets as ``{left, top, right, bottom}`` in points, or
+    ``None`` if it carries no croppable picture or all four are zero."""
+    try:
+        pf = shape.PictureFormat
+        crop = {
+            "left": float(pf.CropLeft),
+            "top": float(pf.CropTop),
+            "right": float(pf.CropRight),
+            "bottom": float(pf.CropBottom),
+        }
+    except Exception:
+        return None
+    if not any(crop.values()):
+        return None
+    return crop
 
 
 def apply_shape_position(
