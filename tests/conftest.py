@@ -236,12 +236,26 @@ def _list_application() -> MagicMock:
 
 
 class _FakeWrapFormat:
-    """Mimics Shape.WrapFormat — `.Type` (+ `.AllowOverlap` / `.Side` for watermarks)."""
+    """Mimics Shape.WrapFormat — `.Type`, `.Side`, `.Distance*`, `.AllowOverlap`."""
 
     def __init__(self) -> None:
         self.Type = 7  # wdWrapInline until ConvertToShape / set_wrap sets a real wrap
         self.AllowOverlap = False
         self.Side = 0
+        self.DistanceTop = 0.0
+        self.DistanceBottom = 0.0
+        self.DistanceLeft = 0.0
+        self.DistanceRight = 0.0
+
+
+class _FakePictureFormat:
+    """Mimics Shape/InlineShape.PictureFormat — the four crop insets (points)."""
+
+    def __init__(self) -> None:
+        self.CropLeft = 0.0
+        self.CropTop = 0.0
+        self.CropRight = 0.0
+        self.CropBottom = 0.0
 
 
 class _FakeInlineShape:
@@ -253,6 +267,7 @@ class _FakeInlineShape:
         self.Height = 80.0
         self.AlternativeText = ""
         self.LockAspectRatio = -1
+        self.PictureFormat = _FakePictureFormat()
         self.converted = None  # the floating _FakeFloatingShape, once ConvertToShape() runs
 
     def ConvertToShape(self) -> _FakeFloatingShape:
@@ -319,7 +334,9 @@ class _FakeDocImage:
         self.Range = rng
         self.Width = width
         self.Height = height
+        self.LockAspectRatio = -1
         self.AlternativeText = alt_text
+        self.PictureFormat = _FakePictureFormat()
         self.Type = 3  # wdInlineShapePicture
 
 
@@ -1780,6 +1797,7 @@ class _FakeFloatingShape:
         self.RelativeVerticalPosition = 0
         self.WrapFormat = _FakeWrapFormat()
         self.TextFrame = _FakeTextFrame(text)
+        self.PictureFormat = _FakePictureFormat()
         self._children: list[_FakeFloatingShape] = []
         anchor = _make_range(anchor_start, anchor_start)
         anchor.StoryType = story_type

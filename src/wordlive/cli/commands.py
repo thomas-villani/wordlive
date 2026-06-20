@@ -133,6 +133,7 @@ def register(group: click.Group) -> None:
     group.add_command(set_series_color_cmd)
     group.add_command(shapes_cmd)
     group.add_command(set_shape_wrap_cmd)
+    group.add_command(set_shape_crop_cmd)
     group.add_command(set_shape_position_cmd)
     group.add_command(set_shape_size_cmd)
     group.add_command(format_shape_cmd)
@@ -147,6 +148,7 @@ def register(group: click.Group) -> None:
     group.add_command(ungroup_shape_cmd)
     group.add_command(set_image_alt_text_cmd)
     group.add_command(set_image_size_cmd)
+    group.add_command(set_image_crop_cmd)
     group.add_command(bookmark)
     group.add_command(pin_cmd)
     group.add_command(pin_outline_cmd)
@@ -1965,8 +1967,9 @@ def _fmt_images(rows: list[dict[str, Any]]) -> str:
         mime = r.get("mime") or "?"
         para = r.get("para") or ""
         alt = r.get("alt_text") or ""
+        crop = "  cropped" if r.get("crop") else ""
         suffix = f"  {alt!r}" if alt else ""
-        lines.append(f"[{r['anchor_id']}] {mime}{size}  {para}{suffix}")
+        lines.append(f"[{r['anchor_id']}] {mime}{size}{crop}  {para}{suffix}")
     return "\n".join(lines)
 
 
@@ -3933,9 +3936,13 @@ def _fmt_shapes(rows: list[dict[str, Any]]) -> str:
         para = r.get("para") or ""
         w, h = r.get("width"), r.get("height")
         dims = f"{round(w)}x{round(h)}pt" if w is not None and h is not None else ""
+        wrap = r.get("wrap")
+        side = r.get("wrap_side")
+        wrap_txt = f"wrap={wrap}" + (f"/{side}" if side and side != "both" else "")
+        crop_txt = "  cropped" if r.get("crop") else ""
         lines.append(
             f"[{r['anchor_id']}] {r.get('shape_type', '?')}  {dims}  "
-            f"wrap={r.get('wrap')}  {para}".rstrip()
+            f"{wrap_txt}{crop_txt}  {para}".rstrip()
         )
     return "\n".join(lines)
 
@@ -3975,23 +3982,95 @@ def _shape_anchor(word: Any, doc_name: str | None, anchor_id: str) -> Any:
 @click.option(
     "--wrap",
     "wrap",
-    required=True,
+    default=None,
     type=click.Choice(["square", "tight", "through", "top-bottom", "front", "behind"]),
     help="How body text flows around the shape.",
 )
+@click.option(
+    "--side",
+    "side",
+    default=None,
+    type=click.Choice(["both", "left", "right", "largest"]),
+    help="Which sides text flows past (square/tight/through only).",
+)
+@click.option("--distance-top", "distance_top", default=None, help="Top standoff (pt / '0.1in').")
+@click.option(
+    "--distance-bottom", "distance_bottom", default=None, help="Bottom standoff (pt / '0.1in')."
+)
+@click.option(
+    "--distance-left", "distance_left", default=None, help="Left standoff (pt / '0.1in')."
+)
+@click.option(
+    "--distance-right", "distance_right", default=None, help="Right standoff (pt / '0.1in')."
+)
 @click.pass_context
-def set_shape_wrap_cmd(ctx: click.Context, anchor_id: str, wrap: str) -> None:
-    """Set how body text wraps around a floating shape (atomic-undo)."""
+def set_shape_wrap_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    wrap: str | None,
+    side: str | None,
+    distance_top: str | None,
+    distance_bottom: str | None,
+    distance_left: str | None,
+    distance_right: str | None,
+) -> None:
+    """Set how body text wraps around a floating shape (atomic-undo). Pass at least one option."""
+    raw: dict[str, Any] = {
+        "wrap": wrap,
+        "side": side,
+        "distance_top": distance_top,
+        "distance_bottom": distance_bottom,
+        "distance_left": distance_left,
+        "distance_right": distance_right,
+    }
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one of --wrap / --side / --distance-*")
 
     def go() -> None:
         with attach() as word:
             doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
             with doc.edit(f"CLI: set shape wrap {anchor_id}"):
-                anchor.set_wrap(wrap)
+                anchor.set_wrap(**kwargs)
             emit(
-                {"ok": True, "anchor_id": anchor_id, "wrap": wrap},
+                {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
                 as_text=not ctx.obj["as_json"],
-                text=f"set wrap of {anchor_id} -> {wrap}",
+                text=f"set wrap of {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="set-shape-crop")
+@click.option("--anchor-id", "anchor_id", required=True, help="Picture shape anchor (shape:N).")
+@click.option("--left", "left", default=None, help="Trim off the left edge (pt / '0.2in').")
+@click.option("--top", "top", default=None, help="Trim off the top edge (pt / '0.2in').")
+@click.option("--right", "right", default=None, help="Trim off the right edge (pt / '0.2in').")
+@click.option("--bottom", "bottom", default=None, help="Trim off the bottom edge (pt / '0.2in').")
+@click.pass_context
+def set_shape_crop_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    left: str | None,
+    top: str | None,
+    right: str | None,
+    bottom: str | None,
+) -> None:
+    """Crop a floating picture shape in from its edges (atomic-undo). Pass at least one edge."""
+    raw: dict[str, Any] = {"left": left, "top": top, "right": right, "bottom": bottom}
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one of --left / --top / --right / --bottom")
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _shape_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: crop shape {anchor_id}"):
+                anchor.set_crop(**kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"cropped {anchor_id}: {kwargs}",
             )
 
     _run(ctx, go)
@@ -4431,6 +4510,41 @@ def set_image_size_cmd(
                 {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
                 as_text=not ctx.obj["as_json"],
                 text=f"resized {anchor_id}: {kwargs}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="set-image-crop")
+@click.option("--anchor-id", "anchor_id", required=True, help="Inline image anchor (image:N).")
+@click.option("--left", "left", default=None, help="Trim off the left edge (pt / '0.2in').")
+@click.option("--top", "top", default=None, help="Trim off the top edge (pt / '0.2in').")
+@click.option("--right", "right", default=None, help="Trim off the right edge (pt / '0.2in').")
+@click.option("--bottom", "bottom", default=None, help="Trim off the bottom edge (pt / '0.2in').")
+@click.pass_context
+def set_image_crop_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    left: str | None,
+    top: str | None,
+    right: str | None,
+    bottom: str | None,
+) -> None:
+    """Crop an inline picture in from its edges (atomic-undo). Pass at least one edge."""
+    raw: dict[str, Any] = {"left": left, "top": top, "right": right, "bottom": bottom}
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one of --left / --top / --right / --bottom")
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _image_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: crop image {anchor_id}"):
+                anchor.set_crop(**kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"cropped {anchor_id}: {kwargs}",
             )
 
     _run(ctx, go)
@@ -6902,10 +7016,10 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     insert_section, insert_markdown, replace_section,
     delete_paragraph, append, append_inline, prepend, prepend_inline,
     insert_image, insert_equation, insert_chart, format_chart, format_axis, add_trendline,
-    set_series_color, set_shape_wrap, set_shape_position, set_shape_size, format_shape,
-    set_shape_alt_text, set_shape_text, set_shape_rotation, set_shape_z_order,
+    set_series_color, set_shape_wrap, set_shape_crop, set_shape_position, set_shape_size,
+    format_shape, set_shape_alt_text, set_shape_text, set_shape_rotation, set_shape_z_order,
     set_shape_text_frame, replace_shape_image, delete_shape, group_shapes, ungroup_shape,
-    set_image_alt_text, set_image_size,
+    set_image_alt_text, set_image_size, set_image_crop,
     replace, find_replace, apply_style, format_paragraph,
     format_run, set_shading, set_borders, drop_cap, add_tab_stop, add_style, set_style,
     insert_field, set_page_setup, update_fields, regularize, insert_footnote, insert_endnote,

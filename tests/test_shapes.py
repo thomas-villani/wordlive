@@ -655,3 +655,203 @@ def test_mcp_build_group_shapes_requires_two():
 def test_mcp_build_set_image_size_op():
     op = _build_write_op("set_image_size", {"anchor_id": "image:1", "width": "2in"})
     assert op == {"op": "set_image_size", "anchor_id": "image:1", "width": "2in"}
+
+
+# --- wrap side + text distance --------------------------------------------------
+
+
+def test_set_wrap_side_and_distance(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("tb"):
+            shape = _text_box(doc)
+        shape.set_wrap(side="left", distance_top="0.1in", distance_right=4)
+    wf = fake_word.ActiveDocument.Shapes.Item(1).WrapFormat
+    assert wf.Side == 1  # left
+    assert wf.DistanceTop == 7.2 and wf.DistanceRight == 4.0
+
+
+def test_set_wrap_requires_an_argument(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("tb"):
+            shape = _text_box(doc)
+        with pytest.raises(OpError):
+            shape.set_wrap()
+
+
+def test_set_wrap_bad_side_raises(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("tb"):
+            shape = _text_box(doc)
+        with pytest.raises(OpError):
+            shape.set_wrap(side="sideways")
+
+
+def test_shapes_list_includes_wrap_side_and_crop(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("tb"):
+            shape = _text_box(doc)
+        shape.set_wrap(side="right")
+        rows = doc.shapes.list()
+    assert rows[0]["wrap_side"] == "right"
+    assert rows[0]["crop"] is None  # a text box carries no picture crop
+
+
+def test_exec_set_shape_wrap_side(fake_word):
+    script = json.dumps(
+        [
+            {"op": "insert_text_box", "anchor_id": "bookmark:Address", "text": "Q"},
+            {"op": "set_shape_wrap", "anchor_id": "shape:1", "wrap": "tight", "side": "largest"},
+        ]
+    )
+    code, out = _invoke(["--json", "exec", "--ops", script])
+    assert code == EXIT_OK
+    assert fake_word.ActiveDocument.Shapes.Item(1).WrapFormat.Side == 3  # largest
+
+
+def test_cli_set_shape_wrap_requires_an_option(fake_word):
+    _invoke(
+        [
+            "exec",
+            "--ops",
+            '[{"op": "insert_text_box", "anchor_id": "bookmark:Address", "text": "Q"}]',
+        ]
+    )
+    code, _ = _invoke(["set-shape-wrap", "--anchor-id", "shape:1"])
+    assert code != EXIT_OK  # no wrap/side/distance passed
+
+
+def test_mcp_build_set_shape_wrap_op_optional_wrap():
+    op = _build_write_op(
+        "set_shape_wrap", {"anchor_id": "shape:1", "side": "left", "distance_top": "0.1in"}
+    )
+    assert op == {
+        "op": "set_shape_wrap",
+        "anchor_id": "shape:1",
+        "side": "left",
+        "distance_top": "0.1in",
+    }
+
+
+# --- cropping -------------------------------------------------------------------
+
+
+def _floating_image(doc, png_file):
+    return doc.bookmarks["Address"].insert_image(str(png_file), wrap="square")
+
+
+def test_set_crop_on_picture(fake_word, png_file):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("img"):
+            shape = _floating_image(doc, png_file)
+        shape.set_crop(left="0.2in", bottom=3)
+    pf = fake_word.ActiveDocument.Shapes.Item(1).PictureFormat
+    assert pf.CropLeft == 14.4 and pf.CropBottom == 3.0
+
+
+def test_set_crop_on_non_picture_raises(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("tb"):
+            shape = _text_box(doc)
+        with pytest.raises(OpError):
+            shape.set_crop(left=5)
+
+
+def test_set_crop_requires_an_edge(fake_word, png_file):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("img"):
+            shape = _floating_image(doc, png_file)
+        with pytest.raises(OpError):
+            shape.set_crop()
+
+
+def test_shapes_list_includes_crop_for_picture(fake_word, png_file):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("img"):
+            shape = _floating_image(doc, png_file)
+        shape.set_crop(left=6)
+        rows = doc.shapes.list()
+    assert rows[0]["crop"] == {"left": 6.0, "top": 0.0, "right": 0.0, "bottom": 0.0}
+
+
+def test_image_set_crop(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("crop"):
+            doc.images[1].set_crop(right="0.2in")
+    assert fake_word.ActiveDocument.InlineShapes.Item(1).PictureFormat.CropRight == 14.4
+
+
+def test_exec_set_image_crop(fake_word):
+    code, out = _invoke(
+        [
+            "--json",
+            "exec",
+            "--ops",
+            '[{"op": "set_image_crop", "anchor_id": "image:1", "left": "0.1in"}]',
+        ]
+    )
+    assert code == EXIT_OK
+    assert fake_word.ActiveDocument.InlineShapes.Item(1).PictureFormat.CropLeft == 7.2
+
+
+def test_cli_set_shape_crop(fake_word, png_file):
+    _invoke(
+        [
+            "exec",
+            "--ops",
+            json.dumps(
+                [
+                    {
+                        "op": "insert_image",
+                        "anchor_id": "bookmark:Address",
+                        "wrap": "square",
+                        "path": str(png_file),
+                    }
+                ]
+            ),
+        ]
+    )
+    code, _ = _invoke(["--json", "set-shape-crop", "--anchor-id", "shape:1", "--top", "5"])
+    assert code == EXIT_OK
+    assert fake_word.ActiveDocument.Shapes.Item(1).PictureFormat.CropTop == 5.0
+
+
+def test_cli_set_shape_crop_requires_an_edge(fake_word, png_file):
+    _invoke(
+        [
+            "exec",
+            "--ops",
+            json.dumps(
+                [
+                    {
+                        "op": "insert_image",
+                        "anchor_id": "bookmark:Address",
+                        "wrap": "square",
+                        "path": str(png_file),
+                    }
+                ]
+            ),
+        ]
+    )
+    code, _ = _invoke(["set-shape-crop", "--anchor-id", "shape:1"])
+    assert code != EXIT_OK  # no edge passed
+
+
+def test_mcp_build_set_shape_crop_maps_crop_params():
+    op = _build_write_op(
+        "set_shape_crop", {"anchor_id": "shape:1", "crop_left": "0.2in", "crop_bottom": 3}
+    )
+    assert op == {"op": "set_shape_crop", "anchor_id": "shape:1", "left": "0.2in", "bottom": 3}
+
+
+def test_mcp_build_set_image_crop_maps_crop_params():
+    op = _build_write_op("set_image_crop", {"anchor_id": "image:1", "crop_right": 4})
+    assert op == {"op": "set_image_crop", "anchor_id": "image:1", "right": 4}

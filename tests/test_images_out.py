@@ -102,6 +102,7 @@ def test_doc_images_list_shape(fake_word):
             "mime": "image/png",
             "width": 100.0,
             "height": 80.0,
+            "crop": None,
             "alt_text": "logo",
             "para": "para:2",  # image at offset 20 sits in the body paragraph
         }

@@ -152,12 +152,14 @@ img = a.insert_image("diagram.png", wrap="auto")  # floating wrap → ShapeAncho
 a.read_image()                          # → (bytes, mime) — extract the one image in the range
 tb = a.insert_text_box("Key takeaway", width="2.5in", fill="#eeeeff")  # → ShapeAnchor (shape:N)
 tb.set_wrap("tight").set_size(width="3in", height="1in").format(border="navy")  # chainable restyle-in-place
+tb.set_wrap(side="left", distance_top="0.1in")                    # which sides text flows past + standoff gaps (square/tight/through)
 tb.set_position(left="center", relative_to="margin"); tb.set_text("Revised")    # left/top = length or "center"
 tb.set_rotation(15).set_z_order("front")                          # absolute angle; restack within the float layer
 tb.set_text_frame(margin_left="0.1in", word_wrap=False)          # a text box's internal insets / word-wrap
 img.replace_image("v2.png")             # swap a floating picture's bits in place (preserves wrap/position/size)
+img.set_crop(left="0.2in", bottom=6)    # trim a PICTURE shape in from its edges (a text box would raise)
 g = doc.group_shapes("shape:1", "shape:2"); members = g.ungroup()  # group two+ floats into one; ungroup → [ShapeAnchor]
-doc.images[1].set_alt_text("Fig. 1").set_size(width="3in")        # restyle an INLINE picture (re-wrap = float = insert_image)
+doc.images[1].set_alt_text("Fig. 1").set_size(width="3in").set_crop(right="0.1in")  # restyle/crop an INLINE picture (re-wrap = float = insert_image)
 # doc.shapes lists every floating shape; doc.text_boxes is the text-box subset (each keeps its shape:N id)
 # shape:N is positional (document order) — it renumbers as shapes are added/removed; re-list, don't cache
 # (no autosize knob: Word's "resize-to-fit-text" doesn't expose cleanly over COM)

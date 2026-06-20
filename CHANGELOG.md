@@ -59,6 +59,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `set-shape-text-frame`, `group-shapes`, `ungroup-shape`, `set-image-alt-text`,
     `set-image-size`) / `exec` ops (same names) / MCP (`word_write` commands of
     the same names). (`MsoZOrderCmd` added to `constants`.)
+- **Image polish — wrap side + text distance, cropping, and a vision-first
+  `read_image`** (rounding out the "image polish" cluster on the `shape:N` model):
+  - **Wrap side + standoff distance.** `ShapeAnchor.set_wrap` takes optional
+    `side` (`both`/`left`/`right`/`largest` — which sides body text flows past;
+    only `square`/`tight`/`through` honour it, the rest coerce back to `both`) and
+    `distance_top`/`distance_bottom`/`distance_left`/`distance_right` (the standoff
+    gaps between text and the shape). `wrap` is now optional (pass any one of the
+    three). `doc.shapes.list()` reports `wrap_side`. (`WdWrapSideType` widened with
+    `LEFT`/`RIGHT`/`LARGEST` in `constants`.)
+  - **Cropping.** `ShapeAnchor.set_crop(left/top/right/bottom)` trims a floating
+    *picture* shape in from its edges (guarded to picture shapes — cropping a text
+    box raises a clean `OpError`); `ImageAnchor.set_crop(...)` does the same for an
+    *inline* picture. `doc.shapes.list()` / `doc.images.list()` report a `crop`
+    inset dict (or `None`).
+  - **MCP `read_image` now hands back a real image block.** `word_read
+    command=read_image` returns the extracted picture as an inline image content
+    block (like `word_snapshot`) plus a compact `{anchor_id,mime,bytes}` label, so
+    a vision model *sees* the original directly instead of base64 text it can't
+    decode. (The CLI `read-image` and the Python `read_image()` are unchanged —
+    they still return bytes/base64.)
+  - Wired across Python / CLI (`set-shape-wrap` gains `--side` / `--distance-*`;
+    new `set-shape-crop`, `set-image-crop`) / `exec` ops (`set_shape_crop`,
+    `set_image_crop`; `set_shape_wrap` gains `side`/`distance_*`) / MCP
+    (`word_write` `set_shape_crop` / `set_image_crop` with `crop_*` params,
+    `set_shape_wrap` with `side`/`distance_*`).
 - **Post-creation restyle parity — content controls & hyperlinks.** Two objects
   that accepted styling/config at insert time but had no way to change it
   afterward now have in-place mutators (the iterate-without-delete-and-reinsert

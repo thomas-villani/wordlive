@@ -31,6 +31,7 @@ from wordlive.mcp._worker import ComWorker, InlineWorker  # noqa: E402
 from wordlive.mcp.server import (  # noqa: E402
     _error_payload,
     _exec_impl,
+    _image_format,
     _read_impl,
     _snapshot_impl,
     _write_impl,
@@ -160,6 +161,12 @@ class TestReadImpl:
     def test_read_image_requires_anchor_id(self, fake_word: Any) -> None:
         with pytest.raises(OpError):
             _read_impl(W, "read_image", {})
+
+    def test_image_format_from_mime(self) -> None:
+        assert _image_format("image/png") == "png"
+        assert _image_format("image/jpeg") == "jpeg"
+        assert _image_format(None) == "png"  # fallback
+        assert _image_format("image/") == "png"  # empty subtype → fallback
 
     def test_missing_bookmark_raises(self, fake_word: Any) -> None:
         with pytest.raises(AnchorNotFoundError):
@@ -423,6 +430,22 @@ class TestSession:
         # from inferring an output schema off `-> list[Any]` and re-serialising the
         # base64 PNG into structuredContent — which would send every image twice.
         assert result.structuredContent is None
+
+    def test_read_image_returns_image_content(self, fake_word: Any) -> None:
+        async def go() -> Any:
+            server = build_server(InlineWorker())._mcp_server
+            async with create_connected_server_and_client_session(server) as client:
+                return await client.call_tool(
+                    "word_read", {"command": "read_image", "anchor_id": "image:1"}
+                )
+
+        result = _call(go)
+        assert result.isError is False
+        # The picture rides back as a real image block (so a vision model SEES it),
+        # alongside a compact {anchor_id,mime,bytes} text label — not base64 text.
+        assert any(getattr(c, "type", None) == "image" for c in result.content)
+        assert "image:1" in _texts(result)
+        assert "base64" not in _texts(result)
 
     def test_snapshot_tool_has_no_output_schema(self, fake_word: Any) -> None:
         # Guards the structured_output=False on word_snapshot: an inferred schema

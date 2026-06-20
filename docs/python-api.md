@@ -187,11 +187,12 @@ a range with no image, or more than one, raises
 it needs no `doc.edit(...)`.
 
 An [`ImageAnchor`](#wordlive.ImageAnchor) is also lightly *writable*:
-`set_alt_text(text)` and `set_size(width/height/lock_aspect)` restyle an inline
-picture in place (chainable; wrap in `doc.edit(...)`). These cover the non-wrap
-subset — *re-wrapping* an image (floating it) is `insert_image(wrap=…)`, which
-converts it to a `shape:N` (see below). To change the picture's bytes, delete and
-re-insert.
+`set_alt_text(text)`, `set_size(width/height/lock_aspect)`, and
+`set_crop(left/top/right/bottom)` (trim the picture in from its edges — lengths in
+points / `"0.2in"`) restyle an inline picture in place (chainable; wrap in
+`doc.edit(...)`). These cover the non-wrap subset — *re-wrapping* an image
+(floating it) is `insert_image(wrap=…)`, which converts it to a `shape:N` (see
+below). To change the picture's bytes, delete and re-insert.
 
 ::: wordlive.ImageAnchor
 
@@ -217,12 +218,17 @@ anchor model, addressed `shape:N`. `Anchor.insert_text_box` returns a
 them via [`doc.shapes`](#wordlive.Document.shapes) (all body shapes;
 header-story watermarks excluded) or [`doc.text_boxes`](#wordlive.Document.text_boxes)
 (the text-box subset, a discovery filter that keeps each box's canonical
-`shape:N` id). Restyle in place: `set_wrap`, `set_position(left/top/relative_to)`,
-`set_size(width/height/lock_aspect)`, `format(fill/border/border_weight)`,
-`set_alt_text`; `set_text` edits a text box's contents and `replace_image` swaps
-a floating picture's bits (delete + reinsert at the same anchor, preserving
-wrap / position / size). `shape:N` is *positional* in document order, so adding
-or removing a shape renumbers the rest — re-list rather than caching an id.
+`shape:N` id). Restyle in place:
+`set_wrap(wrap, side, distance_top/bottom/left/right)` (the wrap style, which
+sides text flows past — `both`/`left`/`right`/`largest`, honoured by
+`square`/`tight`/`through` — and the standoff gaps; pass any one),
+`set_position(left/top/relative_to)`, `set_size(width/height/lock_aspect)`,
+`set_crop(left/top/right/bottom)` (trim a *picture* shape in from its edges),
+`format(fill/border/border_weight)`, `set_alt_text`; `set_text` edits a text box's
+contents and `replace_image` swaps a floating picture's bits (delete + reinsert at
+the same anchor, preserving wrap / position / size). `shape:N` is *positional* in
+document order, so adding or removing a shape renumbers the rest — re-list rather
+than caching an id.
 
 Deeper layout knobs round it out: `set_rotation(degrees)` (absolute angle),
 `set_z_order("front"|"back"|"forward"|"backward")` (restack within the floating
