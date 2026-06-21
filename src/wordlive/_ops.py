@@ -144,6 +144,7 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "remove_watermark": (),
     "insert_text_box": ("anchor_id", "text"),
     "apply_list": ("anchor_id",),
+    "apply_list_format": ("anchor_id", "levels"),
     "remove_list": ("anchor_id",),
     "restart_numbering": ("anchor_id",),
     "indent_list": ("anchor_id",),
@@ -434,6 +435,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         *_WHERE_FIELDS,
     ),
     "apply_list": ("type", "continue_previous", "continue"),
+    "apply_list_format": ("continue_previous", "continue"),
     "remove_list": (),
     "restart_numbering": (),
     "indent_list": (),
@@ -1139,6 +1141,11 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         continue_previous = bool(op.get("continue_previous", op.get("continue", False)))
         doc.anchor_by_id(op["anchor_id"]).apply_list(
             op.get("type", "bulleted"), continue_previous=continue_previous
+        )
+    elif kind == "apply_list_format":
+        continue_previous = bool(op.get("continue_previous", op.get("continue", False)))
+        doc.anchor_by_id(op["anchor_id"]).apply_list_format(
+            op["levels"], continue_previous=continue_previous
         )
     elif kind == "remove_list":
         doc.anchor_by_id(op["anchor_id"]).remove_list()

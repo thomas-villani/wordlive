@@ -182,17 +182,30 @@ class _FakeListFormat:
         self.ListString = ""
         self._gallery: int | None = None
         self._continue = False
+        self._template: Any = None  # the applied template (gallery mock or custom)
 
     def ApplyListTemplate(
         self, ListTemplate=None, ContinuePreviousList=False, ApplyTo=0, DefaultListBehavior=2, **kw
     ):
-        gallery = getattr(ListTemplate, "_gallery", None)
-        self._gallery = int(gallery) if gallery is not None else None
-        self.ListType = self._GALLERY_TO_TYPE.get(self._gallery, 3)
+        self._template = ListTemplate
         self._continue = bool(ContinuePreviousList)
-        self.ListValue = 1 if self.ListType in (3, 4) else 0
-        self.ListString = self._MARKER.get(self.ListType, "")
         self.ListLevelNumber = 1
+        gallery = getattr(ListTemplate, "_gallery", None)
+        if gallery is not None:
+            self._gallery = int(gallery)
+            self.ListType = self._GALLERY_TO_TYPE.get(self._gallery, 3)
+            self.ListValue = 1 if self.ListType in (3, 4) else 0
+            self.ListString = self._MARKER.get(self.ListType, "")
+        else:
+            # A custom template (apply_list_format): infer kind from level 1's
+            # format — a bare glyph (no %N) is a bullet, else numbered.
+            self._gallery = None
+            lvl1 = ListTemplate.ListLevels(1)
+            fmt = str(getattr(lvl1, "NumberFormat", "") or "")
+            is_bullet = bool(fmt) and "%" not in fmt
+            self.ListType = 2 if is_bullet else 3
+            self.ListValue = 0 if is_bullet else 1
+            self.ListString = fmt if is_bullet else fmt.replace("%1", "1")
 
     def RemoveNumbers(self, NumberType=3):
         self.ListType = 0
@@ -200,6 +213,7 @@ class _FakeListFormat:
         self.ListValue = 0
         self.ListString = ""
         self._gallery = None
+        self._template = None
 
     def ListIndent(self) -> None:
         self.ListLevelNumber = min(9, self.ListLevelNumber + 1)
@@ -209,11 +223,70 @@ class _FakeListFormat:
 
     @property
     def ListTemplate(self):
+        if self._template is not None:
+            return self._template
         if self._gallery is None:
             return None
         t = MagicMock(name="ListTemplate")
         t._gallery = self._gallery
         return t
+
+
+class _FakeListLevel:
+    """Mimics a `ListLevel` — the settable per-level format props author/read use."""
+
+    def __init__(self) -> None:
+        self.NumberFormat = ""
+        self.NumberStyle = 0
+        self.TrailingCharacter = 0
+        self.StartAt = 1
+        self.NumberPosition = 0.0
+        self.TextPosition = 0.0
+        self.Alignment = 0
+        self.Font = MagicMock(name="LevelFont")
+        self.Font.Name = ""
+        self.Font.Bold = False
+        self.Font.Italic = False
+        self.Font.Color = 0
+
+
+class _FakeListLevels:
+    """Callable `ListLevels` view: `Count` and `ListLevels(i)` -> a `_FakeListLevel`."""
+
+    def __init__(self, count: int) -> None:
+        self._levels = {i: _FakeListLevel() for i in range(1, count + 1)}
+
+    @property
+    def Count(self) -> int:
+        return len(self._levels)
+
+    def __call__(self, index: int) -> Any:
+        return self._levels[index]
+
+
+class _FakeListTemplate:
+    """A custom `ListTemplate` minted by `Document.ListTemplates.Add(outline)`."""
+
+    def __init__(self, outline: bool) -> None:
+        # OutlineNumbered=True → 9 levels, else a single level (matches Word).
+        self.ListLevels = _FakeListLevels(9 if outline else 1)
+        self.Name = ""
+
+
+class _FakeListTemplates:
+    """Mimics `Document.ListTemplates`: `Count` and `Add(OutlineNumbered, [Name])`."""
+
+    def __init__(self) -> None:
+        self._items: list[Any] = []
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def Add(self, OutlineNumbered=False, Name=None):
+        lt = _FakeListTemplate(bool(OutlineNumbered))
+        self._items.append(lt)
+        return lt
 
 
 def _list_application() -> MagicMock:
@@ -2188,6 +2261,8 @@ def _make_document(
         lf._gallery = {2: 1, 3: 2, 4: 3}.get(lf.ListType)
         list_objs.append(_FakeWordList(rng, spec.get("count", 0)))
     doc.Lists = _FakeLists(list_objs)
+    # Custom list-template authoring (apply_list_format) mints templates here.
+    doc.ListTemplates = _FakeListTemplates()
 
     # Sections: at least one (real documents always have one).
     section_specs = sections if sections is not None else [{}]

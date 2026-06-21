@@ -827,6 +827,24 @@ work on any anchor. `Document.lists` is a read-only
 the document; index it (`doc.lists[2]`) to get a
 [`RangeAnchor`](#wordlive.RangeAnchor) over a list's range.
 
+**Custom list formats.** Where `apply_list` only applies a gallery default,
+`anchor.apply_list_format(levels)` **authors a custom multi-level list template**
+and applies it. `levels` is a 1-based list of per-level spec dicts — each setting
+the marker `format` (`"%1."`, `"%1)"`, `"%1.%2"`), number `style` (`"arabic"`,
+`"upper-roman"`, `"lower-letter"`, …) or `bullet` glyph + `font`, plus
+`start_at` / `number_position` / `text_position` / `trailing` / `alignment` /
+`bold` / `color`. More than one level mints an outline template.
+`anchor.read_list_levels()` is the read mirror — one `{level, kind, format, style,
+trailing, number_position, text_position, font}` dict per template level.
+
+```python
+with doc.edit("custom numbering"):
+    doc.headings["Steps"].apply_list_format([
+        {"kind": "number", "format": "%1)", "style": "lower-letter", "trailing": "space"},
+        {"kind": "bullet", "bullet": "–", "font": "Symbol"},
+    ])
+```
+
 ::: wordlive.ListCollection
 
 ## Sections, headers & footers

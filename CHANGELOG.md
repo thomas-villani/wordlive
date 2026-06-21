@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **List polish — custom list-template authoring + per-level format.** Where
+  `apply_list` only applies a gallery default, `anchor.apply_list_format(levels)`
+  (Priority 3, item 6) **authors a custom multi-level list template** and applies
+  it: each per-level spec sets the marker `format` (`"%1."`, `"%1)"`, `"%1.%2"`),
+  number `style` (`arabic`/`upper-roman`/`lower-letter`/…) or `bullet` glyph +
+  `font`, plus `start_at`/`number_position`/`text_position`/`trailing`/
+  `alignment`/`bold`/`color`. More than one level mints an outline template.
+  `anchor.read_list_levels()` is the read mirror (one `{level, kind, format,
+  style, trailing, number_position, text_position, font}` per template level).
+  Composes over `Document.ListTemplates.Add` + per-`ListLevel` mutation, all
+  settable under late binding (live-probed 2026-06-21 — the one trap, baked in:
+  a bullet level is the glyph + a symbol font, never `NumberStyle=bullet`, which
+  raises). Wired Python / CLI (`list format` / `list levels`) / `exec` op
+  (`apply_list_format`) / MCP (`word_write` list action `format`, `word_read`
+  command `list_levels`). New constants `WdListNumberStyle` / `WdTrailingCharacter`
+  / `WdListLevelAlignment`.
 - **Markdown / HTML export — `doc.to_markdown()` / `doc.to_html()`.** The read
   mirror of `insert_markdown`: serialise the whole document, or any anchor's
   range (`within=`), to clean Markdown or an HTML fragment. Both render from one

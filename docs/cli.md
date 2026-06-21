@@ -2786,6 +2786,56 @@ $ wordlive list info --anchor-id range:512-540
 
 Failures: `2` anchor not found, `3` Word busy.
 
+## `list format --anchor-id ID --levels JSON`
+
+```
+wordlive list format --anchor-id ID --levels '[{...}, …]' [--continue] [--doc DOC_NAME]
+```
+
+Author a **custom multi-level list** and apply it — the richer counterpart of
+`list apply` (which only applies a gallery default). `--levels` is a JSON array
+of per-level specs (1-based); each object's keys are all optional except a bullet
+level's glyph:
+
+- `kind` — `"number"` (default) or `"bullet"`.
+- `format` — a number level's marker template (`"%1."`, `"%1)"`, `"%1.%2"`;
+  `%N` references level N), default `"%{level}."`; for a bullet, the glyph.
+- `style` — a number scheme: `arabic`, `upper-roman`, `lower-roman`,
+  `upper-letter`, `lower-letter`, `ordinal`, … .
+- `bullet` / `font` — a bullet's glyph and marker font (default `Symbol`).
+- `start_at`, `number_position`, `text_position` (points or `"0.5in"`),
+  `trailing` (`tab`/`space`/`none`), `alignment` (`left`/`center`/`right`),
+  `bold`, `italic`, `color`.
+
+More than one level mints an outline template. Atomic-undo.
+
+```bash
+$ wordlive list format --anchor-id range:0-40 \
+    --levels '[{"kind":"number","format":"%1)","style":"lower-letter","trailing":"space"}]'
+{"ok": true, "anchor_id": "range:0-40", "levels": 1}
+```
+
+Failures: `1` `--levels` not a JSON array / a bad spec, `2` anchor not found,
+`3` Word busy.
+
+## `list levels --anchor-id ID`
+
+```
+wordlive list levels --anchor-id ID [--doc DOC_NAME]
+```
+
+Read the per-level format of the list at an anchor (read-only) — the read mirror
+of `list format`. Returns one `{level, kind, format, style, trailing,
+number_position, text_position, font}` per level of the applied template, or an
+empty list if the anchor isn't in a list.
+
+```bash
+$ wordlive list levels --anchor-id range:0-40
+{"anchor_id": "range:0-40", "levels": [{"level": 1, "kind": "number", "format": "%1)", "style": "lower-letter", "trailing": "space", "number_position": 18.0, "text_position": 36.0, "font": ""}]}
+```
+
+Failures: `2` anchor not found, `3` Word busy.
+
 ## `list remove | restart | indent | outdent --anchor-id ID`
 
 ```
@@ -2998,6 +3048,7 @@ Script shape:
 | `remove_watermark`     | —                                          | —                                 |
 | `insert_text_box`      | `anchor_id`, `text`                        | `width`, `height`, `wrap`, `font`, `size`, `bold`, `italic`, `alignment`, `fill`, `border`, `before`/`after` |
 | `apply_list`           | `anchor_id`                                | `type` (`bulleted`/`numbered`/`outline`), `continue` |
+| `apply_list_format`    | `anchor_id`, `levels`                      | `continue` (`levels` = per-level specs; see `list format`) |
 | `remove_list`          | `anchor_id`                                | —                                 |
 | `restart_numbering`    | `anchor_id`                                | —                                 |
 | `indent_list`          | `anchor_id`                                | —                                 |
@@ -3142,9 +3193,11 @@ safer when resolving several. `set_watermark` / `remove_watermark` stamp or clea
 a text watermark behind every page, and `insert_text_box` drops a floating pull
 quote at an `anchor_id` (these mirror the `watermark` / `insert-text-box` verbs).
 
-`apply_list`, `remove_list`, `restart_numbering`, `indent_list`, and
-`outdent_list` mirror the `list` verbs — all take an `anchor_id`, and
-`apply_list`'s optional `type` defaults to `bulleted`. `write_header` /
+`apply_list`, `apply_list_format`, `remove_list`, `restart_numbering`,
+`indent_list`, and `outdent_list` mirror the `list` verbs — all take an
+`anchor_id`, and `apply_list`'s optional `type` defaults to `bulleted`.
+`apply_list_format` takes a `levels` array of per-level specs (the `list format`
+verb) to author a custom numbered/bulleted list. `write_header` /
 `write_footer` set a section's header/footer by 1-based `section` index, with
 an optional `which` (`primary` / `first` / `even`, default `primary`) — handy
 for stamping a client name or page footer across a generated document in the

@@ -118,6 +118,42 @@ class WdDefaultListBehavior(IntEnum):
     WORD10 = 2
 
 
+class WdListNumberStyle(IntEnum):
+    """`ListLevel.NumberStyle` values — the numbering scheme for one list level.
+
+    The common subset `apply_list_format` exposes by name. `BULLET` (23) is a
+    trap: setting it on a multi-level template level raises (`0x800a1200`,
+    live-probed 2026-06-21), so a bullet level is authored by setting
+    `NumberFormat` to the glyph plus a `Symbol`/`Wingdings` font instead.
+    """
+
+    ARABIC = 0
+    UPPERCASE_ROMAN = 1
+    LOWERCASE_ROMAN = 2
+    UPPERCASE_LETTER = 3
+    LOWERCASE_LETTER = 4
+    ORDINAL = 5
+    CARDINAL_TEXT = 6
+    ORDINAL_TEXT = 7
+    BULLET = 23
+
+
+class WdTrailingCharacter(IntEnum):
+    """`ListLevel.TrailingCharacter` — what follows a list level's number/bullet."""
+
+    TAB = 0
+    SPACE = 1
+    NONE = 2
+
+
+class WdListLevelAlignment(IntEnum):
+    """`ListLevel.Alignment` — how a list level's number/bullet aligns."""
+
+    LEFT = 0
+    CENTER = 1
+    RIGHT = 2
+
+
 class WdHeaderFooterIndex(IntEnum):
     """Which header/footer of a section — `Section.Headers(index)`.
 

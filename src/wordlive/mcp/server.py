@@ -287,6 +287,9 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
             if command == "format_info":
                 anchor_id = _need(p, "anchor_id", command)
                 return doc.anchor_by_id(anchor_id).format_info()
+            if command == "list_levels":
+                anchor_id = _need(p, "anchor_id", command)
+                return {"levels": doc.anchor_by_id(anchor_id).read_list_levels()}
             if command == "read_image":
                 anchor_id = _need(p, "anchor_id", command)
                 data, mime = doc.anchor_by_id(anchor_id).read_image()
@@ -733,6 +736,16 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
                 op[k] = p[k]
         return op
     if command == "list":
+        action = need("action")
+        if action == "format":
+            op = {
+                "op": "apply_list_format",
+                "anchor_id": need("anchor_id"),
+                "levels": need("levels"),
+            }
+            if p.get("continue_previous") is not None:
+                op["continue_previous"] = bool(p["continue_previous"])
+            return op
         mapping = {
             "apply": "apply_list",
             "remove": "remove_list",
@@ -740,7 +753,6 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             "indent": "indent_list",
             "outdent": "outdent_list",
         }
-        action = need("action")
         if action not in mapping:
             raise OpError(f"unknown list action: {action!r}")
         op = {"op": mapping[action], "anchor_id": need("anchor_id")}
@@ -1208,6 +1220,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "checkpoint",
             "diff",
             "format_info",
+            "list_levels",
             "location",
             "stats",
             "theme",
@@ -1303,6 +1316,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         format_info {anchor_id} (effective paragraph + character formatting at an anchor,
         each field with its style baseline and an override flag, plus font.mixed — the
         read mirror of format_paragraph/format_run, and the linter's substrate) ·
+        list_levels {anchor_id} (the per-level format of the list at an anchor: one
+        {level,kind,format,style,trailing,number_position,text_position,font} per template
+        level — the read mirror of the list `format` action) ·
         location {anchor_id} (where an anchor sits in the laid-out document:
         page/end_page span, line, column, in_table — "what page is this on"
         without a snapshot) ·
@@ -1677,7 +1693,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             define a new style ·
         set_style {name,[bold,italic,underline,font,size,color,alignment,space_*,line_spacing,
             based_on,next_style]} — set an existing style's font/paragraph defaults ·
-        list {anchor_id,action=apply|remove|restart|indent|outdent,[type]} ·
+        list {anchor_id,action=apply|remove|restart|indent|outdent|format,[type,levels]} —
+            action=format authors a custom multi-level list from a `levels` array (see word_exec apply_list_format) ·
         comment {action=add|resolve|delete,...} ·
         revision {action=accept|reject (index) | accept_all|reject_all ([anchor_id] scopes to that
             range, else whole doc)} — resolve tracked changes; accept/reject renumber the rest ·
@@ -2112,6 +2129,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           set_watermark {text,[font,color,layout=diagonal|horizontal,semitransparent]} / remove_watermark {} — text watermark behind every page ·
           insert_text_box {anchor_id,text,[width,height,wrap,before,font,size,bold,italic,alignment,fill,border]} — a floating pull quote ·
           apply_list {anchor_id,[type=bulleted|numbered|outline,continue_previous]} · remove_list/restart_numbering/indent_list/outdent_list {anchor_id} ·
+          apply_list_format {anchor_id,levels,[continue_previous]} — author + apply a custom list: levels is a 1-based array of per-level
+            {[kind=number|bullet,format="%1.",style=arabic|upper-roman|lower-roman|upper-letter|lower-letter|…,bullet,font,start_at,
+            number_position,text_position,trailing=tab|space|none,alignment,bold,italic,color]} (a bullet level needs a glyph; read back via word_read list_levels) ·
           write_header/write_footer {section,text,[which=primary|first|even]}.
 
         Durable handles: add bind:"slug" (or true) to insert/insert_block/insert_section/

@@ -1387,6 +1387,33 @@ def test_list_info(fake_word):
     assert data["string"] == "1."
 
 
+def test_list_format_applies_custom_levels(fake_word):
+    levels = '[{"kind":"number","format":"%1)","style":"lower-letter"}]'
+    code, out, _ = _invoke(["list", "format", "--anchor-id", "range:0-12", "--levels", levels])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["levels"] == 1
+    # Read the per-level format back.
+    code, out, _ = _invoke(["list", "levels", "--anchor-id", "range:0-12"])
+    assert code == EXIT_OK
+    lv = json.loads(out)["levels"]
+    assert lv[0]["format"] == "%1)"
+    assert lv[0]["style"] == "lower-letter"
+
+
+def test_list_format_bad_levels_is_usage_error(fake_word):
+    code, _, _ = _invoke(["list", "format", "--anchor-id", "range:0-12", "--levels", "not-json"])
+    assert code != EXIT_OK
+
+
+def test_list_format_bad_anchor_returns_exit_2(fake_word):
+    code, _, _ = _invoke(
+        ["list", "format", "--anchor-id", "heading:99", "--levels", '[{"kind":"number"}]']
+    )
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
 def test_list_remove(fake_word):
     code, out, _ = _invoke(["list", "remove", "--anchor-id", "range:13-29"])
     assert code == EXIT_OK
