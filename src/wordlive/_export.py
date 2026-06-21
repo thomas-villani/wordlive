@@ -597,3 +597,169 @@ def walk_blocks(doc: Document, within: str | Anchor | None = None) -> list[Block
             continue
         blocks.append(Block(PARAGRAPH, anchor_id=f"para:{idx}", spans=spans, word_count=words))
     return blocks
+
+
+# ---------------------------------------------------------------------------
+# Budgeted digest — the elided whole-document read (doc.read(budget=N)).
+# ---------------------------------------------------------------------------
+
+# How much verbatim body budget a section gets, scaled by its enclosing heading
+# depth — a flat document spends evenly, a deep one stays top-heavy. Tunable; the
+# live tuning pass adjusts these (and `_CHARS_PER_TOKEN`) without touching logic.
+_DEPTH_WEIGHTS = {1: 1.0, 2: 0.7, 3: 0.4}
+_DEEP_WEIGHT = 0.2
+# When a section's budget share won't fit even its first block, a bounded lead
+# snippet (first sentence, capped at this many words) is kept so no section
+# vanishes — this is what lets `budget` bound the output regardless of how many
+# sections a document has.
+_LEAD_WORDS = 20
+
+
+def _depth_weight(level: int) -> float:
+    return _DEPTH_WEIGHTS.get(level, _DEEP_WEIGHT)
+
+
+def _lead_snippet(line: str) -> tuple[str, int]:
+    """A bounded lead of a rendered body line — its first sentence, ≤ `_LEAD_WORDS`."""
+    first = re.split(r"(?<=[.!?])\s+", line, maxsplit=1)[0]
+    words = first.split()
+    if len(words) > _LEAD_WORDS:
+        return " ".join(words[:_LEAD_WORDS]) + " …", _LEAD_WORDS
+    return first, len(words)
+
+
+def _anchor_comment(anchor_id: str | None) -> str:
+    return f"  <!-- {anchor_id} -->" if anchor_id else ""
+
+
+def _heading_digest_line(b: Block) -> str:
+    return "#" * (b.level or 1) + " " + _render_spans(b.spans) + _anchor_comment(b.anchor_id)
+
+
+def _table_stub(b: Block) -> str:
+    """A one-line table shape: dimensions + header labels, kept addressable."""
+    t = b.table
+    if t is None:
+        return ""
+    rows = len(t.rows) + 1  # body rows + the header row
+    cols = len(t.header)
+    labels = ", ".join(h for h in t.header if h)
+    suffix = f": {labels}" if labels else ""
+    return f"> {b.anchor_id} — {rows} rows × {cols} cols{suffix}"
+
+
+def _has_image(b: Block) -> bool:
+    return any(s.image_ref is not None for s in b.spans)
+
+
+def _render_body_segment(body: list[Block], share: float, *, suppress: bool) -> str:
+    """Render a section's body to its token `share`, eliding the overflow.
+
+    Keeps a leading run verbatim until `share` is spent (plus any image-bearing
+    block, so `image:N` stays addressable); when even the section's first block
+    overflows, a bounded lead snippet of it is kept (so the section never
+    vanishes) with a `…(para:N, M more words)…` truncation marker. Each run of
+    fully-dropped blocks collapses to one `…(para:A–para:B, N words elided)…`
+    marker. `suppress` (a depth-capped section) elides everything into markers.
+    """
+    out: list[str] = []
+    pending: list[Block] = []
+    used = 0.0
+    kept = 0
+
+    def flush() -> None:
+        if not pending:
+            return
+        first, last = pending[0].anchor_id, pending[-1].anchor_id
+        rng = first if first == last else f"{first}–{last}"
+        words = sum(b.word_count for b in pending)
+        out.append(f"…({rng}, {words} words elided)…")
+        pending.clear()
+
+    for b in body:
+        line = _render_block_md(b)
+        if not line:
+            continue
+        cost = _est_tokens(line)
+        if not suppress and (_has_image(b) or used + cost <= share):
+            flush()
+            out.append(line)
+            used += cost
+            kept += 1
+        elif not suppress and kept == 0 and not pending:
+            # The section's first block overflows: keep a bounded lead snippet so
+            # the section stays useful and `budget` actually bounds the output.
+            snippet, snip_words = _lead_snippet(line)
+            out.append(snippet)
+            used += _est_tokens(snippet)
+            kept += 1
+            rest = b.word_count - snip_words
+            if rest > 0:
+                out.append(f"…({b.anchor_id}, {rest} more words)…")
+        else:
+            pending.append(b)
+    flush()
+    return "\n\n".join(out)
+
+
+def build_digest(blocks: list[Block], *, budget: int = 6000, depth: int | None = None) -> str:
+    """Render a `Block` list to a token-budgeted, anchor-addressable digest.
+
+    Headings are always emitted verbatim (the navigation spine, each tagged with
+    its `<!-- heading:N -->` anchor) and tables become one-line shape stubs; the
+    remaining budget is spread across each section's body, weighted by heading
+    depth, and the overflow is elided to markers that still name the `para:` range.
+    `depth` caps how deep a section keeps any body (deeper sections collapse to a
+    single elision marker). The whole document stays addressable after eliding.
+    """
+    # Partition into ordered segments, tracking each body run's enclosing level.
+    segments: list[dict[str, Any]] = []
+    body: list[Block] = []
+    level = 1
+
+    def flush_body() -> None:
+        nonlocal body
+        if body:
+            segments.append({"type": "body", "blocks": body, "level": level})
+            body = []
+
+    for b in blocks:
+        if b.kind == HEADING:
+            flush_body()
+            level = b.level or 1
+            segments.append({"type": "heading", "block": b})
+        elif b.kind == TABLE:
+            flush_body()
+            segments.append({"type": "table", "block": b})
+        else:
+            body.append(b)
+    flush_body()
+
+    # Reserve the fixed cost (headings + table stubs) off the top.
+    fixed = sum(
+        _est_tokens(_heading_digest_line(s["block"]))
+        if s["type"] == "heading"
+        else _est_tokens(_table_stub(s["block"]))
+        for s in segments
+        if s["type"] in ("heading", "table")
+    )
+    body_budget = max(0, budget - fixed)
+
+    # Spread the rest across body segments by depth weight.
+    body_segs = [s for s in segments if s["type"] == "body"]
+    total_weight = sum(_depth_weight(s["level"]) for s in body_segs) or 1.0
+    for s in body_segs:
+        s["share"] = body_budget * _depth_weight(s["level"]) / total_weight
+
+    lines: list[str] = []
+    for s in segments:
+        if s["type"] == "heading":
+            lines.append(_heading_digest_line(s["block"]))
+        elif s["type"] == "table":
+            lines.append(_table_stub(s["block"]))
+        else:
+            suppress = depth is not None and s["level"] > depth
+            rendered = _render_body_segment(s["blocks"], s["share"], suppress=suppress)
+            if rendered:
+                lines.append(rendered)
+    return _collapse("\n\n".join(line for line in lines if line))

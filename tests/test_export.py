@@ -21,6 +21,7 @@ from wordlive._export import (
     _escape_inline,
     _escape_table_cell,
     _est_tokens,
+    build_digest,
     render_html,
     render_markdown,
 )
@@ -218,3 +219,101 @@ class TestRenderHtml:
             "<table><thead><tr><th>A</th><th>B</th></tr></thead>"
             "<tbody><tr><td>1</td><td>2</td></tr></tbody></table>"
         )
+
+
+def _para(text: str, anchor: str) -> Block:
+    return Block(PARAGRAPH, anchor_id=anchor, spans=_t(Span(text)), word_count=len(text.split()))
+
+
+def _heading(text: str, level: int, anchor: str) -> Block:
+    return Block(HEADING, anchor_id=anchor, level=level, spans=_t(Span(text)))
+
+
+class TestDigest:
+    def test_headings_always_verbatim_with_anchor_tags(self) -> None:
+        blocks = [
+            _heading("Alpha", 1, "heading:1"),
+            _para("filler " * 50, "para:2"),
+            _heading("Beta", 1, "heading:3"),
+        ]
+        out = build_digest(blocks, budget=1)  # impossibly tight
+        assert "# Alpha  <!-- heading:1 -->" in out
+        assert "# Beta  <!-- heading:3 -->" in out
+
+    def test_table_becomes_one_line_stub(self) -> None:
+        t = TableNode("table:2", ("Q", "Rev"), (("1", "2"), ("3", "4")), (None, None))
+        out = build_digest([Block(TABLE, anchor_id="table:2", table=t)], budget=500)
+        assert "> table:2 — 3 rows × 2 cols: Q, Rev" in out
+        assert "| Q |" not in out  # not the full table
+
+    def test_body_overflow_elided_with_range_marker(self) -> None:
+        blocks = [
+            _heading("H", 1, "heading:1"),
+            _para("lead " * 40, "para:2"),
+            _para("more " * 40, "para:3"),
+            _para("tail " * 40, "para:4"),
+        ]
+        out = build_digest(blocks, budget=80)
+        # The floor keeps para:2; para:3-4 elide into one marker naming the range.
+        assert "…(para:3–para:4, 80 words elided)…" in out
+
+    def test_image_block_always_kept_addressable(self) -> None:
+        blocks = [
+            _heading("H", 1, "heading:1"),
+            _para("filler " * 60, "para:2"),
+            Block(PARAGRAPH, anchor_id="para:3", spans=_t(Span("chart", image_ref="image:1"))),
+        ]
+        out = build_digest(blocks, budget=20)
+        assert "![chart](image:1)" in out  # survives elision
+
+    def test_every_anchor_present(self) -> None:
+        t = TableNode("table:4", ("A",), (("x",),), (None,))
+        blocks = [
+            _heading("One", 1, "heading:1"),
+            _para("a " * 50, "para:2"),
+            _heading("Two", 2, "heading:3"),
+            Block(TABLE, anchor_id="table:4", table=t),
+            _para("b " * 50, "para:5"),
+        ]
+        out = build_digest(blocks, budget=60)
+        for anchor in ("heading:1", "heading:3", "table:4"):
+            assert anchor in out
+        # para:5 is either verbatim or named in an elision marker — addressable either way.
+        assert "para:5" in out or "b b" in out
+
+    def test_tighter_budget_yields_smaller_output(self) -> None:
+        blocks = [_heading("H", 1, "heading:1")] + [
+            _para(f"section {i} " * 30, f"para:{i}") for i in range(2, 12)
+        ]
+        small = build_digest(blocks, budget=80)
+        large = build_digest(blocks, budget=100_000)
+        assert _est_tokens(small) < _est_tokens(large)
+
+    def test_depth_weighting_favours_shallow_sections(self) -> None:
+        big = "word " * 40
+        blocks = [
+            _heading("A", 1, "heading:1"),
+            _para(big, "para:2"),
+            _para(big, "para:3"),
+            _para(big, "para:4"),
+            _heading("B", 3, "heading:5"),
+            _para(big, "para:6"),
+            _para(big, "para:7"),
+            _para(big, "para:8"),
+        ]
+        out = build_digest(blocks, budget=260)
+        a_part, b_part = out.split("# B")
+        # A (level 1, weight 1.0) keeps more verbatim body than B (level 3, weight 0.4).
+        assert len(a_part) > len(b_part)
+
+    def test_depth_cap_collapses_deep_sections(self) -> None:
+        blocks = [
+            _heading("Top", 1, "heading:1"),
+            _para("kept " * 5, "para:2"),
+            _heading("Deep", 2, "heading:3"),
+            _para("hidden " * 5, "para:4"),
+        ]
+        out = build_digest(blocks, budget=10_000, depth=1)
+        assert "# Deep" in out  # heading still shown (navigation)
+        assert "hidden hidden" not in out  # its body is collapsed
+        assert "para:4" in out  # but named in an elision marker

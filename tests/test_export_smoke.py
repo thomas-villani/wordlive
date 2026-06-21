@@ -123,3 +123,37 @@ def test_to_markdown_within_scopes_to_anchor(scratch_doc):
     alpha = doc.to_markdown(within="heading:1")
     assert "Alpha" in alpha
     assert "Beta" not in alpha
+
+
+def _multi_section_markdown(sections: int = 6, para_words: int = 60) -> str:
+    body = " ".join(f"word{i}" for i in range(para_words))
+    parts = []
+    for s in range(1, sections + 1):
+        parts.append(f"# Section {s}")
+        parts.append(body)
+        parts.append(f"## Subsection {s}.1")
+        parts.append(body)
+    return "\n\n".join(parts)
+
+
+def test_read_digest_keeps_every_heading_under_budget(scratch_doc, capsys):
+    """doc.read(budget) on a multi-section doc: every heading verbatim, under budget."""
+    doc = scratch_doc
+    with doc.edit("smoke: digest"):
+        doc.anchor_by_id("start").insert_markdown(_multi_section_markdown())
+
+    digest = doc.read(budget=400)
+    # Every heading is verbatim (the navigation spine).
+    for s in range(1, 7):
+        assert f"# Section {s}" in digest
+        assert f"## Subsection {s}.1" in digest
+    # Body was sampled, not dumped whole — elision/truncation markers appear.
+    assert "…(" in digest and ("words elided" in digest or "more words" in digest)
+    # The budget bounds the output (chars/4 token estimate, generous slack for the
+    # heading spine + per-section lead snippets the budget can't compress away).
+    assert len(digest) // 4 <= 400 * 2
+
+    with capsys.disabled():
+        print(
+            "\n----- doc.read(budget=400) -----\n" + digest + "\n--------------------------------"
+        )

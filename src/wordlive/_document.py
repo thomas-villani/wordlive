@@ -1659,6 +1659,26 @@ class Document:
             blocks = _export.walk_blocks(self, within)
         return _export.render_html(blocks)
 
+    def read(self, *, budget: int = 6000, depth: int | None = None) -> str:
+        """A token-budgeted, structure-aware digest of the **whole** document.
+
+        Loads a large document into context cheaply while keeping **every anchor
+        addressable**: headings are emitted verbatim (each tagged with its
+        `<!-- heading:N -->` anchor — the navigation spine), tables become one-line
+        shape stubs (`> table:N — R rows × C cols: …`), and body text is sampled to
+        fit `budget` (an approximate token count, ~4 chars/token), weighted so
+        shallower sections keep more than deep ones. Overflow is elided to markers
+        that still name the `para:` range and word count, so an agent can drill in
+        with [`to_markdown(within=…)`][wordlive.Document.to_markdown]. `depth` caps
+        how deep a section keeps any body (deeper sections collapse to a marker).
+
+        Returns annotated Markdown. A pure read; the eliding heuristic's knobs live
+        in `_export` for tuning. For the full text of any region, use `to_markdown`.
+        """
+        with _com.translate_com_errors():
+            blocks = _export.walk_blocks(self, None)
+        return _export.build_digest(blocks, budget=budget, depth=depth)
+
     def proofing(self) -> dict[str, Any]:
         """Run Word's proofing tools and report spelling, grammar, and readability.
 
