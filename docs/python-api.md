@@ -325,24 +325,36 @@ doc.charts[1].format(
 scatter = doc.charts[2]
 scatter.add_trendline(kind="power", display_equation=True)  # draws the law of best fit
 scatter.set_series_color("#2E86C1")          # or point=N for one bar / pie slice
+scatter.format_series(marker="circle", marker_size=8, smooth=True)  # markers + smoothed line
+doc.charts[1].add_error_bars(kind="percent", amount=5)             # ± error bars on the value axis
 ```
 
 - **`format(...)`** — whole-chart/design: `title` (`None` clears), `legend` +
   `legend_position`, `chart_style` (design-gallery int), `background` /
   `plot_background` fills, `font` / `font_size` / `font_color`, `data_labels` +
-  `data_label_format`, and `chart_type` to re-type the chart in place.
+  `data_label_format`, `chart_type` to re-type the chart in place, plus
+  `gap_width` / `overlap` (bar spacing) and `data_table` (the grid beneath the plot).
 - **`set_axis(which, ...)`** — `which` is `"value"`/`"y"` or `"category"`/`"x"`;
   sets `title`, `minimum`/`maximum`, `scale` (`"linear"`/`"log"`),
   `number_format`, `gridlines`.
 - **`add_trendline(...)`** — `kind` ∈ linear/exponential/logarithmic/
   moving_average/polynomial/power on a 1-based `series`, with `display_equation`
-  / `display_r_squared` and `forward`/`backward` forecast.
+  / `display_r_squared`, `forward`/`backward` forecast, and `order` (polynomial
+  degree 2–6) / `period` (moving-average window).
 - **`set_series_color(color, *, series=1, point=None)`** — recolour a whole
   series, or one 1-based `point` (bar / pie slice / marker). `color` is a name,
   hex, or `(r, g, b)`.
+- **`format_series(*, series=1, point=None, ...)`** — markers (`marker` glyph
+  name or `XlMarkerStyle` int, `marker_size`), line `smooth`, pie `explosion`,
+  and per-series/point data labels (`data_labels`, `data_label_size`,
+  `data_label_color`). `point` narrows marker / explosion / label to one point.
+- **`add_error_bars(*, series=1, kind="fixed", amount=None, include="both", axis="y")`** —
+  draw `fixed`/`percent`/`stdev`/`sterror` error bars; `amount` is required for
+  all kinds but `sterror` (which Word computes).
 
-Bad input (unknown colour / scale / trendline kind) raises
-[`OpError`](errors.md#operror). Wrap calls in `doc.edit(...)` for atomic undo.
+Bad input (unknown colour / scale / trendline kind / marker, or an error-bar
+kind missing its amount) raises [`OpError`](errors.md#operror). Wrap calls in
+`doc.edit(...)` for atomic undo.
 
 ::: wordlive.ChartAnchor
 

@@ -4000,6 +4000,9 @@ class ChartAnchor(Anchor):
         data_labels: bool | None = None,
         data_label_format: str | None = None,
         chart_type: str | None = None,
+        gap_width: int | None = None,
+        overlap: int | None = None,
+        data_table: bool | None = None,
     ) -> ChartAnchor:
         """Apply whole-chart / design formatting — Word's chart "Design" tab.
 
@@ -4011,9 +4014,11 @@ class ChartAnchor(Anchor):
         plot areas; `font` / `font_size` / `font_color` set the whole-chart font.
         `data_labels` toggles point labels on every series, `data_label_format`
         is their number format. `chart_type` (`"bar"`/`"pie"`/`"line"`/
-        `"scatter"`) re-types the chart in place. Operates on the static chart —
-        no Excel needed. Returns `self` (chainable); wrap in `doc.edit(...)` for
-        atomic undo. Bad input raises `OpError`.
+        `"scatter"`) re-types the chart in place. `gap_width` / `overlap` tune bar
+        spacing (bar/column charts only); `data_table` toggles the data-table grid
+        beneath the plot. Operates on the static chart — no Excel needed. Returns
+        `self` (chainable); wrap in `doc.edit(...)` for atomic undo. Bad input
+        raises `OpError`.
         """
         self._apply(
             _charts.apply_chart_format,
@@ -4029,6 +4034,9 @@ class ChartAnchor(Anchor):
             data_labels=data_labels,
             data_label_format=data_label_format,
             chart_type=chart_type,
+            gap_width=gap_width,
+            overlap=overlap,
+            data_table=data_table,
         )
         return self
 
@@ -4072,6 +4080,8 @@ class ChartAnchor(Anchor):
         display_r_squared: bool = False,
         forward: Any = None,
         backward: Any = None,
+        order: int | None = None,
+        period: int | None = None,
     ) -> ChartAnchor:
         """Fit a trendline to a series (1-based `series`).
 
@@ -4079,8 +4089,10 @@ class ChartAnchor(Anchor):
         ``"moving_average"``, ``"polynomial"``, or ``"power"``. `display_equation`
         / `display_r_squared` annotate the fit — a power/exponential fit with the
         equation literally draws the law of best fit. `forward` / `backward`
-        extend the line that many units past the data. Returns `self`. Bad input
-        raises `OpError`.
+        extend the line that many units past the data. `order` is the polynomial
+        degree (2–6, with `kind="polynomial"`); `period` is the moving-average
+        window (with `kind="moving_average"`). Returns `self`. Bad input raises
+        `OpError`.
         """
         self._apply(
             _charts.add_trendline,
@@ -4090,6 +4102,8 @@ class ChartAnchor(Anchor):
             display_r_squared=display_r_squared,
             forward=forward,
             backward=backward,
+            order=order,
+            period=period,
         )
         return self
 
@@ -4104,6 +4118,74 @@ class ChartAnchor(Anchor):
         Returns `self`. Bad input raises `OpError`.
         """
         self._apply(_charts.set_series_color, color, series=series, point=point)
+        return self
+
+    def format_series(
+        self,
+        *,
+        series: int = 1,
+        point: int | None = None,
+        marker: Any = None,
+        marker_size: int | None = None,
+        smooth: bool | None = None,
+        explosion: int | None = None,
+        data_labels: bool | None = None,
+        data_label_size: Any = None,
+        data_label_color: Any = None,
+    ) -> ChartAnchor:
+        """Format one series, or a single 1-based `point` within it.
+
+        `marker` is a glyph name (``"circle"``/``"square"``/``"diamond"``/
+        ``"triangle"``/``"x"``/``"star"``/``"dot"``/``"dash"``/``"plus"``/
+        ``"none"``/``"auto"``) or a raw `XlMarkerStyle` int, with `marker_size`
+        (2–72) — both for line/scatter. `smooth` curves a line/scatter through its
+        points. `explosion` (0–400) pulls a pie slice out. `data_labels` toggles
+        this series' point labels; `data_label_size` / `data_label_color` style
+        their font. With `point` set, `marker` / `explosion` / the data-label font
+        target that one point; `marker_size` / `smooth` / the `data_labels` toggle
+        stay series-wide. Returns `self`. Bad input raises `OpError`.
+        """
+        self._apply(
+            _charts.format_series,
+            series=series,
+            point=point,
+            marker=marker,
+            marker_size=marker_size,
+            smooth=smooth,
+            explosion=explosion,
+            data_labels=data_labels,
+            data_label_size=data_label_size,
+            data_label_color=data_label_color,
+        )
+        return self
+
+    def add_error_bars(
+        self,
+        *,
+        series: int = 1,
+        kind: str = "fixed",
+        amount: Any = None,
+        include: str = "both",
+        axis: str = "y",
+    ) -> ChartAnchor:
+        """Draw error bars on a series (1-based `series`).
+
+        `kind` is ``"fixed"`` (an absolute amount), ``"percent"`` (of each value),
+        ``"stdev"`` (multiples of the standard deviation), or ``"sterror"`` (the
+        standard error — Word computes it, so `amount` is ignored). `amount` is the
+        magnitude (required for all kinds but ``"sterror"``). `include` is which
+        side(s) to draw (``"both"`` / ``"plus"`` / ``"minus"``); `axis` is
+        ``"y"``/``"value"`` (the usual) or ``"x"``/``"category"`` for scatter
+        x-uncertainty. Returns `self`. Bad input raises `OpError`.
+        """
+        self._apply(
+            _charts.add_error_bars,
+            series=series,
+            kind=kind,
+            amount=amount,
+            include=include,
+            axis=axis,
+        )
         return self
 
     def _apply(self, fn: Any, *args: Any, **kwargs: Any) -> None:

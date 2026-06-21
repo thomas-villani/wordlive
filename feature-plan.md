@@ -61,6 +61,7 @@ Quick index (capability → real release):
 | Watermark (`doc.set_watermark`/`remove_watermark`); text box / pull quote (`anchor.insert_text_box`) | Unreleased |
 | Charts (Excel-backed: `anchor.insert_chart`, `doc.charts`, `chart:N`; bar/pie/line/scatter; `ExcelNotAvailableError`, exit 6) | Unreleased |
 | Chart formatting & design (`ChartAnchor.format`/`set_axis`/`add_trendline`/`set_series_color`; `chart_style`/`has_legend` reads) | Unreleased |
+| Chart depth (`ChartAnchor.format_series`/`add_error_bars`; `format` gap/overlap/data-table; `add_trendline` order/period) | Unreleased |
 | Structural query helpers (`doc.between`, `doc.nearest_heading`, `doc.find_paragraphs`; content-under-heading already shipped) | Unreleased |
 | Format read mirror (`anchor.format_info` — effective vs style, per-field `override`, `mixed` runs) | Unreleased |
 | Linter + regularizer foundation (`doc.lint`/`doc.regularize`; 3 structural + heading/font/spacing consistency rules; targeted idempotent fixes; `regularize` exec op) | Unreleased |
@@ -106,9 +107,9 @@ malformed scheme (`banana:7`) reports "unknown anchor type".
   (`HasChart`), in document order — it renumbers when an earlier chart is
   inserted; re-list (`doc.charts`), don't cache. Metadata only: `chart_type` /
   `title` / `chart_style` / `has_legend`. It's also the **write** target for
-  formatting (`format`/`set_axis`/`add_trendline`/`set_series_color`). Reading
-  chart *series data* back is deferred (and the data link is broken at insert, so
-  it's static anyway).
+  formatting (`format`/`set_axis`/`add_trendline`/`set_series_color`/
+  `format_series`/`add_error_bars`). Reading chart *series data* back is deferred
+  (and the data link is broken at insert, so it's static anyway).
 
 - **`pin:CODE`** is the **durable handle** (Unreleased): `doc.pin(anchor)` /
   `stamp` plants a Word-hidden bookmark `_wl_<code>` over a range and returns
@@ -668,13 +669,19 @@ Per-level bullet / number format and custom list-template authoring — **shippe
 above. (The "multi-section `LinkToPrevious`" sub-item was reclassified as a
 header/footer gap — see the ✅ note.)
 
-### 7. Chart depth (post-insert, static — no Excel respin)
-Error bars (`Series.ErrorBar` — wants the right enum args), series/point formatting
-(`MarkerStyle`/`MarkerSize`, line `Smooth`, bar `GapWidth`/`Overlap`, pie
-`Explosion`, per-element `.Font`), trendline `Order`/`Period` knobs, secondary axes
-/ multi-series authoring, `HasDataTable`, `ApplyChartTemplate(.crtx)`. Keep each
-extension narrow (the charts philosophy). `Axis.Visible` stays out (not settable
-under late binding, confirmed 2026-06-17). Full COM surface: Part III.
+### 7. Chart depth (post-insert, static — no Excel respin) — ✅ shipped (Unreleased)
+Error bars (`Series.ErrorBar`), series/point formatting (`MarkerStyle`/`MarkerSize`,
+line `Smooth`, bar `GapWidth`/`Overlap`, pie `Explosion`, per-element data-label
+`.Font`), trendline `Order`/`Period` knobs, and `HasDataTable` — all **live-probed
+settable on the BreakLink-static chart, no Excel respin** (2026-06-21). Shipped as
+`ChartAnchor.format_series` / `add_error_bars` + extended `format` (gap/overlap/
+data-table) / `add_trendline` (order/period); wired across Python / CLI / `exec` /
+MCP. **Deferred:** `ApplyChartTemplate(.crtx)` — `SaveChartTemplate`/
+`ApplyChartTemplate` **block/hang under headless DispatchEx**, too risky for the
+surface (note in [[charts-com-gotchas]]); secondary axes / multi-series authoring /
+3-D stay out (the charts philosophy — keep each extension narrow). `Axis.Visible`
+stays out (not settable under late binding, confirmed 2026-06-17). Full COM surface:
+Part III.
 
 ## Priority 4 — Vision ↔ anchor bridge
 
@@ -778,16 +785,22 @@ that works *alongside* the user in a live session. Feasibility **proven live**
   post-insert **static** chart with no Excel respin (re-probed 2026-06-17: 0 orphan
   EXCEL.EXE). The `.com` escape hatch (`doc.charts[N]._shape().Chart`) still
   reaches everything; the one rule holds — don't read chart *data* back. The depth
-  items below are **→ promoted to Part II Priority 3, item 7 (chart depth)**; this
-  entry remains the detailed COM catalogue for them:
-  - **Series/point depth:** `Series.Format` `.Shadow`/`.Glow`, pie
-    `Points(i).Explosion`, `MarkerStyle`/`MarkerSize`, line `Smooth`, bar
-    `ChartGroups(1).GapWidth`/`Overlap`, per-element `.Font`.
-  - **Scientific:** `Series.ErrorBar(...)` (error bars — wants the right enum
-    args); polynomial `Order` / moving-average `Period` knobs on trendlines.
-  - **Whole-chart:** secondary axes, multi-series authoring, `HasDataTable`,
-    `ThreeD` (lives on the series `Format`), `ApplyChartTemplate(.crtx)` (needs a
-    real `.crtx` path), and axis show/hide — `Axis.Visible` is **not settable**
+  items below were **promoted to Part II Priority 3, item 7 (chart depth) and
+  shipped (Unreleased)** — `format_series` / `add_error_bars` + `format` gap/
+  overlap/data-table + `add_trendline` order/period (live-probed 2026-06-21). This
+  entry remains the detailed COM catalogue:
+  - **Series/point depth ✅ (the core shipped):** pie `Points(i).Explosion`,
+    `MarkerStyle`/`MarkerSize`, line `Smooth`, bar `ChartGroups(1).GapWidth`/
+    `Overlap`, per-element data-label `.Font` — all shipped. `Series.Format`
+    `.Shadow`/`.Glow` still deferred (no concrete need).
+  - **Scientific ✅:** `Series.ErrorBar(Direction, Include, Type, Amount)` (error
+    bars — enum args probed: Type fixed=1/percent=2/stdev=3/sterror=4) and
+    polynomial `Order` / moving-average `Period` trendline knobs — all shipped.
+  - **Whole-chart:** `HasDataTable` ✅ shipped. Still deferred — secondary axes,
+    multi-series authoring, `ThreeD` (lives on the series `Format`); and
+    `ApplyChartTemplate(.crtx)` is **dropped, not just deferred**: `SaveChartTemplate`/
+    `ApplyChartTemplate` **block/hang under headless DispatchEx** (probed
+    2026-06-21). Axis show/hide stays out — `Axis.Visible` is **not settable**
     under pywin32 late binding (confirmed 2026-06-17, so it's intentionally absent).
 
   Keep any extension narrow (the charts philosophy); `ChartColor`/"Change Colors"

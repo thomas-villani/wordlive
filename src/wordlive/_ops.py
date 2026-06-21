@@ -57,6 +57,8 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "format_axis": ("anchor_id", "which"),
     "add_trendline": ("anchor_id",),
     "set_series_color": ("anchor_id", "color"),
+    "format_series": ("anchor_id",),
+    "add_error_bars": ("anchor_id",),
     "set_shape_wrap": ("anchor_id",),  # at least one of wrap/side/distance_* (apply_op)
     "set_shape_crop": ("anchor_id",),  # at least one of left/top/right/bottom (apply_op)
     "set_shape_position": ("anchor_id",),
@@ -254,6 +256,9 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         "data_labels",
         "data_label_format",
         "chart_type",
+        "gap_width",
+        "overlap",
+        "data_table",
     ),
     "format_axis": ("title", "minimum", "maximum", "scale", "number_format", "gridlines"),
     "add_trendline": (
@@ -263,8 +268,22 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         "display_r_squared",
         "forward",
         "backward",
+        "order",
+        "period",
     ),
     "set_series_color": ("series", "point"),
+    "format_series": (
+        "series",
+        "point",
+        "marker",
+        "marker_size",
+        "smooth",
+        "explosion",
+        "data_labels",
+        "data_label_size",
+        "data_label_color",
+    ),
+    "add_error_bars": ("series", "kind", "amount", "include", "axis"),
     "set_shape_wrap": (
         "wrap",
         "side",
@@ -660,7 +679,14 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             where=("before" if op_before(op) else "after"),
         )
         return {"chart": chart.index, "anchor_id": chart.anchor_id}
-    elif kind in ("format_chart", "format_axis", "add_trendline", "set_series_color"):
+    elif kind in (
+        "format_chart",
+        "format_axis",
+        "add_trendline",
+        "set_series_color",
+        "format_series",
+        "add_error_bars",
+    ):
         from ._anchors import ChartAnchor  # lazy: avoid an _ops → _anchors import cycle
 
         anchor = doc.anchor_by_id(op["anchor_id"])
@@ -674,6 +700,10 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             anchor.set_axis(op["which"], **kwargs)
         elif kind == "add_trendline":
             anchor.add_trendline(**kwargs)
+        elif kind == "format_series":
+            anchor.format_series(**kwargs)
+        elif kind == "add_error_bars":
+            anchor.add_error_bars(**kwargs)
         else:  # set_series_color
             anchor.set_series_color(op["color"], **kwargs)
     elif kind == "group_shapes":

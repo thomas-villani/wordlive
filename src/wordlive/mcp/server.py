@@ -965,7 +965,14 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         if p.get("title") is not None:
             op["title"] = p["title"]
         return op
-    if command in ("format_chart", "format_axis", "add_trendline", "set_series_color"):
+    if command in (
+        "format_chart",
+        "format_axis",
+        "add_trendline",
+        "set_series_color",
+        "format_series",
+        "add_error_bars",
+    ):
         op = {"op": command, "anchor_id": need("anchor_id")}
         if command == "format_axis":
             op["which"] = need("which")
@@ -1414,6 +1421,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "format_axis",
             "add_trendline",
             "set_series_color",
+            "format_series",
+            "add_error_bars",
             "set_shape_wrap",
             "set_shape_crop",
             "set_shape_position",
@@ -1800,14 +1809,21 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             chart; data is {label:value} for bar/pie/line or [[x,y],…] pairs for scatter (numeric
             axes); needs Excel installed (else error code excel_not_available); data is then static ·
         format_chart {anchor_id=chart:N, [title,legend,legend_position,chart_style,background,
-            plot_background,font,font_size,font_color,data_labels,data_label_format,chart_type]} —
-            whole-chart/design formatting (no Excel needed; tri-state — only fields you pass apply) ·
+            plot_background,font,font_size,font_color,data_labels,data_label_format,chart_type,
+            gap_width,overlap,data_table]} — whole-chart/design formatting (no Excel needed;
+            tri-state — only fields you pass apply) ·
         format_axis {anchor_id=chart:N, which=value|y|category|x,
             [title,minimum,maximum,scale=linear|log,number_format,gridlines]} — format one axis ·
         add_trendline {anchor_id=chart:N, [series=1,kind=linear|exponential|logarithmic|
-            moving_average|polynomial|power,display_equation,display_r_squared,forward,backward]} ·
+            moving_average|polynomial|power,display_equation,display_r_squared,forward,backward,
+            order,period]} — order=polynomial degree, period=moving-average window ·
         set_series_color {anchor_id=chart:N, color, [series=1,point]} — recolour a series or one
             1-based point/slice (color = name, hex, or [r,g,b]) ·
+        format_series {anchor_id=chart:N, [series=1,point,marker=circle|square|diamond|triangle|x|
+            star|dot|dash|plus|none|auto,marker_size,smooth,explosion,data_labels,data_label_size,
+            data_label_color]} — series/point markers, line smoothing, pie explosion, label font ·
+        add_error_bars {anchor_id=chart:N, [series=1,kind=fixed|percent|stdev|sterror,amount,
+            include=both|plus|minus,axis=y|x]} — amount required unless kind=sterror ·
         set_shape_wrap {anchor_id=shape:N, [wrap=square|tight|through|top-bottom|front|behind,
             side=both|left|right|largest,distance_top,distance_bottom,distance_left,distance_right]}
             — wrap style / which sides text flows past (side honoured by square/tight/through) /
@@ -2080,10 +2096,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             math; unicodemath native, latex needs the latex extra, mathml via Office; returns equation:N in outputs ·
           insert_chart {anchor_id, kind=bar|pie|line|scatter, data, [title,before]} — Excel-backed chart;
             data is {label:value} (bar/pie/line) or [[x,y],…] pairs (scatter); needs Excel; returns chart:N in outputs ·
-          format_chart {anchor_id=chart:N,[title,legend,legend_position,chart_style,background,plot_background,font,font_size,font_color,data_labels,data_label_format,chart_type]} — chart design/format (no Excel) ·
+          format_chart {anchor_id=chart:N,[title,legend,legend_position,chart_style,background,plot_background,font,font_size,font_color,data_labels,data_label_format,chart_type,gap_width,overlap,data_table]} — chart design/format (no Excel) ·
           format_axis {anchor_id=chart:N,which=value|y|category|x,[title,minimum,maximum,scale=linear|log,number_format,gridlines]} ·
-          add_trendline {anchor_id=chart:N,[series=1,kind=linear|exponential|logarithmic|moving_average|polynomial|power,display_equation,display_r_squared,forward,backward]} ·
+          add_trendline {anchor_id=chart:N,[series=1,kind=linear|exponential|logarithmic|moving_average|polynomial|power,display_equation,display_r_squared,forward,backward,order,period]} ·
           set_series_color {anchor_id=chart:N,color,[series=1,point]} — recolour a series or one 1-based point/slice ·
+          format_series {anchor_id=chart:N,[series=1,point,marker=circle|square|diamond|triangle|x|star|dot|dash|plus|none|auto,marker_size,smooth,explosion,data_labels,data_label_size,data_label_color]} — markers/smoothing/explosion/label font ·
+          add_error_bars {anchor_id=chart:N,[series=1,kind=fixed|percent|stdev|sterror,amount,include=both|plus|minus,axis=y|x]} — amount required unless kind=sterror ·
           set_shape_wrap/set_shape_position/set_shape_size/format_shape/set_shape_alt_text/set_shape_text/replace_shape_image/delete_shape {anchor_id=shape:N,…} —
             restyle a floating shape (text box / image): wrap (style/side/distance_*), position (left/top/relative_to), size (width/height/lock_aspect), fill/border, alt text, text-box contents, picture swap (path|base64), or delete ·
           set_shape_crop {anchor_id=shape:N,[crop_left,crop_top,crop_right,crop_bottom]} — trim a floating PICTURE shape in from its edges ·

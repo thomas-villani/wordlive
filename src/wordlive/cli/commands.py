@@ -133,6 +133,8 @@ def register(group: click.Group) -> None:
     group.add_command(format_axis_cmd)
     group.add_command(add_trendline_cmd)
     group.add_command(set_series_color_cmd)
+    group.add_command(format_series_cmd)
+    group.add_command(add_error_bars_cmd)
     group.add_command(shapes_cmd)
     group.add_command(set_shape_wrap_cmd)
     group.add_command(set_shape_crop_cmd)
@@ -3783,6 +3785,18 @@ def _chart_anchor(word: Any, doc_name: str | None, anchor_id: str) -> Any:
     default=None,
     help="Re-type the chart in place.",
 )
+@click.option(
+    "--gap-width", "gap_width", type=int, default=None, help="Bar gap width (bar/column charts)."
+)
+@click.option(
+    "--overlap", "overlap", type=int, default=None, help="Bar overlap (bar/column charts)."
+)
+@click.option(
+    "--data-table/--no-data-table",
+    "data_table",
+    default=None,
+    help="Show the data-table grid beneath the plot.",
+)
 @click.pass_context
 def format_chart_cmd(
     ctx: click.Context,
@@ -3799,6 +3813,9 @@ def format_chart_cmd(
     data_labels: bool | None,
     data_label_format: str | None,
     chart_type: str | None,
+    gap_width: int | None,
+    overlap: int | None,
+    data_table: bool | None,
 ) -> None:
     """Apply whole-chart / design formatting to a chart (atomic-undo).
 
@@ -3818,6 +3835,9 @@ def format_chart_cmd(
         "data_labels": data_labels,
         "data_label_format": data_label_format,
         "chart_type": chart_type,
+        "gap_width": gap_width,
+        "overlap": overlap,
+        "data_table": data_table,
     }
     kwargs = {k: v for k, v in raw.items() if v is not None}
     if not kwargs:
@@ -3918,6 +3938,16 @@ def format_axis_cmd(
 )
 @click.option("--forward", "forward", type=float, default=None, help="Forecast forward N units.")
 @click.option("--backward", "backward", type=float, default=None, help="Forecast backward N units.")
+@click.option(
+    "--order", "order", type=int, default=None, help="Polynomial degree 2–6 (kind=polynomial)."
+)
+@click.option(
+    "--period",
+    "period",
+    type=int,
+    default=None,
+    help="Moving-average window (kind=moving_average).",
+)
 @click.pass_context
 def add_trendline_cmd(
     ctx: click.Context,
@@ -3928,6 +3958,8 @@ def add_trendline_cmd(
     display_r_squared: bool,
     forward: float | None,
     backward: float | None,
+    order: int | None,
+    period: int | None,
 ) -> None:
     """Fit a trendline to a chart series (atomic-undo).
 
@@ -3943,6 +3975,10 @@ def add_trendline_cmd(
         kwargs["forward"] = forward
     if backward is not None:
         kwargs["backward"] = backward
+    if order is not None:
+        kwargs["order"] = order
+    if period is not None:
+        kwargs["period"] = period
 
     def go() -> None:
         with attach() as word:
@@ -3994,6 +4030,153 @@ def set_series_color_cmd(
                 },
                 as_text=not ctx.obj["as_json"],
                 text=f"recoloured {target} of {anchor_id} -> {color}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="format-series")
+@click.option("--anchor-id", "anchor_id", required=True, help="Chart anchor (chart:N).")
+@click.option("--series", "series", type=int, default=1, show_default=True, help="1-based series.")
+@click.option(
+    "--point",
+    "point",
+    type=int,
+    default=None,
+    help="1-based point/slice to target (omit for the whole series).",
+)
+@click.option(
+    "--marker",
+    "marker",
+    default=None,
+    help="Marker glyph: circle/square/diamond/triangle/x/star/dot/dash/plus/none/auto.",
+)
+@click.option("--marker-size", "marker_size", type=int, default=None, help="Marker size 2–72.")
+@click.option(
+    "--smooth/--no-smooth", "smooth", default=None, help="Curve a line/scatter through its points."
+)
+@click.option(
+    "--explosion", "explosion", type=int, default=None, help="Pull a pie slice out 0–400."
+)
+@click.option(
+    "--data-labels/--no-data-labels",
+    "data_labels",
+    default=None,
+    help="Show this series' point labels.",
+)
+@click.option(
+    "--data-label-size", "data_label_size", type=float, default=None, help="Data-label font size."
+)
+@click.option(
+    "--data-label-color", "data_label_color", default=None, help="Data-label font colour."
+)
+@click.pass_context
+def format_series_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    series: int,
+    point: int | None,
+    marker: str | None,
+    marker_size: int | None,
+    smooth: bool | None,
+    explosion: int | None,
+    data_labels: bool | None,
+    data_label_size: float | None,
+    data_label_color: str | None,
+) -> None:
+    """Format a chart series, or a single point / slice (atomic-undo).
+
+    Markers and --smooth suit line/scatter; --explosion a pie slice. Colours are
+    a name, hex (#2E86C1), or comma-separated r,g,b. Pass at least one option.
+    """
+    raw: dict[str, Any] = {
+        "marker": marker,
+        "marker_size": marker_size,
+        "smooth": smooth,
+        "explosion": explosion,
+        "data_labels": data_labels,
+        "data_label_size": data_label_size,
+        "data_label_color": _parse_color(data_label_color),
+    }
+    kwargs = {k: v for k, v in raw.items() if v is not None}
+    if not kwargs:
+        raise click.UsageError("pass at least one formatting option")
+    kwargs["series"] = series
+    kwargs["point"] = point
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _chart_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: format series {anchor_id}"):
+                anchor.format_series(**kwargs)
+            target = f"point {point}" if point is not None else f"series {series}"
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "series": series, "point": point},
+                as_text=not ctx.obj["as_json"],
+                text=f"formatted {target} of {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="add-error-bars")
+@click.option("--anchor-id", "anchor_id", required=True, help="Chart anchor (chart:N).")
+@click.option("--series", "series", type=int, default=1, show_default=True, help="1-based series.")
+@click.option(
+    "--kind",
+    "kind",
+    type=click.Choice(["fixed", "percent", "stdev", "sterror"]),
+    default="fixed",
+    show_default=True,
+    help="How the error amount is computed.",
+)
+@click.option(
+    "--amount",
+    "amount",
+    type=float,
+    default=None,
+    help="Error magnitude (required unless kind=sterror).",
+)
+@click.option(
+    "--include",
+    "include",
+    type=click.Choice(["both", "plus", "minus"]),
+    default="both",
+    show_default=True,
+    help="Which side(s) to draw.",
+)
+@click.option(
+    "--axis",
+    "axis",
+    type=click.Choice(["y", "value", "x", "category"]),
+    default="y",
+    show_default=True,
+    help="Which axis the bars run along.",
+)
+@click.pass_context
+def add_error_bars_cmd(
+    ctx: click.Context,
+    anchor_id: str,
+    series: int,
+    kind: str,
+    amount: float | None,
+    include: str,
+    axis: str,
+) -> None:
+    """Draw error bars on a chart series (atomic-undo)."""
+    kwargs: dict[str, Any] = {"series": series, "kind": kind, "include": include, "axis": axis}
+    if amount is not None:
+        kwargs["amount"] = amount
+
+    def go() -> None:
+        with attach() as word:
+            doc, anchor = _chart_anchor(word, ctx.obj["doc_name"], anchor_id)
+            with doc.edit(f"CLI: add error bars {anchor_id}"):
+                anchor.add_error_bars(**kwargs)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "series": series, "applied": kwargs},
+                as_text=not ctx.obj["as_json"],
+                text=f"added {kind} error bars to {anchor_id} series {series}",
             )
 
     _run(ctx, go)
@@ -7488,7 +7671,8 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     insert_section, insert_markdown, replace_section,
     delete_paragraph, append, append_inline, prepend, prepend_inline,
     insert_image, insert_equation, insert_chart, format_chart, format_axis, add_trendline,
-    set_series_color, set_shape_wrap, set_shape_crop, set_shape_position, set_shape_size,
+    set_series_color, format_series, add_error_bars,
+    set_shape_wrap, set_shape_crop, set_shape_position, set_shape_size,
     format_shape, set_shape_alt_text, set_shape_text, set_shape_rotation, set_shape_z_order,
     set_shape_text_frame, replace_shape_image, delete_shape, group_shapes, ungroup_shape,
     set_image_alt_text, set_image_size, set_image_crop,
