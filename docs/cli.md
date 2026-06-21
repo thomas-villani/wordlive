@@ -1191,6 +1191,50 @@ would fire. Atomic-undo.
 Failures: `1` unknown rule id/tag, `2` `--within` anchor not found,
 `3` Word busy, `4` Word not running.
 
+## `checkpoint`
+
+```
+wordlive checkpoint [--include text|text+style|text+format] [--within ID] [--out FILE] [--doc DOC_NAME]
+```
+
+Fingerprint the document's structure now → a checkpoint token (a pure read).
+Store the token, edit the document, then `diff --since FILE` for a structured
+change list — the way an agent verifies its edits landed, or sees what the user
+changed (Word emits no content-change event). `--include` sets the fingerprint
+depth: `text` (a restyle is invisible) < `text+style` (default — restyle
+surfaces) < `text+format` (a direct-format edit surfaces as a `reformat`).
+`--within ID` fingerprints just one anchor's range. Without `--out` the token is
+the JSON object on stdout; with `--out FILE` the token is written to the file and
+a small summary is emitted.
+
+```bash
+$ wordlive checkpoint --out cp.json
+{"out": "cp.json", "include": "text+style", "scope": null, "paragraphs": 42, "tables": 1}
+```
+
+## `diff`
+
+```
+wordlive diff --since FILE [--doc DOC_NAME]
+wordlive diff --from FILE --to FILE
+```
+
+Diff a stored checkpoint against the document **now** (`--since`, needs live
+Word), or diff two stored checkpoints (`--from` / `--to`, no live Word). Emits a
+content-aligned change list: each change is `replace` / `insert` / `delete` /
+`restyle` / `reformat`, carrying the current `para:N` so a follow-up op can act on
+it immediately. An unchanged document returns `[]` (a `doc_hash` fast-path).
+
+```bash
+$ wordlive diff --since cp.json
+[{"op": "replace", "anchor_id": "para:14", "index_before": 12, "index_after": 13,
+  "text_before": "Costs fell 4%.", "text_after": "Costs fell 9%."},
+ {"op": "insert", "anchor_id": "para:7", "index_after": 6, "text_after": "A new note."}]
+```
+
+Failures: `1` bad/missing file or argument combination, `2` `--within` anchor not
+found, `3` Word busy, `4` Word not running.
+
 ## `hyperlinks`
 
 ```

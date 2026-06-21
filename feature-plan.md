@@ -66,6 +66,7 @@ Quick index (capability → real release):
 | Linter + regularizer foundation (`doc.lint`/`doc.regularize`; 3 structural + heading/font/spacing consistency rules; targeted idempotent fixes; `regularize` exec op) | Unreleased |
 | Floating-shape anchor model (`shape:N`: `doc.shapes`/`doc.text_boxes`; `ShapeAnchor` set_wrap/position/size/format/alt_text/text/replace_image/delete; `insert_text_box`+floating `insert_image` return it) | Unreleased |
 | Shape depth + inline restyle + `textbox:N` (`ShapeAnchor` set_rotation/set_z_order/set_text_frame; `doc.group_shapes`/`ungroup`; `ImageAnchor` set_alt_text/set_size; `textbox:N` alias) | Unreleased |
+| Checkpoint + diff (`doc.checkpoint`/`changes_since`/`diff`; `Checkpoint` token, `include=text/+style/+format`; content-aligned `replace`/`insert`/`delete`/`restyle`/`reformat` w/ current `para:N`; `doc_hash` fast-path) | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -443,6 +444,24 @@ profiles, and the direct-override detection probe).
   `regularize` is a no-op) so it doesn't "fix" intentional formatting.
 
 ### 2. Checkpoint + diff — `doc.checkpoint()` / `doc.changes_since()` / `doc.diff()`
+
+> **✅ Shipped (Unreleased, 2026-06-20).** All of build-order steps 1–4 landed:
+> `doc.checkpoint(include=…, within=…)` → a serialisable `Checkpoint`
+> (`to_json`/`from_json`; `include` ∈ `text`/`text+style`/`text+format`),
+> `doc.changes_since(cp)` (cp → now) and `doc.diff(cp_a, cp_b)` (two stored),
+> emitting `replace`/`insert`/`delete`/`restyle`/`reformat` records that carry the
+> **current** `para:N` — aligned by paragraph content via `SequenceMatcher`, with a
+> whole-doc `doc_hash` fast-path to `[]`. **No new COM surface** (pure composition
+> over `_findreplace._normalize` + `paragraph_text` + `format_info`). Wired across
+> Python / CLI (`checkpoint`, `diff --since` / `--from`/`--to`) / MCP (`word_read
+> command=checkpoint`/`diff`); not an `exec` op (the token round-trips through the
+> caller). One refinement over the sketch: within a `replace` block, old→new
+> paragraphs pair by **text similarity** (not position), so an edit beside an
+> insert/delete classifies the way a human reads it (live-validated 2026-06-20).
+> **Still deferred (steps 5–6):** pin-backed exact identity (`track=True`), move
+> detection (`moves=True`), per-cell table diffing (v1 fingerprints a table as a
+> single `cells_hash`), and the in-document checkpoint store (`doc.variables`). See
+> `spec-checkpoint-diff.md` and `CHANGELOG.md`.
 
 Promoted from nice-to-have to **load-bearing** by the 2026-06-17 event probe: Word
 emits **no content-change event** (see Priority 7), so the only way to answer "what

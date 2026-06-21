@@ -473,7 +473,22 @@ doc.lint(within="heading:3")         # audit: [{rule, kind, severity, anchor_id,
 doc.lint(rules={"exclude": ["mixed-run-format"]})  # rules=None → default set; list to include; {"exclude":[…]} to drop
 doc.regularize(within="heading:3", dry_run=True)   # plan the fixable findings (no write)
 doc.regularize()                     # apply them in one atomic-undo → {applied, skipped, findings}; idempotent
+
+cp = doc.checkpoint()                 # opaque structural fingerprint NOW (pure read; include=text|text+style|text+format)
+# … agent or user edits …
+doc.changes_since(cp)                 # content-aligned change list vs now: [{op, anchor_id, text_before/after, …}]
+{c["anchor_id"] for c in doc.changes_since(cp) if "anchor_id" in c}  # verify exactly the paras I meant changed
+doc.diff(cp_a, cp_b)                  # diff two stored checkpoints; cp.to_json()/Checkpoint.from_json() persist a token
 ```
+
+`doc.checkpoint()` fingerprints the document's structure (pure read — no event
+fires when content changes, so checkpoint+diff is the *only* way to answer "what
+changed in session" and to verify your own edits landed). `changes_since(cp)`
+diffs a stored checkpoint against the document now, `diff(a, b)` diffs two stored
+checkpoints; each change is `replace`/`insert`/`delete`/`restyle`/`reformat`
+carrying the **current** `para:N`, aligned by paragraph content (not index — ids
+renumber), with an unchanged doc returning `[]`. `include="text+format"` also
+catches a direct-formatting edit as a `reformat`.
 
 `doc.properties` (read/write) and `doc.variables` (read/write) manage the file's
 metadata and named storage; `doc.hyperlinks` and `doc.fields` are discovery

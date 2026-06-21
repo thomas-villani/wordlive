@@ -168,6 +168,24 @@ class TestReadImpl:
         assert _image_format(None) == "png"  # fallback
         assert _image_format("image/") == "png"  # empty subtype → fallback
 
+    def test_checkpoint_returns_serialisable_fingerprint(self, fake_word: Any) -> None:
+        cp = _read_impl(W, "checkpoint", {"include": "text+style"})
+        assert cp["version"] == 1 and cp["include"] == "text+style"
+        assert isinstance(cp["paragraphs"], list) and cp["doc_hash"]
+
+    def test_diff_against_now_unchanged_is_empty(self, fake_word: Any) -> None:
+        cp = _read_impl(W, "checkpoint", {})
+        # The fake doc is untouched between the two reads → fast-path to [].
+        assert _read_impl(W, "diff", {"checkpoint": cp}) == []
+
+    def test_diff_two_checkpoints(self, fake_word: Any) -> None:
+        cp = _read_impl(W, "checkpoint", {})
+        assert _read_impl(W, "diff", {"cp_a": cp, "cp_b": cp}) == []
+
+    def test_diff_without_args_raises_op_error(self, fake_word: Any) -> None:
+        with pytest.raises(OpError):
+            _read_impl(W, "diff", {})
+
     def test_missing_bookmark_raises(self, fake_word: Any) -> None:
         with pytest.raises(AnchorNotFoundError):
             _read_impl(W, "read_bookmark", {"name": "DoesNotExist"})
