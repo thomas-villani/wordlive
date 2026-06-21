@@ -1644,6 +1644,21 @@ class Document:
             blocks = _export.walk_blocks(self, within)
         return _export.render_markdown(blocks)
 
+    def to_html(self, *, within: str | Anchor | None = None) -> str:
+        """Serialise the document (or one anchor's range) to an HTML fragment.
+
+        The HTML counterpart of [`to_markdown`][wordlive.Document.to_markdown],
+        rendered from the same document walk so the two agree on structure:
+        headings (``<h1>``–``<h6>``), ``<ul>``/``<ol>`` lists (nested),
+        ``<strong>``/``<em>``/``<u>``, ``<table>``, ``<img>``, and ``<a>``. Unlike
+        the Markdown dialect, HTML keeps underline. Returns a fragment (no
+        ``<html>``/``<body>`` wrapper). `within` scopes to an anchor's literal
+        range (see `to_markdown`); ``None`` is the whole document. A pure read.
+        """
+        with _com.translate_com_errors():
+            blocks = _export.walk_blocks(self, within)
+        return _export.render_html(blocks)
+
     def proofing(self) -> dict[str, Any]:
         """Run Word's proofing tools and report spelling, grammar, and readability.
 

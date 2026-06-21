@@ -100,6 +100,17 @@ def test_to_markdown_hyperlink(scratch_doc):
     assert "[Example](https://example.test" in out
 
 
+def test_to_html_renders_headings_lists_emphasis(scratch_doc):
+    doc = scratch_doc
+    with doc.edit("smoke: html"):
+        doc.anchor_by_id("start").insert_markdown("# Title\n\nBody **bold**.\n\n- one\n- two")
+
+    html = doc.to_html()
+    assert "<h1>Title</h1>" in html
+    assert "<strong>bold</strong>" in html
+    assert "<ul>" in html and "<li>one</li>" in html
+
+
 def test_to_markdown_within_scopes_to_anchor(scratch_doc):
     """within=heading:N emits only that heading line (literal-range semantics)."""
     doc = scratch_doc

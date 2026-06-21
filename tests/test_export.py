@@ -21,6 +21,7 @@ from wordlive._export import (
     _escape_inline,
     _escape_table_cell,
     _est_tokens,
+    render_html,
     render_markdown,
 )
 
@@ -166,3 +167,54 @@ class TestCollapse:
             Block(IMAGE, image_ref="image:2", image_alt="b"),
         ]
         assert render_markdown(blocks) == "![a](image:1)\n\n![b](image:2)"
+
+
+class TestRenderHtml:
+    def test_heading_and_paragraph(self) -> None:
+        blocks = [
+            Block(HEADING, level=2, spans=_t(Span("Title"))),
+            Block(PARAGRAPH, spans=_t(Span("a "), Span("b", bold=True))),
+        ]
+        assert render_html(blocks) == "<h2>Title</h2>\n<p>a <strong>b</strong></p>"
+
+    def test_emphasis_underline_link_image(self) -> None:
+        spans = _t(
+            Span("u", underline=True),
+            Span("i", italic=True),
+            Span("here", href="https://x.test"),
+            Span("logo", image_ref="image:1"),
+        )
+        html = render_html([Block(PARAGRAPH, spans=spans)])
+        assert "<u>u</u>" in html
+        assert "<em>i</em>" in html
+        assert '<a href="https://x.test">here</a>' in html
+        assert '<img src="image:1" alt="logo">' in html
+
+    def test_html_escaping(self) -> None:
+        html = render_html([Block(PARAGRAPH, spans=_t(Span("a < b & c")))])
+        assert html == "<p>a &lt; b &amp; c</p>"
+
+    def test_nested_lists(self) -> None:
+        blocks = [
+            Block(BULLET, spans=_t(Span("a"))),
+            Block(BULLET, list_level=2, spans=_t(Span("a.i"))),
+            Block(BULLET, spans=_t(Span("b"))),
+        ]
+        assert render_html(blocks) == "<ul><li>a<ul><li>a.i</li></ul></li><li>b</li></ul>"
+
+    def test_ordered_list(self) -> None:
+        blocks = [Block(NUMBER, spans=_t(Span("x"))), Block(NUMBER, spans=_t(Span("y")))]
+        assert render_html(blocks) == "<ol><li>x</li><li>y</li></ol>"
+
+    def test_table(self) -> None:
+        t = TableNode(
+            anchor_id="table:1",
+            header=("A", "B"),
+            rows=(("1", "2"),),
+            alignments=(None, None),
+        )
+        html = render_html([Block(TABLE, anchor_id="table:1", table=t)])
+        assert html == (
+            "<table><thead><tr><th>A</th><th>B</th></tr></thead>"
+            "<tbody><tr><td>1</td><td>2</td></tr></tbody></table>"
+        )

@@ -263,6 +263,119 @@ def render_markdown(blocks: list[Block]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# HTML emitter — the second pure renderer over the shared node list.
+# ---------------------------------------------------------------------------
+
+
+def _html_escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _html_attr(text: str) -> str:
+    return _html_escape(text).replace('"', "&quot;")
+
+
+def _render_spans_html(spans: tuple[Span, ...]) -> str:
+    out: list[str] = []
+    for s in spans:
+        if s.image_ref is not None:
+            out.append(f'<img src="{_html_attr(s.image_ref)}" alt="{_html_attr(s.text)}">')
+            continue
+        text = _html_escape(s.text)
+        if s.underline:  # HTML keeps underline, unlike the Markdown dialect
+            text = f"<u>{text}</u>"
+        if s.italic:
+            text = f"<em>{text}</em>"
+        if s.bold:
+            text = f"<strong>{text}</strong>"
+        if s.href is not None:
+            text = f'<a href="{_html_attr(s.href)}">{text}</a>'
+        out.append(text)
+    return "".join(out)
+
+
+def _render_table_html(t: TableNode) -> str:
+    width = len(t.header)
+
+    def cells(row: tuple[str, ...], tag: str) -> str:
+        padded = list(row) + [""] * (width - len(row))
+        return "".join(f"<{tag}>{_html_escape(c)}</{tag}>" for c in padded[:width])
+
+    head = f"<thead><tr>{cells(t.header, 'th')}</tr></thead>"
+    body = "".join(f"<tr>{cells(r, 'td')}</tr>" for r in t.rows)
+    return f"<table>{head}<tbody>{body}</tbody></table>"
+
+
+def _render_list_html(items: list[Block]) -> str:
+    """Render a run of consecutive list items as nested ``<ul>``/``<ol>``.
+
+    A deeper item nests inside the currently-open ``<li>`` (proper HTML nesting).
+    Mixed bullet/number at the *same* depth keep the level's first tag — switching
+    list type mid-level is a documented v1 simplification.
+    """
+    out: list[str] = []
+    stack: list[str] = []
+    for b in items:
+        level = max(1, b.list_level)
+        tag = "ul" if b.kind == BULLET else "ol"
+        if level > len(stack):
+            while len(stack) < level:
+                out.append(f"<{tag}>")
+                stack.append(tag)
+                if len(stack) < level:
+                    out.append("<li>")  # descend through a skipped level
+        else:
+            out.append("</li>")
+            while len(stack) > level:
+                out.append(f"</{stack.pop()}>")
+                out.append("</li>")
+        out.append(f"<li>{_render_spans_html(b.spans)}")
+    if stack:
+        out.append("</li>")
+    while stack:
+        out.append(f"</{stack.pop()}>")
+        if stack:
+            out.append("</li>")
+    return "".join(out)
+
+
+def _render_block_html(b: Block) -> str:
+    if b.kind == HEADING:
+        level = b.level or 1
+        return f"<h{level}>{_render_spans_html(b.spans)}</h{level}>"
+    if b.kind == PARAGRAPH:
+        inner = _render_spans_html(b.spans)
+        return f"<p>{inner}</p>" if inner else ""
+    if b.kind == TABLE and b.table is not None:
+        return _render_table_html(b.table)
+    if b.kind == IMAGE:
+        src = _html_attr(b.image_ref or "")
+        return f'<p><img src="{src}" alt="{_html_attr(b.image_alt or "")}"></p>'
+    return ""
+
+
+def render_html(blocks: list[Block]) -> str:
+    """Render a flat `Block` list to an HTML fragment (shares the node list with
+    `render_markdown`, so the two provably agree on structure)."""
+    out: list[str] = []
+    i = 0
+    n = len(blocks)
+    while i < n:
+        if blocks[i].kind in _LIST_KINDS:
+            j = i
+            while j < n and blocks[j].kind in _LIST_KINDS:
+                j += 1
+            out.append(_render_list_html(blocks[i:j]))
+            i = j
+            continue
+        rendered = _render_block_html(blocks[i])
+        if rendered:
+            out.append(rendered)
+        i += 1
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
 # The COM document-walk — the one impure pass the emitters share.
 # ---------------------------------------------------------------------------
 
