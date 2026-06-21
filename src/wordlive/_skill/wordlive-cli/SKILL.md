@@ -36,6 +36,7 @@ short string you pass as `--anchor-id`:
 | `footnote:N` / `endnote:N` | the Nth note's body (1-based; see `footnotes` / `endnotes`) |
 | `image:N`            | the Nth embedded picture (1-based; see `images`) |
 | `table:N:R:C`        | row R, col C of the Nth table (all 1-based) |
+| `table:N:row:R` / `table:N:col:C` | a whole row / column of the Nth table — a styling handle (`shading` / `borders` / `apply-style` / `format-run`) |
 | `range:START-END`    | a raw character span (what `find` emits) |
 | `header:S:WHICH` / `footer:S:WHICH` | header/footer of section S (`primary` / `first` / `even`) |
 | `start` / `end`      | the position before the first / past the last paragraph (prepend / append targets) |
@@ -325,7 +326,9 @@ Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `apply_theme`, `set_theme_colors`, `set_theme_fonts`,
 `set_cell`, `add_row`, `append_record`, `update_row`,
 `delete_row`, `set_heading_row`, `autofit_table`, `create_table`,
-`delete_table`, `set_property`, `delete_property`, `set_variable`,
+`delete_table`, `set_table_style`, `set_table_alignment`, `set_table_borders`,
+`set_table_banding`, `set_cell_vertical_alignment`,
+`set_property`, `delete_property`, `set_variable`,
 `delete_variable`, `insert_break`,
 `add_comment`, `resolve_comment`, `delete_comment`, `accept_revision`,
 `reject_revision`, `accept_all_revisions`, `reject_all_revisions`,
@@ -359,7 +362,23 @@ header row. `append_record` takes `table` + `record` (a `{header: value}` object
 → a new row); `update_row` takes `table` + `key` + `values` (`{header: value}`)
 and optional `column` — it sets cells on the first row whose key-column equals
 `key`. `autofit_table` takes `table` + optional `mode` (`content` default /
-`window` / `fixed`). `set_property` takes `name` + `value` + optional `custom`
+`window` / `fixed`). `set_table_style` takes `table` + `style` — restyle an
+existing table (restyle **first**, then layer cell-level shading, which a style
+reapply overwrites). `set_table_alignment` takes `table` + `alignment`
+(`left`/`center`/`right`) — the whole table across the page. `set_table_borders`
+takes `table` + optional `sides`/`style`/`line_style`/`weight`/`color` — the whole
+grid in one call (interior gridlines via `horizontal`/`vertical`).
+`set_table_banding` takes `table` + optional `first_row`/`last_row`/
+`first_column`/`last_column`/`banded_rows`/`banded_columns` bools — toggle the
+table-style options (needs a real table style applied to show).
+`set_cell_vertical_alignment` takes `anchor_id` (a `table:N:R:C` cell) + `align`
+(`top`/`center`/`bottom`). **Row / column styling:** address a whole row as
+`table:N:row:R` or a whole column as `table:N:col:C` — these are anchors, so the
+`shading` / `borders` / `apply-style` / `format-run` verbs (and `set_shading` /
+`set_borders` ops) style the whole strip in one call. A column op on a table with
+merged / mixed-width cells has no per-column model in Word and raises an error —
+style those cells individually via `table:N:R:C`. `set_property` takes `name` +
+`value` + optional `custom`
 (a custom property when true, else a built-in like Title/Author); `delete_property`
 takes `name` (custom only). `set_variable` takes `name` + `value`;
 `delete_variable` takes `name`. `pin` takes `anchor_id` + optional `name` (slug)

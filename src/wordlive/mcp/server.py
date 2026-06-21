@@ -439,6 +439,12 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get(k) is not None:
                 op[k] = p[k]
         return op
+    if command == "cell_valign":
+        return {
+            "op": "set_cell_vertical_alignment",
+            "anchor_id": need("anchor_id"),
+            "align": need("align"),
+        }
     if command == "drop_cap":
         op = {"op": "drop_cap", "anchor_id": need("anchor_id")}
         for k in ("lines", "position", "distance", "font"):
@@ -849,6 +855,33 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             return op
         if action == "delete":
             return {"op": "delete_table", "table": need("table")}
+        if action == "set_style":
+            return {"op": "set_table_style", "table": need("table"), "style": need("style")}
+        if action == "set_alignment":
+            return {
+                "op": "set_table_alignment",
+                "table": need("table"),
+                "alignment": need("alignment"),
+            }
+        if action == "set_borders":
+            op = {"op": "set_table_borders", "table": need("table")}
+            for key in ("sides", "style", "line_style", "weight", "color"):
+                if p.get(key) is not None:
+                    op[key] = p[key]
+            return op
+        if action == "set_banding":
+            op = {"op": "set_table_banding", "table": need("table")}
+            for key in (
+                "first_row",
+                "last_row",
+                "first_column",
+                "last_column",
+                "banded_rows",
+                "banded_columns",
+            ):
+                if p.get(key) is not None:
+                    op[key] = bool(p[key])
+            return op
         raise OpError(f"unknown table action: {action!r}")
     if command == "header":
         return {
@@ -1316,6 +1349,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "format_run",
             "set_shading",
             "set_borders",
+            "cell_valign",
             "drop_cap",
             "add_tab_stop",
             "add_style",
@@ -1421,6 +1455,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         markdown: str | None = None,
         level: int | None = None,
         allow_break: bool | None = None,
+        first_row: bool | None = None,
+        last_row: bool | None = None,
+        first_column: bool | None = None,
+        last_column: bool | None = None,
+        banded_rows: bool | None = None,
+        banded_columns: bool | None = None,
         values: list[Any] | dict[str, Any] | None = None,
         record: dict[str, Any] | None = None,
         key: str | None = None,
@@ -1597,7 +1637,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             name/hex; highlight is a named palette colour; size/spacing accept unit strings ·
         set_shading {anchor_id,fill} — fill colour of a range/cell ·
         set_borders {anchor_id,[sides=all|box|top|bottom|left|right|horizontal|vertical,
-            line_style=single|double|dot|dash|none,weight,color]} ·
+            line_style=single|double|dot|dash|none,weight,color]} — anchor_id may be a
+            cell (table:N:R:C), a whole row (table:N:row:R), or a whole column
+            (table:N:col:C); shading/borders/apply_style/format_run all take those too ·
+        cell_valign {anchor_id=table:N:R:C,align=top|center|bottom} — vertical alignment of a cell ·
         drop_cap {anchor_id,[position=dropped|margin|none,lines=3,distance,font]} —
             an oversized initial letter on the anchor's paragraph (a real Word DropCap) ·
         add_tab_stop {anchor_id,position,[align=left|center|right|decimal|bar,
@@ -1610,7 +1653,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         comment {action=add|resolve|delete,...} ·
         revision {action=accept|reject (index) | accept_all|reject_all ([anchor_id] scopes to that
             range, else whole doc)} — resolve tracked changes; accept/reject renumber the rest ·
-        table {action=set_cell|add_row|append_record|update_row|delete_row|set_heading_row|autofit|create|delete,
+        table {action=set_cell|add_row|append_record|update_row|delete_row|set_heading_row|autofit|
+               set_style|set_alignment|set_borders|set_banding|create|delete,
                create needs anchor_id and [rows,cols] (optional when data is given —
                inferred from it),[style,header,data,before]; data is a 2-D array OR
                records (a list of objects whose keys become a header row);
@@ -1618,7 +1662,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
                update_row {table,key,values,[column]} — set cells (values={header: value})
                on the first row whose key-column (column=, default first) equals key;
                set_heading_row {table,[row=1,heading=true,allow_break]} — repeating header row;
-               autofit {table,[mode=content|window|fixed]} — resize columns to content/window or pin them} ·
+               autofit {table,[mode=content|window|fixed]} — resize columns to content/window or pin them;
+               set_style {table,style} — restyle an existing table (restyle first, then cell overrides);
+               set_alignment {table,alignment=left|center|right} — the whole table across the page;
+               set_borders {table,[sides,style|line_style,weight,color]} — the whole grid in one call;
+               set_banding {table,[first_row,last_row,first_column,last_column,banded_rows,banded_columns]} —
+               toggle table-style options (needs a real table style applied to show)} ·
         insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
         insert_field {anchor_id,kind=page|numpages|date|time|filename|author|title|field,[text,before]} —
             a self-updating field; put page numbers in a footer; kind=field takes a raw code in text ·
@@ -1778,6 +1827,12 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "markdown": markdown,
             "level": level,
             "allow_break": allow_break,
+            "first_row": first_row,
+            "last_row": last_row,
+            "first_column": first_column,
+            "last_column": last_column,
+            "banded_rows": banded_rows,
+            "banded_columns": banded_columns,
             "values": values,
             "record": record,
             "key": key,

@@ -5,8 +5,15 @@ from __future__ import annotations
 import pytest
 
 import wordlive
+from wordlive._format import to_bgr
 from wordlive._ops import run_batch
-from wordlive.constants import WdParagraphAlignment
+from wordlive.constants import (
+    WdBorderType,
+    WdCellVerticalAlignment,
+    WdLineStyle,
+    WdParagraphAlignment,
+    WdRowAlignment,
+)
 from wordlive.exceptions import AnchorNotFoundError, OpError, StyleNotFoundError
 
 # ---------------------------------------------------------------------------
@@ -662,3 +669,245 @@ def test_anchor_by_id_non_numeric_table_id_raises(fake_word):
     with wordlive.attach() as word:
         with pytest.raises(AnchorNotFoundError):
             word.documents.active.anchor_by_id("table:a:b:c")
+
+
+# ---------------------------------------------------------------------------
+# Table styling — set_style / set_alignment / set_borders / set_banding
+# ---------------------------------------------------------------------------
+
+
+def test_set_style_restyles_existing_table(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("set style"):
+            t.set_style("Heading 1")
+        assert fake_word.ActiveDocument.Tables(1).Style is doc.styles["Heading 1"].com
+
+
+def test_set_style_unknown_raises(fake_word):
+    with wordlive.attach() as word:
+        t = word.documents.active.tables[1]
+        with pytest.raises(StyleNotFoundError):
+            t.set_style("No Such Table Style")
+
+
+def test_exec_set_table_style(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc, [{"op": "set_table_style", "table": 1, "style": "Heading 1"}], label="t"
+        )
+    assert exc is None and result["ok"] is True
+    assert fake_word.ActiveDocument.Tables(1).Style is doc.styles["Heading 1"].com
+
+
+def test_set_alignment_centers_table(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("align"):
+            doc.tables[1].set_alignment("center")
+        assert fake_word.ActiveDocument.Tables(1).Rows.Alignment == int(WdRowAlignment.CENTER)
+
+
+def test_set_alignment_bad_raises(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(OpError):
+            word.documents.active.tables[1].set_alignment("middle")
+
+
+def test_exec_set_table_alignment(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc, [{"op": "set_table_alignment", "table": 1, "alignment": "right"}], label="t"
+        )
+    assert exc is None and result["ok"] is True
+    assert fake_word.ActiveDocument.Tables(1).Rows.Alignment == int(WdRowAlignment.RIGHT)
+
+
+def test_set_table_borders_whole_grid(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("table borders"):
+            doc.tables[1].set_borders(sides="box", style="double", weight=1.5)
+    borders = fake_word.ActiveDocument.Tables(1).Borders
+    top = borders(int(WdBorderType.TOP))
+    assert top.LineStyle == int(WdLineStyle.DOUBLE)
+    # 1.5pt snaps to WdLineWidth 12 (points x 8).
+    assert top.LineWidth == 12
+
+
+def test_set_table_borders_bad_side_raises(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(OpError):
+            word.documents.active.tables[1].set_borders(sides="diagonal")
+
+
+def test_exec_set_table_borders_line_style_alias(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [{"op": "set_table_borders", "table": 1, "sides": "top", "line_style": "dot"}],
+            label="t",
+        )
+    assert exc is None and result["ok"] is True
+    borders = fake_word.ActiveDocument.Tables(1).Borders
+    assert borders(int(WdBorderType.TOP)).LineStyle == int(WdLineStyle.DOT)
+
+
+def test_set_banding_flips_only_passed_flags(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        com = fake_word.ActiveDocument.Tables(1)
+        com.ApplyStyleLastRow = True  # pre-existing flag must survive
+        with doc.edit("banding"):
+            doc.tables[1].set_banding(first_row=True, banded_rows=False)
+    assert com.ApplyStyleHeadingRows is True
+    assert com.ApplyStyleRowBands is False
+    assert com.ApplyStyleLastRow is True  # untouched (None) flags unchanged
+    assert com.ApplyStyleFirstColumn is False
+
+
+def test_exec_set_table_banding(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [{"op": "set_table_banding", "table": 1, "banded_columns": True}],
+            label="t",
+        )
+    assert exc is None and result["ok"] is True
+    assert fake_word.ActiveDocument.Tables(1).ApplyStyleColumnBands is True
+
+
+# ---------------------------------------------------------------------------
+# Cell vertical alignment
+# ---------------------------------------------------------------------------
+
+
+def test_cell_set_vertical_alignment_bottom(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("valign"):
+            doc.anchor_by_id("table:1:1:1").set_vertical_alignment("bottom")
+    # BOTTOM is 3 (the gap at 2 — wdAlignVerticalJustify — a cell rejects).
+    assert fake_word.ActiveDocument.Tables(1).Cell(1, 1).VerticalAlignment == int(
+        WdCellVerticalAlignment.BOTTOM
+    )
+
+
+def test_cell_vertical_alignment_bad_raises(fake_word):
+    with wordlive.attach() as word:
+        cell = word.documents.active.tables[1].cell(1, 1)
+        with pytest.raises(OpError):
+            cell.set_vertical_alignment("justify")
+
+
+def test_exec_set_cell_vertical_alignment(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [{"op": "set_cell_vertical_alignment", "anchor_id": "table:1:2:1", "align": "center"}],
+            label="t",
+        )
+    assert exc is None and result["ok"] is True
+    assert fake_word.ActiveDocument.Tables(1).Cell(2, 1).VerticalAlignment == int(
+        WdCellVerticalAlignment.CENTER
+    )
+
+
+def test_exec_set_cell_vertical_alignment_non_cell_raises(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(
+            doc,
+            [{"op": "set_cell_vertical_alignment", "anchor_id": "start", "align": "top"}],
+            label="t",
+        )
+    assert exc is not None and isinstance(exc, OpError)
+
+
+# ---------------------------------------------------------------------------
+# Row / column anchors — table:N:row:R  /  table:N:col:C
+# ---------------------------------------------------------------------------
+
+
+def test_anchor_by_id_resolves_row(fake_word):
+    with wordlive.attach() as word:
+        anchor = word.documents.active.anchor_by_id("table:1:row:1")
+    assert isinstance(anchor, wordlive.RowAnchor)
+    assert anchor.anchor_id == "table:1:row:1"
+    assert anchor.row == 1
+
+
+def test_anchor_by_id_resolves_column(fake_word):
+    with wordlive.attach() as word:
+        anchor = word.documents.active.anchor_by_id("table:1:col:2")
+    assert isinstance(anchor, wordlive.ColumnAnchor)
+    assert anchor.anchor_id == "table:1:col:2"
+    assert anchor.column == 2
+
+
+def test_table_row_and_column_accessors(fake_word):
+    with wordlive.attach() as word:
+        t = word.documents.active.tables[1]
+        assert isinstance(t.row(2), wordlive.RowAnchor)
+        assert isinstance(t.column(1), wordlive.ColumnAnchor)
+
+
+def test_row_accessor_out_of_range_raises(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(AnchorNotFoundError) as exc_info:
+            word.documents.active.tables[1].row(9)
+    assert exc_info.value.kind == "table row"
+
+
+def test_column_accessor_out_of_range_raises(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(AnchorNotFoundError) as exc_info:
+            word.documents.active.tables[1].column(9)
+    assert exc_info.value.kind == "table column"
+
+
+def test_row_anchor_shades_whole_row(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("row shade"):
+            doc.anchor_by_id("table:1:row:1").set_shading(fill="yellow")
+    row_range = fake_word.ActiveDocument.Tables(1).Rows(1).Range
+    assert row_range.Shading.BackgroundPatternColor == to_bgr("yellow")
+
+
+def test_row_anchor_set_text_refused(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(OpError):
+            word.documents.active.anchor_by_id("table:1:row:1").set_text("nope")
+
+
+def test_column_anchor_shades_each_cell(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("col shade"):
+            doc.anchor_by_id("table:1:col:1").set_shading(fill="red")
+    com = fake_word.ActiveDocument.Tables(1)
+    for r in (1, 2):  # the 2x2 "Grid" table's column 1
+        assert com.Cell(r, 1).Range.Shading.BackgroundPatternColor == to_bgr("red")
+
+
+def test_column_anchor_right_aligns_each_cell(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("col align"):
+            doc.anchor_by_id("table:1:col:2").format_paragraph(alignment="right")
+    com = fake_word.ActiveDocument.Tables(1)
+    for r in (1, 2):
+        assert com.Cell(r, 2).Range.ParagraphFormat.Alignment == int(WdParagraphAlignment.RIGHT)
+
+
+def test_column_anchor_set_text_refused(fake_word):
+    with wordlive.attach() as word:
+        with pytest.raises(OpError):
+            word.documents.active.anchor_by_id("table:1:col:1").set_text("nope")

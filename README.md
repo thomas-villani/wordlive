@@ -124,6 +124,13 @@ wordlive table create --anchor-id end \
     --data '[{"Item":"Travel","Cost":"$400"}]'             # records → keys are a header row
 #   --rows/--cols are inferred from --data (give them only to pad larger)
 wordlive table autofit --table 1 --mode content            # fit columns to cells (or window/fixed)
+wordlive table set-style --table 1 --style "Grid Table 4 - Accent 1"   # restyle an existing table
+wordlive table set-alignment --table 1 --alignment center  # the whole table across the page
+wordlive table set-borders --table 1 --sides box,horizontal,vertical   # the whole grid in one call
+wordlive table set-banding --table 1 --first-row --banded-rows         # Table Style Options
+wordlive shading --anchor-id table:1:row:1 --fill "#2E86C1"  # style a whole row (table:N:row:R)
+wordlive format-run --anchor-id table:1:col:2 --bold        # …or a whole column (table:N:col:C)
+wordlive cell-valign --anchor-id table:1:2:2 --align bottom # a cell's vertical alignment
 wordlive table delete 2
 
 # Page / column / section breaks (explicit one-off mark; for a style use --page-break-before):

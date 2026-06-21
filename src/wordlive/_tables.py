@@ -6,14 +6,22 @@ COM `Range`, so the inherited `apply_style` / `format_paragraph` / `set_text`
 machinery works on cells with no special-casing, and `replace --anchor-id
 table:N:R:C` resolves through `Document.anchor_by_id` like any other anchor.
 
-The anchor-id scheme is `table:N:R:C` (1-based table index, row, column). The
-bare `table:N` form is *not* an anchor — a whole table is a structural
-collection, not a single range — so it's addressed via `doc.tables[N]` and the
-`table` CLI group instead.
+The anchor-id schemes are `table:N:R:C` (a single cell, 1-based table/row/
+column), `table:N:row:R` (a whole row → [`RowAnchor`][wordlive.RowAnchor]), and
+`table:N:col:C` (a whole column → [`ColumnAnchor`][wordlive.ColumnAnchor]). A row
+or column anchor *is* an `Anchor`, so it styles the whole strip through the same
+`shading` / `borders` / `apply-style` / `format-run` verbs a cell does. The bare
+`table:N` form is *not* an anchor — a whole table is a structural collection, not
+a single range — so it's addressed via `doc.tables[N]` and the `table` CLI group
+instead (where whole-table restyle / borders / alignment / banding live).
 
 Limitation: cell addressing assumes a rectangular grid. Tables with merged or
 split cells have a non-uniform COM cell model; `Table.cell(r, c)` follows Word's
-own `Table.Cell(row, col)` indexing and may raise inside merged regions.
+own `Table.Cell(row, col)` indexing and may raise inside merged regions. A
+**column** anchor needs Word's per-column model, which a merged / mixed-width
+table doesn't have — Word raises "mixed cell widths" — so a column op on such a
+table raises `OpError` pointing back at per-cell `table:N:R:C` styling. Rows are
+always a contiguous range, so `table:N:row:R` is unaffected.
 """
 
 from __future__ import annotations
@@ -22,9 +30,9 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from . import _com
-from ._anchors import Anchor, range_text
-from .constants import WdAutoFitBehavior
-from .exceptions import AnchorNotFoundError, OpError
+from ._anchors import Anchor, apply_borders, range_text
+from .constants import WdAutoFitBehavior, WdCellVerticalAlignment, WdRowAlignment
+from .exceptions import AnchorNotFoundError, ComError, OpError
 
 # `autofit` mode keys -> WdAutoFitBehavior. "fixed" pins current widths,
 # "content" sizes columns to their cell contents, "window" stretches to the page.
@@ -33,6 +41,32 @@ _AUTOFIT_MODES: dict[str, WdAutoFitBehavior] = {
     "content": WdAutoFitBehavior.CONTENT,
     "window": WdAutoFitBehavior.WINDOW,
 }
+
+# Whole-table alignment keys -> WdRowAlignment (the table across the page width).
+_ROW_ALIGN: dict[str, WdRowAlignment] = {
+    "left": WdRowAlignment.LEFT,
+    "center": WdRowAlignment.CENTER,
+    "centre": WdRowAlignment.CENTER,
+    "right": WdRowAlignment.RIGHT,
+}
+
+# Cell vertical-alignment keys -> WdCellVerticalAlignment (0/1/3 — 2 is invalid).
+_CELL_VALIGN: dict[str, WdCellVerticalAlignment] = {
+    "top": WdCellVerticalAlignment.TOP,
+    "center": WdCellVerticalAlignment.CENTER,
+    "centre": WdCellVerticalAlignment.CENTER,
+    "bottom": WdCellVerticalAlignment.BOTTOM,
+}
+
+
+def _coerce_align(value: Any, table: dict[str, Any], label: str) -> int:
+    """Map an alignment keyword to its enum int, raising `OpError` on a miss."""
+    key = str(value).strip().lower()
+    if key not in table:
+        choices = ", ".join(sorted(table))
+        raise OpError(f"{label} must be one of {choices}; got {value!r}")
+    return int(table[key])
+
 
 if TYPE_CHECKING:
     from ._document import Document
@@ -123,6 +157,142 @@ class Cell(Anchor):
         with _com.translate_com_errors():
             self._cell().Range.Text = text
 
+    def set_vertical_alignment(self, align: str) -> None:
+        """Set where this cell's content sits vertically — top, center, or bottom.
+
+        `align` is ``"top"`` / ``"center"`` (``"centre"``) / ``"bottom"``, mapped
+        onto `Cell.VerticalAlignment`. (Word shares this value space with page
+        vertical alignment, whose ``2`` = *justify* slot a cell rejects, so only
+        those three are offered.) Idempotent. Wrap in `doc.edit(...)` for atomic
+        undo; bad input raises `OpError`.
+        """
+        value = _coerce_align(align, _CELL_VALIGN, "cell vertical alignment")
+        with _com.translate_com_errors():
+            self._cell().VerticalAlignment = value
+
+
+class RowAnchor(Anchor):
+    """A whole table row, addressed by ``table:N:row:R`` (1-based).
+
+    Subclasses `Anchor` over the row's contiguous ``Rows(R).Range``, so the
+    inherited styling verbs — `set_shading`, `set_borders`, `apply_style`,
+    `format_run`, `format_paragraph` — restyle the *entire row* in one call
+    (``shading --anchor-id table:1:row:1`` shades the header row;
+    ``format-run --anchor-id table:1:row:1 --bold`` bolds it). `set_text` is
+    refused — a row is a styling target, not a text slot; edit its cells via
+    ``table:N:R:C``.
+    """
+
+    kind = "table-row"
+
+    def __init__(self, table: Table, row: int) -> None:
+        super().__init__(table._doc, name=f"table:{table.index}:row:{row}")
+        self._table = table
+        self._row = row
+
+    @property
+    def anchor_id(self) -> str:
+        return f"table:{self._table.index}:row:{self._row}"
+
+    @property
+    def row(self) -> int:
+        return self._row
+
+    def _range(self) -> Any:
+        with _com.translate_com_errors():
+            return self._table.com.Rows(self._row).Range
+
+    def set_text(self, text: str) -> None:
+        raise OpError(
+            f"{self.anchor_id} is a whole row; set text on its cells via "
+            f"table:{self._table.index}:{self._row}:C"
+        )
+
+
+class ColumnAnchor(Anchor):
+    """A whole table column, addressed by ``table:N:col:C`` (1-based).
+
+    Unlike a row, a column is **not** a contiguous Word range — `Column.Range`
+    isn't reachable under late binding — so this anchor styles the column by
+    fanning each op out across its cells (`Columns(C).Cells`). The column-wide
+    styling verbs (`set_shading`, `set_borders`, `apply_style`, `format_run`,
+    `format_paragraph`) are overridden to loop the cells; range-only ops that need
+    a single span (`set_text`, `replace`, `insert_*`) raise `OpError`.
+
+    A table with **merged or mixed-width cells** has no per-column model — Word
+    raises "mixed cell widths" — so any column op on such a table raises `OpError`
+    pointing at per-cell ``table:N:R:C`` styling. (Rows are unaffected; use
+    ``table:N:row:R``.)
+    """
+
+    kind = "table-column"
+
+    def __init__(self, table: Table, col: int) -> None:
+        super().__init__(table._doc, name=f"table:{table.index}:col:{col}")
+        self._table = table
+        self._col = col
+
+    @property
+    def anchor_id(self) -> str:
+        return f"table:{self._table.index}:col:{self._col}"
+
+    @property
+    def column(self) -> int:
+        return self._col
+
+    def _range(self) -> Any:
+        raise OpError(
+            f"{self.anchor_id} is a whole column, not a single range; use the "
+            f"column styling verbs, or address cells via table:{self._table.index}:R:{self._col}"
+        )
+
+    def _cells(self) -> list[Cell]:
+        """The column's cells as `Cell` anchors — or `OpError` on a mixed-width table.
+
+        Reading the column collection is what trips Word's "mixed cell widths"
+        error on a merged / irregular table; we catch the resulting `ComError` and
+        re-raise a clear `OpError` that points at per-cell styling. On a regular
+        table this yields one `Cell` per body row, in row order.
+        """
+        try:
+            with _com.translate_com_errors():
+                com_cells = list(self._table.com.Columns(self._col).Cells)
+        except ComError as e:
+            raise OpError(
+                f"cannot style column {self._col} of table {self._table.index} "
+                f"({e}); the table has merged or mixed-width cells — style its "
+                f"cells individually via table:{self._table.index}:R:{self._col}"
+            ) from e
+        return [self._table.cell(int(c.RowIndex), self._col) for c in com_cells]
+
+    def set_shading(self, *, fill: Any = None, pattern: Any = None) -> None:
+        for cell in self._cells():
+            cell.set_shading(fill=fill, pattern=pattern)
+
+    def set_borders(
+        self, *, sides: Any = "all", style: Any = "single", weight: Any = 0.5, color: Any = None
+    ) -> None:
+        for cell in self._cells():
+            cell.set_borders(sides=sides, style=style, weight=weight, color=color)
+
+    def apply_style(self, name: str) -> None:
+        for cell in self._cells():
+            cell.apply_style(name)
+
+    def format_run(self, **kwargs: Any) -> None:
+        for cell in self._cells():
+            cell.format_run(**kwargs)
+
+    def format_paragraph(self, **kwargs: Any) -> None:
+        for cell in self._cells():
+            cell.format_paragraph(**kwargs)
+
+    def set_text(self, text: str) -> None:
+        raise OpError(
+            f"{self.anchor_id} is a whole column; set text on its cells via "
+            f"table:{self._table.index}:R:{self._col}"
+        )
+
 
 class Table:
     """Wraps a Word `Table` COM object, located by its 1-based document position.
@@ -173,6 +343,33 @@ class Table:
         if not (1 <= row <= rows and 1 <= col <= cols):
             raise AnchorNotFoundError("table cell", f"table:{self._index}:{row}:{col}")
         return Cell(self, row, col)
+
+    def row(self, row: int) -> RowAnchor:
+        """Return the `RowAnchor` for the 1-based `row` (`table:N:row:R`).
+
+        A styling handle for the whole row — `table.row(1).set_shading(fill=…)`
+        shades it, `.format_run(bold=True)` bolds it. Same object as
+        `doc.anchor_by_id("table:N:row:R")`. Raises `AnchorNotFoundError` (kind
+        `"table row"`) if out of range.
+        """
+        rows = self.row_count
+        if not (1 <= row <= rows):
+            raise AnchorNotFoundError("table row", f"table:{self._index}:row:{row}")
+        return RowAnchor(self, row)
+
+    def column(self, col: int) -> ColumnAnchor:
+        """Return the `ColumnAnchor` for the 1-based `col` (`table:N:col:C`).
+
+        The column counterpart of `row()` — `table.column(3).format_paragraph(
+        alignment="right")` right-aligns a totals column. Same object as
+        `doc.anchor_by_id("table:N:col:C")`. Raises `AnchorNotFoundError` (kind
+        `"table column"`) if out of range. (A column op on a merged / mixed-width
+        table raises `OpError` when applied — see `ColumnAnchor`.)
+        """
+        cols = self.column_count
+        if not (1 <= col <= cols):
+            raise AnchorNotFoundError("table column", f"table:{self._index}:col:{col}")
+        return ColumnAnchor(self, col)
 
     def grid(self) -> list[list[str]]:
         """All cell text as a row-major `list[list[str]]`."""
@@ -355,6 +552,102 @@ class Table:
             # "content"/"window" need AllowAutoFit on for the behavior to take.
             self._com.AllowAutoFit = behavior != WdAutoFitBehavior.FIXED
             self._com.AutoFitBehavior(int(behavior))
+
+    def set_style(self, name: str) -> None:
+        """Restyle this **existing** table with a named table style.
+
+        The post-creation counterpart of `insert_table(style=…)` — point a table
+        at any built-in or custom table style (`"Grid Table 4 - Accent 1"`,
+        `"Plain Table 3"`, …; discover them via `style list` filtered to
+        `type=="table"`). Raises `StyleNotFoundError` (exit 2) if the style isn't
+        defined in the document.
+
+        **Direct cell shading is not preserved.** Applying a table style reapplies
+        the style's conditional formatting (banding, header shading), which
+        overwrites explicit per-cell `set_shading` colours (live-confirmed). So
+        restyle **first**, then layer cell-level overrides on top — not the
+        reverse. Wrap in `doc.edit(...)` for atomic undo.
+        """
+        style_obj = self._doc.styles[name]  # StyleNotFoundError (exit 2) if missing
+        with _com.translate_com_errors():
+            self._com.Style = style_obj.com
+
+    def set_alignment(self, alignment: str) -> None:
+        """Align the whole table across the page width — left, center, or right.
+
+        `alignment` is ``"left"`` / ``"center"`` (``"centre"``) / ``"right"``,
+        mapped onto `Table.Rows.Alignment`. This positions the *table* between the
+        page margins (distinct from the text alignment *inside* cells, which is
+        `format_paragraph`). Idempotent. Wrap in `doc.edit(...)`; bad input raises
+        `OpError`.
+        """
+        value = _coerce_align(alignment, _ROW_ALIGN, "table alignment")
+        with _com.translate_com_errors():
+            self._com.Rows.Alignment = value
+
+    def set_borders(
+        self,
+        *,
+        sides: Any = "all",
+        style: Any = "single",
+        weight: Any = 0.5,
+        color: Any = None,
+    ) -> None:
+        """Draw borders across the **whole table grid** in one call.
+
+        The table-wide counterpart of the per-cell `set_borders` (a `Cell` is an
+        `Anchor`). `sides` is ``"all"``/``"box"`` (the four outer edges — the
+        default), a single outer edge (``"top"``/``"bottom"``/``"left"``/
+        ``"right"``), the interior gridlines (``"horizontal"``/``"vertical"`` —
+        the lines *between* cells), or a list (e.g. ``["box", "horizontal",
+        "vertical"]`` to rule every line). `style` is a line style (``"single"``,
+        ``"double"``, ``"dot"``, ``"dash"``, …, or ``"none"`` to clear). `weight`
+        is the line width in points, snapped to Word's set (0.25/0.5/0.75/1/1.5/
+        2.25/3). `color` is an optional name/hex/RGB. Idempotent. Bad input raises
+        `OpError`. Wrap in `doc.edit(...)`.
+        """
+        try:
+            with _com.translate_com_errors():
+                apply_borders(
+                    self._com.Borders, sides=sides, style=style, weight=weight, color=color
+                )
+        except (ValueError, TypeError) as e:
+            raise OpError(str(e)) from e
+
+    def set_banding(
+        self,
+        *,
+        first_row: bool | None = None,
+        last_row: bool | None = None,
+        first_column: bool | None = None,
+        last_column: bool | None = None,
+        banded_rows: bool | None = None,
+        banded_columns: bool | None = None,
+    ) -> None:
+        """Toggle the table-style options (Word's "Table Style Options" ribbon group).
+
+        Each flag turns one conditional-formatting band of the **applied table
+        style** on or off — `first_row` (a distinct header row), `last_row` (a
+        total row), `first_column` / `last_column`, and `banded_rows` /
+        `banded_columns` (the alternating stripes). All are tri-state: ``True`` /
+        ``False`` set, ``None`` (the default) leaves that flag untouched.
+
+        These only show once a **real table style** is applied — a styleless table
+        or plain `"Table Grid"` ignores band conditions. Pair with `set_style`.
+        Idempotent. Wrap in `doc.edit(...)` for atomic undo.
+        """
+        flags: dict[str, bool | None] = {
+            "ApplyStyleHeadingRows": first_row,
+            "ApplyStyleLastRow": last_row,
+            "ApplyStyleFirstColumn": first_column,
+            "ApplyStyleLastColumn": last_column,
+            "ApplyStyleRowBands": banded_rows,
+            "ApplyStyleColumnBands": banded_columns,
+        }
+        with _com.translate_com_errors():
+            for prop, val in flags.items():
+                if val is not None:
+                    setattr(self._com, prop, bool(val))
 
     def delete(self) -> None:
         """Delete this entire table — the structural mirror of `add_row`.

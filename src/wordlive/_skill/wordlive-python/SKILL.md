@@ -81,6 +81,7 @@ from its id with `doc.anchor_by_id(...)`, or use the typed accessors:
 | `shape:N` | `doc.shapes[N]` | the Nth floating shape — text box / floating image / WordArt / group (1-based, document order) |
 | `textbox:N` | `doc.text_boxes[N]` | the Nth text box — an alias onto its canonical `shape:N` |
 | `table:N:R:C` | `doc.tables[N].cell(R, C)` | a table cell |
+| `table:N:row:R` / `table:N:col:C` | `doc.tables[N].row(R)` / `.column(C)` | a whole row / column — a styling handle (`set_shading`/`set_borders`/`apply_style`/`format_run`) |
 | `range:START-END` | `doc.anchor_by_id("range:412-429")` | a raw character span (what `find()` emits) |
 | `header:S:WHICH` / `footer:S:WHICH` | `doc.sections[S].header(WHICH)` | header/footer (`primary`/`first`/`even`) |
 | `start` / `end` | `doc.start` / `doc.end` | before the first / past the last paragraph |
@@ -382,6 +383,17 @@ with doc.edit("Build + edit tables"):
     doc.tables[2].delete()
 
 records = doc.tables[1].records()   # body rows as [{header: value}, …] — read, no edit scope
+
+with doc.edit("Style a table"):
+    t = doc.tables[1]
+    t.set_style("Grid Table 4 - Accent 1")                   # restyle FIRST (it overwrites cell shading)…
+    t.set_alignment("center")                                # …then the whole table across the page
+    t.set_borders(sides=["box", "horizontal", "vertical"])   # whole grid in one call
+    t.set_banding(first_row=True, banded_rows=True)          # Table Style Options (needs a style)
+    t.row(1).set_shading(fill="#2E86C1")                     # whole row: table:1:row:1
+    t.row(1).format_run(bold=True, color="white")
+    t.column(2).format_paragraph(alignment="right")          # whole column: table:1:col:2
+    t.cell(1, 1).set_vertical_alignment("center")            # cell:  table:1:1:1
 ```
 
 `add_table`/`insert_table` default to the `Table Grid` style (visible borders);
@@ -391,6 +403,15 @@ A cell *is* an anchor (`table:N:R:C`), so it takes `set_text`/`apply_style`/etc.
 Treat a table as records keyed by row 1: `records()` reads it back,
 `append_record({...})` adds a row by header name, `update_row(key, {...},
 column=None)` sets cells on the first row whose key-column equals `key`.
+**Styling:** `set_style` restyles an existing table (do it *before* any cell
+shading — a style reapply overwrites direct cell colours), `set_alignment`
+positions it on the page, `set_borders` rules the whole grid, `set_banding`
+toggles the Table Style Options (needs a real style applied). A whole **row**
+(`table:N:row:R` / `t.row(R)`) or **column** (`table:N:col:C` / `t.column(C)`) is
+an anchor too, so the `set_shading`/`set_borders`/`apply_style`/`format_run`/
+`format_paragraph` verbs style the strip in one call. A column op on a table with
+merged / mixed-width cells raises `OpError` — style those cells via `table:N:R:C`.
+`Cell.set_vertical_alignment("top"|"center"|"bottom")` sets vertical alignment.
 
 ### Lists, sections, headers/footers
 

@@ -67,6 +67,7 @@ Quick index (capability → real release):
 | Floating-shape anchor model (`shape:N`: `doc.shapes`/`doc.text_boxes`; `ShapeAnchor` set_wrap/position/size/format/alt_text/text/replace_image/delete; `insert_text_box`+floating `insert_image` return it) | Unreleased |
 | Shape depth + inline restyle + `textbox:N` (`ShapeAnchor` set_rotation/set_z_order/set_text_frame; `doc.group_shapes`/`ungroup`; `ImageAnchor` set_alt_text/set_size; `textbox:N` alias) | Unreleased |
 | Checkpoint + diff (`doc.checkpoint`/`changes_since`/`diff`; `Checkpoint` token, `include=text/+style/+format`; content-aligned `replace`/`insert`/`delete`/`restyle`/`reformat` w/ current `para:N`; `doc_hash` fast-path) | Unreleased |
+| Table styling & polish (`Table.set_style`/`set_alignment`/`set_borders`/`set_banding`, `Cell.set_vertical_alignment`; row/column anchors `table:N:row:R` [`RowAnchor`] / `table:N:col:C` [`ColumnAnchor`] + `Table.row`/`column`) | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -76,10 +77,10 @@ from the shipped clusters above.
 ### Anchor-id taxonomy (the stable, LLM-visible addressing scheme)
 
 `heading:N`, `para:N`, `bookmark:NAME`, `cc:NAME`, `table:N:R:C`,
-`range:START-END`, `header:S:WHICH` / `footer:S:WHICH`, `footnote:N`,
-`endnote:N`, `image:N`, `equation:N`, `chart:N`, `shape:N`, `pin:CODE`, `start`,
-`end`. One resolver: `doc.anchor_by_id(id)`. A malformed scheme (`banana:7`)
-reports "unknown anchor type".
+`table:N:row:R`, `table:N:col:C`, `range:START-END`, `header:S:WHICH` /
+`footer:S:WHICH`, `footnote:N`, `endnote:N`, `image:N`, `equation:N`, `chart:N`,
+`shape:N`, `pin:CODE`, `start`, `end`. One resolver: `doc.anchor_by_id(id)`. A
+malformed scheme (`banana:7`) reports "unknown anchor type".
 
 - **`shape:N`** is positional over the document's **body-story floating shapes**
   (`Document.Shapes`, document order) — text boxes, **floating images**
@@ -126,7 +127,24 @@ reports "unknown anchor type".
 - **`table:N:R:C`** addresses a cell; **bare `table:N` is not an anchor** (a
   whole table is a collection — `doc.tables[N]` / the `table` CLI group). A
   `Cell` **is** an `Anchor` (inherits `apply_style`/`format_paragraph`/`set_text`
-  + borders/shading); cells don't appear in `doc.outline()`.
+  + borders/shading + `set_vertical_alignment`); cells don't appear in
+  `doc.outline()`. Whole-table restyle / alignment / grid-borders / banding live on
+  the `Table` wrapper (`set_style`/`set_alignment`/`set_borders`/`set_banding`), not
+  as anchors.
+- **`table:N:row:R`** (`RowAnchor`) and **`table:N:col:C`** (`ColumnAnchor`) are
+  styling handles for a whole row / column — both `Anchor`s, so the shipped
+  `shading`/`borders`/`apply-style`/`format-run` verbs (and `set_shading`/
+  `set_borders` ops) style the strip in one call; `Table.row(R)`/`Table.column(C)`
+  return the same objects. A **row** is a contiguous `Rows(R).Range`. A **column**
+  is **not** — `Column.Range` is absent under late binding and the whole `Columns(C)`
+  collection raises **"mixed cell widths"** (`0x80020009`) on a merged / irregular
+  table — so `ColumnAnchor` fans the op across `Columns(C).Cells` and re-raises that
+  COM error as an `OpError` pointing at per-cell `table:N:R:C` styling
+  (live-probed 2026-06-20). Restyle gotchas (live-probed 2026-06-20): `Table.Style =
+  X` **overwrites direct cell shading** (restyle first, then cell overrides);
+  `Cell.VerticalAlignment` takes 0/1/**3** (2 = `wdAlignVerticalJustify`, invalid for
+  a cell, raises); the six banding `Table.ApplyStyle*` booleans read back as real
+  Python bools and only show once a real table style is applied.
 - **`range:START-END`** is what `find()` emits *and* what `anchor_by_id`
   resolves — a find hit feeds straight into `replace` / `comments.add` /
   `format_run`.
@@ -512,6 +530,28 @@ Part III's catalogue (promoted here, not re-derived).
 
 ### 5. Table styling & polish
 
+> **Core slice — ✅ shipped (Unreleased, 2026-06-20).** The headline restyle gaps
+> all landed, wired Python / CLI / `exec` op / MCP and live-Word validated:
+> `Table.set_style` (restyle an existing table — `set_table_style` / `table
+> set-style`), `Table.set_alignment` (whole table across the page), `Table.set_borders`
+> (the **whole grid** in one call — the table-wide counterpart `set_borders` on a
+> cell explicitly excluded), `Table.set_banding` (the six `ApplyStyle*` "Table Style
+> Options"), and `Cell.set_vertical_alignment` (flat `cell-valign`). **Row / column
+> styling** is solved by the anchor scheme: `table:N:row:R` → `RowAnchor` (a
+> contiguous `Rows(R).Range`) and `table:N:col:C` → `ColumnAnchor` (fans across
+> `Columns(C).Cells`), plus `Table.row(R)`/`Table.column(C)` — so the shipped
+> `shading`/`borders`/`apply-style`/`format-run` verbs style a whole strip with
+> **zero new styling surface**. **Live-probe findings baked in** (2026-06-20): cell
+> vertical alignment maps 0/1/**3** (2 = `wdAlignVerticalJustify` is invalid for a
+> cell); a table-style swap **overwrites direct cell shading** (restyle first, then
+> overrides — documented); and a column has **no** Word per-column model on a merged /
+> mixed-width table (`Column.Range` is absent and `Columns(C)` raises "mixed cell
+> widths"), so a column op there raises a clean `OpError` pointing at per-cell
+> `table:N:R:C` styling. See Part I's `table:N:row:R`/`col:C` taxonomy note and
+> `CHANGELOG.md`. **Still deferred (the structural-polish strand below):** restyle
+> preserving conditional formatting nuances aside, merged/split-cell addressing and
+> `add_column`/`delete_column`.
+
 Two strands: a **table-styling surface** (the agent-publishing need — restyle
 cells/rows/columns and whole tables with ease) and the **structural polish**
 parked from earlier sweeps.
@@ -704,13 +744,15 @@ that works *alongside* the user in a live session. Feasibility **proven live**
   import from template, `UpdateStyles`, style-usage inventory ("used vs. defined",
   "style near this anchor"). (Basic style creation/modification shipped v0.12.0;
   document themes shipped v0.16.0.)
-- **Table styling & polish** — restyle an existing table's style
-  (`Table.set_style`), row/column styling in one call, banding / table-style
-  options, whole-table alignment + borders, cell vertical alignment; plus
-  merged/split cells (addressing assumes rectangular) and
+- **Table styling & polish** — *core slice shipped (Unreleased):* restyle
+  (`Table.set_style`), row/column styling in one call (the `table:N:row:R` /
+  `table:N:col:C` anchors), banding / table-style options (`set_banding`),
+  whole-table alignment + borders (`set_alignment` / `set_borders`), and cell
+  vertical alignment (`Cell.set_vertical_alignment`) all landed (see Part II item 5
+  + Part I). *Still open:* merged/split cells (addressing assumes rectangular) and
   `add_column`/`delete_column`. (AutoFit shipped v0.15.0 as `Table.autofit`;
   whole-table style settable at *creation* via `insert_table(style=…)`.)
-  **→ promoted to Part II Priority 3 (item 5, table styling & polish).**
+  **→ Part II Priority 3 (item 5, table styling & polish).**
 - **List polish** — custom list-template authoring, per-level bullet/number
   format, multi-section `LinkToPrevious` editing. **→ promoted to Part II Priority 6.**
 - **Comment/revision polish** — comment replies (`comment.reply`), author/date

@@ -586,6 +586,35 @@ def _coerce_line_weight(value: Any) -> int:
     return min(_LINE_WIDTHS, key=lambda w: abs(w - eighths))
 
 
+def apply_borders(
+    borders_com: Any,
+    *,
+    sides: Any = "all",
+    style: Any = "single",
+    weight: Any = 0.5,
+    color: Any = None,
+) -> None:
+    """Apply border styling to a COM `Borders` collection (range, cell, or table).
+
+    Shared by `Anchor.set_borders` (per-range / per-cell borders) and
+    `Table.set_borders` (whole-grid borders): both index the same
+    `Borders(WdBorderType)` shape, so the coerce-then-loop is identical. Coercion
+    happens first, before any COM write, so a bad `sides`/`style`/`weight`/`color`
+    raises `ValueError`/`TypeError` (the caller wraps it in `OpError`) without a
+    partial edit.
+    """
+    edges = _resolve_border_sides(sides)
+    line_style = _coerce_named(style, _LINE_STYLES, "border style")
+    line_width = _coerce_line_weight(weight)
+    bgr = to_bgr(color) if color is not None else None
+    for edge in edges:
+        b = borders_com(edge)
+        b.LineStyle = line_style
+        b.LineWidth = line_width
+        if bgr is not None:
+            b.Color = bgr
+
+
 # Floating wrap keywords -> WdWrapType. "inline" and "auto" are handled
 # specially by insert_image and are not in this map. Single source of truth:
 # `_shapes.WRAP_NAMES` (the floating-shape mutators share the same vocabulary).
@@ -3060,23 +3089,21 @@ class Anchor(ABC):
         Word's discrete set (0.25/0.5/0.75/1/1.5/2.25/3 pt). `color` is an
         optional border colour (name/hex/RGB).
 
-        Page borders (`Section.Borders`) and table-wide borders (`Table.Borders`)
-        are out of scope here — this sets per-range/per-cell borders. Bad input
-        raises `OpError`. Wrap in `doc.edit(...)`.
+        This sets per-range / per-cell borders. Page borders
+        (`Section.Borders`) are out of scope; whole-table borders (the entire
+        grid in one call, including interior gridlines) go through
+        [`Table.set_borders`][wordlive.Table.set_borders] / the `table
+        set-borders` verb. Bad input raises `OpError`. Wrap in `doc.edit(...)`.
         """
         try:
-            edges = _resolve_border_sides(sides)
-            line_style = _coerce_named(style, _LINE_STYLES, "border style")
-            line_width = _coerce_line_weight(weight)
-            bgr = to_bgr(color) if color is not None else None
             with _com.translate_com_errors():
-                borders = self._range().Borders
-                for edge in edges:
-                    b = borders(edge)
-                    b.LineStyle = line_style
-                    b.LineWidth = line_width
-                    if bgr is not None:
-                        b.Color = bgr
+                apply_borders(
+                    self._range().Borders,
+                    sides=sides,
+                    style=style,
+                    weight=weight,
+                    color=color,
+                )
         except (ValueError, TypeError) as e:
             raise OpError(str(e)) from e
 

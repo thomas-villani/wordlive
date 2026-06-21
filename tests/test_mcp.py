@@ -269,6 +269,34 @@ class TestWriteImpl:
         with pytest.raises(AnchorNotFoundError):
             _write_impl(W, "insert", {"anchor_id": "heading:99", "text": "x"})
 
+    def test_table_set_style(self, fake_word: Any) -> None:
+        r = _write_impl(W, "table", {"action": "set_style", "table": 1, "style": "Heading 1"})
+        assert r["ok"] is True
+        assert fake_word.ActiveDocument.Tables(1).Style is not None
+
+    def test_table_set_alignment(self, fake_word: Any) -> None:
+        r = _write_impl(W, "table", {"action": "set_alignment", "table": 1, "alignment": "center"})
+        assert r["ok"] is True
+        assert fake_word.ActiveDocument.Tables(1).Rows.Alignment == 1
+
+    def test_table_set_borders(self, fake_word: Any) -> None:
+        r = _write_impl(W, "table", {"action": "set_borders", "table": 1, "line_style": "double"})
+        assert r["ok"] is True
+
+    def test_table_set_banding(self, fake_word: Any) -> None:
+        r = _write_impl(W, "table", {"action": "set_banding", "table": 1, "banded_rows": False})
+        assert r["ok"] is True
+        assert fake_word.ActiveDocument.Tables(1).ApplyStyleRowBands is False
+
+    def test_table_unknown_action_raises(self, fake_word: Any) -> None:
+        with pytest.raises(OpError):
+            _write_impl(W, "table", {"action": "nope", "table": 1})
+
+    def test_cell_valign(self, fake_word: Any) -> None:
+        r = _write_impl(W, "cell_valign", {"anchor_id": "table:1:1:1", "align": "bottom"})
+        assert r["ok"] is True
+        assert fake_word.ActiveDocument.Tables(1).Cell(1, 1).VerticalAlignment == 3
+
 
 # ---------------------------------------------------------------------------
 # word_exec

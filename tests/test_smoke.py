@@ -1212,3 +1212,102 @@ def test_chart_formatting_verbs(scratch_doc):
     assert bar.has_legend is True
     row = doc.charts.list()[0]
     assert row["chart_style"] == 242 and row["has_legend"] is True
+
+
+# ---------------------------------------------------------------------------
+# Table styling & polish — restyle / alignment / borders / banding, cell
+# vertical alignment, and the row/column anchors (table:N:row:R / :col:C).
+# The column path is the fragile one: Word has no per-column model on a
+# merged / mixed-width table, so a column op there must raise a clean OpError.
+# ---------------------------------------------------------------------------
+
+
+def test_set_style_restyles_existing_table(scratch_doc):
+    """A post-creation table style swap takes (the gap insert_table(style=) left)."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(2, 2, data=[["A", "B"], ["C", "D"]])
+    with doc.edit("restyle"):
+        doc.tables[1].set_style("Grid Table 4 - Accent 1")
+    assert doc.tables[1].com.Style.NameLocal == "Grid Table 4 - Accent 1"
+
+
+def test_set_alignment_and_banding_and_borders(scratch_doc):
+    """Whole-table alignment, banding flags, and grid borders all apply live."""
+    from wordlive.constants import WdRowAlignment
+
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(3, 3, style="Grid Table 4 - Accent 1")
+    t = doc.tables[1]
+    with doc.edit("style ops"):
+        t.set_alignment("center")
+        t.set_banding(first_row=True, banded_rows=False, banded_columns=True)
+        t.set_borders(sides=["box", "horizontal", "vertical"], style="single", weight=1.0)
+    com = t.com
+    assert int(com.Rows.Alignment) == int(WdRowAlignment.CENTER)
+    # The ApplyStyle* properties read back as real Python bools under makepy.
+    assert bool(com.ApplyStyleHeadingRows) is True
+    assert bool(com.ApplyStyleRowBands) is False
+    assert bool(com.ApplyStyleColumnBands) is True
+
+
+def test_cell_vertical_alignment_bottom_renders(scratch_doc):
+    """Cell vertical alignment maps top/center/bottom onto 0/1/3 (2 is invalid)."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(2, 2)
+    with doc.edit("valign"):
+        doc.anchor_by_id("table:1:1:1").set_vertical_alignment("bottom")
+    assert int(doc.tables[1].com.Cell(1, 1).VerticalAlignment) == 3  # wdCellAlignVerticalBottom
+
+
+def test_row_anchor_shades_whole_row_politely(scratch_doc):
+    """table:N:row:R styles the entire row through the inherited verbs, and the
+    user's Selection survives (politeness)."""
+    from wordlive._format import to_bgr
+
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(3, 3, data=[["h1", "h2", "h3"], ["a", "b", "c"], ["d", "e", "f"]])
+    sel = doc.com.Application.Selection
+    sel.SetRange(0, 0)
+    before = (int(sel.Start), int(sel.End))
+    with doc.edit("row shade"):
+        doc.anchor_by_id("table:1:row:1").set_shading(fill="#FFFF00")
+    com = doc.tables[1].com
+    for c in (1, 2, 3):
+        assert int(com.Cell(1, c).Range.Shading.BackgroundPatternColor) == to_bgr("#FFFF00")
+    after = doc.com.Application.Selection
+    assert (int(after.Start), int(after.End)) == before
+
+
+def test_column_anchor_styles_each_cell_on_regular_table(scratch_doc):
+    """On a regular table, table:N:col:C fans styling across the column's cells."""
+    from wordlive._format import to_bgr
+
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(3, 2, data=[["x", "y"], ["1", "2"], ["3", "4"]])
+    with doc.edit("col shade"):
+        doc.anchor_by_id("table:1:col:1").set_shading(fill="red")
+    com = doc.tables[1].com
+    for r in (1, 2, 3):
+        assert int(com.Cell(r, 1).Range.Shading.BackgroundPatternColor) == to_bgr("red")
+
+
+def test_column_anchor_on_merged_table_raises_operror(scratch_doc):
+    """The headline fragility: a column op on a merged / mixed-width table has no
+    per-column model in Word, so it raises a clean OpError pointing at per-cell
+    styling — not a raw COM 'mixed cell widths' error."""
+    from wordlive.exceptions import OpError
+
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(3, 3)
+    # Merge the first two cells of row 1 → the table now has mixed cell widths.
+    with doc.edit("merge"):
+        doc.tables[1].com.Cell(1, 1).Merge(doc.tables[1].com.Cell(1, 2))
+    with pytest.raises(OpError):
+        with doc.edit("col shade"):
+            doc.anchor_by_id("table:1:col:1").set_shading(fill="red")

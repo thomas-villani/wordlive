@@ -2491,6 +2491,92 @@ $ wordlive table autofit --table 1 --mode content
 
 Failures: `2` table index out of range, `3` Word busy.
 
+## `table set-style`
+
+```
+wordlive table set-style --table INDEX --style NAME [--doc DOC_NAME]
+```
+
+Restyle an **existing** table — the post-creation counterpart of `table create
+--style`. `--style` is any built-in or custom table style (`style list` filtered
+to `type==table` discovers them). Applying a style reapplies its conditional
+formatting and **overwrites direct cell shading**, so restyle *first*, then layer
+cell-level overrides. Atomic-undo.
+
+```bash
+$ wordlive table set-style --table 1 --style "Grid Table 4 - Accent 1"
+{"ok": true, "table": 1, "style": "Grid Table 4 - Accent 1"}
+```
+
+Failures: `2` table index out of range or unknown style, `3` Word busy.
+
+## `table set-alignment`
+
+```
+wordlive table set-alignment --table INDEX --alignment left|center|right [--doc DOC_NAME]
+```
+
+Align the whole table across the page width (distinct from the text alignment
+*inside* cells). Atomic-undo.
+
+```bash
+$ wordlive table set-alignment --table 1 --alignment center
+{"ok": true, "table": 1, "alignment": "center"}
+```
+
+## `table set-borders`
+
+```
+wordlive table set-borders --table INDEX [--sides all] [--style single] [--weight 0.5] [--color C] [--doc DOC_NAME]
+```
+
+Draw borders across the **whole table grid** in one call — the table-wide
+counterpart of the per-cell `borders` verb. `--sides` is `all`/`box`, a single
+outer edge, the interior gridlines `horizontal`/`vertical`, or a comma-separated
+list (`box,horizontal,vertical` rules every line). `--style` is a line style
+(`single`, `double`, `dot`, … or `none`); `--weight` snaps to Word's set
+(0.25/0.5/0.75/1/1.5/2.25/3 pt); `--color` is a name/hex/r,g,b. Atomic-undo.
+
+```bash
+$ wordlive table set-borders --table 1 --sides box,horizontal,vertical --style single --weight 1
+{"ok": true, "table": 1, "applied": {"sides": ["box", "horizontal", "vertical"], "style": "single", "weight": 1.0, "color": null}}
+```
+
+## `table set-banding`
+
+```
+wordlive table set-banding --table INDEX [--first-row/--no-first-row] [--last-row/--no-last-row]
+    [--first-column/--no-first-column] [--last-column/--no-last-column]
+    [--banded-rows/--no-banded-rows] [--banded-columns/--no-banded-columns] [--doc DOC_NAME]
+```
+
+Toggle the "Table Style Options" (header row, total row, first/last column, banded
+rows/columns) of the **applied table style**. Each flag is tri-state — pass it to
+set, omit it to leave untouched. Only shows once a real table style is applied
+(pair with `table set-style`). Atomic-undo.
+
+```bash
+$ wordlive table set-banding --table 1 --first-row --no-banded-rows
+{"ok": true, "table": 1, "applied": {"first_row": true, "banded_rows": false}}
+```
+
+## `cell-valign`
+
+```
+wordlive cell-valign --anchor-id table:N:R:C --align top|center|bottom [--doc DOC_NAME]
+```
+
+Set a table cell's vertical alignment. Atomic-undo. (For whole-row / whole-column
+styling, address `table:N:row:R` / `table:N:col:C` and use the `shading` /
+`borders` / `apply-style` / `format-run` verbs.)
+
+```bash
+$ wordlive cell-valign --anchor-id table:1:2:2 --align bottom
+{"ok": true, "anchor_id": "table:1:2:2", "align": "bottom"}
+```
+
+Failures: `1` not a cell anchor or bad `--align`, `2` table/cell out of range.
+
 ## `comment list`
 
 ```
