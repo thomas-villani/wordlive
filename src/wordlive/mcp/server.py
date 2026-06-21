@@ -257,6 +257,22 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.proofing()
             if command == "lint":
                 return doc.lint(rules=p.get("rules"), within=p.get("within"))
+            if command == "checkpoint":
+                cp = doc.checkpoint(
+                    include=p.get("include") or "text+style",
+                    within=p.get("within"),
+                )
+                return json.loads(cp.to_json())
+            if command == "diff":
+                if p.get("checkpoint") is not None:
+                    return doc.changes_since(p["checkpoint"])
+                a, b = p.get("cp_a"), p.get("cp_b")
+                if a is None or b is None:
+                    raise OpError(
+                        "read 'diff' needs `checkpoint` (vs the document now), "
+                        "or both `cp_a` and `cp_b`"
+                    )
+                return doc.diff(a, b)
             if command == "format_info":
                 anchor_id = _need(p, "anchor_id", command)
                 return doc.anchor_by_id(anchor_id).format_info()
@@ -1142,6 +1158,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "variables",
             "proofing",
             "lint",
+            "checkpoint",
+            "diff",
             "format_info",
             "location",
             "stats",
@@ -1167,6 +1185,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         min_score: float | None = None,
         rules: Any = None,
         within: str | None = None,
+        include: str | None = None,
+        checkpoint: Any = None,
+        cp_a: Any = None,
+        cp_b: Any = None,
     ) -> Any:
         """Read from the open Word document. Dispatch on `command`:
 
@@ -1211,6 +1233,14 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         multi-page tables with no repeating header, split numbered lists, direct
         formatting drifted from the style — severity-ranked findings, each fixable one
         carrying the op regularize would run; rules selects ids/tags or {exclude:[…]}) ·
+        checkpoint {[include=text|text+style|text+format],[within]} (an opaque,
+        serialisable structural fingerprint of the document now — store it, edit,
+        then diff; the only way to answer "what changed" since Word has no
+        content-change event) ·
+        diff {checkpoint | cp_a,cp_b} (content-aligned change list: pass a stored
+        `checkpoint` to diff it against the document now, or `cp_a`+`cp_b` to diff
+        two stored checkpoints — each change is replace/insert/delete/restyle/reformat
+        carrying the current para:N) ·
         format_info {anchor_id} (effective paragraph + character formatting at an anchor,
         each field with its style baseline and an override flag, plus font.mixed — the
         read mirror of format_paragraph/format_run, and the linter's substrate) ·
@@ -1246,6 +1276,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "min_score": min_score,
             "rules": rules,
             "within": within,
+            "include": include,
+            "checkpoint": checkpoint,
+            "cp_a": cp_a,
+            "cp_b": cp_b,
         }
         try:
             result = _read_impl(w, command, params)

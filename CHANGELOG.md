@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Checkpoint + diff — `doc.checkpoint()` / `doc.changes_since()` / `doc.diff()`.**
+  Fingerprint the document's structure at one moment (`checkpoint`, a pure read),
+  then produce a structured, content-aligned change list against a later moment —
+  the only reliable way to answer "what changed in session" (Word emits no
+  content-change event), and how a multi-step agent verifies its own edits landed
+  without re-reading the whole document. `checkpoint(include=…, within=…)` returns
+  an opaque, serialisable `Checkpoint` (`.to_json()` / `Checkpoint.from_json()`);
+  `include` sets the fingerprint depth (`text` < `text+style` (default, a restyle
+  surfaces) < `text+format` (a direct-format edit surfaces as a `reformat`)).
+  `changes_since(cp)` diffs a stored checkpoint against the document now;
+  `diff(cp_a, cp_b)` diffs two stored checkpoints. Each change is one of `replace`
+  / `insert` / `delete` / `restyle` / `reformat`, carrying the **current** `para:N`
+  (so the caller can act on it immediately) plus `index_before/after` and
+  `text_before/after` / `style_before/after` as applicable. Alignment is by
+  paragraph **content** (`difflib.SequenceMatcher`), not index — `para:N`
+  renumbers under inserts/deletes — and an unchanged document short-circuits to
+  `[]` via a whole-document `doc_hash`. **No new COM surface** — pure composition
+  over `_findreplace._normalize` (the shared normalisation `find`/`find_paragraphs`
+  use), `paragraph_text`, and `format_info`. Wired across Python / CLI
+  (`checkpoint [--include] [--within] [--out FILE]`, `diff --since FILE` or
+  `diff --from A --to B`) / MCP (`word_read command=checkpoint` / `command=diff`).
+  Pure reads — not `exec` ops (the token round-trips through the caller, not Word).
+  **Deferred:** pin-backed exact identity (`track=True`), move detection
+  (`moves=True`), per-cell table diffing, and an in-document checkpoint store.
 - **Floating-shape anchor model — `shape:N`.** A new positional anchor over the
   document's body-story floating shapes (text boxes, floating images, WordArt),
   in document order — the restyle handle the deferred "image polish" cluster was

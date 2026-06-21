@@ -22,7 +22,7 @@ from .._ops import op_before as _op_before  # noqa: F401  (back-compat re-export
 from .._ops import pick_doc as _pick_doc
 from .._ops import run_batch as _run_batch
 from .._ops import validate_op as _validate_op  # noqa: F401  (back-compat re-export)
-from ..exceptions import AmbiguousMatchError, WordNotRunningError
+from ..exceptions import AmbiguousMatchError, OpError, WordNotRunningError
 from .main import _run, emit
 
 # ---------------------------------------------------------------------------
@@ -116,6 +116,8 @@ def register(group: click.Group) -> None:
     group.add_command(proofing_cmd)
     group.add_command(lint_cmd)
     group.add_command(regularize_cmd)
+    group.add_command(checkpoint_cmd)
+    group.add_command(diff_cmd)
     group.add_command(hyperlinks_cmd)
     group.add_command(set_hyperlink_cmd)
     group.add_command(fields_cmd)
@@ -4955,6 +4957,130 @@ def find_paragraph_cmd(ctx: click.Context, text: str, limit: int, min_score: flo
             doc = _pick_doc(word, ctx.obj["doc_name"])
             rows = doc.find_paragraphs(text, limit=limit, min_score=min_score)
             emit(rows, as_text=not ctx.obj["as_json"], text=_fmt_find_paragraphs(rows))
+
+    _run(ctx, go)
+
+
+# ---------------------------------------------------------------------------
+# checkpoint / diff — structural fingerprint + content-aligned change list
+# ---------------------------------------------------------------------------
+
+
+def _load_checkpoint(path: Path) -> Any:
+    """Read a checkpoint token from a file, mapping IO/parse errors to OpError
+    (clean exit 1) rather than a traceback."""
+    from .._checkpoint import Checkpoint
+
+    try:
+        return Checkpoint.from_json(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise OpError(f"cannot read checkpoint file {str(path)!r}: {exc}") from exc
+    except (ValueError, KeyError) as exc:
+        raise OpError(f"invalid checkpoint file {str(path)!r}: {exc}") from exc
+
+
+@click.command(name="checkpoint")
+@click.option(
+    "--include",
+    "include",
+    type=click.Choice(["text", "text+style", "text+format"]),
+    default="text+style",
+    show_default=True,
+    help="Fingerprint depth: text < text+style (restyle visible) < text+format (reformat visible).",
+)
+@click.option(
+    "--within",
+    "within",
+    default=None,
+    help="Fingerprint just one anchor's range (heading:N, range:S-E, table:N:R:C).",
+)
+@click.option(
+    "--out",
+    "out",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="Write the checkpoint token here. Without --out the JSON is emitted on stdout.",
+)
+@click.pass_context
+def checkpoint_cmd(ctx: click.Context, include: str, within: str | None, out: Path | None) -> None:
+    """Fingerprint the document's structure now → a checkpoint token (pure read).
+
+    Store the token, edit the document, then `diff --since FILE` (or
+    `diff --from A --to B`) for a structured change list — the way an agent
+    verifies its edits landed, or sees what the user changed (Word emits no
+    content-change event). Without `--out` the token is the JSON object on stdout.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            cp = doc.checkpoint(include=include, within=within)
+        if out is not None:
+            try:
+                out.write_text(cp.to_json() + "\n", encoding="utf-8")
+            except OSError as exc:
+                raise OpError(f"cannot write checkpoint to {str(out)!r}: {exc}") from exc
+            summary = {
+                "out": str(out),
+                "include": cp.include,
+                "scope": cp.scope,
+                "paragraphs": len(cp.paragraphs),
+                "tables": len(cp.tables),
+            }
+            emit(summary, as_text=not ctx.obj["as_json"])
+        else:
+            emit(json.loads(cp.to_json()), as_text=not ctx.obj["as_json"])
+
+    _run(ctx, go)
+
+
+@click.command(name="diff")
+@click.option(
+    "--since",
+    "since",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="Diff this stored checkpoint against the document now (needs live Word).",
+)
+@click.option(
+    "--from",
+    "frm",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="With --to: diff two stored checkpoints (no live Word needed).",
+)
+@click.option(
+    "--to",
+    "to",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="With --from: the second stored checkpoint.",
+)
+@click.pass_context
+def diff_cmd(ctx: click.Context, since: Path | None, frm: Path | None, to: Path | None) -> None:
+    """Diff a checkpoint against the document now (--since) or two checkpoints
+    (--from/--to) → a content-aligned change list (pure read).
+
+    Each change is `replace` / `insert` / `delete` / `restyle` / `reformat`,
+    carrying the current `para:N` so the caller can act on it immediately.
+    """
+    from .._checkpoint import diff_checkpoints
+
+    def go() -> None:
+        if since is not None:
+            if frm is not None or to is not None:
+                raise OpError("use either --since, or --from/--to — not both")
+        elif frm is None or to is None:
+            raise OpError("provide --since FILE, or both --from FILE and --to FILE")
+        if since is not None:
+            cp = _load_checkpoint(since)
+            with attach() as word:
+                doc = _pick_doc(word, ctx.obj["doc_name"])
+                changes = doc.changes_since(cp)
+        else:
+            assert frm is not None and to is not None  # narrowed above
+            changes = diff_checkpoints(_load_checkpoint(frm), _load_checkpoint(to))
+        emit(changes, as_text=not ctx.obj["as_json"])
 
     _run(ctx, go)
 

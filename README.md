@@ -149,6 +149,11 @@ wordlive read format --anchor-id heading:3   # effective style/paragraph/font, w
 wordlive lint                # audit formatting/structure: severity-ranked findings (some fixable)
 wordlive regularize          # apply the fixable lint findings in one atomic-undo (--dry-run to preview)
 
+# Checkpoint + diff — "what changed in session" (Word fires no content-change event):
+wordlive checkpoint --out cp.json   # fingerprint structure now → a stored token
+# … agent or user edits …
+wordlive diff --since cp.json       # content-aligned change list (replace/insert/delete/restyle), each w/ current para:N
+
 # Document metadata, variables, and the read mirrors of link / insert-field:
 wordlive properties list                         # built-in + custom document properties
 wordlive properties set --name Title --value "Q3 Report"

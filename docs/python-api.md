@@ -701,6 +701,52 @@ fields above, with a `.to_dict()`. `lint` / `regularize` are documented on
 
 ::: wordlive.Finding
 
+## Checkpoint & diff
+
+`Document.checkpoint(include="text+style", within=None)` fingerprints the
+document's structure right now and returns an opaque, serialisable
+[`Checkpoint`](#wordlive.Checkpoint) (`from wordlive import Checkpoint`). Store
+the token, let edits happen (agent or user), then ask what changed — the only
+reliable way to do so, since Word emits no content-change event, and how an agent
+verifies its own edits landed without re-reading the whole document. `include`
+sets the fingerprint depth: `"text"` (cheapest — a restyle is invisible),
+`"text+style"` (default — folds the applied paragraph style in, so a restyle
+surfaces), or `"text+format"` (also hashes each paragraph's `format_info`, so a
+pure direct-formatting edit surfaces as a `reformat`). `within=anchor`
+fingerprints one section/range. A pure read — selection, scroll, and `Saved` are
+untouched.
+
+`Document.changes_since(cp)` diffs a stored checkpoint against the document
+**now**; `Document.diff(cp_a, cp_b)` diffs two stored checkpoints. Both accept a
+`Checkpoint`, its `to_json()` string, or the parsed dict (so a token round-tripped
+through a file works directly), and return a structured change list. Each change
+is one of `replace` (text edit), `insert`, `delete`, `restyle` (same text, style
+changed), or `reformat` (same text+style, direct formatting changed — only with
+`include="text+format"`), carrying `{op, anchor_id, index_before, index_after,
+text_before, text_after, style_before, style_after}` as applicable. Inserts /
+replaces / restyles carry the **current** `para:N` (`anchor_id`) so the caller can
+act on the change immediately; a delete references only the old index/text (its
+anchor is gone). Alignment is by paragraph **content** (`difflib.SequenceMatcher`),
+not index — `para:N` renumbers under inserts/deletes — and an unchanged document
+returns `[]` via a whole-document `doc_hash` fast-path.
+
+```python
+cp = doc.checkpoint()                       # fingerprint now
+# … agent or user edits …
+changes = doc.changes_since(cp)             # structured change list
+touched = {c["anchor_id"] for c in changes if "anchor_id" in c}
+assert touched == {"para:4", "para:7"}      # verify my edits landed where I meant
+
+token = cp.to_json()                        # persist the token (e.g. to a file)
+later = Checkpoint.from_json(token)
+```
+
+Pure reads — not `exec` ops (the token round-trips through the caller, not Word).
+**Deferred:** pin-backed exact identity (`track=True`), move detection
+(`moves=True`), per-cell table diffing, and an in-document checkpoint store.
+
+::: wordlive.Checkpoint
+
 ## Lists & numbering
 
 List operations apply to a *range's paragraphs*, so the verbs live on

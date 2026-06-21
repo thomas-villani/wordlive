@@ -44,6 +44,7 @@ from ._anchors import (
     TextBoxCollection,
 )
 from ._app import Word, attach, connect
+from ._checkpoint import Checkpoint
 from ._citations import Bibliography, Citation
 from ._comments import Comment, CommentCollection
 from ._document import Document, DocumentCollection
@@ -94,6 +95,7 @@ __all__ = [
     "Cell",
     "ChartAnchor",
     "ChartCollection",
+    "Checkpoint",
     "Citation",
     "ComError",
     "Comment",

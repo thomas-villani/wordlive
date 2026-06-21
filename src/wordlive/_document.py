@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import _com, _findreplace, _linting, _proofing, _shapes, _snapshot
+from . import _checkpoint, _com, _findreplace, _linting, _proofing, _shapes, _snapshot
 from ._anchors import (
     _WL_PREFIX,
     Bookmark,
@@ -39,6 +39,7 @@ from ._anchors import (
     _within_table,
     paragraph_text,
 )
+from ._checkpoint import Checkpoint
 from ._comments import CommentCollection
 from ._edit import EditScope
 from ._fields import FieldCollection
@@ -1677,6 +1678,68 @@ class Document:
         is on, the edits are tracked like any other for the user to review.
         """
         return _linting.regularize(self, rules=rules, within=within, dry_run=dry_run)
+
+    def checkpoint(
+        self,
+        *,
+        include: str = "text+style",
+        within: str | Anchor | None = None,
+    ) -> Checkpoint:
+        """Fingerprint the document's structure right now — a pure read.
+
+        Returns an opaque, serialisable [`Checkpoint`][wordlive.Checkpoint] (call
+        `.to_json()` to store it). Later, feed it to
+        [`changes_since`][wordlive.Document.changes_since] (checkpoint → now) or
+        [`diff`][wordlive.Document.diff] (two stored checkpoints) for a structured,
+        content-aligned change list — the only reliable way to answer "what
+        changed in session" (Word emits no content-change event), and the way an
+        agent verifies its own edits landed without re-reading the whole document.
+
+        `include` sets the fingerprint depth: ``"text"`` (cheapest — a restyle is
+        invisible), ``"text+style"`` (default — folds the applied paragraph-style
+        name in, so a restyle surfaces), or ``"text+format"`` (also hashes each
+        paragraph's `format_info`, so a pure direct-formatting edit surfaces as a
+        `reformat`). `within=anchor` fingerprints just one section/range.
+
+        Read-only — walks paragraphs like [`outline`][wordlive.Document.outline],
+        touching no selection/scroll and leaving `Saved` untouched.
+        """
+        return _checkpoint.build_checkpoint(self, include=include, within=within)
+
+    def changes_since(self, cp: Checkpoint | str | dict[str, Any]) -> list[dict[str, Any]]:
+        """Diff a stored checkpoint against the document **now** — a pure read.
+
+        `cp` is a [`Checkpoint`][wordlive.Checkpoint] (or its `to_json()` string /
+        parsed dict, so a token round-tripped through a file works directly).
+        Returns the change list described in [`diff`][wordlive.Document.diff]; the
+        checkpoint's `include` depth and `within` scope are re-derived so the two
+        fingerprints are comparable. An unchanged document returns ``[]`` via the
+        `doc_hash` fast-path.
+        """
+        return _checkpoint.changes_since(self, cp)
+
+    def diff(
+        self,
+        cp_a: Checkpoint | str | dict[str, Any],
+        cp_b: Checkpoint | str | dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Diff two stored checkpoints → a structured, content-aligned change list.
+
+        Each change is one of: ``replace`` (text edit), ``insert``, ``delete``,
+        ``restyle`` (same text, paragraph style changed), or ``reformat`` (same
+        text+style, direct formatting changed — only with ``include="text+format"``).
+        Records carry ``{op, anchor_id, index_before, index_after, text_before,
+        text_after, style_before, style_after}`` as applicable; inserts/replaces/
+        restyles carry the **current** ``para:N`` (`anchor_id`) so the caller can
+        act on the change immediately, while a delete references only the old
+        index/text (its anchor is gone).
+
+        Alignment is by paragraph **content**, not index (`para:N` renumbers under
+        inserts/deletes). Both checkpoints must share the same `include` depth.
+        Move detection is deferred — a cut-paste surfaces as delete+insert. A pure
+        read (the tokens carry the data; Word is not touched).
+        """
+        return _checkpoint.diff_checkpoints(cp_a, cp_b)
 
     def _page_of(self, position: int) -> int:
         """1-based page number that document offset `position` falls on."""
