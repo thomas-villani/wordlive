@@ -62,7 +62,7 @@ from ._selection import Selection, SelectionSnapshot
 from ._snapshot import Snapshot
 from ._sources import Source
 from ._styles import Style, StyleCollection
-from ._tables import Cell, Table, TableCollection
+from ._tables import Cell, ColumnAnchor, RowAnchor, Table, TableCollection
 from ._themes import DocumentTheme
 from ._toa import TableOfAuthorities
 from ._toc import TableOfFigures, Toc
@@ -95,6 +95,7 @@ __all__ = [
     "Cell",
     "ChartAnchor",
     "ChartCollection",
+    "ColumnAnchor",
     "Checkpoint",
     "Citation",
     "ComError",
@@ -137,6 +138,7 @@ __all__ = [
     "ReplaceVerificationError",
     "Revision",
     "RevisionCollection",
+    "RowAnchor",
     "Section",
     "SectionCollection",
     "Selection",

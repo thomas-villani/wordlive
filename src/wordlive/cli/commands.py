@@ -192,6 +192,7 @@ def register(group: click.Group) -> None:
     group.add_command(format_run_cmd)
     group.add_command(shading_cmd)
     group.add_command(borders_cmd)
+    group.add_command(cell_valign_cmd)
     group.add_command(drop_cap_cmd)
     group.add_command(tab_stop_cmd)
     group.add_command(table)
@@ -6200,6 +6201,200 @@ def table_autofit(ctx: click.Context, table_index: int, mode: str) -> None:
     _run(ctx, go)
 
 
+@table.command(name="set-style")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option(
+    "--style", "style", required=True, help="Table style name (e.g. 'Grid Table 4 - Accent 1')."
+)
+@click.pass_context
+def table_set_style(ctx: click.Context, table_index: int, style: str) -> None:
+    """Restyle an existing table (restyle first, then layer cell overrides; atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: set-style table {table_index}"):
+                t.set_style(style)
+            emit(
+                {"ok": True, "table": table_index, "style": style},
+                as_text=not ctx.obj["as_json"],
+                text=f"styled table:{table_index} ({style})",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="set-alignment")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option(
+    "--alignment",
+    "alignment",
+    type=click.Choice(["left", "center", "right"]),
+    required=True,
+    help="Align the whole table across the page width.",
+)
+@click.pass_context
+def table_set_alignment(ctx: click.Context, table_index: int, alignment: str) -> None:
+    """Align a whole table left/center/right across the page (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: set-alignment table {table_index}"):
+                t.set_alignment(alignment)
+            emit(
+                {"ok": True, "table": table_index, "alignment": alignment},
+                as_text=not ctx.obj["as_json"],
+                text=f"aligned table:{table_index} ({alignment})",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="set-borders")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option(
+    "--sides",
+    "sides",
+    default="all",
+    help="Edges: all/box, top, bottom, left, right, horizontal, vertical "
+    "(comma-separated for several; interior gridlines need horizontal/vertical).",
+)
+@click.option(
+    "--style", "style", default="single", help="Line style: single, double, dot, dash, … or none."
+)
+@click.option("--weight", "weight", type=float, default=0.5, help="Line width in points (snapped).")
+@click.option("--color", "color", default=None, help="Border colour: name, hex, or r,g,b.")
+@click.pass_context
+def table_set_borders(
+    ctx: click.Context,
+    table_index: int,
+    sides: str,
+    style: str,
+    weight: float,
+    color: str | None,
+) -> None:
+    """Draw borders across a whole table grid in one call (atomic-undo)."""
+    side_list = [s.strip() for s in sides.split(",") if s.strip()]
+    color_value = _parse_color(color)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: set-borders table {table_index}"):
+                t.set_borders(sides=side_list, style=style, weight=weight, color=color_value)
+            emit(
+                {
+                    "ok": True,
+                    "table": table_index,
+                    "applied": {
+                        "sides": side_list,
+                        "style": style,
+                        "weight": weight,
+                        "color": color_value,
+                    },
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"bordered table:{table_index}: {side_list} {style}",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="set-banding")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option("--first-row/--no-first-row", "first_row", default=None, help="Header-row banding.")
+@click.option("--last-row/--no-last-row", "last_row", default=None, help="Total-row banding.")
+@click.option(
+    "--first-column/--no-first-column", "first_column", default=None, help="First-column banding."
+)
+@click.option(
+    "--last-column/--no-last-column", "last_column", default=None, help="Last-column banding."
+)
+@click.option(
+    "--banded-rows/--no-banded-rows", "banded_rows", default=None, help="Alternating row stripes."
+)
+@click.option(
+    "--banded-columns/--no-banded-columns",
+    "banded_columns",
+    default=None,
+    help="Alternating column stripes.",
+)
+@click.pass_context
+def table_set_banding(
+    ctx: click.Context,
+    table_index: int,
+    first_row: bool | None,
+    last_row: bool | None,
+    first_column: bool | None,
+    last_column: bool | None,
+    banded_rows: bool | None,
+    banded_columns: bool | None,
+) -> None:
+    """Toggle a table's style options / banding (needs a real table style applied; atomic-undo)."""
+    flags = {
+        "first_row": first_row,
+        "last_row": last_row,
+        "first_column": first_column,
+        "last_column": last_column,
+        "banded_rows": banded_rows,
+        "banded_columns": banded_columns,
+    }
+    applied = {k: v for k, v in flags.items() if v is not None}
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: set-banding table {table_index}"):
+                t.set_banding(**applied)
+            emit(
+                {"ok": True, "table": table_index, "applied": applied},
+                as_text=not ctx.obj["as_json"],
+                text=f"banding table:{table_index}: {applied or '(no flags)'}",
+            )
+
+    _run(ctx, go)
+
+
+@click.command(name="cell-valign")
+@click.option("--anchor-id", "anchor_id", required=True, help="Cell anchor (table:N:R:C) to align.")
+@click.option(
+    "--align",
+    "align",
+    type=click.Choice(["top", "center", "bottom"]),
+    required=True,
+    help="Where the cell's content sits vertically.",
+)
+@click.pass_context
+def cell_valign_cmd(ctx: click.Context, anchor_id: str, align: str) -> None:
+    """Set a table cell's vertical alignment — top, center, or bottom (atomic-undo)."""
+
+    def go() -> None:
+        with attach() as word:
+            from .._tables import Cell
+
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            if not isinstance(anchor, Cell):
+                raise OpError(
+                    f"cell-valign needs a cell anchor (table:N:R:C); "
+                    f"{anchor_id!r} resolved to {anchor.kind}"
+                )
+            with doc.edit(f"CLI: cell-valign {anchor_id}"):
+                anchor.set_vertical_alignment(align)
+            emit(
+                {"ok": True, "anchor_id": anchor_id, "align": align},
+                as_text=not ctx.obj["as_json"],
+                text=f"valigned {anchor_id}: {align}",
+            )
+
+    _run(ctx, go)
+
+
 # ---------------------------------------------------------------------------
 # comment list | add | resolve | delete
 # ---------------------------------------------------------------------------
@@ -7158,6 +7353,8 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     apply_theme, set_theme_colors, set_theme_fonts,
     set_cell, add_row, append_record, update_row, delete_row,
     set_heading_row, autofit_table, create_table, delete_table,
+    set_table_style, set_table_alignment, set_table_borders, set_table_banding,
+    set_cell_vertical_alignment,
     set_property, delete_property, set_variable, delete_variable,
     insert_break, add_comment,
     resolve_comment, delete_comment,

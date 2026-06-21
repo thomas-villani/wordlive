@@ -1193,12 +1193,29 @@ class _FakeTable:
         self._rows = [[self._mk_cell_range(text) for text in row] for row in grid]
         self._range_mock: Any | None = None
         self._rows_view: _FakeRows | None = None
+        self._cell_mocks: dict[tuple[int, int], Any] = {}
+        self._borders: Any | None = None
         # Autofit state: AllowAutoFit is settable; AutoFitBehavior records its arg.
         self.AllowAutoFit = True
         self.autofit_behavior: int | None = None
+        # Banding / table-style options — settable booleans (set_banding), all off
+        # by default so a tri-state set_banding flips only the flags it's given.
+        self.ApplyStyleHeadingRows = False
+        self.ApplyStyleLastRow = False
+        self.ApplyStyleFirstColumn = False
+        self.ApplyStyleLastColumn = False
+        self.ApplyStyleRowBands = False
+        self.ApplyStyleColumnBands = False
 
     def AutoFitBehavior(self, behavior: int) -> None:
         self.autofit_behavior = int(behavior)
+
+    @property
+    def Borders(self) -> Any:
+        # Whole-table borders (Table.set_borders): one stable child per edge.
+        if self._borders is None:
+            self._borders = _FakeBorders()
+        return self._borders
 
     @staticmethod
     def _mk_cell_range(text: str) -> MagicMock:
@@ -1228,13 +1245,17 @@ class _FakeTable:
 
     @property
     def Columns(self) -> Any:
-        cols = MagicMock(name="Columns")
-        cols.Count = len(self._rows[0]) if self._rows else 0
-        return cols
+        return _FakeColumns(self._rows)
 
     def Cell(self, row: int, col: int) -> Any:
-        cell = MagicMock(name=f"Cell[{row},{col}]")
-        cell.Range = self._rows[row - 1][col - 1]
+        # Persist per-(row,col) so cell-level COM property writes (e.g.
+        # VerticalAlignment) round-trip through the same handle; Range stays the
+        # shared persistent cell range.
+        cell = self._cell_mocks.get((row, col))
+        if cell is None:
+            cell = MagicMock(name=f"Cell[{row},{col}]")
+            cell.Range = self._rows[row - 1][col - 1]
+            self._cell_mocks[(row, col)] = cell
         return cell
 
     def Delete(self) -> None:
@@ -1254,6 +1275,8 @@ class _FakeRows:
         # Persist row mocks so property writes (HeadingFormat,
         # AllowBreakAcrossPages) round-trip through the same handle.
         self._row_mocks: dict[int, Any] = {}
+        # Whole-table alignment across the page (Table.set_alignment writes here).
+        self.Alignment = 0
 
     @property
     def Count(self) -> int:
@@ -1274,8 +1297,46 @@ class _FakeRows:
             # flips HeadingFormat; set_heading_row writes both back here.
             row.HeadingFormat = False
             row.AllowBreakAcrossPages = True
+            # A whole-row Range (RowAnchor styles table:N:row:R through it) — full
+            # range surface so Shading / Borders / Font writes round-trip.
+            row.Range = _make_range(0, 0)
             self._row_mocks[index] = row
         return row
+
+
+class _FakeColumns:
+    """Callable Columns view: `Columns.Count` and `Columns(c)` -> a `_FakeColumn`.
+
+    Backs ColumnAnchor (`table:N:col:C`): the anchor reads `Columns(c).Cells`,
+    each carrying a `RowIndex`, to fan styling out across the column's cells. A
+    real Word table with merged / mixed-width cells raises on `Columns(c)`; the
+    fake always succeeds (that error path is covered by the live smoke test).
+    """
+
+    def __init__(self, rows: list[list[Any]]) -> None:
+        self._rows = rows
+
+    @property
+    def Count(self) -> int:
+        return len(self._rows[0]) if self._rows else 0
+
+    def __call__(self, col: int) -> Any:
+        return _FakeColumn(self._rows, col)
+
+
+class _FakeColumn:
+    def __init__(self, rows: list[list[Any]], col: int) -> None:
+        self._rows = rows
+        self._col = col
+
+    @property
+    def Cells(self) -> list[Any]:
+        out: list[Any] = []
+        for r in range(len(self._rows)):
+            cell = MagicMock(name=f"ColCell[{r + 1},{self._col}]")
+            cell.RowIndex = r + 1
+            out.append(cell)
+        return out
 
 
 class _FakeTablesCollection:

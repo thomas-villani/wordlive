@@ -1023,6 +1023,18 @@ class Document:
             if len(parts) != 3:
                 # `table:N` (whole table) isn't a single-range anchor.
                 raise AnchorNotFoundError("table cell", anchor_id)
+            # `table:N:row:R` / `table:N:col:C` address a whole row / column;
+            # `table:N:R:C` (all numeric) addresses a single cell.
+            selector = parts[1].lower()
+            if selector in ("row", "col"):
+                try:
+                    t, idx = int(parts[0]), int(parts[2])
+                except ValueError as e:
+                    kind_label = "table row" if selector == "row" else "table column"
+                    raise AnchorNotFoundError(kind_label, anchor_id) from e
+                if selector == "row":
+                    return self.tables[t].row(idx)
+                return self.tables[t].column(idx)
             try:
                 t, r, c = (int(p) for p in parts)
             except ValueError as e:

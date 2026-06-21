@@ -602,6 +602,35 @@ class WdAutoFitBehavior(IntEnum):
     WINDOW = 2
 
 
+class WdRowAlignment(IntEnum):
+    """`Table.Rows.Alignment` values — how a table sits across the page width.
+
+    `Table.set_alignment(...)` maps ``"left"``/``"center"``/``"right"`` onto
+    these. Distinct from `WdParagraphAlignment` (which aligns text *within* a
+    paragraph) — this aligns the *whole table* between the page margins, so it
+    has no `JUSTIFY`.
+    """
+
+    LEFT = 0
+    CENTER = 1
+    RIGHT = 2
+
+
+class WdCellVerticalAlignment(IntEnum):
+    """`Cell.VerticalAlignment` values — where a cell's text sits vertically.
+
+    `Cell.set_vertical_alignment(...)` maps ``"top"``/``"center"``/``"bottom"``
+    onto these. Note the **gap at 2**: that slot is `wdAlignVerticalJustify` in
+    Word's shared vertical-alignment value space, which a *cell* rejects (live
+    Word raises ``0x80020009`` for `VerticalAlignment = 2`), so only 0/1/3 are
+    valid here.
+    """
+
+    TOP = 0
+    CENTER = 1
+    BOTTOM = 3
+
+
 class MsoDocProperty(IntEnum):
     """`Office.DocumentProperty.Type` values — used when adding a custom property.
 

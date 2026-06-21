@@ -125,6 +125,11 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "update_row": ("table", "key", "values"),
     "delete_row": ("table", "row"),
     "set_heading_row": ("table",),
+    "set_table_style": ("table", "style"),
+    "set_table_alignment": ("table", "alignment"),
+    "set_table_borders": ("table",),
+    "set_table_banding": ("table",),
+    "set_cell_vertical_alignment": ("anchor_id", "align"),
     "create_table": ("anchor_id",),  # rows/cols required only without data (apply_op)
     "delete_table": ("table",),
     "insert_break": ("anchor_id",),
@@ -390,6 +395,19 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "update_row": ("column",),
     "delete_row": (),
     "set_heading_row": ("row", "heading", "allow_break"),
+    "set_table_style": (),
+    "set_table_alignment": (),
+    # `line_style` is the MCP/`set_borders` alias for `style` — honoured here too.
+    "set_table_borders": ("sides", "style", "line_style", "weight", "color"),
+    "set_table_banding": (
+        "first_row",
+        "last_row",
+        "first_column",
+        "last_column",
+        "banded_rows",
+        "banded_columns",
+    ),
+    "set_cell_vertical_alignment": (),
     "create_table": ("rows", "cols", "style", "data", "header", "bind", *_WHERE_FIELDS),
     "delete_table": (),
     "insert_break": ("kind", *_WHERE_FIELDS),
@@ -1015,6 +1033,42 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
     elif kind == "set_heading_row":
         kwargs = {k: op[k] for k in ("heading", "allow_break") if k in op}
         doc.tables[op["table"]].set_heading_row(int(op.get("row", 1)), **kwargs)
+    elif kind == "set_table_style":
+        doc.tables[op["table"]].set_style(op["style"])
+    elif kind == "set_table_alignment":
+        doc.tables[op["table"]].set_alignment(op["alignment"])
+    elif kind == "set_table_borders":
+        kwargs = {k: op[k] for k in ("sides", "weight", "color") if k in op}
+        # Accept `line_style` as an alias for `style`, matching cell `set_borders`.
+        if "style" in op:
+            kwargs["style"] = op["style"]
+        elif "line_style" in op:
+            kwargs["style"] = op["line_style"]
+        doc.tables[op["table"]].set_borders(**kwargs)
+    elif kind == "set_table_banding":
+        kwargs = {
+            k: op[k]
+            for k in (
+                "first_row",
+                "last_row",
+                "first_column",
+                "last_column",
+                "banded_rows",
+                "banded_columns",
+            )
+            if k in op
+        }
+        doc.tables[op["table"]].set_banding(**kwargs)
+    elif kind == "set_cell_vertical_alignment":
+        from ._tables import Cell  # lazy: avoid an _ops → _tables import cycle
+
+        anchor = doc.anchor_by_id(op["anchor_id"])
+        if not isinstance(anchor, Cell):
+            raise OpError(
+                f"set_cell_vertical_alignment needs a cell anchor (table:N:R:C); "
+                f"{op['anchor_id']!r} resolved to {type(anchor).__name__}"
+            )
+        anchor.set_vertical_alignment(op["align"])
     elif kind == "create_table":
         anchor = doc.anchor_by_id(op["anchor_id"])
         kwargs = {k: op[k] for k in ("style", "data", "header") if k in op}

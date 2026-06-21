@@ -8,6 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Table styling & polish — restyle existing tables + row/column anchors.**
+  Closes the "create-but-can't-edit" gap for tables: a table's style was settable
+  only at `insert_table(style=…)` time, and styling a row/column/whole-table meant
+  looping cells or dropping to `.com`. New surface, wired Python / CLI / `exec` op
+  / MCP:
+  - **`Table.set_style(name)`** — restyle an existing table (CLI `table set-style`,
+    op `set_table_style`, MCP `table action=set_style`). Note: applying a table
+    style reapplies its conditional formatting, so it **overwrites direct cell
+    shading** — restyle *first*, then layer cell-level overrides.
+  - **`Table.set_alignment(left|center|right)`** — the whole table across the page
+    width (`Table.Rows.Alignment`; CLI `table set-alignment`, op
+    `set_table_alignment`).
+  - **`Table.set_borders(sides, style, weight, color)`** — borders across the
+    **whole grid** in one call, the table-wide counterpart of the per-cell
+    `set_borders` (interior gridlines via `horizontal`/`vertical`; CLI `table
+    set-borders`, op `set_table_borders`).
+  - **`Table.set_banding(first_row, last_row, first_column, last_column,
+    banded_rows, banded_columns)`** — toggle Word's "Table Style Options"
+    (tri-state; needs a real table style applied to show; CLI `table set-banding`,
+    op `set_table_banding`).
+  - **`Cell.set_vertical_alignment(top|center|bottom)`** — cell vertical alignment
+    (flat CLI `cell-valign --anchor-id table:N:R:C`, op
+    `set_cell_vertical_alignment`, MCP `cell_valign`). Maps onto 0/1/3 — the gap at
+    2 (`wdAlignVerticalJustify`) is invalid for a cell.
+  - **Row / column anchors — `table:N:row:R` (`RowAnchor`) and `table:N:col:C`
+    (`ColumnAnchor`).** A row/column is now an addressable anchor, so the shipped
+    `shading` / `borders` / `apply-style` / `format-run` verbs (and `set_shading` /
+    `set_borders` ops) style a whole strip in one call — "shade the header row",
+    "right-align the totals column", "bold column 1" — with zero new styling verbs.
+    A row is a contiguous range; a **column** is not (Word exposes no `Column.Range`
+    and rejects the whole column collection on a merged / mixed-width table), so a
+    column op fans out across the column's cells and raises a clear `OpError` on a
+    mixed-width table, pointing at per-cell `table:N:R:C` styling. `Table.row(R)` /
+    `Table.column(C)` return the same anchors. Live-Word validated.
+  **Deferred:** merged/split-cell addressing and `add_column`/`delete_column`.
 - **Checkpoint + diff — `doc.checkpoint()` / `doc.changes_since()` / `doc.diff()`.**
   Fingerprint the document's structure at one moment (`checkpoint`, a pure read),
   then produce a structured, content-aligned change list against a later moment —

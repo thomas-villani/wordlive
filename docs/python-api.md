@@ -554,11 +554,41 @@ on the first row whose key-column (the first column, or the header named by
 `column`) equals `key` — addressing a row by content instead of a fragile
 1-based index.
 
+**Restyle a table after creation.** `Table.set_style(name)` points an existing
+table at any built-in or custom table style — the post-creation counterpart of
+`insert_table(style=…)`. Applying a style reapplies its conditional formatting and
+**overwrites direct cell shading**, so restyle *first*, then layer cell-level
+overrides. `Table.set_alignment("left"|"center"|"right")` positions the whole
+table across the page; `Table.set_borders(sides=…, style=…, weight=…, color=…)`
+rules the **whole grid** in one call (the table-wide counterpart of the per-cell
+`set_borders`; interior gridlines via `"horizontal"`/`"vertical"`);
+`Table.set_banding(first_row=…, last_row=…, first_column=…, last_column=…,
+banded_rows=…, banded_columns=…)` toggles Word's "Table Style Options" (tri-state,
+`None` leaves a flag untouched — needs a real table style applied to show).
+`Cell.set_vertical_alignment("top"|"center"|"bottom")` sets a cell's vertical
+alignment.
+
+**Style a whole row or column in one call.** A row is addressable as
+`table:N:row:R` (a [`RowAnchor`](#wordlive.RowAnchor)) and a column as
+`table:N:col:C` (a [`ColumnAnchor`](#wordlive.ColumnAnchor)); `Table.row(R)` /
+`Table.column(C)` return the same objects. Both *are* anchors, so the inherited
+`set_shading` / `set_borders` / `apply_style` / `format_run` / `format_paragraph`
+style the whole strip — `doc.tables[1].row(1).set_shading(fill="#DDD")` shades the
+header row, `table.column(3).format_paragraph(alignment="right")` right-aligns a
+totals column. A **row** is a contiguous range. A **column** is not — Word has no
+per-column model on a table with merged or mixed-width cells, so a column op there
+raises `OpError` pointing at per-cell `table:N:R:C` styling (a regular table fans
+the op across the column's cells transparently).
+
 ::: wordlive.TableCollection
 
 ::: wordlive.Table
 
 ::: wordlive.Cell
+
+::: wordlive.RowAnchor
+
+::: wordlive.ColumnAnchor
 
 ## Comments
 
