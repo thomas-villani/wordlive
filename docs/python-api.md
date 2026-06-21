@@ -731,6 +731,46 @@ fields above, with a `.to_dict()`. `lint` / `regularize` are documented on
 
 ::: wordlive.Finding
 
+## Markdown & HTML export
+
+`Document.to_markdown(within=None)` and `Document.to_html(within=None)` are the
+read mirror of [`insert_markdown`](#wordlive.Anchor) — they serialise the whole
+document (or one anchor's range) to clean **Markdown** or an **HTML** fragment.
+Both render from one document walk, so they agree on structure: headings, bullet
+/ numbered lists (nested), `**bold**` / `*italic*` (HTML keeps underline too),
+GFM pipe tables, inline images as `![alt](image:N)`, and hyperlinks as
+`[text](url)`. Export is **lossy by design**, like the constrained-subset import:
+it round-trips the dialect import speaks and reads the rest richer (deeper
+headings, tables), but colours, merged table cells, and (in Markdown) underline
+don't survive.
+
+`within` scopes to an anchor's **literal range** — pass a `range:START-END` (e.g.
+from [`find`](#wordlive.Document)), an anchor id, or an `Anchor`. A `heading:N`
+covers only the heading line, not its section body — use
+[`between`](#wordlive.Document) or a `range:` for "the section under X".
+`within=None` (the default) serialises the whole document. Both are pure reads.
+
+```python
+md = doc.to_markdown()                      # the whole document as Markdown
+section = doc.to_markdown(within="heading:3")   # one heading's range
+html = doc.to_html(within="range:120-540")  # a found span as HTML
+```
+
+`Document.read(budget=6000, depth=None)` is the **token-budgeted** read of the
+whole document — load an 80-page doc into context cheaply while every anchor
+stays addressable. Headings are verbatim (each tagged `<!-- heading:N -->`),
+tables become one-line shape stubs, and body text is sampled to fit `budget`
+(~4 chars/token), weighted so shallower sections keep more than deep ones;
+overflow elides to markers that name the `para:` range, so an agent can drill in
+with `to_markdown(within=…)`. `depth` caps how deep a section keeps body.
+
+```python
+overview = doc.read(budget=4000)            # the whole doc, budgeted + addressable
+shallow = doc.read(budget=4000, depth=1)    # outline + only top-level bodies
+```
+
+Documented on [`Document`](#wordlive.Document).
+
 ## Checkpoint & diff
 
 `Document.checkpoint(include="text+style", within=None)` fingerprints the

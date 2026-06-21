@@ -495,6 +495,80 @@ def read_format(ctx: click.Context, anchor_id: str) -> None:
     _run(ctx, go)
 
 
+_WITHIN_HELP = (
+    "Scope to an anchor's range (e.g. 'heading:3', 'range:120-540'); default is the whole document."
+)
+
+
+@read.command(name="markdown")
+@click.option("--within", "within", default=None, help=_WITHIN_HELP)
+@click.pass_context
+def read_markdown(ctx: click.Context, within: str | None) -> None:
+    """Serialise the document (or an anchor's range) to clean Markdown.
+
+    The read mirror of `insert-markdown`: headings, lists, **bold**/*italic*,
+    GFM tables, `![alt](image:N)`, and `[text](url)`. Lossy by design.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            md = doc.to_markdown(within=within)
+            emit({"markdown": md}, as_text=not ctx.obj["as_json"], text=md)
+
+    _run(ctx, go)
+
+
+@read.command(name="html")
+@click.option("--within", "within", default=None, help=_WITHIN_HELP)
+@click.pass_context
+def read_html(ctx: click.Context, within: str | None) -> None:
+    """Serialise the document (or an anchor's range) to an HTML fragment."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            html = doc.to_html(within=within)
+            emit({"html": html}, as_text=not ctx.obj["as_json"], text=html)
+
+    _run(ctx, go)
+
+
+@read.command(name="digest")
+@click.option(
+    "--budget",
+    "budget",
+    type=int,
+    default=6000,
+    show_default=True,
+    help="Approximate token budget (~4 chars/token) for the whole-document digest.",
+)
+@click.option(
+    "--depth",
+    "depth",
+    type=int,
+    default=None,
+    help="Cap how deep a section keeps body (deeper sections collapse to a marker).",
+)
+@click.pass_context
+def read_digest(ctx: click.Context, budget: int, depth: int | None) -> None:
+    """A token-budgeted, anchor-addressable digest of the **whole** document.
+
+    Headings verbatim (the navigation spine), tables as one-line shape stubs,
+    body sampled to fit `--budget` — so a large document loads into context
+    cheaply while every anchor stays addressable. Drill into any elided region
+    with `read markdown --within …`.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            digest = doc.read(budget=budget, depth=depth)
+            emit({"digest": digest}, as_text=not ctx.obj["as_json"], text=digest)
+
+    _run(ctx, go)
+
+
 @read.command(name="between")
 @click.option("--start", "start", required=True, help="Start anchor id (e.g. 'heading:1').")
 @click.option("--end", "end", required=True, help="End anchor id (e.g. 'heading:3').")

@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Markdown / HTML export — `doc.to_markdown()` / `doc.to_html()`.** The read
+  mirror of `insert_markdown`: serialise the whole document, or any anchor's
+  range (`within=`), to clean Markdown or an HTML fragment. Both render from one
+  COM document-walk so they agree on structure — headings, nested bullet/numbered
+  lists, `**bold**`/`*italic*` (HTML keeps underline), GFM pipe tables (with
+  pipe-escaping + alignment), inline images as `![alt](image:N)`, and hyperlinks
+  as `[text](url)`. Export is **lossy by design** (like the constrained-subset
+  import): it round-trips the dialect import speaks and reads the rest richer.
+  Pure reads — no new COM surface, composed over `Range.Words` (per-word
+  emphasis), `ListFormat`, the table range-interval walk, and `Range.Hyperlinks`
+  (all live-probed). Wired Python / CLI (`read markdown` / `read html`, with
+  `--within`; `--text` pipes the raw markup) / MCP (`word_read command=to_markdown`
+  / `to_html`). Not `exec` ops (reads). New module `_export.py` holds the node
+  model + the two pure emitters.
+- **Token-budgeted whole-document read — `doc.read(budget=N, depth=None)`.** A
+  structure-aware compressed read of the entire document sized to a token budget,
+  so an agent can load a large doc into context cheaply while **every anchor
+  stays addressable**. Headings are emitted verbatim (each tagged with its
+  `<!-- heading:N -->` anchor — the navigation spine), tables become one-line
+  shape stubs, and body text is sampled to fit `budget` (~4 chars/token),
+  weighted so shallower sections keep more than deep ones; overflow elides to
+  markers that name the `para:` range so an agent can drill in via
+  `to_markdown(within=…)`. `depth` caps how deep a section keeps body. Reuses the
+  `to_markdown` document walk; the eliding heuristic is tunable. Wired Python /
+  CLI (`read digest [--budget] [--depth]`) / MCP (`word_read command=digest`).
 - **Table styling & polish — restyle existing tables + row/column anchors.**
   Closes the "create-but-can't-edit" gap for tables: a table's style was settable
   only at `insert_table(style=…)` time, and styling a row/column/whole-table meant

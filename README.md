@@ -71,6 +71,7 @@ wordlive write bookmark Address --text "123 Main St"
 
 # Navigate & locate by structure (read-only):
 wordlive read section "Introduction"                          # body under a heading
+wordlive read markdown --within heading:3                      # serialise to clean Markdown (read mirror of insert-markdown)
 wordlive read between --start heading:1 --end heading:3        # block between two headings
 wordlive read nearest-heading --anchor-id para:42             # the section a paragraph sits in
 wordlive find --text "exact phrase"                            # exact (normalized) → range:S-E
@@ -315,6 +316,12 @@ the vision tool), then add to `claude_desktop_config.json`:
 
 ```json
 { "mcpServers": { "wordlive": { "command": "wordlive-mcp" } } }
+```
+
+Or, if you prefer `uvx`:
+
+```json
+{ "mcpServers": { "wordlive": { "command": "uvx wordlive[mcp,snapshot]" } } } 
 ```
 
 It exposes four dispatch tools — `word_read`, `word_write`, `word_exec`, and

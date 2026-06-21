@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import _checkpoint, _com, _findreplace, _linting, _proofing, _shapes, _snapshot
+from . import _checkpoint, _com, _export, _findreplace, _linting, _proofing, _shapes, _snapshot
 from ._anchors import (
     _WL_PREFIX,
     Bookmark,
@@ -1622,6 +1622,62 @@ class Document:
             "revisions": len(self.revisions),
             "saved": self.saved,
         }
+
+    def to_markdown(self, *, within: str | Anchor | None = None) -> str:
+        """Serialise the document (or one anchor's range) to clean Markdown.
+
+        The read mirror of [`insert_markdown`][wordlive.Anchor.insert_markdown]:
+        headings (``#``–``######``), bullet / numbered lists (with nesting),
+        ``**bold**`` / ``*italic*`` / ``***both***``, GFM pipe tables, inline
+        images as ``![alt](image:N)``, and hyperlinks as ``[text](url)``. The
+        constrained subset import speaks round-trips; the rest is a richer read
+        (export is **lossy by design** — underline, colours, and merged table
+        cells do not survive).
+
+        `within` scopes the output to an anchor's **literal range** — pass a
+        `range:START-END` (e.g. from `find`) or any anchor id / `Anchor`. A
+        `heading:N` covers only the heading line, not its section body — use
+        `doc.between(...)` or a range for "the section under X". ``None`` (the
+        default) serialises the whole document. A pure read; nothing is mutated.
+        """
+        with _com.translate_com_errors():
+            blocks = _export.walk_blocks(self, within)
+        return _export.render_markdown(blocks)
+
+    def to_html(self, *, within: str | Anchor | None = None) -> str:
+        """Serialise the document (or one anchor's range) to an HTML fragment.
+
+        The HTML counterpart of [`to_markdown`][wordlive.Document.to_markdown],
+        rendered from the same document walk so the two agree on structure:
+        headings (``<h1>``–``<h6>``), ``<ul>``/``<ol>`` lists (nested),
+        ``<strong>``/``<em>``/``<u>``, ``<table>``, ``<img>``, and ``<a>``. Unlike
+        the Markdown dialect, HTML keeps underline. Returns a fragment (no
+        ``<html>``/``<body>`` wrapper). `within` scopes to an anchor's literal
+        range (see `to_markdown`); ``None`` is the whole document. A pure read.
+        """
+        with _com.translate_com_errors():
+            blocks = _export.walk_blocks(self, within)
+        return _export.render_html(blocks)
+
+    def read(self, *, budget: int = 6000, depth: int | None = None) -> str:
+        """A token-budgeted, structure-aware digest of the **whole** document.
+
+        Loads a large document into context cheaply while keeping **every anchor
+        addressable**: headings are emitted verbatim (each tagged with its
+        `<!-- heading:N -->` anchor — the navigation spine), tables become one-line
+        shape stubs (`> table:N — R rows × C cols: …`), and body text is sampled to
+        fit `budget` (an approximate token count, ~4 chars/token), weighted so
+        shallower sections keep more than deep ones. Overflow is elided to markers
+        that still name the `para:` range and word count, so an agent can drill in
+        with [`to_markdown(within=…)`][wordlive.Document.to_markdown]. `depth` caps
+        how deep a section keeps any body (deeper sections collapse to a marker).
+
+        Returns annotated Markdown. A pure read; the eliding heuristic's knobs live
+        in `_export` for tuning. For the full text of any region, use `to_markdown`.
+        """
+        with _com.translate_com_errors():
+            blocks = _export.walk_blocks(self, None)
+        return _export.build_digest(blocks, budget=budget, depth=depth)
 
     def proofing(self) -> dict[str, Any]:
         """Run Word's proofing tools and report spelling, grammar, and readability.

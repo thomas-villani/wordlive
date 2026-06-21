@@ -68,6 +68,7 @@ Quick index (capability → real release):
 | Shape depth + inline restyle + `textbox:N` (`ShapeAnchor` set_rotation/set_z_order/set_text_frame; `doc.group_shapes`/`ungroup`; `ImageAnchor` set_alt_text/set_size; `textbox:N` alias) | Unreleased |
 | Checkpoint + diff (`doc.checkpoint`/`changes_since`/`diff`; `Checkpoint` token, `include=text/+style/+format`; content-aligned `replace`/`insert`/`delete`/`restyle`/`reformat` w/ current `para:N`; `doc_hash` fast-path) | Unreleased |
 | Table styling & polish (`Table.set_style`/`set_alignment`/`set_borders`/`set_banding`, `Cell.set_vertical_alignment`; row/column anchors `table:N:row:R` [`RowAnchor`] / `table:N:col:C` [`ColumnAnchor`] + `Table.row`/`column`) | Unreleased |
+| Markdown/HTML export + budgeted read (`doc.to_markdown`/`to_html(within=)` — flat node walk, GFM tables, `![alt](image:N)`, `[text](url)`; `doc.read(budget=,depth=)` — heading-spine digest, depth-weighted body elision, addressable markers; `_export.py`; `read markdown`/`html`/`digest`, MCP `to_markdown`/`to_html`/`digest`) | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -505,7 +506,28 @@ changed" is a structural snapshot + diff. Also the substrate for compare/merge
 
 ## Priority 2 — Read ergonomics & interchange
 
+> **Both Priority-2 items — ✅ shipped (Unreleased, 2026-06-21).** Items 3 and 4
+> landed together as one batch (new module `_export.py` holds one COM
+> document-walk + the pure Markdown/HTML emitters + the budgeted elide). See the
+> two ✅ notes below and Part I (the `_export` capability rows + `CHANGELOG.md`).
+
 ### 3. Token-budgeted whole-doc read — `doc.read(budget=N)`
+
+> **✅ Shipped (Unreleased, 2026-06-21).** `doc.read(budget=6000, depth=None)`
+> returns annotated Markdown: headings verbatim (each tagged `<!-- heading:N -->`,
+> the navigation spine), tables as one-line shape stubs, body sampled to fit the
+> budget — spread across sections **weighted by heading depth** (shallow keeps more
+> than deep), overflow elided to markers naming the `para:` range so an agent drills
+> in via `to_markdown(within=…)`. A section whose first block overflows keeps a
+> bounded lead snippet (≤20 words) + a truncation marker, so `budget` bounds the
+> output regardless of section count and no section vanishes; image-bearing blocks
+> always survive (`image:N` stays addressable); `depth` caps how deep a section
+> keeps body. **No new COM surface** — reuses Feature 4's `walk_blocks`, then a pure
+> `build_digest`. Tuning knobs (`_DEPTH_WEIGHTS`/`_LEAD_WORDS`/`_CHARS_PER_TOKEN`)
+> are `_export` constants; live-tuned against a real multi-section doc. Wired Python
+> / CLI (`read digest [--budget] [--depth]`) / MCP (`word_read command=digest`). See
+> `CHANGELOG.md`. **Deferred:** a real tokenizer (the char-based ~4/token estimate
+> is intentionally cheap) and sub-block elision beyond the lead-snippet floor.
 
 A structure-aware compressed representation of an **entire** document sized to a
 token budget, so an agent can load an 80-page document into context cheaply with
@@ -515,6 +537,26 @@ tables as shapes; anchors preserved. Pure read; Python + CLI + MCP `word_read`.
 doc) wants a live tuning pass.
 
 ### 4. Markdown / HTML export — `doc.to_markdown(within=anchor)`
+
+> **✅ Shipped (Unreleased, 2026-06-21).** `doc.to_markdown(within=None)` /
+> `doc.to_html(within=None)` — the read mirror of `insert_markdown`. One COM
+> document-walk (`_export.walk_blocks`) → a flat `Block`/`Span`/`TableNode` node
+> list → two pure emitters (so md+html agree on structure). Emits headings, nested
+> bullet/numbered lists, `**bold**`/`*italic*`/`***both***` (HTML keeps underline),
+> GFM pipe tables (pipe-escaping + `:--`/`:-:`/`--:` alignment), inline images as
+> `![alt](image:N)`, and hyperlinks as `[text](url)`; round-trips the constrained
+> import subset and reads the rest richer (lossy by design). `within` scopes to an
+> anchor's **literal range** (a `heading:N` is just its line — use `between`/`range:`
+> for the section). **No new COM surface** — composes over `Range.Words` (per-word
+> emphasis, whitespace hoisted out of markers), `ListFormat` (type/level, not style
+> name), a table range-interval walk, and `Range.Hyperlinks` (word-offset matched) —
+> all live-probed 2026-06-21. Mapping rules + escaping ported (conceptually) from the
+> sibling `all2md`. Wired Python / CLI (`read markdown` / `read html`, `--within`,
+> `--text` pipes raw) / MCP (`word_read command=to_markdown` / `to_html`). Reads, so
+> **not** `exec` ops. Smoke-validated (insert→export round-trip, tables, images,
+> links, scoping). See `CHANGELOG.md`. **Deferred:** intra-table-cell emphasis,
+> footnote/comment emission, and a normalized AST (kept the flat node list — wordlive's
+> import side is a flat block list, not a tree).
 
 The **read** mirror of the shipped `insert_markdown` compose path — clean Markdown
 (or HTML) *out* of a document or any anchor's range. Constant agent need ("give me

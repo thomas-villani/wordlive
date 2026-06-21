@@ -1073,11 +1073,39 @@ def _fake_para_style(name: str = "Normal") -> MagicMock:
     return st
 
 
+class _FakeWords:
+    """Mimics Range.Words: word objects derived from the range's current `Text`.
+
+    Iterated lazily so it reflects a `Text` set after `_make_range` (the paragraph
+    builder overrides it). Each word carries `.Text`, an absolute `.Start`, and
+    the range's `.Font` — enough for `_export`'s emphasis walk (the fake has no
+    per-word formatting, so words read the paragraph's uniform font).
+    """
+
+    def __init__(self, rng: MagicMock) -> None:
+        self._rng = rng
+
+    def __iter__(self) -> Iterable[Any]:
+        text = self._rng.Text or ""
+        base = int(self._rng.Start)
+        for m in re.finditer(r"\S+\s*|\s+", text):
+            w = MagicMock(name="Word")
+            w.Text = m.group(0)
+            w.Start = base + m.start()
+            w.End = base + m.end()
+            w.Font = self._rng.Font
+            yield w
+
+
 def _make_range(start: int, end: int) -> MagicMock:
     rng = MagicMock(name=f"Range[{start},{end}]")
     rng.Start = start
     rng.End = end
     rng.Text = ""
+    # Export support: Range.Words (lazy, derived from Text) for the to_markdown
+    # emphasis walk, and an empty Range.Hyperlinks (tests seed their own).
+    rng.Words = _FakeWords(rng)
+    rng.Hyperlinks = []
     # Image-extraction support: WordOpenXML serialises the range as Flat OPC.
     # A plain range carries no media part, so read_image() on it reports "no
     # image"; image shape ranges (and tests) override this with a real part.
@@ -1234,6 +1262,12 @@ class _FakeTable:
         if self._range_mock is None:
             rng = MagicMock(name="TableRange")
             rng.Start = self._start
+            # The fake models a table as a standalone object, not via in-document
+            # cell-paragraphs, so its range carries no document paragraphs — an
+            # empty [Start, End) interval (End defaults to a MagicMock that ints
+            # to 1, which would otherwise swallow the paragraph at offset Start in
+            # _export's table-interleave walk).
+            rng.End = self._start
             self._range_mock = rng
         return self._range_mock
 
