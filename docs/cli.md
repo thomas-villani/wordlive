@@ -173,6 +173,34 @@ same visible heading text appears more than once.
 
 Failures: `2` heading not found.
 
+## `read markdown` / `read html`
+
+```
+wordlive read markdown [--within ANCHOR]   [--doc DOC_NAME]
+wordlive read html     [--within ANCHOR]   [--doc DOC_NAME]
+```
+
+Serialise the whole document — or one anchor's range — to clean **Markdown**
+(or an **HTML** fragment). The read mirror of `insert-markdown`: headings,
+bullet / numbered lists (nested), `**bold**` / `*italic*`, GFM pipe tables,
+inline images as `![alt](image:N)`, and hyperlinks as `[text](url)`. Export is
+**lossy by design** (underline, colours, and merged table cells don't survive),
+so it round-trips the constrained subset import speaks and reads the rest richer.
+
+`--within` scopes to an anchor's **literal range** — a `range:START-END` (e.g.
+from `find`), or any anchor id. A `heading:N` covers only the heading line, not
+its section body (use `read between` or a `range:` for "the section under X").
+
+```bash
+$ wordlive read markdown --within heading:3
+{"markdown": "### Pricing\n\nOur tiers are **flexible** …"}
+
+$ wordlive --text read markdown > document.md   # pipe the raw Markdown out
+```
+
+`--text` emits the raw Markdown / HTML (no JSON envelope) — handy for piping
+into a file or an LLM prompt. Failures: `2` anchor not found.
+
 ## `read between --start ID --end ID [--inclusive]`
 
 ```

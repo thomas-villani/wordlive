@@ -589,6 +589,41 @@ def test_read_section_requires_one_of(fake_word):
 
 
 # ---------------------------------------------------------------------------
+# read markdown / html
+# ---------------------------------------------------------------------------
+
+
+def test_read_markdown_json_envelope(fake_word):
+    code, out, _ = _invoke(["read", "markdown"])
+    assert code == EXIT_OK
+    md = json.loads(out)["markdown"]
+    assert "# Introduction" in md
+    assert "## Risks" in md
+
+
+def test_read_markdown_text_mode_emits_markdown(fake_word):
+    code, out, _ = _invoke(["--text", "read", "markdown"])
+    assert code == EXIT_OK
+    assert "# Introduction" in out
+
+
+def test_read_markdown_within_scope(fake_word):
+    code, out, _ = _invoke(["read", "markdown", "--within", "heading:1"])
+    assert code == EXIT_OK
+    md = json.loads(out)["markdown"]
+    assert "Introduction" in md
+    assert "Risks" not in md
+
+
+def test_read_html_json_envelope(fake_word):
+    code, out, _ = _invoke(["read", "html"])
+    assert code == EXIT_OK
+    html = json.loads(out)["html"]
+    assert "<h1>Introduction</h1>" in html
+    assert "<h2>Risks</h2>" in html
+
+
+# ---------------------------------------------------------------------------
 # find / fuzzy replace
 # ---------------------------------------------------------------------------
 

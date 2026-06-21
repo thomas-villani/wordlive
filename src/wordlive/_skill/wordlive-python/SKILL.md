@@ -39,6 +39,8 @@ doc.find_paragraphs("approx text")  # FUZZY ranking (difflib); [{"anchor_id":"pa
 doc.bookmarks["Address"].text       # bookmark text
 doc.content_controls["Signatory"].text
 doc.heading("Introduction").section_text()   # body under a heading, to the next ≤-level one
+doc.to_markdown()                   # whole doc → clean Markdown (to_html for HTML); within=ID scopes
+doc.to_markdown(within="heading:3") # one anchor's range; lossy mirror of insert_markdown
 doc.between("heading:1", "heading:3")         # RangeAnchor between two anchors (excl. headings)
 doc.nearest_heading("para:42")                # heading row nearest a position (direction=before|after)
 doc.tables[1].grid()                # 2-D list of cell text (1-based index, or by Title)

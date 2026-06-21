@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Markdown / HTML export — `doc.to_markdown()` / `doc.to_html()`.** The read
+  mirror of `insert_markdown`: serialise the whole document, or any anchor's
+  range (`within=`), to clean Markdown or an HTML fragment. Both render from one
+  COM document-walk so they agree on structure — headings, nested bullet/numbered
+  lists, `**bold**`/`*italic*` (HTML keeps underline), GFM pipe tables (with
+  pipe-escaping + alignment), inline images as `![alt](image:N)`, and hyperlinks
+  as `[text](url)`. Export is **lossy by design** (like the constrained-subset
+  import): it round-trips the dialect import speaks and reads the rest richer.
+  Pure reads — no new COM surface, composed over `Range.Words` (per-word
+  emphasis), `ListFormat`, the table range-interval walk, and `Range.Hyperlinks`
+  (all live-probed). Wired Python / CLI (`read markdown` / `read html`, with
+  `--within`; `--text` pipes the raw markup) / MCP (`word_read command=to_markdown`
+  / `to_html`). Not `exec` ops (reads). New module `_export.py` holds the node
+  model + the two pure emitters.
 - **Table styling & polish — restyle existing tables + row/column anchors.**
   Closes the "create-but-can't-edit" gap for tables: a table's style was settable
   only at `insert_table(style=…)` time, and styling a row/column/whole-table meant

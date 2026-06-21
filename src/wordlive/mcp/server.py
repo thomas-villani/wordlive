@@ -170,6 +170,10 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                     "level": h.level,
                     "text": h.section_text(),
                 }
+            if command == "to_markdown":
+                return {"markdown": doc.to_markdown(within=p.get("within"))}
+            if command == "to_html":
+                return {"html": doc.to_html(within=p.get("within"))}
             if command == "between":
                 start_id = _need(p, "start_anchor", command)
                 end_id = _need(p, "end_anchor", command)
@@ -1166,6 +1170,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "read_bookmark",
             "read_cc",
             "read_section",
+            "to_markdown",
+            "to_html",
             "between",
             "nearest_heading",
             "find_paragraphs",
@@ -1231,6 +1237,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         outline [all_paragraphs] · paragraphs [start,count] ·
         find {text,[in_anchor]} · read_bookmark {name} · read_cc {name} ·
         read_section {heading | anchor_id} (body under a heading) ·
+        to_markdown {[within]} (serialise the document — or one anchor's range — to
+        clean Markdown: headings, lists, **bold**/*italic*, GFM tables, ![alt](image:N),
+        [text](url); the read mirror of insert_markdown, lossy by design; returns
+        {markdown}) ·
+        to_html {[within]} (same as to_markdown but an HTML fragment; returns {html}) ·
         between {start_anchor,end_anchor,[inclusive]} (content spanning two anchors —
         e.g. the block between two headings; default excludes both heading lines,
         inclusive covers them; returns a range:START-END id + text) ·

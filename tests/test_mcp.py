@@ -122,6 +122,20 @@ class TestReadImpl:
         matches = _read_impl(W, "find", {"text": "Body"})
         assert matches and matches[0]["anchor_id"].startswith("range:")
 
+    def test_to_markdown(self, fake_word: Any) -> None:
+        out = _read_impl(W, "to_markdown", {})
+        assert "# Introduction" in out["markdown"]
+        assert "## Risks" in out["markdown"]
+
+    def test_to_markdown_within(self, fake_word: Any) -> None:
+        out = _read_impl(W, "to_markdown", {"within": "heading:1"})
+        assert "Introduction" in out["markdown"]
+        assert "Risks" not in out["markdown"]
+
+    def test_to_html(self, fake_word: Any) -> None:
+        out = _read_impl(W, "to_html", {})
+        assert "<h1>Introduction</h1>" in out["html"]
+
     def test_read_bookmark(self, fake_word: Any) -> None:
         assert "text" in _read_impl(W, "read_bookmark", {"name": "Address"})
 
