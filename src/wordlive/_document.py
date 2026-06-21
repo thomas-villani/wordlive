@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import _checkpoint, _com, _findreplace, _linting, _proofing, _shapes, _snapshot
+from . import _checkpoint, _com, _export, _findreplace, _linting, _proofing, _shapes, _snapshot
 from ._anchors import (
     _WL_PREFIX,
     Bookmark,
@@ -1622,6 +1622,27 @@ class Document:
             "revisions": len(self.revisions),
             "saved": self.saved,
         }
+
+    def to_markdown(self, *, within: str | Anchor | None = None) -> str:
+        """Serialise the document (or one anchor's range) to clean Markdown.
+
+        The read mirror of [`insert_markdown`][wordlive.Anchor.insert_markdown]:
+        headings (``#``–``######``), bullet / numbered lists (with nesting),
+        ``**bold**`` / ``*italic*`` / ``***both***``, GFM pipe tables, inline
+        images as ``![alt](image:N)``, and hyperlinks as ``[text](url)``. The
+        constrained subset import speaks round-trips; the rest is a richer read
+        (export is **lossy by design** — underline, colours, and merged table
+        cells do not survive).
+
+        `within` scopes the output to an anchor's **literal range** — pass a
+        `range:START-END` (e.g. from `find`) or any anchor id / `Anchor`. A
+        `heading:N` covers only the heading line, not its section body — use
+        `doc.between(...)` or a range for "the section under X". ``None`` (the
+        default) serialises the whole document. A pure read; nothing is mutated.
+        """
+        with _com.translate_com_errors():
+            blocks = _export.walk_blocks(self, within)
+        return _export.render_markdown(blocks)
 
     def proofing(self) -> dict[str, Any]:
         """Run Word's proofing tools and report spelling, grammar, and readability.
