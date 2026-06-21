@@ -2494,6 +2494,79 @@ $ wordlive table delete-row --table 1 --row 3
 
 Failures: `2` table index or row out of range, `3` Word busy.
 
+## `table add-column`
+
+```
+wordlive table add-column --table INDEX [--values '["a","b"]'] [--doc DOC_NAME]
+```
+
+Append a column at the right edge of the table — the column mirror of `add-row`.
+`--values` is an optional JSON array of cell values, matched to rows
+**top-to-bottom** (extras ignored, short lists leave trailing cells empty).
+Atomic-undo.
+
+```bash
+$ wordlive table add-column --table 1 --values '["Status", "ok", "ok"]'
+{"ok": true, "table": 1, "columns": 3}
+```
+
+Failures: `1` `--values` not a JSON array, `2` table index out of range, `3` Word busy.
+
+## `table delete-column`
+
+```
+wordlive table delete-column --table INDEX --column C [--doc DOC_NAME]
+```
+
+Delete the 1-based column `C`. Atomic-undo. A table with **merged / mixed-width
+cells** has no per-column model in Word, so this fails with a clean error
+pointing at per-cell deletion via `table:N:R:C` — delete those cells instead.
+
+```bash
+$ wordlive table delete-column --table 1 --column 2
+{"ok": true, "table": 1, "columns": 2}
+```
+
+Failures: `1` merged / mixed-width table (no per-column model), `2` table index
+or column out of range, `3` Word busy.
+
+## `table merge-cells`
+
+```
+wordlive table merge-cells --table INDEX --from R:C --to R:C [--doc DOC_NAME]
+```
+
+Merge two cells (and the rectangle they span) into one. `--from` / `--to` are
+1-based `R:C` coordinates. Word joins the cells' text; the merged cell keeps the
+`--from` cell's id (`table:N:R:C`). The table becomes **non-uniform** afterwards
+(`table read` reports `"uniform": false`) — `table:N:R:C` then indexes *physical*
+cells, so re-read the table to see the new shape. Atomic-undo.
+
+```bash
+$ wordlive table merge-cells --table 1 --from 1:1 --to 1:2
+{"ok": true, "table": 1, "anchor_id": "table:1:1:1"}
+```
+
+Failures: `1` malformed coordinate, `2` table index or cell out of range, `3` Word busy.
+
+## `table split-cell`
+
+```
+wordlive table split-cell --table INDEX --cell R:C [--rows N] [--columns N] [--doc DOC_NAME]
+```
+
+Split one cell into a `--rows` × `--columns` grid (default `1` × `2`) — the
+inverse of `merge-cells`. Makes the table **non-uniform** (see above). `--cell`
+is a 1-based `R:C` coordinate. Atomic-undo.
+
+```bash
+$ wordlive table split-cell --table 1 --cell 2:1 --columns 3
+{"ok": true, "table": 1, "anchor_id": "table:1:2:1"}
+```
+
+Failures: `1` malformed coordinate / count below 1, `2` table index or cell out
+of range, `3` Word busy.
+
 ## `table set-heading-row`
 
 ```
@@ -2948,6 +3021,10 @@ Script shape:
 | `set_cell`             | `table`, `row`, `col`, `text`              | —                                 |
 | `add_row`              | `table`                                    | `values`                          |
 | `delete_row`           | `table`, `row`                             | —                                 |
+| `add_column`           | `table`                                    | `values` (fill top-to-bottom)     |
+| `delete_column`        | `table`, `column`                          | —                                 |
+| `merge_cells`          | `table`, `from`, `to`                      | — (`from`/`to` are `[row,col]` or `"R:C"`) |
+| `split_cell`           | `table`, `cell`                            | `rows` (default 1), `cols` (default 2) (`cell` is `[row,col]` or `"R:C"`) |
 | `set_heading_row`      | `table`                                    | `row` (default 1), `heading` (default true), `allow_break` |
 | `autofit_table`        | `table`                                    | `mode` (`content`/`window`/`fixed`) |
 | `append_record`        | `table`, `record`                          | —                                 |
@@ -3058,11 +3135,16 @@ fields) as one step of the batch's atomic undo, and returns its
 it plans without writing — the natural lead-off op when you want to audit-then-fix
 in a single round-trip.
 
-`set_cell`, `add_row`, `delete_row`, and `set_heading_row` operate on tables by
-1-based `table` index. `set_cell` is shorthand for a `replace` on a `table:N:R:C`
-anchor; `add_row`'s optional `values` is a JSON array matched to columns;
-`set_heading_row` marks a row (default 1) as a repeating header across pages.
-All the table ops join the same atomic-undo scope as the rest of the batch.
+`set_cell`, `add_row`, `delete_row`, `add_column`, `delete_column`,
+`merge_cells`, `split_cell`, and `set_heading_row` operate on tables by 1-based
+`table` index. `set_cell` is shorthand for a `replace` on a `table:N:R:C` anchor;
+`add_row`'s optional `values` is a JSON array matched to columns, `add_column`'s
+fills top-to-bottom; `merge_cells`/`split_cell` take cell coordinates as
+`[row, col]` or `"R:C"` and leave the table **non-uniform** (`table:N:R:C` then
+indexes physical cells); `delete_column` fails cleanly on a merged / mixed-width
+table (delete those cells via `table:N:R:C`); `set_heading_row` marks a row
+(default 1) as a repeating header across pages. All the table ops join the same
+atomic-undo scope as the rest of the batch.
 
 `create_table` builds a new table at a **position** `anchor_id` (`heading:`,
 `para:`, `start`, `end`, `range:` — not a bare `table:N`); `delete_table`

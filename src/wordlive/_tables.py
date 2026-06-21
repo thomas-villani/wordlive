@@ -170,6 +170,40 @@ class Cell(Anchor):
         with _com.translate_com_errors():
             self._cell().VerticalAlignment = value
 
+    def merge(self, other: Cell) -> None:
+        """Merge this cell with `other` into one cell spanning their rectangle.
+
+        `other` must belong to the **same table**. Word joins the two cells'
+        text; the merged cell keeps *this* cell's id (`table:N:R:C`), while the
+        absorbed cell's coordinates stop resolving. The table becomes
+        **non-uniform** (`Table.is_uniform` → `False`) — afterwards `table:N:R:C`
+        indexes *physical* cells (a short row has fewer than `column_count`), so
+        re-read the table to see the new shape. Wrap in `doc.edit(...)` for
+        atomic undo; cross-table cells raise `OpError`.
+        """
+        if other._table.index != self._table.index:
+            raise OpError(
+                f"cannot merge {self.anchor_id} with {other.anchor_id}: "
+                f"cells are in different tables"
+            )
+        with _com.translate_com_errors():
+            # Positional MergeTo — the keyword is dropped under late binding.
+            self._cell().Merge(other._cell())
+
+    def split(self, rows: int = 1, cols: int = 2) -> None:
+        """Split this cell into a `rows` × `cols` grid of cells.
+
+        The inverse of `merge`; defaults to two side-by-side cells
+        (`rows=1, cols=2`). Makes the table **non-uniform** (`Table.is_uniform`
+        → `False`) — see `merge`. Wrap in `doc.edit(...)` for atomic undo; a
+        count below 1 raises `OpError`.
+        """
+        if rows < 1 or cols < 1:
+            raise OpError(f"split: rows and cols must be >= 1 (got rows={rows}, cols={cols})")
+        with _com.translate_com_errors():
+            # Positional NumRows, NumColumns — keywords are dropped under late binding.
+            self._cell().Split(rows, cols)
+
 
 class RowAnchor(Anchor):
     """A whole table row, addressed by ``table:N:row:R`` (1-based).
@@ -333,6 +367,24 @@ class Table:
         with _com.translate_com_errors():
             return str(self._com.Title or "")
 
+    @property
+    def is_uniform(self) -> bool:
+        """Whether every row has the same physical cell count — a clean grid.
+
+        `True` for a freshly built `R × C` table; `False` once a cell has been
+        merged or split. On a non-uniform table `table:N:R:C` indexes *physical*
+        cells (so an index can shift after a merge or fall off a short row),
+        `delete_column` / column anchors raise "mixed cell widths", and
+        `row_count` × `column_count` overstates the true cell count. Worth a
+        check before addressing cells in a table you didn't build.
+        """
+        with _com.translate_com_errors():
+            cols = int(self._com.Columns.Count)
+            return all(
+                int(self._com.Rows(r).Cells.Count) == cols
+                for r in range(1, int(self._com.Rows.Count) + 1)
+            )
+
     def cell(self, row: int, col: int) -> Cell:
         """Return the `Cell` at 1-based (row, col).
 
@@ -371,16 +423,30 @@ class Table:
             raise AnchorNotFoundError("table column", f"table:{self._index}:col:{col}")
         return ColumnAnchor(self, col)
 
+    def _row_cell_count(self, row: int) -> int:
+        """The number of *physical* cells in a 1-based row (a merged row is shorter)."""
+        with _com.translate_com_errors():
+            return int(self._com.Rows(row).Cells.Count)
+
     def grid(self) -> list[list[str]]:
-        """All cell text as a row-major `list[list[str]]`."""
-        rows, cols = self.row_count, self.column_count
-        return [[self.cell(r, c).text for c in range(1, cols + 1)] for r in range(1, rows + 1)]
+        """All cell text as a row-major `list[list[str]]`.
+
+        Iterates each row's *physical* cells, so it stays safe on a merged /
+        split table (a merged row simply yields fewer columns); on a uniform
+        table it's the plain `row_count` × `column_count` grid.
+        """
+        return [
+            [Cell(self, r, c).text for c in range(1, self._row_cell_count(r) + 1)]
+            for r in range(1, self.row_count + 1)
+        ]
 
     def read(self) -> dict[str, Any]:
         """Structured dump: metadata plus every cell with its addressable id.
 
         Each cell carries its `anchor_id` (`table:N:R:C`) so a caller can feed
         it straight back into `replace` / `style apply` / `format-paragraph`.
+        Cells are walked **physically** per row (robust to merged / split
+        tables); `uniform` reports whether `rows` × `columns` is the full grid.
         """
         rows, cols = self.row_count, self.column_count
         cells = [
@@ -388,10 +454,10 @@ class Table:
                 {
                     "row": r,
                     "col": c,
-                    "text": self.cell(r, c).text,
+                    "text": Cell(self, r, c).text,
                     "anchor_id": f"table:{self._index}:{r}:{c}",
                 }
-                for c in range(1, cols + 1)
+                for c in range(1, self._row_cell_count(r) + 1)
             ]
             for r in range(1, rows + 1)
         ]
@@ -400,6 +466,7 @@ class Table:
             "title": self.title,
             "rows": rows,
             "columns": cols,
+            "uniform": self.is_uniform,
             "cells": cells,
         }
 
@@ -501,6 +568,48 @@ class Table:
             raise AnchorNotFoundError("table row", f"table:{self._index}:row:{index}")
         with _com.translate_com_errors():
             self._com.Rows(index).Delete()
+
+    def add_column(self, values: list[Any] | None = None) -> None:
+        """Append a column at the right edge of the table, optionally filling it.
+
+        The column mirror of `add_row`: `values` are matched to rows
+        top-to-bottom; extras past the row count are ignored, a short list
+        leaves trailing cells empty. (Word's `Columns.Add` tolerates a merged
+        table, so this works where `delete_column` can't.) Wrap in
+        `doc.edit(...)` for atomic undo.
+        """
+        with _com.translate_com_errors():
+            self._com.Columns.Add()
+            if values:
+                last = int(self._com.Columns.Count)
+                rows = int(self._com.Rows.Count)
+                for r, val in enumerate(values, start=1):
+                    if r > rows:
+                        break
+                    self._com.Cell(r, last).Range.Text = str(val)
+
+    def delete_column(self, index: int) -> None:
+        """Delete the 1-based column `index`.
+
+        Raises `AnchorNotFoundError` (kind `"table column"`) if out of range.
+        Word can't address an individual column on a table with merged /
+        mixed-width cells ("mixed cell widths") — that `ComError` is re-raised as
+        an `OpError` pointing at per-cell deletion via `table:N:R:C` (the same
+        contract as a column-anchor style op). Wrap in `doc.edit(...)` for
+        atomic undo.
+        """
+        cols = self.column_count
+        if not (1 <= index <= cols):
+            raise AnchorNotFoundError("table column", f"table:{self._index}:col:{index}")
+        try:
+            with _com.translate_com_errors():
+                self._com.Columns(index).Delete()
+        except ComError as e:
+            raise OpError(
+                f"cannot delete column {index} of table {self._index} ({e}); the "
+                f"table has merged or mixed-width cells — delete its cells "
+                f"individually via table:{self._index}:R:{index}"
+            ) from e
 
     def set_heading_row(
         self, row: int = 1, *, heading: bool = True, allow_break: bool | None = None
