@@ -136,6 +136,11 @@ class TestReadImpl:
         out = _read_impl(W, "to_html", {})
         assert "<h1>Introduction</h1>" in out["html"]
 
+    def test_digest(self, fake_word: Any) -> None:
+        out = _read_impl(W, "digest", {"budget": 200})
+        assert "# Introduction  <!-- heading:1 -->" in out["digest"]
+        assert "## Risks  <!-- heading:3 -->" in out["digest"]
+
     def test_read_bookmark(self, fake_word: Any) -> None:
         assert "text" in _read_impl(W, "read_bookmark", {"name": "Address"})
 

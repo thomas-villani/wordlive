@@ -623,6 +623,21 @@ def test_read_html_json_envelope(fake_word):
     assert "<h2>Risks</h2>" in html
 
 
+def test_read_digest_json_envelope(fake_word):
+    code, out, _ = _invoke(["read", "digest", "--budget", "200"])
+    assert code == EXIT_OK
+    digest = json.loads(out)["digest"]
+    # Headings are the verbatim navigation spine, each tagged with its anchor.
+    assert "# Introduction  <!-- heading:1 -->" in digest
+    assert "## Risks  <!-- heading:3 -->" in digest
+
+
+def test_read_digest_text_mode(fake_word):
+    code, out, _ = _invoke(["--text", "read", "digest"])
+    assert code == EXIT_OK
+    assert "# Introduction" in out
+
+
 # ---------------------------------------------------------------------------
 # find / fuzzy replace
 # ---------------------------------------------------------------------------

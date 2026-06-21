@@ -756,6 +756,19 @@ section = doc.to_markdown(within="heading:3")   # one heading's range
 html = doc.to_html(within="range:120-540")  # a found span as HTML
 ```
 
+`Document.read(budget=6000, depth=None)` is the **token-budgeted** read of the
+whole document — load an 80-page doc into context cheaply while every anchor
+stays addressable. Headings are verbatim (each tagged `<!-- heading:N -->`),
+tables become one-line shape stubs, and body text is sampled to fit `budget`
+(~4 chars/token), weighted so shallower sections keep more than deep ones;
+overflow elides to markers that name the `para:` range, so an agent can drill in
+with `to_markdown(within=…)`. `depth` caps how deep a section keeps body.
+
+```python
+overview = doc.read(budget=4000)            # the whole doc, budgeted + addressable
+shallow = doc.read(budget=4000, depth=1)    # outline + only top-level bodies
+```
+
 Documented on [`Document`](#wordlive.Document).
 
 ## Checkpoint & diff

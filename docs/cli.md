@@ -201,6 +201,36 @@ $ wordlive --text read markdown > document.md   # pipe the raw Markdown out
 `--text` emits the raw Markdown / HTML (no JSON envelope) — handy for piping
 into a file or an LLM prompt. Failures: `2` anchor not found.
 
+## `read digest [--budget N] [--depth D]`
+
+```
+wordlive read digest [--budget 6000] [--depth D]   [--doc DOC_NAME]
+```
+
+A **token-budgeted, structure-aware** read of the whole document — load a large
+document into context cheaply while **every anchor stays addressable**. Headings
+are verbatim (each tagged with its `<!-- heading:N -->` anchor — the navigation
+spine), tables become one-line shape stubs (`> table:N — R rows × C cols: …`),
+and body text is sampled to fit `--budget` (an approximate token count,
+~4 chars/token), weighted so shallower sections keep more than deep ones.
+Overflow is elided to markers that still name the `para:` range, so you can drill
+into any region with `read markdown --within …`. `--depth D` caps how deep a
+section keeps body (deeper sections collapse to a marker).
+
+```bash
+$ wordlive --text read digest --budget 4000
+# Q3 Report  <!-- heading:1 -->
+
+The quarter closed ahead of plan …
+
+…(para:5–para:18, 1240 words elided)…
+
+> table:2 — 9 rows × 4 cols: Quarter, Region, Revenue, Growth
+…
+```
+
+A pure read. For the full text of any region, use `read markdown --within`.
+
 ## `read between --start ID --end ID [--inclusive]`
 
 ```

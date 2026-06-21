@@ -174,6 +174,13 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return {"markdown": doc.to_markdown(within=p.get("within"))}
             if command == "to_html":
                 return {"html": doc.to_html(within=p.get("within"))}
+            if command == "digest":
+                digest_kwargs: dict[str, Any] = {}
+                if p.get("budget") is not None:
+                    digest_kwargs["budget"] = p["budget"]
+                if p.get("depth") is not None:
+                    digest_kwargs["depth"] = p["depth"]
+                return {"digest": doc.read(**digest_kwargs)}
             if command == "between":
                 start_id = _need(p, "start_anchor", command)
                 end_id = _need(p, "end_anchor", command)
@@ -1172,6 +1179,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "read_section",
             "to_markdown",
             "to_html",
+            "digest",
             "between",
             "nearest_heading",
             "find_paragraphs",
@@ -1222,6 +1230,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         direction: str | None = None,
         limit: int | None = None,
         min_score: float | None = None,
+        budget: int | None = None,
+        depth: int | None = None,
         rules: Any = None,
         within: str | None = None,
         include: str | None = None,
@@ -1242,6 +1252,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         [text](url); the read mirror of insert_markdown, lossy by design; returns
         {markdown}) ·
         to_html {[within]} (same as to_markdown but an HTML fragment; returns {html}) ·
+        digest {[budget=6000],[depth]} (a token-budgeted, structure-aware read of the
+        WHOLE document — headings verbatim (each tagged with its heading:N anchor),
+        tables as one-line shape stubs, body sampled to fit budget; every anchor stays
+        addressable so you can drill in with to_markdown(within=…). Loads a large doc
+        into context cheaply; returns {digest} markdown) ·
         between {start_anchor,end_anchor,[inclusive]} (content spanning two anchors —
         e.g. the block between two headings; default excludes both heading lines,
         inclusive covers them; returns a range:START-END id + text) ·
@@ -1318,6 +1333,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "direction": direction,
             "limit": limit,
             "min_score": min_score,
+            "budget": budget,
+            "depth": depth,
             "rules": rules,
             "within": within,
             "include": include,
