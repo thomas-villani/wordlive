@@ -2130,11 +2130,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           add_error_bars {anchor_id=chart:N,[series=1,kind=fixed|percent|stdev|sterror,amount,include=both|plus|minus,axis=y|x]} — amount required unless kind=sterror ·
           set_shape_wrap/set_shape_position/set_shape_size/format_shape/set_shape_alt_text/set_shape_text/replace_shape_image/delete_shape {anchor_id=shape:N,…} —
             restyle a floating shape (text box / image): wrap (style/side/distance_*), position (left/top/relative_to), size (width/height/lock_aspect), fill/border, alt text, text-box contents, picture swap (path|base64), or delete ·
-          set_shape_crop {anchor_id=shape:N,[crop_left,crop_top,crop_right,crop_bottom]} — trim a floating PICTURE shape in from its edges ·
+          set_shape_crop {anchor_id=shape:N,[left,top,right,bottom]} — trim a floating PICTURE shape in from its edges (crop_* aliases also accepted) ·
           set_shape_rotation {anchor_id=shape:N,degrees} · set_shape_z_order {anchor_id=shape:N,order=front|back|forward|backward} ·
           set_shape_text_frame {anchor_id=shape:N,[margin_left,margin_right,margin_top,margin_bottom,word_wrap]} — a text box's insets / word-wrap ·
           group_shapes {shapes=[shape:N,…]} — group two or more floats into one (returns the group's shape:N) · ungroup_shape {anchor_id=shape:N} — dissolve a group ·
-          set_image_alt_text {anchor_id=image:N,text} · set_image_size {anchor_id=image:N,[width,height,lock_aspect]} · set_image_crop {anchor_id=image:N,[crop_left,crop_top,crop_right,crop_bottom]} — alt text / resize / crop an INLINE picture (re-wrap floats it via insert_image) ·
+          set_image_alt_text {anchor_id=image:N,text} · set_image_size {anchor_id=image:N,[width,height,lock_aspect]} · set_image_crop {anchor_id=image:N,[left,top,right,bottom]} — alt text / resize / crop an INLINE picture (crop_* aliases also accepted; re-wrap floats it via insert_image) ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
           regularize {[rules],[within],[dry_run]} — apply the fixable word_read lint findings in one atomic step (targeted, idempotent); returns {applied,skipped,findings} ·

@@ -169,9 +169,56 @@ def restart_numbering(rng: Any) -> None:
     )
 
 
+def _validate_level(index: int, spec: dict[str, Any]) -> None:
+    """Validate one level spec **without touching COM**, so a bad spec is rejected
+    before `apply_list_format` mints a `ListTemplate`. Otherwise a valid early
+    level plus a malformed later one would leave an added-but-unapplied template
+    orphaned in the document (the COM `Add` having already run)."""
+    if not isinstance(spec, dict):
+        raise OpError(
+            f"list level {index}: each level must be an object, got {type(spec).__name__}"
+        )
+    kind = str(spec.get("kind", "number")).lower()
+    if kind == "bullet":
+        if not (spec.get("bullet") or spec.get("format")):
+            raise OpError(f"list level {index}: a bullet level needs a 'bullet' glyph")
+    elif kind == "number":
+        style = spec.get("style")
+        if style is not None and str(style).lower() not in _NUMBER_STYLE_FOR:
+            raise OpError(
+                f"list level {index}: unknown number style {style!r}; "
+                f"expected one of {sorted(_NUMBER_STYLE_FOR)}"
+            )
+        if "start_at" in spec:
+            try:
+                int(spec["start_at"])
+            except (TypeError, ValueError):
+                raise OpError(
+                    f"list level {index}: start_at must be an integer, got {spec['start_at']!r}"
+                ) from None
+    else:
+        raise OpError(f"list level {index}: kind must be 'number' or 'bullet', got {kind!r}")
+
+    trailing = spec.get("trailing")
+    if trailing is not None and str(trailing).lower() not in _TRAILING_FOR:
+        raise OpError(f"list level {index}: trailing must be tab/space/none, got {trailing!r}")
+    if spec.get("alignment") is not None and str(spec["alignment"]).lower() not in _LEVEL_ALIGN_FOR:
+        raise OpError(
+            f"list level {index}: alignment must be left/center/right, got {spec['alignment']!r}"
+        )
+    # Pure conversions that can raise — run them now so a bad measurement/colour
+    # also fails before the template is created (the values are recomputed in
+    # `_configure_level`; both are pure).
+    for key in ("number_position", "text_position"):
+        if spec.get(key) is not None:
+            to_points(spec[key])
+    if spec.get("color") is not None:
+        to_bgr(spec["color"])
+
+
 def _configure_level(lvl: Any, index: int, spec: dict[str, Any]) -> None:
     """Write one per-level spec onto a `ListLevel` (the unit `apply_list_format`
-    fans across)."""
+    fans across). Assumes the spec already passed `_validate_level`."""
     kind = str(spec.get("kind", "number")).lower()
     font_name = spec.get("font")
     if kind == "bullet":
@@ -240,15 +287,15 @@ def apply_list_format(
     """
     if not levels:
         raise OpError("apply_list_format: at least one level is required")
+    # Validate every level up front, before any COM write — a failure here must
+    # not leave an orphaned ListTemplate behind (see `_validate_level`).
+    for i, spec in enumerate(levels, start=1):
+        _validate_level(i, spec)
     outline = len(levels) > 1
     # ListTemplates.Add(OutlineNumbered) — Name omitted so Word auto-names and
     # repeated calls don't collide. Each call defines a new list in the document.
     lt = doc_com.ListTemplates.Add(outline)
     for i, spec in enumerate(levels, start=1):
-        if not isinstance(spec, dict):
-            raise OpError(
-                f"list level {i}: each level must be an object, got {type(spec).__name__}"
-            )
         _configure_level(lt.ListLevels(i), i, spec)
     rng.ListFormat.ApplyListTemplate(
         ListTemplate=lt,

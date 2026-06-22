@@ -396,13 +396,29 @@ _WD_UNDEFINED = 9999999
 
 
 def _font_bool(value: Any) -> bool:
-    """Coerce a Word ``Font.Bold``/``Italic``/``Underline`` read to a plain bool.
+    """Coerce a Word ``Font.Bold``/``Italic`` read to a plain bool.
 
     Word returns ``-1`` (True) / ``0`` (False); ``9999999`` (wdUndefined) means
     the property *varies* within the word — treated as unset so a mixed word
     degrades to plain text rather than guessing.
     """
     return value == -1
+
+
+def _font_underline(value: Any) -> bool:
+    """Coerce a Word ``Font.Underline`` read to a plain bool.
+
+    Unlike ``Bold``/``Italic``, ``Underline`` is a ``WdUnderline`` enum — *not* a
+    tri-state boolean: ``0`` is no underline, ``9999999`` (wdUndefined) means it
+    varies within the word, and every other value (1 = single, 3 = double, …) is
+    underlined. So it must not go through `_font_bool` (which tests ``== -1`` and
+    would report every underline style as *off*).
+    """
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return False
+    return v not in (0, _WD_UNDEFINED)
 
 
 def _href_of(hyperlink: Any) -> str | None:
@@ -415,19 +431,29 @@ def _href_of(hyperlink: Any) -> str | None:
 
 
 def _coalesce_spans(raw: list[Span]) -> tuple[Span, ...]:
-    """Merge adjacent spans that share formatting; inline images stay standalone."""
+    """Merge adjacent spans that share formatting; inline images stay standalone.
+
+    Adjacent words of one hyperlink also merge **by href alone**, even if their
+    incidental bold/italic/underline reads differ: a hyperlink is stored as a
+    field, so its first display word's range overlaps the hidden field code and
+    reads ragged formatting — without href-merging a multi-word link splits into
+    `[one](url) [two](url) …` instead of one `[one two three](url)`.
+    """
     out: list[Span] = []
     for s in raw:
-        if (
-            out
-            and s.image_ref is None
-            and out[-1].image_ref is None
-            and (s.bold, s.italic, s.underline, s.href)
-            == (out[-1].bold, out[-1].italic, out[-1].underline, out[-1].href)
-        ):
-            out[-1] = replace(out[-1], text=out[-1].text + s.text)
-        else:
-            out.append(s)
+        if out and s.image_ref is None and out[-1].image_ref is None:
+            prev = out[-1]
+            same_fmt = (s.bold, s.italic, s.underline, s.href) == (
+                prev.bold,
+                prev.italic,
+                prev.underline,
+                prev.href,
+            )
+            same_link = s.href is not None and s.href == prev.href
+            if same_fmt or same_link:
+                out[-1] = replace(prev, text=prev.text + s.text)
+                continue
+        out.append(s)
     return tuple(out)
 
 
@@ -462,13 +488,18 @@ def _paragraph_spans(
             raw.append(Span(text=alt, image_ref=f"image:{idx}"))
             continue
         font = word.Font
-        href = next((h for (s, e, h) in links if s <= start < e), None)
+        end = int(word.End)
+        # Tag by range *overlap*, not a point test on `start`: a hyperlink's
+        # display range and a word's range don't always share an edge (field
+        # codes, trailing-mark trimming), so a point test can split a multi-word
+        # link or drop its last word.
+        href = next((h for (s, e, h) in links if start < e and end > s), None)
         raw.append(
             Span(
                 text=stripped,
                 bold=_font_bool(font.Bold),
                 italic=_font_bool(font.Italic),
-                underline=_font_bool(font.Underline),
+                underline=_font_underline(font.Underline),
                 href=href,
             )
         )
@@ -488,10 +519,34 @@ def _heading_level(outline_level: int, style: str | None) -> int | None:
     return None
 
 
-def _table_block(doc: Document, index: int) -> Block:
-    """Build a `TABLE` `Block` from the 1-based table `index`."""
+def _table_block(doc: Document, index: int, image_by_start: dict[int, tuple[int, str]]) -> Block:
+    """Build a `TABLE` `Block` from the 1-based table `index`.
+
+    Cell text is plain (intra-cell emphasis is a documented deferral), but any
+    inline image inside a cell is appended as an `![alt](image:N)` token so the
+    `image:N` anchor stays addressable — the digest's "every image stays
+    referenceable" invariant must hold inside tables too, not just in body text.
+    """
     table = doc.tables[index]
     grid = table.grid()
+    images = sorted(image_by_start.items())
+    if images:
+        # Walk the same *physical* cells `grid()` did (merged-safe) and append
+        # any inline-image refs whose start falls inside the cell's range.
+        tcom = table.com
+        for r in range(1, len(grid) + 1):
+            cells = tcom.Rows(r).Cells
+            for c in range(1, len(grid[r - 1]) + 1):
+                try:
+                    rng = cells.Item(c).Range
+                    cs, ce = int(rng.Start), int(rng.End)
+                except Exception:
+                    continue
+                refs = [f"![{alt}](image:{idx})" for pos, (idx, alt) in images if cs <= pos < ce]
+                if refs:
+                    cur = grid[r - 1][c - 1]
+                    joined = " ".join(refs)
+                    grid[r - 1][c - 1] = f"{cur} {joined}".strip() if cur else joined
     header = tuple(grid[0]) if grid else ()
     rows = tuple(tuple(r) for r in grid[1:])
     alignments: list[str | None] = []
@@ -561,7 +616,7 @@ def walk_blocks(doc: Document, within: str | Anchor | None = None) -> list[Block
         if in_table is not None:
             if in_table not in seen_tables:
                 seen_tables.add(in_table)
-                blocks.append(_table_block(doc, in_table))
+                blocks.append(_table_block(doc, in_table, image_by_start))
             continue
         try:
             outline_level = int(para.OutlineLevel)
@@ -652,7 +707,9 @@ def _has_image(b: Block) -> bool:
     return any(s.image_ref is not None for s in b.spans)
 
 
-def _render_body_segment(body: list[Block], share: float, *, suppress: bool) -> str:
+def _render_body_segment(
+    body: list[Block], share: float, *, suppress: bool, budget_left: list[float]
+) -> str:
     """Render a section's body to its token `share`, eliding the overflow.
 
     Keeps a leading run verbatim until `share` is spent (plus any image-bearing
@@ -661,6 +718,12 @@ def _render_body_segment(body: list[Block], share: float, *, suppress: bool) -> 
     vanishes) with a `…(para:N, M more words)…` truncation marker. Each run of
     fully-dropped blocks collapses to one `…(para:A–para:B, N words elided)…`
     marker. `suppress` (a depth-capped section) elides everything into markers.
+
+    `budget_left` is a one-element ``[tokens]`` cell shared across every section
+    (the global remaining body budget). Both verbatim keeps and lead snippets
+    draw it down, and the lead-snippet path only fires while it's positive — so
+    the digest cannot grow without bound on a document with very many small
+    sections (the snippet count is capped by the budget, not the section count).
     """
     out: list[str] = []
     pending: list[Block] = []
@@ -685,13 +748,17 @@ def _render_body_segment(body: list[Block], share: float, *, suppress: bool) -> 
             flush()
             out.append(line)
             used += cost
+            budget_left[0] -= cost
             kept += 1
-        elif not suppress and kept == 0 and not pending:
+        elif not suppress and kept == 0 and not pending and budget_left[0] > 0:
             # The section's first block overflows: keep a bounded lead snippet so
-            # the section stays useful and `budget` actually bounds the output.
+            # the section stays useful — but only while the global body budget
+            # isn't spent, so `budget` actually bounds the whole digest.
             snippet, snip_words = _lead_snippet(line)
             out.append(snippet)
-            used += _est_tokens(snippet)
+            scost = _est_tokens(snippet)
+            used += scost
+            budget_left[0] -= scost
             kept += 1
             rest = b.word_count - snip_words
             if rest > 0:
@@ -711,6 +778,13 @@ def build_digest(blocks: list[Block], *, budget: int = 6000, depth: int | None =
     depth, and the overflow is elided to markers that still name the `para:` range.
     `depth` caps how deep a section keeps any body (deeper sections collapse to a
     single elision marker). The whole document stays addressable after eliding.
+
+    `budget` bounds the **body** content: the heading spine and table stubs are
+    the fixed navigation backbone (always kept, so a caller can see the document's
+    shape), and `budget` governs how much paragraph text rides on top — both the
+    verbatim keeps and the per-section lead snippets draw from one shared pool, so
+    the body can't grow without bound as section count rises. (A document with
+    more headings than `budget` allows is dominated by its spine by design.)
     """
     # Partition into ordered segments, tracking each body run's enclosing level.
     segments: list[dict[str, Any]] = []
@@ -752,6 +826,7 @@ def build_digest(blocks: list[Block], *, budget: int = 6000, depth: int | None =
         s["share"] = body_budget * _depth_weight(s["level"]) / total_weight
 
     lines: list[str] = []
+    budget_left = [float(body_budget)]  # shared pool drawn by keeps + snippets
     for s in segments:
         if s["type"] == "heading":
             lines.append(_heading_digest_line(s["block"]))
@@ -759,7 +834,9 @@ def build_digest(blocks: list[Block], *, budget: int = 6000, depth: int | None =
             lines.append(_table_stub(s["block"]))
         else:
             suppress = depth is not None and s["level"] > depth
-            rendered = _render_body_segment(s["blocks"], s["share"], suppress=suppress)
+            rendered = _render_body_segment(
+                s["blocks"], s["share"], suppress=suppress, budget_left=budget_left
+            )
             if rendered:
                 lines.append(rendered)
     return _collapse("\n\n".join(line for line in lines if line))

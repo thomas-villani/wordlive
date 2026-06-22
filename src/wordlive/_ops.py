@@ -296,7 +296,20 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         "distance_left",
         "distance_right",
     ),
-    "set_shape_crop": ("left", "top", "right", "bottom"),
+    # `crop_*` are accepted aliases for the bare edge names — they're what the MCP
+    # `word_write` schema uses (to avoid colliding with a shape's position
+    # `left`/`top`), so a batch author who learned them there gets them honoured
+    # here too. See the alias handling in `apply_op`.
+    "set_shape_crop": (
+        "left",
+        "top",
+        "right",
+        "bottom",
+        "crop_left",
+        "crop_top",
+        "crop_right",
+        "crop_bottom",
+    ),
     "set_shape_position": ("left", "top", "relative_to"),
     "set_shape_size": ("width", "height", "lock_aspect"),
     "format_shape": ("fill", "border", "border_weight"),
@@ -317,7 +330,17 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "ungroup_shape": (),
     "set_image_alt_text": (),
     "set_image_size": ("width", "height", "lock_aspect"),
-    "set_image_crop": ("left", "top", "right", "bottom"),
+    # `crop_*` aliases — see `set_shape_crop`.
+    "set_image_crop": (
+        "left",
+        "top",
+        "right",
+        "bottom",
+        "crop_left",
+        "crop_top",
+        "crop_right",
+        "crop_bottom",
+    ),
     "replace": (),
     "find_replace": ("in", "all", "occurrence"),
     "apply_style": (),
@@ -470,6 +493,18 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "write_header": ("which",),
     "write_footer": ("which",),
 }
+
+
+def _crop_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Normalise crop edge kwargs to the bare `left/top/right/bottom` the
+    `set_crop` verbs expect, accepting the `crop_*` aliases (the MCP `word_write`
+    names). A bare name wins if both are somehow present."""
+    out = {edge: kwargs[edge] for edge in ("left", "top", "right", "bottom") if edge in kwargs}
+    for edge in ("left", "top", "right", "bottom"):
+        alias = f"crop_{edge}"
+        if edge not in out and alias in kwargs:
+            out[edge] = kwargs[alias]
+    return out
 
 
 def unexpected_fields(op: dict[str, Any], kind: str) -> list[str]:
@@ -750,7 +785,7 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         elif kind == "set_image_size":
             anchor.set_size(**kwargs)
         else:  # set_image_crop
-            anchor.set_crop(**kwargs)
+            anchor.set_crop(**_crop_kwargs(kwargs))
     elif kind in (
         "set_shape_wrap",
         "set_shape_crop",
@@ -776,7 +811,7 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         if kind == "set_shape_wrap":
             anchor.set_wrap(**kwargs)
         elif kind == "set_shape_crop":
-            anchor.set_crop(**kwargs)
+            anchor.set_crop(**_crop_kwargs(kwargs))
         elif kind == "set_shape_position":
             anchor.set_position(**kwargs)
         elif kind == "set_shape_size":

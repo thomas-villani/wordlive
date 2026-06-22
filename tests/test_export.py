@@ -21,10 +21,30 @@ from wordlive._export import (
     _escape_inline,
     _escape_table_cell,
     _est_tokens,
+    _font_bool,
+    _font_underline,
     build_digest,
     render_html,
     render_markdown,
 )
+
+
+class TestFontCoercion:
+    def test_bold_italic_tristate(self) -> None:
+        # Bold/Italic are tri-state: -1 True, 0 False, 9999999 (varies) → unset.
+        assert _font_bool(-1) is True
+        assert _font_bool(0) is False
+        assert _font_bool(9999999) is False
+
+    def test_underline_is_an_enum_not_a_bool(self) -> None:
+        # WdUnderline: 0 = none, 1 = single, 3 = double, … ; 9999999 = varies.
+        # The bug was routing this through `_font_bool` (== -1), which reported
+        # every real underline as off.
+        assert _font_underline(0) is False
+        assert _font_underline(1) is True  # single
+        assert _font_underline(3) is True  # double
+        assert _font_underline(9999999) is False  # varies → unset
+        assert _font_underline(None) is False
 
 
 def _t(*spans: Span) -> tuple[Span, ...]:
@@ -280,6 +300,23 @@ class TestDigest:
             assert anchor in out
         # para:5 is either verbatim or named in an elision marker — addressable either way.
         assert "para:5" in out or "b b" in out
+
+    def test_lead_snippets_capped_by_shared_budget(self) -> None:
+        # Many small sections whose first body block always overflows its tiny
+        # per-section share, so each can only appear via a lead snippet. Pre-fix,
+        # *every* section emitted one regardless of budget (count == num); the
+        # shared budget pool now caps the snippets well below one-per-section.
+        num = 40
+        blocks: list[Block] = []
+        for i in range(1, num + 1):
+            blocks.append(_heading(f"S{i}", 1, f"heading:{i}"))
+            blocks.append(
+                _para("alpha beta gamma delta epsilon zeta eta theta " * 5, f"para:{i}00")
+            )
+        out = build_digest(blocks, budget=400)
+        fired = out.count("more words)…")
+        assert fired < num  # not one-per-section (the pre-fix blowup)
+        assert fired >= 1  # the pool still funds a few, so sections aren't all blank
 
     def test_tighter_budget_yields_smaller_output(self) -> None:
         blocks = [_heading("H", 1, "heading:1")] + [

@@ -1281,7 +1281,11 @@ Diff a stored checkpoint against the document **now** (`--since`, needs live
 Word), or diff two stored checkpoints (`--from` / `--to`, no live Word). Emits a
 content-aligned change list: each change is `replace` / `insert` / `delete` /
 `restyle` / `reformat`, carrying the current `para:N` so a follow-up op can act on
-it immediately. An unchanged document returns `[]` (a `doc_hash` fast-path).
+it immediately; table edits are reported coarsely as `table_change` /
+`table_insert` / `table_delete` (with the `table:N` and before/after `shape`). An
+unchanged document returns `[]` (a `doc_hash` fast-path). `--since` rejects a
+checkpoint scoped to a `range:` (offsets shift under edits — use a stable anchor or
+`--from`/`--to`).
 
 ```bash
 $ wordlive diff --since cp.json

@@ -1523,6 +1523,12 @@ class _FakeColumn:
         for r in range(len(self._rows)):
             cell = MagicMock(name=f"ColCell[{r + 1},{self._col}]")
             cell.RowIndex = r + 1
+            cell.ColumnIndex = self._col
+            # Share the row's persistent cell range — in real Word `Columns(c).Cells`
+            # and `Table.Cell(r, c)` are the *same* cell, so a style written through
+            # one must be visible through the other.
+            if self._col - 1 < len(self._rows[r]):
+                cell.Range = self._rows[r][self._col - 1]
             out.append(cell)
         return out
 

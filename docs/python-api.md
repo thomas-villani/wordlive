@@ -820,9 +820,17 @@ changed), or `reformat` (same text+style, direct formatting changed — only wit
 text_before, text_after, style_before, style_after}` as applicable. Inserts /
 replaces / restyles carry the **current** `para:N` (`anchor_id`) so the caller can
 act on the change immediately; a delete references only the old index/text (its
-anchor is gone). Alignment is by paragraph **content** (`difflib.SequenceMatcher`),
-not index — `para:N` renumbers under inserts/deletes — and an unchanged document
-returns `[]` via a whole-document `doc_hash` fast-path.
+anchor is gone). Table edits are reported coarsely (per-cell diffing is deferred)
+as `table_change` / `table_insert` / `table_delete`, each carrying the
+`table:N` `anchor_id` and the before/after `shape` (`[rows, cols]`). Alignment is
+by paragraph **content** (`difflib.SequenceMatcher`), not index — `para:N`
+renumbers under inserts/deletes — and an unchanged document returns `[]` via a
+whole-document `doc_hash` fast-path. Because alignment is content-only, paragraphs
+with identical text (blank lines, repeated boilerplate) can mis-pair amid an edit
+(usually spurious blank-line churn, not a misclassified real change). A
+`within=range:START-END` scope cannot be re-derived by `changes_since` (offsets
+shift under edits — it raises a clear error); use a stable anchor (`heading:N` /
+`bookmark:` / `cc:`) or `diff()` two stored checkpoints.
 
 ```python
 cp = doc.checkpoint()                       # fingerprint now
