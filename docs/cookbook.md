@@ -401,7 +401,7 @@ def wordlive(*args: str) -> tuple[int, dict | list]:
 def agent_turn(claude, outline):
     """One round trip: ask the model what to change, return its plan."""
     response = claude.messages.create(
-        model="claude-opus-4-7",
+        model="<your-model>",
         max_tokens=1024,
         tools=[WORDLIVE_APPLY_TOOL],
         messages=[
@@ -595,10 +595,27 @@ patterns apply. Discover the grid first, then address cells by id.
     JSON
     ```
 
-!!! note
-    Cell addressing assumes a rectangular grid. Tables with merged or split
-    cells follow Word's own `Table.Cell(row, col)` indexing and may raise
-    inside a merged region.
+### Merged and split cells
+
+Merged cells are a modelled, supported surface, not an edge to avoid.
+`cell(r, c).merge(cell(r2, c2))` joins a rectangle into its upper-left cell;
+`cell(r, c).split(rows=…, cols=…)` is the inverse. Either makes the table
+**non-uniform** — `Table.is_uniform` flips to `False`, and `table:N:R:C` then
+indexes *physical* cells (a merged row is short, so an index can shift or fall
+off the row's end). Re-read with `budget.read()` (or `wordlive table read N`,
+whose `uniform` flag reports this) after a merge to see the new shape.
+
+```python
+with doc.edit("Span the header"):
+    budget.cell(1, 1).merge(budget.cell(1, 2))   # one header cell across two cols
+    budget.add_column(["", "$0", "$0"])          # Columns.Add tolerates a merged table
+```
+
+`add_column` / `delete_column` mirror `add_row` / `delete_row`, and the whole
+row/column anchors `table:N:row:R` / `table:N:col:C` style a strip in one call.
+`delete_column` and column anchors raise `OpError` on a merged / mixed-width
+table (Word has no per-column model there) — pointing you back at per-cell
+`table:N:R:C` styling; rows are always contiguous, so they're unaffected.
 
 ## 9. Multi-document workflows
 
@@ -996,3 +1013,246 @@ with doc.edit("Fix the pangram"):
 Rule of thumb: **`find` to edit known text, `find_paragraphs` to locate
 half-remembered text.** Pair them — `find_paragraphs` to home in on the
 paragraph, then a scoped exact `find` / `find_replace` for the surgical change.
+
+## 16. Insert a chart and dress it up
+
+`insert_chart` embeds an Excel-backed chart at any anchor, then breaks the data
+link so the chart ships static (no live workbook). The post-insert formatting
+verbs — `add_trendline`, `format` (whole chart), `set_axis`, `add_error_bars`,
+`format_series` — operate on the static chart and need no Excel. Charts are the
+one feature that reaches a second Office app, so Excel must be installed:
+`insert_chart` raises [`ExcelNotAvailableError`](errors.md) (CLI exit code `6`)
+up front, leaving the document untouched.
+
+=== "Python"
+
+    ```python
+    import wordlive as wl
+
+    with wl.attach() as word:
+        doc = word.documents.active
+
+        with doc.edit("Add revenue chart"):
+            chart = doc.heading("Results").insert_chart(
+                "scatter",
+                [[1, 12], [2, 19], [3, 31], [4, 28]],   # [x, y] pairs
+                title="Weekly revenue",
+            )
+            chart.add_trendline(kind="linear", display_equation=True)
+            chart.add_error_bars(kind="percent", amount=5)
+            chart.set_axis("y", title="$000s", minimum=0)
+    ```
+
+    `insert_chart` returns a `ChartAnchor` (`chart:N`); the formatting verbs
+    chain (each returns `self`). `kind` is `"bar"`, `"pie"`, `"line"`, or
+    `"scatter"`; bar/pie/line also accept a `{label: value}` mapping.
+
+=== "CLI"
+
+    ```bash
+    wordlive insert-chart --anchor-id heading:2 --kind scatter \
+        --data '[[1,12],[2,19],[3,31],[4,28]]' --title "Weekly revenue"
+
+    wordlive add-trendline --anchor-id chart:1 --kind linear --display-equation
+    wordlive add-error-bars --anchor-id chart:1 --kind percent --amount 5
+    wordlive format-axis --anchor-id chart:1 --which y --title "\$000s" --minimum 0
+    ```
+
+Discover existing charts with `doc.charts` (or `wordlive charts`); each carries
+its `chart:N` id. The series data isn't read back (the link is broken), so
+chart reads report metadata only — `chart_type`, `title`, `chart_style`.
+
+## 17. Float a pull-quote or stamp a watermark
+
+Floating shapes (`shape:N`) sit in the drawing layer, not the text flow.
+`insert_text_box` drops a pull-quote / call-out anchored to a paragraph and
+hands back its `ShapeAnchor`, which restyles in place — `set_wrap`,
+`set_position`, `set_size`, `set_crop` (pictures), `format`. A text watermark is
+`doc.set_watermark(...)`, stamped into every section's header story behind the
+body.
+
+=== "Python"
+
+    ```python
+    import wordlive as wl
+
+    with wl.attach() as word:
+        doc = word.documents.active
+
+        with doc.edit("Add pull quote + DRAFT stamp"):
+            quote = doc.heading("Summary").insert_text_box(
+                "“The single biggest risk is schedule slip.”",
+                width="2.5in", wrap="square", fill="#eef3ff", italic=True,
+            )
+            quote.set_position(left="center", relative_to="margin")
+            quote.set_wrap("tight", side="largest")
+
+            doc.set_watermark("DRAFT", layout="diagonal")
+    ```
+
+    A floating shape anchors to a *paragraph*, so `shape:N` renumbers as shapes
+    come and go — re-list via `doc.shapes` (or just the text boxes via
+    `doc.text_boxes`) rather than caching an id. `remove_watermark()` clears it.
+
+=== "CLI"
+
+    ```bash
+    wordlive insert-text-box --anchor-id heading:1 \
+        --text "“The single biggest risk is schedule slip.”" \
+        --width 2.5in --fill "#eef3ff" --italic
+
+    wordlive set-shape-position --anchor-id shape:1 --left center
+    wordlive set-shape-wrap --anchor-id shape:1 --wrap tight --side largest
+
+    wordlive set-watermark --text DRAFT --layout diagonal
+    ```
+
+## 18. Audit and autofix publishing defects
+
+`lint` is a pure-read audit for publishing-quality defects — direct formatting
+fighting the applied style, headings that may dangle at a page foot, multi-page
+tables with no repeating header, numbered lists Word split into independent
+runs. Each finding is severity-ranked and flags whether it's `fixable`.
+`regularize` then applies the mechanical fixes in one atomic-undo step; the
+default fixes are targeted and idempotent (a second pass is a no-op).
+
+=== "Python"
+
+    ```python
+    import wordlive as wl
+
+    with wl.attach() as word:
+        doc = word.documents.active
+
+        findings = doc.lint()                 # pure read — nothing changes
+        fixable = [f for f in findings if f["fixable"]]
+        print(f"{len(fixable)}/{len(findings)} findings are auto-fixable")
+
+        plan = doc.regularize(dry_run=True)   # preview without writing
+        report = doc.regularize()             # one Ctrl-Z reverts the whole pass
+        print(f"applied {len(report['applied'])}, skipped {len(report['skipped'])}")
+    ```
+
+    Scope either with `within=doc.heading("Risks")`, and narrow the rules with
+    `rules=["headings", "lists"]` or `rules={"exclude": [...]}`. Content-changing
+    fixes are out of scope — `regularize` touches formatting / structure only.
+
+=== "CLI"
+
+    ```bash
+    wordlive lint                              # severity-ranked findings
+    wordlive lint --rule headings --within heading:3
+    wordlive regularize --dry-run              # plan the fixes
+    wordlive regularize                        # apply them (atomic-undo)
+    ```
+
+## 19. "What changed this session?"
+
+Word emits no content-change event, so the reliable way to answer "what changed"
+— or for an agent to verify its own edits landed without re-reading the whole
+document — is to fingerprint, then diff. `doc.checkpoint()` returns an opaque,
+serialisable token; `doc.changes_since(cp)` diffs it against the document *now*,
+and `doc.diff(a, b)` diffs two stored checkpoints.
+
+=== "Python"
+
+    ```python
+    import wordlive as wl
+
+    with wl.attach() as word:
+        doc = word.documents.active
+
+        cp = doc.checkpoint()                  # pure read — fingerprint now
+        token = cp.to_json()                   # stash it (file, DB, the agent's state)
+
+        # … the user (or the agent) edits the document …
+
+        for change in doc.changes_since(token):
+            # op ∈ replace | insert | delete | restyle | reformat
+            print(change["op"], change.get("anchor_id"), change.get("text_after"))
+    ```
+
+    `include="text+style"` (default) surfaces restyles; `"text+format"` also
+    catches pure direct-formatting edits. Alignment is by paragraph *content*,
+    so a `para:N` that renumbered still aligns. An unchanged document returns
+    `[]` via a fast-path hash.
+
+=== "CLI"
+
+    ```bash
+    wordlive checkpoint --out before.json      # store the token
+    # … edits happen …
+    wordlive diff --since before.json          # changes vs the document now
+    wordlive diff --from before.json --to after.json   # two stored checkpoints
+    ```
+
+## 20. Load a big document into context cheaply
+
+Two reads sized for an agent's context window. `doc.read(budget=…)` (`read
+digest`) is a token-budgeted, structure-aware digest of the **whole** document:
+headings verbatim (each tagged with its anchor), tables as one-line stubs, body
+text sampled to fit the budget, overflow elided to markers that still name the
+`para:` range. `doc.to_markdown(within=…)` (`read markdown`) then serialises any
+one region in full — so the loop is *skim cheap, drill precisely*.
+
+=== "Python"
+
+    ```python
+    import wordlive as wl
+
+    with wl.attach() as word:
+        doc = word.documents.active
+
+        digest = doc.read(budget=4000)         # ~4 chars/token; whole doc, elided
+        # … agent picks heading:7 as the section it needs in full …
+        section = doc.to_markdown(within="heading:7")   # or any range:S-E from find
+    ```
+
+    `read` keeps every anchor addressable, so an agent can drill into any elided
+    region with `to_markdown(within=…)`. Markdown export is lossy by design
+    (underline, colours, merged cells don't survive); `to_html` keeps underline.
+
+=== "CLI"
+
+    ```bash
+    wordlive --text read digest --budget 4000        # whole-doc digest
+    wordlive --text read markdown --within heading:7 # one section, in full
+    ```
+
+## 21. Author a custom multi-level list template
+
+`apply_list` applies a gallery default (`"bulleted"` / `"numbered"` /
+`"outline"`). When you need a *specific* outline — say "1)" at level 1, lettered
+sub-items at level 2 — author it with `apply_list_format`, a 1-based list of
+per-level specs that defines each level's marker, numbering scheme, indentation,
+and marker font.
+
+=== "Python"
+
+    ```python
+    import wordlive as wl
+
+    with wl.attach() as word:
+        doc = word.documents.active
+
+        with doc.edit("Author custom outline"):
+            doc.heading("Steps").apply_list_format([
+                {"kind": "number", "format": "%1)", "style": "arabic", "bold": True},
+                {"kind": "number", "format": "%2.", "style": "lower-letter"},
+                {"kind": "bullet", "bullet": "–", "font": "Symbol"},
+            ])
+    ```
+
+    Each spec's keys are optional except a bullet level's glyph; a number
+    level's `format` uses `%N` to reference level N's number (`"%1.%2"`).
+    `read_list_levels()` is the read mirror.
+
+=== "CLI"
+
+    ```bash
+    wordlive list format --anchor-id heading:6 --levels '[
+      {"kind":"number","format":"%1)","style":"arabic","bold":true},
+      {"kind":"number","format":"%2.","style":"lower-letter"},
+      {"kind":"bullet","bullet":"–","font":"Symbol"}
+    ]'
+    ```

@@ -3082,6 +3082,30 @@ Script shape:
 | `prepend_inline`       | `text`                                     | —                                 |
 | `insert_image`         | `anchor_id`, `wrap`, and one of `path` / `base64` | `where` or `before: true`, `block`, `width`, `height`, `alt_text`, `lock_aspect` |
 | `insert_equation`      | `anchor_id`, one of `unicodemath` / `latex` / `mathml` | `display`, `where` or `before: true` |
+| `insert_chart`         | `anchor_id`, `kind`, `data`                | `title`, `where` or `before: true` |
+| `format_chart`         | `anchor_id`                                | `title`, `legend`, `legend_position`, `chart_style`, `background`, `plot_background`, `font`, `font_size`, `font_color`, `data_labels`, `data_label_format`, `chart_type`, `gap_width`, `overlap`, `data_table` |
+| `format_axis`          | `anchor_id`, `which`                       | `title`, `minimum`, `maximum`, `scale`, `number_format`, `gridlines` |
+| `add_trendline`        | `anchor_id`                                | `series`, `kind`, `display_equation`, `display_r_squared`, `forward`, `backward`, `order`, `period` |
+| `set_series_color`     | `anchor_id`, `color`                       | `series`, `point`                 |
+| `format_series`        | `anchor_id`                                | `series`, `point`, `marker`, `marker_size`, `smooth`, `explosion`, `data_labels`, `data_label_size`, `data_label_color` |
+| `add_error_bars`       | `anchor_id`                                | `series`, `kind`, `amount`, `include`, `axis` |
+| `set_shape_wrap`       | `anchor_id`                                | `wrap`, `side`, `distance_top`, `distance_bottom`, `distance_left`, `distance_right` |
+| `set_shape_position`   | `anchor_id`                                | `left`, `top`, `relative_to`      |
+| `set_shape_size`       | `anchor_id`                                | `width`, `height`, `lock_aspect`  |
+| `set_shape_crop`       | `anchor_id`                                | `left`, `top`, `right`, `bottom` (a.k.a. `crop_left`/`crop_top`/`crop_right`/`crop_bottom`) |
+| `format_shape`         | `anchor_id`                                | `fill`, `border`, `border_weight` |
+| `set_shape_alt_text`   | `anchor_id`, `text`                        | —                                 |
+| `set_shape_text`       | `anchor_id`, `text`                        | —                                 |
+| `set_shape_text_frame` | `anchor_id`                                | `margin_left`, `margin_right`, `margin_top`, `margin_bottom`, `word_wrap` |
+| `set_shape_rotation`   | `anchor_id`, `degrees`                     | —                                 |
+| `set_shape_z_order`    | `anchor_id`, `order`                       | —                                 |
+| `replace_shape_image`  | `anchor_id`, one of `path` / `base64`      | —                                 |
+| `delete_shape`         | `anchor_id`                                | —                                 |
+| `group_shapes`         | `shapes` (a list of ≥2 `shape:N` ids)      | —                                 |
+| `ungroup_shape`        | `anchor_id`                                | —                                 |
+| `set_image_alt_text`   | `anchor_id`, `text`                        | —                                 |
+| `set_image_size`       | `anchor_id`                                | `width`, `height`, `lock_aspect`  |
+| `set_image_crop`       | `anchor_id`                                | `left`, `top`, `right`, `bottom` (a.k.a. `crop_left`/`crop_top`/`crop_right`/`crop_bottom`) |
 | `replace`              | `anchor_id`, `text`                        | —                                 |
 | `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
@@ -3102,6 +3126,11 @@ Script shape:
 | `merge_cells`          | `table`, `from`, `to`                      | — (`from`/`to` are `[row,col]` or `"R:C"`) |
 | `split_cell`           | `table`, `cell`                            | `rows` (default 1), `cols` (default 2) (`cell` is `[row,col]` or `"R:C"`) |
 | `set_heading_row`      | `table`                                    | `row` (default 1), `heading` (default true), `allow_break` |
+| `set_table_style`      | `table`, `style`                           | —                                 |
+| `set_table_alignment`  | `table`, `alignment`                       | —                                 |
+| `set_table_borders`    | `table`                                    | `sides`, `style` (a.k.a. `line_style`), `weight`, `color` |
+| `set_table_banding`    | `table`                                    | `first_row`, `last_row`, `first_column`, `last_column`, `banded_rows`, `banded_columns` |
+| `set_cell_vertical_alignment` | `anchor_id` (`table:N:R:C`), `align` | —                                 |
 | `autofit_table`        | `table`                                    | `mode` (`content`/`window`/`fixed`) |
 | `append_record`        | `table`, `record`                          | —                                 |
 | `update_row`           | `table`, `key`, `values`                   | `column`                          |

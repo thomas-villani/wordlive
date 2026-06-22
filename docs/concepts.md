@@ -56,8 +56,13 @@ depend on the cursor.
 | ------------------ | ------------------------------------------ | -------------------------- |
 | `Bookmark`         | A bookmark by name                         | Stored in the `.docx`      |
 | `ContentControl`   | A structured field by Title (or Tag)       | Stored in the `.docx`      |
+| `Pin`              | A durable handle (a wordlive-managed hidden bookmark) | Stored in the `.docx` |
 | `Heading`          | A heading paragraph by visible text        | Reads the doc structure    |
-| `Cell`             | A table cell by (table, row, column)       | Reads the doc structure    |
+| `Paragraph`        | Any paragraph by 1-based index             | Reads the doc structure    |
+| `Cell` / `Row` / `Column` | A table cell, row, or column          | Reads the doc structure    |
+| `Image` / `Shape`  | An inline picture / floating shape (text box, WordArt, float) | Reads the doc structure |
+| `Equation` / `Chart` | A math zone / embedded chart by order    | Reads the doc structure    |
+| `Footnote` / `Endnote` | A note by 1-based number               | Reads the doc structure    |
 | `HeaderFooter`     | A section's header/footer by (section, which) | Reads the doc structure |
 | `RangeAnchor`      | An arbitrary character span by offsets     | Ephemeral (resolved live)  |
 
@@ -92,8 +97,13 @@ especially from JSON tool-use payloads — wordlive uses a single string scheme:
 heading:3            # 1-based paragraph index of a heading
 para:5               # 1-based index of any paragraph (same index space as heading:N)
 bookmark:Address     # bookmark by name
+pin:7f3a2c           # a durable handle (doc.pin / bind:) that survives renumbering
 cc:Signatory         # content control by Title (or Tag)
 table:1:2:3          # cell at row 2, column 3 of the 1st table
+table:1:row:2        # whole row 2 of the 1st table (table:1:col:3 for a column)
+image:2              # the 2nd inline picture     (equation:N / chart:N likewise, by order)
+shape:1              # the 1st floating shape     (textbox:N is an alias onto a text box's shape:N)
+footnote:4           # the 4th footnote           (endnote:N likewise)
 range:412-429        # arbitrary character span (the form find() emits)
 header:1:primary     # primary header of section 1
 footer:2:first       # first-page footer of section 2

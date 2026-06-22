@@ -102,33 +102,37 @@ hierarchy beyond Word → Document → Anchor.
 The roadmap lives in
 [`feature-plan.md`](https://github.com/thomas-villani/wordlive/blob/main/feature-plan.md).
 The current release covers the politeness/anchors/EditScope core, the LLM-first
-CLI, fuzzy find/replace, document-scoped styles + paragraph formatting, tables
-(cells as `table:N:R:C` anchors), the collaboration surface (review comments,
-scoped track-changes, and arbitrary `range:START-END` anchors), document
-structure — bullet/numbered lists and section headers/footers
-(`header:S:WHICH` / `footer:S:WHICH` anchors), full paragraph addressing (every
-paragraph is a `para:N` anchor — `doc.paragraphs`, `outline --all` — with `insert`
-working on any anchor via `--before`/`--after` and an explicit, opt-in cursor
-surface, `cursor read` / `cursor write`), and **image insertion**
-([`anchor.insert_image(...)`](python-api.md#wordlive.Anchor) /
-`wordlive insert-image`, accepting a file path, raw bytes, or base64, with
-required `wrap`), **table creation / deletion**
-([`Document.add_table`](python-api.md#wordlive.Document) /
-[`Anchor.insert_table`](python-api.md#wordlive.Anchor) / `Table.delete`),
-**page / column / section breaks**
-([`Anchor.insert_break`](python-api.md#wordlive.Anchor) and
-`format_paragraph(page_break_before=…)`), and **page / section rendering to
-PNG** for vision models ([`Document.snapshot`](python-api.md#snapshots) /
-[`Anchor.snapshot`](python-api.md#snapshots), via the optional `snapshot`
-extra). wordlive also ships two LLM-facing **agent skills** — a CLI guide and an
-`import wordlive as wl` Python guide that `wordlive install-skill` drops into
-`.agents/skills/` — and an **MCP server** (`wordlive-mcp`, registered with
-`wordlive install-mcp` or the one-click `.mcpb` bundle) that exposes the same
-surface as a handful of dispatch tools (see [MCP](mcp.md)). Next on the visual-content track: extracting embedded
-images back out for vision models, then
-Excel-backed charts; after that, event sinks (`WindowSelectionChange`,
-`DocumentBeforeSave`), an async wrapper around the sync core, and the deeper
-style cuts (character styles, theme-aware fonts).
+CLI, fuzzy find/replace (and fuzzy paragraph search), document-scoped styles +
+paragraph formatting (with a `format_info` read mirror), tables (cells as
+`table:N:R:C` anchors, plus row/column anchors `table:N:row:R` / `table:N:col:C`,
+add/delete-column, merge/split cells, restyle, banding, and autofit), the
+collaboration surface (review comments, scoped track-changes with
+accept/reject, and arbitrary `range:START-END` anchors), document structure —
+bullet/numbered lists (including custom multi-level list templates) and section
+headers/footers (`header:S:WHICH` / `footer:S:WHICH` anchors), full paragraph
+addressing (every paragraph is a `para:N` anchor — `doc.paragraphs`,
+`outline --all`), and **durable handles** (`pin:` bookmarks that survive
+renumbering). The content surface now spans **image insertion + restyle**
+(inline `image:N` and the floating-shape model `shape:N` — text boxes, WordArt,
+floating images, watermarks, with crop / rotate / wrap / z-order / group),
+**Excel-backed charts** ([`anchor.insert_chart(...)`](python-api.md#wordlive.Anchor)
+with a deep post-insert formatting surface — axes, trendlines, error bars,
+series/point styling), **equations** (UnicodeMath / LaTeX / MathML),
+**citations & bibliography, indexes, tables of figures/authorities**, **document
+themes** (colours + fonts, theme-aware), **table creation / deletion**, **page /
+column / section breaks**, and **page / section rendering to PNG** for vision
+models ([`Document.snapshot`](python-api.md#snapshots), via the optional
+`snapshot` extra). On the read/agent-ergonomics side it ships **Markdown / HTML
+export** and a **token-budgeted whole-document read** (`doc.read(budget=…)`),
+**checkpoint + diff** ("what changed this session"), and a **document linter +
+regularizer** (`doc.lint` / `doc.regularize`). wordlive also ships two LLM-facing
+**agent skills** — a CLI guide and an `import wordlive as wl` Python guide that
+`wordlive install-skill` drops into `.agents/skills/` — and an **MCP server**
+(`wordlive-mcp`, registered with `wordlive install-mcp` or the one-click `.mcpb`
+bundle) that exposes the same surface as a handful of dispatch tools (see
+[MCP](mcp.md)). Still ahead: a co-editing / change-watch surface built on event
+sinks (`WindowSelectionChange`, `DocumentBeforeSave`) and an async wrapper
+around the sync core.
 
 ## How it's tested
 

@@ -3200,10 +3200,10 @@ class Anchor(ABC):
     def read_list_levels(self) -> list[dict[str, Any]]:
         """The per-level format of the list this anchor sits in — a pure read.
 
-        Returns one `{level, kind, format, style, trailing, number_position,
-        text_position, font}` dict per level of the applied `ListTemplate`, or
-        `[]` if the anchor carries no list. The read mirror of
-        `apply_list_format`.
+        Returns one `{level, kind, format, number_style, style, trailing,
+        number_position, text_position, font}` dict per level of the applied
+        `ListTemplate`, or `[]` if the anchor carries no list (`number_style` is
+        the raw `WdListNumberStyle` int). The read mirror of `apply_list_format`.
         """
         with _com.translate_com_errors():
             return _lists.read_list_levels(self._range())

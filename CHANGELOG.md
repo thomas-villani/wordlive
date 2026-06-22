@@ -29,9 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it: each per-level spec sets the marker `format` (`"%1."`, `"%1)"`, `"%1.%2"`),
   number `style` (`arabic`/`upper-roman`/`lower-letter`/…) or `bullet` glyph +
   `font`, plus `start_at`/`number_position`/`text_position`/`trailing`/
-  `alignment`/`bold`/`color`. More than one level mints an outline template.
-  `anchor.read_list_levels()` is the read mirror (one `{level, kind, format,
-  style, trailing, number_position, text_position, font}` per template level).
+  `alignment`/`bold`/`italic`/`color`. More than one level mints an outline
+  template. `anchor.read_list_levels()` is the read mirror (one `{level, kind,
+  format, number_style, style, trailing, number_position, text_position, font}`
+  per template level).
   Composes over `Document.ListTemplates.Add` + per-`ListLevel` mutation, all
   settable under late binding (live-probed 2026-06-21 — the one trap, baked in:
   a bullet level is the glyph + a symbol font, never `NumberStyle=bullet`, which
@@ -114,6 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     column op fans out across the column's cells and raises a clear `OpError` on a
     mixed-width table, pointing at per-cell `table:N:R:C` styling. `Table.row(R)` /
     `Table.column(C)` return the same anchors. Live-Word validated.
+    (`RowAnchor` / `ColumnAnchor` exported from the package; `WdRowAlignment` /
+    `WdCellVerticalAlignment` added to `constants`.)
   **Deferred:** merged/split-cell addressing and `add_column`/`delete_column`.
 - **Checkpoint + diff — `doc.checkpoint()` / `doc.changes_since()` / `doc.diff()`.**
   Fingerprint the document's structure at one moment (`checkpoint`, a pure read),

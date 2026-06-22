@@ -104,6 +104,7 @@ it) and uses deterministic exit codes:
 | `3`  | Word busy / modal      |
 | `4`  | Word not running       |
 | `5`  | ambiguous match (`replace --find` matched >1 occurrence) |
+| `6`  | Excel not available (`insert-chart`) |
 | `1`  | other error            |
 
 Full reference: [CLI](cli.md).

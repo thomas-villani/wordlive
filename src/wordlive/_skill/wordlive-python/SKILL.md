@@ -612,6 +612,9 @@ Catch the base `wl.WordliveError` for everything wordlive raises.
 | `AmbiguousMatchError` | `find_replace` hit several; `.matches` lists them | yes — pass `all`/`occurrence` |
 | `ReplaceVerificationError` | `find_replace` target unverifiable (e.g. a whole-doc match inside a table) | no — scope to the cell (`table:N:R:C`) |
 | `ImageSourceError` | bad/unreadable/non-raster image | no — fix the input |
+| `ExcelNotAvailableError` | `insert_chart` but Excel isn't installed (charts are Excel-backed) | no — install Excel |
+| `EquationError` | bad equation input, or the `latex` extra missing for `latex=` | no — fix the input / install `wordlive[latex]` |
+| `OpError` | a malformed or illegal op (e.g. `delete_column` on a merged table) | no — fix the op |
 | `PathNotAllowedError` | a save/image path was refused by the CLI/MCP whitelist (Python API never raises it) | no — configure a save/image dir |
 | `SnapshotError` | PyMuPDF missing or PDF rasterise failed | no — install `wordlive[snapshot]` |
 | `WordBusyError` | a modal dialog is open / mid-operation; `.retryable` is True | **yes** — back off and retry |
