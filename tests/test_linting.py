@@ -194,6 +194,44 @@ def test_lint_within_scopes_to_anchor(fake_word):
     assert {f["anchor_id"] for f in findings} == {"heading:3"}
 
 
+def test_lint_within_scopes_consistency_rule(fake_word):
+    # LINT-6: a consistency rule (which uses the unified `_in_span`/`_overlaps`
+    # span test) must also honour `within`. heading:1 has a size override but
+    # falls outside heading:3's span, so it isn't flagged.
+    fake_word.ActiveDocument.Paragraphs._items[0].Range.Font.Size = 15.0
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["heading-font-consistent"], within="heading:3")
+    assert findings == []
+
+
+def test_lint_body_font_consistent_positive(fake_word):
+    # LINT-6: a body paragraph whose font face drifts from its style is flagged,
+    # with a targeted style-value fix.
+    fake_word.ActiveDocument.Paragraphs._items[1].Range.Font.Name = "Comic Sans MS"
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["body-font-consistent"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["anchor_id"] == "para:2" and f["rule"] == "body-font-consistent"
+    assert f["fix"]["op"] == "format_run" and f["fix"]["font"] == "Aptos"
+
+
+def test_regularize_multiple_rules_ride_one_undo(fake_word):
+    # LINT-6: a multi-rule regularize applies every fix under a single UndoRecord
+    # (one Ctrl-Z reverts the whole pass).
+    fake_word.ActiveDocument.Paragraphs._items[0].Range.Font.Size = 15.0
+    fake_word.UndoRecord.StartCustomRecord.reset_mock()
+    fake_word.UndoRecord.EndCustomRecord.reset_mock()
+    with wordlive.attach() as word:
+        report = word.documents.active.regularize(
+            rules=["heading-keep-with-next", "heading-font-consistent"]
+        )
+    applied_rules = {a["rule"] for a in report["applied"]}
+    assert {"heading-keep-with-next", "heading-font-consistent"} <= applied_rules
+    fake_word.UndoRecord.StartCustomRecord.assert_called_once()
+    fake_word.UndoRecord.EndCustomRecord.assert_called_once()
+
+
 # --- exec op -----------------------------------------------------------------
 
 

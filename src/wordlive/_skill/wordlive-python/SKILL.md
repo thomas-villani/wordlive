@@ -179,7 +179,7 @@ c.set_axis("value", title="USD", minimum=0, maximum=30, scale="log")  # which=va
 c.add_trendline(kind="power", display_equation=True)  # linear|exponential|logarithmic|moving_average(period=)|polynomial(order=)|power
 c.set_series_color("#2E86C1")              # whole series; pass point=N to recolour one bar/slice; c.format(chart_type="line") re-types
 c.format_series(series=1, marker="circle", marker_size=8, smooth=True)  # markers/line (line/scatter); explosion=N pulls a pie slice; point=N narrows
-c.add_error_bars(series=1, kind="percent", amount=5)  # fixed|percent|stdev|sterror; include=both|plus|minus; axis=y|x
+c.add_error_bars(series=1, kind="percent", amount=5)  # fixed|percent|stdev|sterror; include=both|plus|minus; axis=y|value|x|category
 c.format(gap_width=40, overlap=20, data_table=True)   # bar spacing (bar/column) + data-table grid beneath the plot
 a.insert_table(data=[["Item", "Cost"], ["Travel", "$400"]], header=True)  # rows/cols inferred from data
 a.insert_table(data=[{"Item": "Travel", "Cost": "$400"}])  # records → keys become a bolded header row

@@ -23,6 +23,9 @@ from wordlive._export import (
     _est_tokens,
     _font_bool,
     _font_underline,
+    _heading_level,
+    _md_target,
+    _render_body_segment,
     build_digest,
     render_html,
     render_markdown,
@@ -122,6 +125,40 @@ class TestRenderInline:
         # Inner literal asterisk is escaped; the emphasis markers are not.
         md = render_markdown([Block(PARAGRAPH, spans=_t(Span("a*b", bold=True)))])
         assert md == r"**a\*b**"
+
+    def test_link_target_with_space_and_paren_angle_wrapped(self) -> None:
+        # EXPORT-7: a URL with a space / ')' breaks the bare (url) form — wrap it.
+        md = render_markdown(
+            [
+                Block(
+                    PARAGRAPH,
+                    spans=_t(Span("doc", href="https://s.test/My Files/a(1).docx")),
+                )
+            ]
+        )
+        assert md == "[doc](<https://s.test/My Files/a(1).docx>)"
+
+    def test_clean_target_left_bare(self) -> None:
+        md = render_markdown([Block(PARAGRAPH, spans=_t(Span("x", href="https://x.test/a")))])
+        assert md == "[x](https://x.test/a)"
+
+    def test_image_target_with_space_wrapped(self) -> None:
+        blocks = [Block(IMAGE, image_ref="my image.png", image_alt="logo")]
+        assert render_markdown(blocks) == "![logo](<my image.png>)"
+
+
+class TestMdTarget:
+    def test_bare_when_safe(self) -> None:
+        assert _md_target("https://x.test/a#b") == "https://x.test/a#b"
+
+    def test_wraps_space_and_parens(self) -> None:
+        assert _md_target("a (b).png") == "<a (b).png>"
+
+    def test_escapes_angle_brackets(self) -> None:
+        assert _md_target("a<b>c d") == "<a%3Cb%3Ec d>"
+
+    def test_empty_passthrough(self) -> None:
+        assert _md_target("") == ""
 
 
 class TestRenderBlocks:
@@ -354,3 +391,48 @@ class TestDigest:
         assert "# Deep" in out  # heading still shown (navigation)
         assert "hidden hidden" not in out  # its body is collapsed
         assert "para:4" in out  # but named in an elision marker
+
+
+class TestLeadSnippetAccounting:
+    def test_fully_shown_snippet_emits_no_more_words_marker(self) -> None:
+        # EXPORT-6: a single short sentence shown in full must NOT emit a spurious
+        # "N more words" marker (share=0 forces the lead-snippet path).
+        b = Block(
+            PARAGRAPH,
+            anchor_id="para:2",
+            spans=_t(Span("alpha beta gamma delta")),
+            word_count=4,
+        )
+        out = _render_body_segment([b], 0.0, suppress=False, budget_left=[100.0])
+        assert "alpha beta gamma delta" in out
+        assert "more words" not in out
+
+    def test_truncated_snippet_still_marks_remainder(self) -> None:
+        # A long multi-sentence paragraph still gets a marker, counted off the
+        # same plain-text source as word_count.
+        text = "one two three four five. " + "tail " * 30
+        b = Block(
+            PARAGRAPH,
+            anchor_id="para:2",
+            spans=_t(Span(text)),
+            word_count=len(text.split()),
+        )
+        out = _render_body_segment([b], 0.0, suppress=False, budget_left=[100.0])
+        assert "…(para:2, " in out and "more words)…" in out
+
+
+class TestHeadingLevel:
+    def test_outline_level_preferred(self) -> None:
+        assert _heading_level(2, "Body Text") == 2
+
+    def test_english_style_fallback(self) -> None:
+        assert _heading_level(10, "Heading 3") == 3
+
+    def test_localized_style_map_used(self) -> None:
+        # EXPORT-8: a non-English heading style name resolves via the per-document
+        # localized map, where the English regex would miss it.
+        styles = {"Überschrift 1": 1, "Überschrift 2": 2}
+        assert _heading_level(10, "Überschrift 2", styles) == 2
+
+    def test_body_text_is_none(self) -> None:
+        assert _heading_level(10, "Normal", {"Heading 1": 1}) is None

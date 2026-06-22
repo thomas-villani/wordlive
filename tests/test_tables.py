@@ -292,6 +292,28 @@ def test_split_cell_rejects_bad_counts(fake_word):
             t.cell(1, 1).split(rows=0, cols=2)
 
 
+def test_delete_column_and_column_anchor_surface_operror_on_merged_table(fake_word, monkeypatch):
+    # TABLES-7: Word raises "mixed cell widths" when addressing a single column on
+    # a merged table; both delete_column and ColumnAnchor must re-raise OpError
+    # with the per-cell hint. The fake never raises, so make Columns(c) raise.
+    from wordlive.exceptions import ComError
+
+    def _boom(self, col):
+        raise ComError("the table has mixed cell widths")
+
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        # `.Count` (a separate property) stays intact, so the bounds check still
+        # passes and we exercise the real re-raise path.
+        monkeypatch.setattr(type(t._com.Columns), "__call__", _boom)
+        with pytest.raises(OpError, match="merged or mixed-width"):
+            with doc.edit("del col"):
+                t.delete_column(1)
+        with pytest.raises(OpError, match="merged or mixed-width"):
+            t.column(1).set_shading(fill="#eef")
+
+
 def test_merge_across_tables_raises(fake_word):
     from wordlive._tables import Table
 

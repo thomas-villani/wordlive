@@ -843,6 +843,38 @@ def test_format_series_bad_marker_raises(fake_word, excel_available):
             chart.format_series(series=1, marker="hexagram")
 
 
+def test_format_series_rejects_out_of_range(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, _ = _insert(doc, "line", {"a": 1})
+        with pytest.raises(OpError, match="marker_size must be 2"):
+            chart.format_series(series=1, marker_size=200)
+        with pytest.raises(OpError, match="explosion must be 0"):
+            chart.format_series(series=1, explosion=500)
+
+
+def test_format_series_data_labels_false_with_font_raises(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, _ = _insert(doc)
+        with pytest.raises(OpError, match="data_labels=False"):
+            chart.format_series(series=1, data_labels=False, data_label_size=12)
+
+
+def test_format_chart_data_table_unsupported_raises():
+    class _Boom:
+        @property
+        def HasDataTable(self):  # noqa: N802
+            return False
+
+        @HasDataTable.setter
+        def HasDataTable(self, value):  # noqa: N802
+            raise RuntimeError("not a category chart")
+
+    with pytest.raises(OpError, match="category-axis"):
+        _charts.apply_chart_format(_Boom(), data_table=True)
+
+
 def test_add_error_bars_fixed(fake_word, excel_available):
     with wordlive.attach() as word:
         doc = word.documents.active
@@ -884,6 +916,14 @@ def test_add_trendline_order_and_period(fake_word, excel_available):
         tls = fake.SeriesCollection()(1).trendlines
         assert tls[-2].Order == 3
         assert tls[-1].Period == 2
+
+
+def test_add_trendline_rejects_out_of_range_order(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, _ = _insert(doc, "scatter", [[1.0, 2.0], [2.0, 5.0]])
+        with pytest.raises(OpError, match="order must be 2"):
+            chart.add_trendline(kind="polynomial", order=9)
 
 
 def test_pr_c_ops_in_registries():

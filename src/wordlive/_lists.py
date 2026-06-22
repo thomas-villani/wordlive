@@ -216,9 +216,14 @@ def _validate_level(index: int, spec: dict[str, Any]) -> None:
         to_bgr(spec["color"])
 
 
-def _configure_level(lvl: Any, index: int, spec: dict[str, Any]) -> None:
+def _configure_level(lvl: Any, index: int, spec: dict[str, Any], *, outline: bool = False) -> None:
     """Write one per-level spec onto a `ListLevel` (the unit `apply_list_format`
-    fans across). Assumes the spec already passed `_validate_level`."""
+    fans across). Assumes the spec already passed `_validate_level`.
+
+    `outline` is whether this level belongs to a multi-level template — when so,
+    a number level with no explicit `format` keeps Word's built-in outline default
+    for that level rather than overriding it with a synthesized `%N.` (hierarchical
+    numbering like `%1.%2.%3.` still needs an explicit `format`)."""
     kind = str(spec.get("kind", "number")).lower()
     font_name = spec.get("font")
     if kind == "bullet":
@@ -239,7 +244,15 @@ def _configure_level(lvl: Any, index: int, spec: dict[str, Any]) -> None:
                     f"list level {index}: unknown number style {style!r}; "
                     f"expected one of {sorted(_NUMBER_STYLE_FOR)}"
                 ) from None
-        lvl.NumberFormat = str(spec.get("format", f"%{index}."))
+        fmt = spec.get("format")
+        if fmt is not None:
+            lvl.NumberFormat = str(fmt)
+        elif not outline:
+            # Single-level template: a flat "%N." is the sensible default.
+            lvl.NumberFormat = f"%{index}."
+        # else: multi-level with no explicit format — leave Word's built-in
+        # per-level outline default rather than overriding it (hierarchical
+        # numbering needs an explicit `format`).
         if "start_at" in spec:
             lvl.StartAt = int(spec["start_at"])
         if font_name:
@@ -296,7 +309,7 @@ def apply_list_format(
     # repeated calls don't collide. Each call defines a new list in the document.
     lt = doc_com.ListTemplates.Add(outline)
     for i, spec in enumerate(levels, start=1):
-        _configure_level(lt.ListLevels(i), i, spec)
+        _configure_level(lt.ListLevels(i), i, spec, outline=outline)
     rng.ListFormat.ApplyListTemplate(
         ListTemplate=lt,
         ContinuePreviousList=bool(continue_previous),
@@ -308,9 +321,11 @@ def apply_list_format(
 def read_list_levels(rng: Any) -> list[dict[str, Any]]:
     """The per-level format of the list `rng` sits in (its `ListTemplate`).
 
-    Returns one dict per level — `{level, kind, format, style, trailing,
-    number_position, text_position, font}` — or `[]` if the range carries no
-    list. The read mirror of `apply_list_format`.
+    Returns one dict per level — `{level, kind, format, number_style, style,
+    trailing, number_position, text_position, font}` — or `[]` if the range
+    carries no list (`number_style` is the raw `WdListNumberStyle` int, useful to
+    disambiguate the rare static-marker-with-no-`%N` case). The read mirror of
+    `apply_list_format`.
     """
     lf = rng.ListFormat
     template = _read(lf, "ListTemplate", None)
@@ -324,13 +339,16 @@ def read_list_levels(rng: Any) -> list[dict[str, Any]]:
         fmt = str(_read(lvl, "NumberFormat", "") or "")
         # A number level's format always carries a %N placeholder; a bullet is a
         # bare glyph (and NumberStyle stays 0 when authored via glyph + font, so
-        # the placeholder test is the reliable discriminator).
+        # the placeholder test is the reliable discriminator). The raw
+        # `number_style` int is also surfaced so callers can disambiguate the
+        # ambiguous "static literal marker, no %N" case the heuristic can't.
         is_bullet = style_int == int(WdListNumberStyle.BULLET) or (bool(fmt) and "%" not in fmt)
         out.append(
             {
                 "level": i,
                 "kind": "bullet" if is_bullet else "number",
                 "format": fmt,
+                "number_style": style_int,
                 "style": "bullet"
                 if is_bullet
                 else _NUMBER_STYLE_NAME.get(style_int, str(style_int)),

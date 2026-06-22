@@ -866,8 +866,11 @@ the marker `format` (`"%1."`, `"%1)"`, `"%1.%2"`), number `style` (`"arabic"`,
 `"upper-roman"`, `"lower-letter"`, …) or `bullet` glyph + `font`, plus
 `start_at` / `number_position` / `text_position` / `trailing` / `alignment` /
 `bold` / `color`. More than one level mints an outline template.
-`anchor.read_list_levels()` is the read mirror — one `{level, kind, format, style,
-trailing, number_position, text_position, font}` dict per template level.
+`anchor.read_list_levels()` is the read mirror — one `{level, kind, format,
+number_style, style, trailing, number_position, text_position, font}` dict per
+template level (`number_style` is the raw `WdListNumberStyle` int). A multi-level
+number level authored without an explicit `format` keeps Word's built-in outline
+default; hierarchical numbering (`%1.%2.%3.`) still needs an explicit `format`.
 
 ```python
 with doc.edit("custom numbering"):

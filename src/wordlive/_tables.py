@@ -589,6 +589,9 @@ class Table:
         leaves trailing cells empty. (Word's `Columns.Add` tolerates a merged
         table, so this works where `delete_column` can't.) Wrap in
         `doc.edit(...)` for atomic undo.
+
+        The new column lands at the right edge, so existing `table:N:R:C` ids are
+        unchanged — but any cached `column_count` is now stale; re-read it.
         """
         with _com.translate_com_errors():
             self._com.Columns.Add()
@@ -609,6 +612,10 @@ class Table:
         an `OpError` pointing at per-cell deletion via `table:N:R:C` (the same
         contract as a column-anchor style op). Wrap in `doc.edit(...)` for
         atomic undo.
+
+        Every column to the right of `index` renumbers down by one, so any
+        cached `table:N:R:C` ids past it are now stale — re-resolve through
+        `doc.tables` before addressing another column.
         """
         cols = self.column_count
         if not (1 <= index <= cols):

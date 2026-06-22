@@ -5941,7 +5941,12 @@ def shading_cmd(ctx: click.Context, anchor_id: str, fill: str) -> None:
     "(comma-separated for several).",
 )
 @click.option(
-    "--style", "style", default="single", help="Line style: single, double, dot, dash, … or none."
+    "--style",
+    "style",
+    default="single",
+    help="Line style: single, double, dot, dash, … or none. "
+    "(In exec/MCP this field is named `line_style` to avoid colliding with a "
+    "paragraph/table `style` name.)",
 )
 @click.option("--weight", "weight", type=float, default=0.5, help="Line width in points (snapped).")
 @click.option("--color", "color", default=None, help="Border colour: name, hex, or r,g,b.")
@@ -6651,7 +6656,12 @@ def table_set_alignment(ctx: click.Context, table_index: int, alignment: str) ->
     "(comma-separated for several; interior gridlines need horizontal/vertical).",
 )
 @click.option(
-    "--style", "style", default="single", help="Line style: single, double, dot, dash, … or none."
+    "--style",
+    "style",
+    default="single",
+    help="Line style: single, double, dot, dash, … or none. "
+    "(In exec/MCP this field is named `line_style` to avoid colliding with a "
+    "paragraph/table `style` name.)",
 )
 @click.option("--weight", "weight", type=float, default=0.5, help="Line width in points (snapped).")
 @click.option("--color", "color", default=None, help="Border colour: name, hex, or r,g,b.")

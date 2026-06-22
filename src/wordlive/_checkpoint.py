@@ -196,6 +196,11 @@ def _table_fingerprints(doc_com: Any) -> list[dict[str, Any]]:
                 try:
                     raw = _strip_cell_text(range_text(tbl.Cell(r, c).Range))
                 except Exception:
+                    # A cell that raises (merged in real Word) gets a positional
+                    # sentinel rather than being dropped — otherwise a same-shape
+                    # re-merge that leaves the surviving text sequence unchanged
+                    # would hash identically and mask the structural change.
+                    texts.append("\x00skip\x00")
                     continue
                 texts.append(_findreplace._normalize(raw).text)
         out.append(

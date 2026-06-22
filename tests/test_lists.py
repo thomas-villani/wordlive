@@ -102,6 +102,36 @@ def test_apply_list_format_multi_level_mints_outline(fake_word):
         assert levels[1]["kind"] == "bullet"
 
 
+def test_configure_level_outline_no_format_keeps_default(fake_word):
+    # LISTS-6: a multi-level number level with no explicit `format` keeps Word's
+    # built-in per-level outline default rather than overriding it with "%N.".
+    from wordlive._lists import _configure_level
+
+    lt = fake_word.ActiveDocument.ListTemplates.Add(OutlineNumbered=True)
+    lvl = lt.ListLevels(3)
+    _configure_level(lvl, 3, {"kind": "number", "style": "arabic"}, outline=True)
+    assert lvl.NumberFormat == ""  # left at Word's default, not overridden to "%3."
+
+    # A single-level template still gets the flat "%N." default.
+    single = fake_word.ActiveDocument.ListTemplates.Add(OutlineNumbered=False)
+    lvl1 = single.ListLevels(1)
+    _configure_level(lvl1, 1, {"kind": "number", "style": "arabic"}, outline=False)
+    assert lvl1.NumberFormat == "%1."
+
+
+def test_read_list_levels_surfaces_raw_number_style(fake_word):
+    # LISTS-5: the raw NumberStyle int is exposed so callers can disambiguate the
+    # ambiguous "literal marker, no %N" case the bullet/number heuristic can't.
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        target = doc.range(0, 12)
+        with doc.edit("custom list"):
+            target.apply_list_format([{"kind": "number", "format": "%1.", "style": "arabic"}])
+        levels = target.read_list_levels()
+        assert "number_style" in levels[0]
+        assert isinstance(levels[0]["number_style"], int)
+
+
 def test_apply_list_format_empty_levels_raises(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active

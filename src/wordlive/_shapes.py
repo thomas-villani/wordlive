@@ -287,8 +287,14 @@ def apply_shape_position(
                 f"unknown relative_to {relative_to!r}; expected one of {sorted(RELATIVE_TO)}"
             )
         h, v = RELATIVE_TO[relative_to]
-        shape.RelativeHorizontalPosition = h
-        shape.RelativeVerticalPosition = v
+        # Only re-frame the axis being repositioned — re-framing both would shift
+        # the unmoved axis (margin and page frames have different origins). With
+        # neither offset given, the caller wants the frame applied to both axes.
+        both_axes = left is None and top is None
+        if left is not None or both_axes:
+            shape.RelativeHorizontalPosition = h
+        if top is not None or both_axes:
+            shape.RelativeVerticalPosition = v
     if left is not None:
         shape.Left = _position_value(left)
     if top is not None:
@@ -304,10 +310,13 @@ def apply_shape_size(
 ) -> None:
     """Resize the shape. `width` / `height` are lengths (points / ``"3in"``);
     `lock_aspect` toggles proportional scaling. When both dimensions are given,
-    aspect-lock is dropped for the set so both are honoured exactly (then restored
-    if `lock_aspect=True` was asked)."""
+    aspect-lock is dropped for the set so both are honoured exactly, then the
+    prior lock state is restored (or set explicitly if `lock_aspect` was passed)."""
     both = width is not None and height is not None
-    if both and lock_aspect is not False:
+    drop_lock = both and lock_aspect is not False
+    prior_lock: int | None = None
+    if drop_lock:
+        prior_lock = int(shape.LockAspectRatio)
         shape.LockAspectRatio = int(MsoTriState.FALSE)
     if width is not None:
         shape.Width = to_points(width)
@@ -315,6 +324,10 @@ def apply_shape_size(
         shape.Height = to_points(height)
     if lock_aspect is not None:
         shape.LockAspectRatio = int(MsoTriState.TRUE if lock_aspect else MsoTriState.FALSE)
+    elif drop_lock and prior_lock is not None:
+        # Both dims were set with no explicit lock_aspect — restore the prior
+        # lock state instead of leaving it permanently FALSE.
+        shape.LockAspectRatio = prior_lock
 
 
 def apply_shape_format(

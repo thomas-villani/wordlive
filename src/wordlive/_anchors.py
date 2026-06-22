@@ -1503,8 +1503,9 @@ class Anchor(ABC):
                 probe_name = f"_wl_shape_{secrets.token_hex(8)}"
                 shape.Name = probe_name
                 index = _shapes.index_of_named(doc_com, probe_name)
-                if orig_name:
-                    shape.Name = orig_name
+                # Restore unconditionally — leaving the probe name on a shape whose
+                # original name was empty would surface `_wl_shape_*` in list().
+                shape.Name = orig_name
             return ShapeAnchor(self._doc, index)
 
     def insert_text_box(
@@ -1604,8 +1605,9 @@ class Anchor(ABC):
             probe_name = f"_wl_shape_{secrets.token_hex(8)}"
             shape.Name = probe_name
             index = _shapes.index_of_named(doc_com, probe_name)
-            if orig_name:
-                shape.Name = orig_name
+            # Restore unconditionally so an empty original name doesn't leave the
+            # `_wl_shape_*` probe lingering in list().
+            shape.Name = orig_name
         return ShapeAnchor(self._doc, index)
 
     def insert_chart(
@@ -4357,6 +4359,19 @@ class ShapeAnchor(Anchor):
                 return str(shape.TextFrame.TextRange.Text or "")
             except Exception:
                 return ""
+
+    def revision_segments(self) -> list[dict[str, Any]]:
+        """The shape's text as a single unchanged segment (no tracked-change view).
+
+        A floating shape's text lives in its own text-frame story, while
+        `doc.revisions` enumerates the main body — the two don't share offsets, so
+        tracked-change views aren't available inside shapes. This mirrors
+        [`text`][wordlive.ShapeAnchor.text] (rather than reporting the *anchoring
+        paragraph's* unrelated revision history). `text_final` / `text_original`
+        therefore both equal `text`.
+        """
+        text = self.text
+        return [{"text": text, "change": None}] if text else []
 
     @property
     def rotation(self) -> float:

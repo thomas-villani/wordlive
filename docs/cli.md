@@ -2924,9 +2924,9 @@ wordlive list levels --anchor-id ID [--doc DOC_NAME]
 ```
 
 Read the per-level format of the list at an anchor (read-only) — the read mirror
-of `list format`. Returns one `{level, kind, format, style, trailing,
-number_position, text_position, font}` per level of the applied template, or an
-empty list if the anchor isn't in a list.
+of `list format`. Returns one `{level, kind, format, number_style, style,
+trailing, number_position, text_position, font}` per level of the applied
+template, or an empty list if the anchor isn't in a list.
 
 ```bash
 $ wordlive list levels --anchor-id range:0-40

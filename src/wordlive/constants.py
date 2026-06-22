@@ -859,8 +859,9 @@ class XlErrorBarDirection(IntEnum):
 class XlErrorBarInclude(IntEnum):
     """`Series.ErrorBar(Include=...)` — which side(s) of each point to draw.
 
-    `ChartAnchor.add_error_bars(direction=...)` maps ``"both"`` / ``"plus"`` /
-    ``"minus"`` onto `BOTH` / `PLUS_VALUES` / `MINUS_VALUES`.
+    `ChartAnchor.add_error_bars(include=...)` maps ``"both"`` / ``"plus"`` /
+    ``"minus"`` onto `BOTH` / `PLUS_VALUES` / `MINUS_VALUES` (the axis selector is
+    the separate `axis=` parameter).
     """
 
     BOTH = 1

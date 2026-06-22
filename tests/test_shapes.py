@@ -133,6 +133,33 @@ def test_set_size_honours_both_dims(fake_word):
     assert com.Width == 216.0 and com.Height == 72.0
 
 
+def test_set_size_both_dims_restores_prior_lock(fake_word):
+    # Both dims, no explicit lock_aspect: aspect-lock is dropped for the set then
+    # restored to its prior state — not left permanently FALSE (SHAPES-2).
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("tb"):
+            shape = _text_box(doc)
+        com = fake_word.ActiveDocument.Shapes.Item(1)
+        com.LockAspectRatio = -1  # locked beforehand
+        shape.set_size(width="3in", height="1in")
+    assert com.Width == 216.0 and com.Height == 72.0
+    assert com.LockAspectRatio == -1  # restored, not left FALSE
+
+
+def test_set_position_single_axis_leaves_other_frame(fake_word):
+    # A horizontal-only reposition must not re-frame the vertical axis (SHAPES-5).
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("tb"):
+            shape = _text_box(doc)
+        com = fake_word.ActiveDocument.Shapes.Item(1)
+        com.RelativeVerticalPosition = 0  # margin
+        shape.set_position(left="1in", relative_to="page")
+    assert com.RelativeHorizontalPosition == 1  # page frame applied to moved axis
+    assert com.RelativeVerticalPosition == 0  # untouched axis keeps its frame
+
+
 def test_format_fill_and_border(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active
@@ -162,6 +189,43 @@ def test_set_text_replaces_contents(fake_word):
         shape.set_text("New body")
     assert fake_word.ActiveDocument.Shapes.Item(1).TextFrame.TextRange.Text == "New body"
     assert doc.shapes[1].text == "New body"
+
+
+def test_shape_text_history_mirrors_text_not_paragraph(fake_word):
+    # text_final / text_original / revision_segments reflect the shape's own text,
+    # not the anchoring paragraph's revision history (SHAPES-4).
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("tb"):
+            shape = _text_box(doc)
+        shape.set_text("Quote body")
+        assert shape.text_final == "Quote body"
+        assert shape.text_original == "Quote body"
+        assert shape.revision_segments() == [{"text": "Quote body", "change": None}]
+
+
+def test_shape_mutators_are_polite_and_undo_wrapped(fake_word):
+    # Shape mutators never touch Selection, and an edit op rides one UndoRecord (SHAPES-6).
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("tb"):
+            shape = _text_box(doc)
+        # Run mutators OUTSIDE an edit scope so a stray .Select() can't be masked
+        # by the scope's selection restore.
+        fake_word.Selection.Start = 12
+        fake_word.Selection.End = 18
+        shape.set_position(left="1in", top="2in", relative_to="page")
+        shape.set_size(width="2in", height="1in")
+        shape.set_wrap("tight")
+        assert fake_word.Selection.Start == 12 and fake_word.Selection.End == 18
+        fake_word.Selection.Select.assert_not_called()
+        # A representative op still rides exactly one UndoRecord under doc.edit.
+        fake_word.UndoRecord.StartCustomRecord.reset_mock()
+        fake_word.UndoRecord.EndCustomRecord.reset_mock()
+        with doc.edit("reposition"):
+            shape.set_position(left="3in")
+    fake_word.UndoRecord.StartCustomRecord.assert_called_once_with("reposition")
+    fake_word.UndoRecord.EndCustomRecord.assert_called_once()
 
 
 def test_set_text_on_picture_raises(fake_word, png_file):
