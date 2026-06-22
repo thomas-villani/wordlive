@@ -336,8 +336,8 @@ Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `add_comment`, `resolve_comment`, `delete_comment`, `accept_revision`,
 `reject_revision`, `accept_all_revisions`, `reject_all_revisions`,
 `set_watermark`, `remove_watermark`, `insert_text_box`, `apply_list`,
-`remove_list`, `restart_numbering`, `indent_list`, `outdent_list`,
-`write_header`, `write_footer`.
+`apply_list_format`, `remove_list`, `restart_numbering`, `indent_list`,
+`outdent_list`, `write_header`, `write_footer`.
 (`append` / `prepend` add a new final / first **paragraph** and take `text` +
 optional `style`, no anchor — `append_paragraph` / `prepend_paragraph` are
 explicit synonyms. `append_inline` / `prepend_inline` instead **continue** the

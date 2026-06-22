@@ -431,10 +431,20 @@ field flags the shape).
 ```python
 with doc.edit("Number steps + brand the page"):
     doc.heading("Steps").apply_list("numbered")               # bulleted | numbered | outline
+    # Custom per-level format (richer than the gallery apply_list):
+    doc.heading("Clauses").apply_list_format([
+        {"kind": "number", "format": "%1)", "style": "lower-letter", "trailing": "space"},
+        {"kind": "bullet", "bullet": "–", "font": "Symbol"},     # bullet = glyph + symbol font
+    ])
     sec = doc.sections[1]
     sec.header().set_text("ACME Corporation — Internal")
     sec.footer("first").set_text("Confidential")
 ```
+
+`apply_list_format(levels)` authors a **custom** numbered/bulleted list (per-level
+`format`/`style`/`bullet`+`font`/indent/`trailing`/marker styling); more than one
+level mints an outline. `read_list_levels()` reads the per-level format back. A
+bullet level is the glyph + a symbol font — never `style="bullet"`.
 
 ### Suggest, don't overwrite — tracked changes
 

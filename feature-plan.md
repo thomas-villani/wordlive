@@ -69,6 +69,7 @@ Quick index (capability → real release):
 | Checkpoint + diff (`doc.checkpoint`/`changes_since`/`diff`; `Checkpoint` token, `include=text/+style/+format`; content-aligned `replace`/`insert`/`delete`/`restyle`/`reformat` w/ current `para:N`; `doc_hash` fast-path) | Unreleased |
 | Table styling & polish (`Table.set_style`/`set_alignment`/`set_borders`/`set_banding`, `Cell.set_vertical_alignment`; row/column anchors `table:N:row:R` [`RowAnchor`] / `table:N:col:C` [`ColumnAnchor`] + `Table.row`/`column`) | Unreleased |
 | Markdown/HTML export + budgeted read (`doc.to_markdown`/`to_html(within=)` — flat node walk, GFM tables, `![alt](image:N)`, `[text](url)`; `doc.read(budget=,depth=)` — heading-spine digest, depth-weighted body elision, addressable markers; `_export.py`; `read markdown`/`html`/`digest`, MCP `to_markdown`/`to_html`/`digest`) | Unreleased |
+| List polish (`anchor.apply_list_format(levels)` authors a custom multi-level list template — per-level number/bullet format, style, indent, marker font; `read_list_levels` read mirror; bullet=glyph+symbol-font not NumberStyle; `WdListNumberStyle`/`WdTrailingCharacter`; CLI `list format`/`list levels`, exec `apply_list_format`, MCP `list` action `format` / read `list_levels`) | Unreleased |
 | Table structural polish (`Table.add_column`/`delete_column` mirror the row ops; `Cell.merge`/`split` — merged-cell story; `Table.is_uniform` + physical-cell `read()`/`grid()`; `delete_column` raises clean `OpError` on a merged table; CLI `table add-column`/`delete-column`/`merge-cells`/`split-cell`, exec ops, MCP) | Unreleased |
 
 ## Load-bearing reference facts
@@ -658,8 +659,26 @@ user set (Word reapplies the style's conditional formatting — confirm it doesn
 clobber explicit shading/borders, or document that it does).
 
 ### 6. List polish
-Per-level bullet / number format, custom list-template authoring, multi-section
-`LinkToPrevious` editing.
+
+> **✅ Shipped (Unreleased, 2026-06-21).** `anchor.apply_list_format(levels)`
+> **authors a custom multi-level list template** (`Document.ListTemplates.Add` +
+> per-`ListLevel` mutation) and applies it — each per-level spec sets marker
+> `format` / number `style` / `bullet` glyph + `font` / indentation (`number_position`
+> / `text_position`) / `trailing` / `alignment` / marker `bold`/`italic`/`color`;
+> >1 level mints an outline template. `anchor.read_list_levels()` is the read
+> mirror. Live-probed 2026-06-21 (all per-level props settable; the one trap —
+> baked in — is that a bullet level is the glyph + a symbol font, **not**
+> `NumberStyle=bullet`, which raises `0x800a1200`). Wired Python / CLI (`list
+> format` / `list levels`) / `exec` op (`apply_list_format`) / MCP; smoke-validated.
+> New constants `WdListNumberStyle` / `WdTrailingCharacter` / `WdListLevelAlignment`.
+> See `CHANGELOG.md`. **Deferred:** the "multi-section `LinkToPrevious`" sub-item is
+> really a **header/footer** capability (`HeaderFooter.linked_to_previous` exists
+> read-only in `_sections.py`) — making it writable is a separate create-but-can't-edit
+> fix, not list work, so it's parked there rather than here.
+
+Per-level bullet / number format and custom list-template authoring — **shipped**
+above. (The "multi-section `LinkToPrevious`" sub-item was reclassified as a
+header/footer gap — see the ✅ note.)
 
 ### 7. Chart depth (post-insert, static — no Excel respin)
 Error bars (`Series.ErrorBar` — wants the right enum args), series/point formatting
@@ -810,8 +829,11 @@ that works *alongside* the user in a live session. Feasibility **proven live**
   (AutoFit shipped v0.15.0 as `Table.autofit`; whole-table style settable at
   *creation* via `insert_table(style=…)`.)
   **→ Part II Priority 3 (item 5, table styling & polish).**
-- **List polish** — custom list-template authoring, per-level bullet/number
-  format, multi-section `LinkToPrevious` editing. **→ promoted to Part II Priority 6.**
+- **List polish** — custom list-template authoring + per-level bullet/number
+  format **✅ shipped (Unreleased)** as `apply_list_format` / `read_list_levels`
+  (see Part II item 6 + Part I). *Still open:* the "multi-section `LinkToPrevious`"
+  sub-item, reclassified as a **header/footer** gap (`HeaderFooter.linked_to_previous`
+  is read-only — make it writable). **→ Part II Priority 3 (item 6).**
 - **Comment/revision polish** — comment replies (`comment.reply`), author/date
   filtering on `list()`. (Per-revision accept/reject is active backlog — Part II.)
 - **Image polish** — *mostly shipped* (Unreleased): the floating-shape model

@@ -7080,6 +7080,17 @@ def _fmt_list_info(info: dict[str, Any]) -> str:
     )
 
 
+def _fmt_list_levels(levels: list[dict[str, Any]]) -> str:
+    if not levels:
+        return "not in a list"
+    return "\n".join(
+        f"L{lv['level']}: {lv['kind']} {lv['format']!r}"
+        + (f" ({lv['style']})" if lv["kind"] == "number" else f" font {lv['font']!r}")
+        + f"  trailing={lv['trailing']}  num@{lv['number_position']:g}pt text@{lv['text_position']:g}pt"
+        for lv in levels
+    )
+
+
 @click.group(name="list")
 def list_cmd() -> None:
     """Apply, inspect, and manage bullet / numbered lists."""
@@ -7181,6 +7192,72 @@ def list_info_cmd(ctx: click.Context, anchor_id: str) -> None:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             info = doc.anchor_by_id(anchor_id).list_info()
             emit(info, as_text=not ctx.obj["as_json"], text=_fmt_list_info(info))
+
+    _run(ctx, go)
+
+
+@list_cmd.command(name="format")
+@click.option(
+    "--anchor-id", "anchor_id", required=True, help="Anchor whose paragraphs to format as a list."
+)
+@click.option(
+    "--levels",
+    "levels",
+    required=True,
+    help='JSON array of per-level specs, e.g. \'[{"kind":"number","format":"%1)","style":"lower-letter"}]\'.',
+)
+@click.option(
+    "--continue",
+    "continue_previous",
+    is_flag=True,
+    default=False,
+    help="Continue numbering from the previous list instead of starting at 1.",
+)
+@click.pass_context
+def list_format(ctx: click.Context, anchor_id: str, levels: str, continue_previous: bool) -> None:
+    """Author a custom multi-level list (per-level number/bullet format) and apply it (atomic-undo)."""
+    try:
+        parsed = json.loads(levels)
+    except json.JSONDecodeError as e:
+        raise click.UsageError(f"--levels must be a JSON array: {e}") from e
+    if not isinstance(parsed, list) or not parsed:
+        raise click.UsageError("--levels must be a non-empty JSON array of level objects")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            anchor = doc.anchor_by_id(anchor_id)
+            with doc.edit(f"CLI: apply custom list format to {anchor_id}"):
+                anchor.apply_list_format(parsed, continue_previous=continue_previous)
+            emit(
+                {
+                    "ok": True,
+                    "anchor_id": anchor_id,
+                    "anchor": {"kind": anchor.kind, "name": anchor.name},
+                    "levels": len(parsed),
+                },
+                as_text=not ctx.obj["as_json"],
+                text=f"applied custom {len(parsed)}-level list format to {anchor_id}",
+            )
+
+    _run(ctx, go)
+
+
+@list_cmd.command(name="levels")
+@click.option("--anchor-id", "anchor_id", required=True, help="Anchor inside the list to inspect.")
+@click.pass_context
+def list_levels_cmd(ctx: click.Context, anchor_id: str) -> None:
+    """Report the per-level format of the list at the anchor (read-only)."""
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            levels = doc.anchor_by_id(anchor_id).read_list_levels()
+            emit(
+                {"anchor_id": anchor_id, "levels": levels},
+                as_text=not ctx.obj["as_json"],
+                text=_fmt_list_levels(levels),
+            )
 
     _run(ctx, go)
 
@@ -7566,7 +7643,7 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     resolve_comment, delete_comment,
     accept_revision, reject_revision, accept_all_revisions, reject_all_revisions,
     set_watermark, remove_watermark, insert_text_box,
-    apply_list, remove_list, restart_numbering, indent_list, outdent_list,
+    apply_list, apply_list_format, remove_list, restart_numbering, indent_list, outdent_list,
     write_header, write_footer. (append/prepend add a new paragraph + optional
     style; append_inline/prepend_inline continue the adjacent paragraph, text
     only. append_paragraph/prepend_paragraph remain as synonyms.) A field an op

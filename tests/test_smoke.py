@@ -544,6 +544,79 @@ def test_numbered_list_over_range_numbers_sequentially(scratch_doc):
     assert markers == ["1.", "2.", "3."]
 
 
+def test_apply_list_format_authors_custom_numbered_list(scratch_doc):
+    """apply_list_format mints a custom list template and applies it: a lower-letter
+    ')' scheme renders 'a)' and reads back through read_list_levels."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        for text in ("One", "Two", "Three"):
+            doc.append_paragraph(text)
+    items = [p for p in doc.paragraphs.list() if p.get("text", "") in ("One", "Two", "Three")]
+    start, end = items[0]["start"], items[-1]["end"]
+    rng = doc.range(start, end)
+    with doc.edit("custom list"):
+        rng.apply_list_format(
+            [
+                {
+                    "kind": "number",
+                    "format": "%1)",
+                    "style": "lower-letter",
+                    "trailing": "space",
+                    "number_position": "0.25in",
+                    "text_position": "0.5in",
+                }
+            ]
+        )
+    markers = [
+        p.list_info().get("string") for p in doc.paragraphs if p.text in ("One", "Two", "Three")
+    ]
+    assert markers == ["a)", "b)", "c)"]
+    levels = rng.read_list_levels()
+    assert levels[0]["format"] == "%1)"
+    assert levels[0]["style"] == "lower-letter"
+    assert levels[0]["trailing"] == "space"
+
+
+def test_apply_list_format_bullet_uses_glyph_and_symbol_font(scratch_doc):
+    """A bullet level is authored via the glyph + a symbol font (never
+    NumberStyle=bullet, which raises) and renders that glyph."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        for text in ("Alpha", "Beta"):
+            doc.append_paragraph(text)
+    items = [p for p in doc.paragraphs.list() if p.get("text", "") in ("Alpha", "Beta")]
+    start, end = items[0]["start"], items[-1]["end"]
+    rng = doc.range(start, end)
+    with doc.edit("bullets"):
+        rng.apply_list_format([{"kind": "bullet", "bullet": "•", "font": "Symbol"}])
+    markers = [p.list_info().get("string") for p in doc.paragraphs if p.text in ("Alpha", "Beta")]
+    assert all(m == "•" for m in markers)
+    levels = rng.read_list_levels()
+    assert levels[0]["kind"] == "bullet"
+    assert levels[0]["font"] == "Symbol"
+
+
+def test_apply_list_format_multi_level_outline(scratch_doc):
+    """A 2-spec levels list mints a 9-level outline template; the two set levels
+    read back as authored."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.append_paragraph("Top")
+    items = [p for p in doc.paragraphs.list() if p.get("text", "") == "Top"]
+    rng = doc.range(items[0]["start"], items[0]["end"])
+    with doc.edit("outline"):
+        rng.apply_list_format(
+            [
+                {"kind": "number", "format": "%1.", "style": "upper-roman"},
+                {"kind": "number", "format": "%1.%2", "style": "arabic"},
+            ]
+        )
+    levels = rng.read_list_levels()
+    assert len(levels) == 9  # outline templates always carry 9 levels
+    assert levels[0]["style"] == "upper-roman"
+    assert levels[1]["format"] == "%1.%2"
+
+
 def test_image_extraction_round_trips(scratch_doc, png_path):
     """Insert a PNG, then read its bytes + MIME back out via doc.images / read_image."""
     doc = scratch_doc

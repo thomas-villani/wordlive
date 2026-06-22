@@ -336,6 +336,31 @@ class TestWriteImpl:
         assert r["ok"] is True
         assert fake_word.ActiveDocument.Tables(1).Cell(1, 1).VerticalAlignment == 3
 
+    def test_list_format_authors_custom_list(self, fake_word: Any) -> None:
+        r = _write_impl(
+            W,
+            "list",
+            {
+                "action": "format",
+                "anchor_id": "range:0-12",
+                "levels": [{"kind": "number", "format": "%1)", "style": "lower-letter"}],
+            },
+        )
+        assert r["ok"] is True
+
+    def test_list_levels_reads_back(self, fake_word: Any) -> None:
+        _write_impl(
+            W,
+            "list",
+            {
+                "action": "format",
+                "anchor_id": "range:0-12",
+                "levels": [{"kind": "bullet", "bullet": "•", "font": "Symbol"}],
+            },
+        )
+        out = _read_impl(W, "list_levels", {"anchor_id": "range:0-12"})
+        assert out["levels"][0]["kind"] == "bullet"
+
 
 # ---------------------------------------------------------------------------
 # word_exec
