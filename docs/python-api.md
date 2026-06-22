@@ -476,7 +476,7 @@ returns the `{anchor_id: pin}` map (idempotent — reuses a heading's existing
 handle), and `doc.outline(pin=True)` adds a `pin` to each outline row. Wrap pin
 calls in `doc.edit(...)` for atomic undo. In an `exec` batch, `bind: "name"` on
 an insert op mints a pin on the new content, and `$ops[N].field` references an
-earlier op's output (see [CLI](cli.md#exec) / [MCP](mcp.md#batches)). The methods
+earlier op's output (see [CLI](cli.md#exec-script-opsjson) / [MCP](mcp.md#batches)). The methods
 are [`Document.pin`](#wordlive.Document) / `stamp`, `pin_outline`, and
 `outline(pin=…)`.
 
@@ -979,6 +979,8 @@ constants.WdParagraphAlignment.CENTER   # 1
 ::: wordlive.ReplaceVerificationError
 
 ::: wordlive.ImageSourceError
+
+::: wordlive.ExcelNotAvailableError
 
 ::: wordlive.OpError
 
