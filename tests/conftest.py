@@ -553,6 +553,8 @@ class _FakeTrendline:
         self.DisplayRSquared = False
         self.Forward = None
         self.Backward = None
+        self.Order = None
+        self.Period = None
 
 
 class _FakeTrendlines:
@@ -568,6 +570,9 @@ class _FakeTrendlines:
 class _FakePoint:
     def __init__(self) -> None:
         self.Format = _FakeShapeFormat()
+        self.MarkerStyle = None
+        self.Explosion = None
+        self.DataLabel = SimpleNamespace(Font=SimpleNamespace())
 
 
 class _FakeAxis:
@@ -588,15 +593,27 @@ class _FakeSeries:
         self.Name = ""
         self.Format = _FakeShapeFormat()
         self.HasDataLabels = False
-        self._data_labels = SimpleNamespace(NumberFormat="")
+        self._data_labels = SimpleNamespace(NumberFormat="", Font=SimpleNamespace())
         self._points: dict[int, _FakePoint] = {}
         self.trendlines: list[_FakeTrendline] = []
+        # Chart-depth surface (markers / line / pie / error bars).
+        self.MarkerStyle = None
+        self.MarkerSize = None
+        self.Smooth = None
+        self.Explosion = None
+        self.HasErrorBars = False
+        self.error_bars: list[tuple[int, int, int, float]] = []
 
     def Points(self, index: int) -> _FakePoint:
         return self._points.setdefault(int(index), _FakePoint())
 
     def DataLabels(self) -> SimpleNamespace:
+        if not self.HasDataLabels:  # mirror Word: DataLabels() raises until shown
+            raise RuntimeError("Unable to get the Count property of the DataLabels class")
         return self._data_labels
+
+    def ErrorBar(self, direction: int, include: int, type_: int, amount: float) -> None:
+        self.error_bars.append((int(direction), int(include), int(type_), float(amount)))
 
     def Trendlines(self) -> _FakeTrendlines:
         return _FakeTrendlines(self)
@@ -638,6 +655,10 @@ class _FakeChart:
         self.ChartArea = SimpleNamespace(Format=_FakeShapeFormat(), Font=SimpleNamespace())
         self.PlotArea = SimpleNamespace(Format=_FakeShapeFormat(), Font=SimpleNamespace())
         self._axes: dict[tuple[int, int], _FakeAxis] = {}
+        # Chart-depth surface.
+        self.HasDataTable = False
+        self.DataTable = SimpleNamespace(HasBorderOutline=False)
+        self._groups: dict[int, SimpleNamespace] = {}
 
     def SeriesCollection(self, index: int | None = None) -> Any:
         # Real Word: no index → the collection; with an index → that Series.
@@ -645,6 +666,11 @@ class _FakeChart:
 
     def Axes(self, axis_type: int, group: int = 1) -> _FakeAxis:
         return self._axes.setdefault((int(axis_type), int(group)), _FakeAxis())
+
+    def ChartGroups(self, index: int) -> SimpleNamespace:
+        return self._groups.setdefault(
+            int(index), SimpleNamespace(GapWidth=None, Overlap=None, FirstSliceAngle=None)
+        )
 
 
 class _FakeChartInlineShape:

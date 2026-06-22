@@ -33,7 +33,11 @@ from .constants import (
     XlAxisGroup,
     XlAxisType,
     XlChartType,
+    XlErrorBarDirection,
+    XlErrorBarInclude,
+    XlErrorBarType,
     XlLegendPosition,
+    XlMarkerStyle,
     XlScaleType,
     XlTrendlineType,
 )
@@ -90,6 +94,60 @@ TRENDLINE_KINDS: dict[str, XlTrendlineType] = {
     "polynomial": XlTrendlineType.POLYNOMIAL,
     "power": XlTrendlineType.POWER,
 }
+
+# Data-point glyph names → `Series.MarkerStyle` (line/scatter only).
+MARKER_STYLES: dict[str, XlMarkerStyle] = {
+    "none": XlMarkerStyle.NONE,
+    "auto": XlMarkerStyle.AUTOMATIC,
+    "automatic": XlMarkerStyle.AUTOMATIC,
+    "square": XlMarkerStyle.SQUARE,
+    "diamond": XlMarkerStyle.DIAMOND,
+    "triangle": XlMarkerStyle.TRIANGLE,
+    "x": XlMarkerStyle.X,
+    "star": XlMarkerStyle.STAR,
+    "dot": XlMarkerStyle.DOT,
+    "dash": XlMarkerStyle.DASH,
+    "circle": XlMarkerStyle.CIRCLE,
+    "plus": XlMarkerStyle.PLUS,
+}
+
+# Error-bar `include` (which sides) → `Series.ErrorBar(Include=...)`.
+ERRORBAR_INCLUDE: dict[str, XlErrorBarInclude] = {
+    "both": XlErrorBarInclude.BOTH,
+    "plus": XlErrorBarInclude.PLUS_VALUES,
+    "minus": XlErrorBarInclude.MINUS_VALUES,
+}
+
+# Error-bar `kind` (how the amount is computed) → `Series.ErrorBar(Type=...)`.
+ERRORBAR_KINDS: dict[str, XlErrorBarType] = {
+    "fixed": XlErrorBarType.FIXED_VALUE,
+    "percent": XlErrorBarType.PERCENT,
+    "percentage": XlErrorBarType.PERCENT,
+    "stdev": XlErrorBarType.STANDARD_DEVIATION,
+    "standard_deviation": XlErrorBarType.STANDARD_DEVIATION,
+    "sterror": XlErrorBarType.STANDARD_ERROR,
+    "standard_error": XlErrorBarType.STANDARD_ERROR,
+}
+
+# Error-bar `axis` (which axis the bars run along) → `Series.ErrorBar(Direction=...)`.
+ERRORBAR_AXIS: dict[str, XlErrorBarDirection] = {
+    "y": XlErrorBarDirection.Y,
+    "value": XlErrorBarDirection.Y,
+    "x": XlErrorBarDirection.X,
+    "category": XlErrorBarDirection.X,
+}
+
+# Standard-error error bars compute their own amount; the others use the supplied one.
+_ERRORBAR_NEEDS_AMOUNT: frozenset[str] = frozenset({"fixed", "percent", "stdev"})
+
+
+def _marker_value(marker: Any) -> int:
+    """Map a marker name (or raw int) onto an `XlMarkerStyle` int."""
+    if isinstance(marker, bool):  # bool is an int subclass — reject it explicitly
+        raise OpError(f"marker must be a glyph name or int, got {marker!r}")
+    if isinstance(marker, int):
+        return int(marker)
+    return int(_lookup(marker, MARKER_STYLES, label="marker"))
 
 
 def _lookup(value: str, table: dict[str, Any], *, label: str) -> Any:
@@ -288,6 +346,9 @@ def apply_chart_format(
     data_labels: bool | None = None,
     data_label_format: str | None = None,
     chart_type: str | None = None,
+    gap_width: int | None = None,
+    overlap: int | None = None,
+    data_table: bool | None = None,
 ) -> None:
     """Apply whole-chart / design formatting. Tri-state: only passed fields write.
 
@@ -297,6 +358,8 @@ def apply_chart_format(
     `plot_background` and `font_color` accept any [`to_bgr`][wordlive._format.to_bgr]
     colour; `font` / `font_size` set the whole-chart font. `data_labels` toggles
     point labels on every series; `chart_type` re-types the chart in place.
+    `gap_width` / `overlap` tune bar spacing (bar/column charts only); `data_table`
+    toggles the data-table grid beneath the plot.
     """
     if title is not _UNSET:
         if title:
@@ -335,6 +398,17 @@ def apply_chart_format(
         if chart_type not in KIND_TO_XL:
             raise OpError(f"unknown chart_type {chart_type!r}; expected one of {list(CHART_KINDS)}")
         chart_com.ChartType = int(KIND_TO_XL[chart_type])
+    if gap_width is not None or overlap is not None:
+        try:
+            grp = chart_com.ChartGroups(1)
+            if gap_width is not None:
+                grp.GapWidth = int(gap_width)
+            if overlap is not None:
+                grp.Overlap = int(overlap)
+        except Exception as e:
+            raise OpError("gap_width / overlap apply only to bar/column charts") from e
+    if data_table is not None:
+        chart_com.HasDataTable = bool(data_table)
 
 
 def apply_axis_format(
@@ -380,12 +454,20 @@ def add_trendline(
     display_r_squared: bool = False,
     forward: Any = None,
     backward: Any = None,
+    order: int | None = None,
+    period: int | None = None,
 ) -> None:
     """Fit a trendline to a series. `kind` is one of `TRENDLINE_KINDS`; the
-    optional `forward`/`backward` extend the fit that many units past the data."""
+    optional `forward`/`backward` extend the fit that many units past the data.
+    `order` is the polynomial degree (2–6, `kind="polynomial"`); `period` is the
+    moving-average window (`kind="moving_average"`)."""
     xl = _lookup(kind, TRENDLINE_KINDS, label="trendline kind")
     sc = chart_com.SeriesCollection(int(series))
     tl = sc.Trendlines().Add(int(xl))  # positional Type — keywords drop under late binding
+    if order is not None:
+        tl.Order = int(order)
+    if period is not None:
+        tl.Period = int(period)
     if display_equation:
         tl.DisplayEquation = True
     if display_r_squared:
@@ -394,6 +476,81 @@ def add_trendline(
         tl.Forward = float(forward)
     if backward is not None:
         tl.Backward = float(backward)
+
+
+def format_series(
+    chart_com: Any,
+    *,
+    series: int = 1,
+    point: int | None = None,
+    marker: Any = None,
+    marker_size: int | None = None,
+    smooth: bool | None = None,
+    explosion: int | None = None,
+    data_labels: bool | None = None,
+    data_label_size: Any = None,
+    data_label_color: Any = None,
+) -> None:
+    """Format one series (or a single 1-based `point` within it). Tri-state.
+
+    `marker` is a glyph name (`MARKER_STYLES`) or raw `XlMarkerStyle` int, and
+    `marker_size` (2–72) sizes them — both for line/scatter series. `smooth`
+    curves a line/scatter through its points. `explosion` (0–400) pulls a pie
+    slice out. `data_labels` toggles this series' point labels; `data_label_size`
+    / `data_label_color` style their font (a colour goes through
+    [`to_bgr`][wordlive._format.to_bgr]). When `point` is given, `marker` /
+    `explosion` / the data-label font target that single point; `marker_size` /
+    `smooth` / the `data_labels` toggle stay series-wide.
+    """
+    sc = chart_com.SeriesCollection(int(series))
+    pt = sc.Points(int(point)) if point is not None else None
+    if marker is not None:
+        (pt if pt is not None else sc).MarkerStyle = _marker_value(marker)
+    if marker_size is not None:
+        sc.MarkerSize = int(marker_size)
+    if smooth is not None:
+        sc.Smooth = bool(smooth)
+    if explosion is not None:
+        (pt if pt is not None else sc).Explosion = int(explosion)
+    if data_labels is not None:
+        sc.HasDataLabels = bool(data_labels)
+    if data_label_size is not None or data_label_color is not None:
+        sc.HasDataLabels = True  # DataLabels() raises until labels are shown
+        font = pt.DataLabel.Font if pt is not None else sc.DataLabels().Font
+        if data_label_size is not None:
+            font.Size = float(data_label_size)
+        if data_label_color is not None:
+            font.Color = to_bgr(data_label_color)
+
+
+def add_error_bars(
+    chart_com: Any,
+    *,
+    series: int = 1,
+    kind: str = "fixed",
+    amount: Any = None,
+    include: str = "both",
+    axis: str = "y",
+) -> None:
+    """Draw error bars on a series. `kind` is ``"fixed"`` / ``"percent"`` /
+    ``"stdev"`` / ``"sterror"``; `amount` is the magnitude (required for all but
+    ``"sterror"``, which Word computes from the data). `include` is which side(s)
+    to draw (``"both"`` / ``"plus"`` / ``"minus"``); `axis` is ``"y"``/``"value"``
+    (the usual) or ``"x"``/``"category"`` for scatter x-uncertainty."""
+    etype = _lookup(kind, ERRORBAR_KINDS, label="error-bar kind")
+    incl = _lookup(include, ERRORBAR_INCLUDE, label="error-bar include")
+    axdir = _lookup(axis, ERRORBAR_AXIS, label="error-bar axis")
+    needs_amount = kind.strip().lower() in _ERRORBAR_NEEDS_AMOUNT
+    if amount is None:
+        if needs_amount:
+            raise OpError(f"error-bar kind {kind!r} needs an amount")
+        amt = 1.0  # ignored by Word for standard-error bars
+    else:
+        amt = _coerce_float(amount, ctx="error-bar amount")
+    sc = chart_com.SeriesCollection(int(series))
+    sc.HasErrorBars = True
+    # ErrorBar(Direction, Include, Type, Amount) — positional under late binding.
+    sc.ErrorBar(int(axdir), int(incl), int(etype), amt)
 
 
 def set_series_color(

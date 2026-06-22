@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Chart depth — error bars, series/point formatting & trendline knobs.**
+  (Priority 3, item 7) Deepens the post-insert chart surface, all on the
+  BreakLink-**static** chart with **no Excel** respin (live-probed 2026-06-21).
+  `chart.format_series(series=1, point=None, ...)` styles a series or one point —
+  markers (`marker` glyph name/int, `marker_size`), line `smooth`, pie
+  `explosion`, and per-element data-label font (`data_labels`, `data_label_size`,
+  `data_label_color`). `chart.add_error_bars(kind, amount, include, axis)` draws
+  `fixed`/`percent`/`stdev`/`sterror` bars. `chart.format()` gains `gap_width` /
+  `overlap` (bar spacing) and `data_table`; `chart.add_trendline()` gains `order`
+  (polynomial degree) and `period` (moving-average window). Wired Python / CLI
+  (`format-series`, `add-error-bars`, extended `format-chart` / `add-trendline`) /
+  `exec` ops (`format_series`, `add_error_bars`) / MCP. New constants
+  `XlMarkerStyle` / `XlErrorBarType` / `XlErrorBarInclude` / `XlErrorBarDirection`.
+  (`SaveChartTemplate`/`ApplyChartTemplate` deferred — it blocks under headless
+  COM.)
 - **List polish — custom list-template authoring + per-level format.** Where
   `apply_list` only applies a gallery default, `anchor.apply_list_format(levels)`
   (Priority 3, item 6) **authors a custom multi-level list template** and applies

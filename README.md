@@ -230,6 +230,8 @@ wordlive format-chart --anchor-id chart:1 --chart-style 240 --legend --title "Qu
 wordlive format-axis --anchor-id chart:1 --which value --scale log --title "USD (M)"
 wordlive add-trendline --anchor-id chart:1 --kind power --display-equation   # law of best fit
 wordlive set-series-color --anchor-id chart:1 --color "#2E86C1" --point 2
+wordlive format-series --anchor-id chart:1 --marker circle --marker-size 8 --smooth   # markers + smoothed line
+wordlive add-error-bars --anchor-id chart:1 --kind percent --amount 5        # ± error bars
 
 # Snapshot — render page(s) to PNG so a vision model can SEE the layout
 # (needs the `snapshot` extra: pip install "wordlive[snapshot]"):

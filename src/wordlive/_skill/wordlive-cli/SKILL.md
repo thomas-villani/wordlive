@@ -238,11 +238,17 @@ wordlive set-series-color --anchor-id chart:N --color COLOR [--series N] [--poin
 - `chart:N` is **positional** (document order); inserting another chart earlier
   renumbers it. The result carries the new id.
 - **Formatting & design** (`format-chart` / `format-axis` / `add-trendline` /
-  `set-series-color`, or the `format_chart` / `format_axis` / `add_trendline` /
-  `set_series_color` ops) work on the **static** post-insert chart — **no Excel
+  `set-series-color` / `format-series` / `add-error-bars`, or the `format_chart` /
+  `format_axis` / `add_trendline` / `set_series_color` / `format_series` /
+  `add_error_bars` ops) work on the **static** post-insert chart — **no Excel
   needed**. All fields are tri-state (only what you pass is written); colours are a
   name / hex / `r,g,b`. A `power`/`exponential` trendline with `--display-equation`
-  draws the law of best fit; `--scale log` suits order-of-magnitude data.
+  draws the law of best fit; `--scale log` suits order-of-magnitude data;
+  `polynomial` takes `--order`, `moving_average` takes `--period`. `format-series`
+  styles markers (`--marker circle`, `--marker-size`), line `--smooth`, pie
+  `--explosion`, and per-point data-label fonts; `add-error-bars` draws
+  `fixed`/`percent`/`stdev`/`sterror` bars. `format-chart` also tunes bar
+  `--gap-width`/`--overlap` and toggles the `--data-table`.
 
 ## Snapshot — render page(s) to PNG so you can *see* the layout
 ```
@@ -310,6 +316,7 @@ Ops (the full vocabulary — every CLI verb above has one): `write_bookmark`,
 `insert_markdown`, `replace_section`, `delete_paragraph`, `append`,
 `append_inline`, `prepend`, `prepend_inline`, `insert_image`, `insert_equation`,
 `insert_chart`, `format_chart`, `format_axis`, `add_trendline`, `set_series_color`,
+`format_series`, `add_error_bars`,
 `set_shape_wrap`, `set_shape_crop`, `set_shape_position`, `set_shape_size`,
 `format_shape`, `set_shape_alt_text`, `set_shape_text`, `set_shape_rotation`,
 `set_shape_z_order`, `set_shape_text_frame`, `replace_shape_image`,

@@ -739,3 +739,188 @@ def test_cli_format_chart_rejects_non_chart(fake_word):
     code, _, err = _invoke(["format-chart", "--anchor-id", "start", "--title", "x"])
     assert code != 0
     assert "not a chart" in err
+
+
+# --- PR C: chart depth ------------------------------------------------------
+# format-chart gap/overlap/data-table, format_series, add_error_bars,
+# trendline order/period. Probed live 2026-06-21; the fake mirrors the contract.
+
+
+def test_format_chart_bar_spacing_and_data_table(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, fake = _insert(doc)
+        chart.format(gap_width=40, overlap=20, data_table=True)
+        grp = fake.ChartGroups(1)
+        assert grp.GapWidth == 40 and grp.Overlap == 20
+        assert fake.HasDataTable is True
+
+
+def test_format_series_markers_and_smooth(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, fake = _insert(doc, "line", {"a": 1, "b": 2})
+        chart.format_series(series=1, marker="circle", marker_size=8, smooth=True)
+        s = fake.SeriesCollection()(1)
+        assert s.MarkerStyle == int(_charts.XlMarkerStyle.CIRCLE)
+        assert s.MarkerSize == 8 and s.Smooth is True
+
+
+def test_format_series_marker_int_passthrough(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, fake = _insert(doc, "scatter", [[1.0, 2.0]])
+        chart.format_series(series=1, marker=2)  # raw XlMarkerStyle int
+        assert fake.SeriesCollection()(1).MarkerStyle == 2
+
+
+def test_format_series_point_explosion_and_label_font(fake_word, excel_available):
+    from wordlive._format import to_bgr
+
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, fake = _insert(doc, "pie", {"a": 1, "b": 2})
+        chart.format_series(
+            series=1, point=1, explosion=25, data_label_size=12, data_label_color="red"
+        )
+        pt = fake.SeriesCollection()(1).Points(1)
+        assert pt.Explosion == 25
+        assert pt.DataLabel.Font.Size == 12.0
+        assert pt.DataLabel.Font.Color == to_bgr("red")
+
+
+def test_format_series_data_labels_toggle_then_font(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, fake = _insert(doc)
+        chart.format_series(series=1, data_labels=True, data_label_size=14)
+        s = fake.SeriesCollection()(1)
+        assert s.HasDataLabels is True
+        assert s.DataLabels().Font.Size == 14.0
+
+
+def test_format_series_bad_marker_raises(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, _ = _insert(doc, "line", {"a": 1})
+        with pytest.raises(OpError, match="marker"):
+            chart.format_series(series=1, marker="hexagram")
+
+
+def test_add_error_bars_fixed(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, fake = _insert(doc)
+        chart.add_error_bars(series=1, kind="percent", amount=5, include="plus", axis="y")
+        s = fake.SeriesCollection()(1)
+        assert s.HasErrorBars is True
+        direction, include, type_, amount = s.error_bars[-1]
+        assert direction == int(_charts.XlErrorBarDirection.Y)
+        assert include == int(_charts.XlErrorBarInclude.PLUS_VALUES)
+        assert type_ == int(_charts.XlErrorBarType.PERCENT)
+        assert amount == 5.0
+
+
+def test_add_error_bars_sterror_needs_no_amount(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, fake = _insert(doc)
+        chart.add_error_bars(series=1, kind="sterror")  # Word computes the amount
+        assert fake.SeriesCollection()(1).HasErrorBars is True
+
+
+def test_add_error_bars_amount_required_and_bad_kind(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, _ = _insert(doc)
+        with pytest.raises(OpError, match="amount"):
+            chart.add_error_bars(series=1, kind="fixed")  # fixed needs an amount
+        with pytest.raises(OpError, match="error-bar kind"):
+            chart.add_error_bars(series=1, kind="bogus", amount=1)
+
+
+def test_add_trendline_order_and_period(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        chart, fake = _insert(doc, "scatter", [[1.0, 2.0], [2.0, 5.0]])
+        chart.add_trendline(kind="polynomial", order=3)
+        chart.add_trendline(kind="moving_average", period=2)
+        tls = fake.SeriesCollection()(1).trendlines
+        assert tls[-2].Order == 3
+        assert tls[-1].Period == 2
+
+
+def test_pr_c_ops_in_registries():
+    assert OP_REQUIRED_FIELDS["format_series"] == ("anchor_id",)
+    assert OP_REQUIRED_FIELDS["add_error_bars"] == ("anchor_id",)
+    for f in ("marker", "marker_size", "smooth", "explosion", "data_label_color"):
+        assert f in OP_OPTIONAL_FIELDS["format_series"]
+    for f in ("kind", "amount", "include", "axis"):
+        assert f in OP_OPTIONAL_FIELDS["add_error_bars"]
+    for f in ("gap_width", "overlap", "data_table"):
+        assert f in OP_OPTIONAL_FIELDS["format_chart"]
+    for f in ("order", "period"):
+        assert f in OP_OPTIONAL_FIELDS["add_trendline"]
+
+
+def test_exec_format_series_and_error_bars(fake_word, excel_available):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        _, fake = _insert(doc, "line", {"a": 1, "b": 2})
+        result, exc = run_batch(
+            doc,
+            [
+                {"op": "format_series", "anchor_id": "chart:1", "series": 1, "marker": "square"},
+                {
+                    "op": "add_error_bars",
+                    "anchor_id": "chart:1",
+                    "series": 1,
+                    "kind": "fixed",
+                    "amount": 2,
+                },
+            ],
+            label="depth",
+        )
+        assert exc is None
+        s = fake.SeriesCollection()(1)
+        assert s.MarkerStyle == int(_charts.XlMarkerStyle.SQUARE)
+        assert s.HasErrorBars is True and s.error_bars[-1][3] == 2.0
+
+
+def test_mcp_build_pr_c_ops():
+    from wordlive.mcp.server import _build_write_op
+
+    assert _build_write_op(
+        "format_series", {"anchor_id": "chart:1", "marker": "circle", "marker_size": 8}
+    ) == {"op": "format_series", "anchor_id": "chart:1", "marker": "circle", "marker_size": 8}
+    assert _build_write_op(
+        "add_error_bars", {"anchor_id": "chart:1", "kind": "percent", "amount": 5}
+    ) == {"op": "add_error_bars", "anchor_id": "chart:1", "kind": "percent", "amount": 5}
+
+
+def test_cli_format_series(fake_word, excel_available):
+    with wordlive.attach() as word:
+        word.documents.active.start.insert_chart("line", {"a": 1, "b": 2})
+    code, out, _ = _invoke(
+        ["format-series", "--anchor-id", "chart:1", "--marker", "circle", "--marker-size", "8"]
+    )
+    assert code == 0
+    assert json.loads(out)["ok"] is True
+
+
+def test_cli_format_series_needs_an_option(fake_word, excel_available):
+    with wordlive.attach() as word:
+        word.documents.active.start.insert_chart("line", {"a": 1})
+    code, _, err = _invoke(["format-series", "--anchor-id", "chart:1"])
+    assert code != 0
+    assert "at least one" in err
+
+
+def test_cli_add_error_bars(fake_word, excel_available):
+    with wordlive.attach() as word:
+        word.documents.active.start.insert_chart("bar", {"a": 1, "b": 2})
+    code, out, _ = _invoke(
+        ["add-error-bars", "--anchor-id", "chart:1", "--kind", "percent", "--amount", "5"]
+    )
+    assert code == 0
+    assert json.loads(out)["applied"]["kind"] == "percent"

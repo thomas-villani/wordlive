@@ -1287,6 +1287,50 @@ def test_chart_formatting_verbs(scratch_doc):
     assert row["chart_style"] == 242 and row["has_legend"] is True
 
 
+def test_chart_depth_verbs(scratch_doc):
+    """Drive the PR-C depth surface against live charts (no Excel respin).
+
+    Live-probed 2026-06-21: error bars, markers/smoothing, pie explosion, bar
+    gap/overlap, data table, and trendline order/period are all settable on the
+    BreakLink-static chart. We assert the calls succeed and the charts survive —
+    never the series data. Three kinds (one Excel spin each, kept low to respect
+    the live-Word RPC fragility) cover every type-specific knob: bar, pie, scatter.
+
+    We do NOT assert chart_type after the ops: markers / smoothing legitimately
+    promote the underlying Xl ChartType (a marked scatter becomes xlLineMarkers),
+    so the kind string is expected to drift — the point is the calls don't raise.
+    """
+    doc = scratch_doc
+    with doc.edit("insert"):
+        doc.end.insert_chart("bar", {"Q1": 10, "Q2": 25, "Q3": 18}, title="Q")
+        doc.end.insert_chart("pie", {"A": 1, "B": 2, "C": 3})
+        doc.end.insert_chart("scatter", [[1.0, 2.0], [2.0, 5.0], [3.0, 7.0], [4.0, 10.0]])
+    bar, pie, scatter = doc.charts[1], doc.charts[2], doc.charts[3]
+
+    with doc.edit("chart depth"):
+        # bar: spacing + data table + percent error bars on the value axis
+        bar.format(gap_width=40, overlap=20, data_table=True, chart_style=240)
+        bar.add_error_bars(series=1, kind="percent", amount=5, include="both")
+        # pie: explode one slice
+        pie.format_series(series=1, point=1, explosion=25)
+        # scatter: markers + smoothed line, styled labels, and two trendline knobs
+        scatter.format_series(
+            series=1,
+            marker="circle",
+            marker_size=8,
+            smooth=True,
+            data_labels=True,
+            data_label_size=9,
+            data_label_color="#2E86C1",
+        )
+        scatter.add_trendline(kind="polynomial", order=3, display_equation=True)
+        scatter.add_trendline(kind="moving_average", period=2)
+
+    # The charts survived the depth ops and stable design metadata still reads back.
+    assert len(doc.charts) == 3
+    assert bar.chart_style == 240
+
+
 # ---------------------------------------------------------------------------
 # Table styling & polish — restyle / alignment / borders / banding, cell
 # vertical alignment, and the row/column anchors (table:N:row:R / :col:C).

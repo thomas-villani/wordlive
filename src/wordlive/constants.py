@@ -823,3 +823,62 @@ class XlTrendlineType(IntEnum):
     MOVING_AVERAGE = 6
     POLYNOMIAL = 3
     POWER = 4
+
+
+class XlMarkerStyle(IntEnum):
+    """`Series.MarkerStyle` / `Point.MarkerStyle` values — the data-point glyph.
+
+    Used by `ChartAnchor.format_series(marker=...)` for line/scatter series.
+    `AUTOMATIC` lets Word pick; `NONE` hides markers. The rest name the glyph.
+    """
+
+    NONE = -4142
+    AUTOMATIC = -4105
+    SQUARE = 1
+    DIAMOND = 2
+    TRIANGLE = 3
+    X = -4168
+    STAR = 5
+    DOT = -4118
+    DASH = -4115
+    CIRCLE = 8
+    PLUS = 9
+
+
+class XlErrorBarDirection(IntEnum):
+    """`Series.ErrorBar(Direction=...)` — which axis the error bars extend along.
+
+    wordlive draws value-axis (`Y`) error bars; `X` is exposed for scatter where
+    the independent variable also carries uncertainty.
+    """
+
+    X = -4168
+    Y = 1
+
+
+class XlErrorBarInclude(IntEnum):
+    """`Series.ErrorBar(Include=...)` — which side(s) of each point to draw.
+
+    `ChartAnchor.add_error_bars(direction=...)` maps ``"both"`` / ``"plus"`` /
+    ``"minus"`` onto `BOTH` / `PLUS_VALUES` / `MINUS_VALUES`.
+    """
+
+    BOTH = 1
+    PLUS_VALUES = 2
+    MINUS_VALUES = 3
+    NONE = 4
+
+
+class XlErrorBarType(IntEnum):
+    """`Series.ErrorBar(Type=...)` — how the error amount is computed.
+
+    `ChartAnchor.add_error_bars(kind=...)` maps ``"fixed"`` / ``"percent"`` /
+    ``"stdev"`` / ``"sterror"`` onto these. `STANDARD_ERROR` ignores the supplied
+    amount (Word computes it from the series); the others use it.
+    """
+
+    FIXED_VALUE = 1
+    PERCENT = 2
+    STANDARD_DEVIATION = 3
+    STANDARD_ERROR = 4
+    CUSTOM = -4114
