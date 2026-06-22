@@ -94,6 +94,42 @@ def test_kind_maps_are_consistent():
         assert _charts.XL_TO_KIND[int(xl)] == kind
 
 
+def test_error_bar_amount_required_keys_off_resolved_type():
+    # The amount-required check must key off the *resolved* error-bar type, not the
+    # raw `kind` string — so alias spellings behave like their canonical forms.
+    import pytest
+
+    from wordlive._charts import add_error_bars
+    from wordlive.exceptions import OpError
+
+    class _FakeSeries:
+        def __init__(self) -> None:
+            self.HasErrorBars = False
+            self.calls: list[tuple] = []
+
+        def ErrorBar(self, *args: object) -> None:
+            self.calls.append(args)
+
+    class _FakeChart:
+        def __init__(self) -> None:
+            self._s = _FakeSeries()
+
+        def SeriesCollection(self, index: int) -> _FakeSeries:
+            return self._s
+
+    # Every amount-requiring kind raises without an amount — canonical and alias alike.
+    for kind in ("fixed", "percent", "percentage", "stdev", "standard_deviation"):
+        with pytest.raises(OpError, match="needs an amount"):
+            add_error_bars(_FakeChart(), kind=kind)
+
+    # Standard-error computes its own amount — no amount needed; ErrorBar still fires.
+    for kind in ("sterror", "standard_error"):
+        chart = _FakeChart()
+        add_error_bars(chart, kind=kind)
+        assert chart._s.HasErrorBars is True
+        assert len(chart._s.calls) == 1
+
+
 # ---------------------------------------------------------------------------
 # probe_excel_available — real probe + the gate it drives
 # ---------------------------------------------------------------------------

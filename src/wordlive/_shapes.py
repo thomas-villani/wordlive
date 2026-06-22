@@ -24,6 +24,7 @@ Live-probed facts this module encodes (2026-06-19):
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from ._format import to_bgr, to_points
@@ -426,23 +427,46 @@ def ungroup_shape(shape: Any) -> list[str]:
     return names
 
 
+def _read_float(obj: Any, attr: str) -> float | None:
+    """Best-effort float read of a COM property — ``None`` if it can't be read."""
+    try:
+        return float(getattr(obj, attr))
+    except Exception:
+        return None
+
+
 def replace_shape_image(doc_com: Any, shape: Any, disk_path: str) -> Any:
     """Swap a floating picture's image by delete + reinsert at the same anchor.
 
-    Preserves wrap / position / size / lock-aspect / alt-text / name. Returns the
-    new `Shape`. `Shape.Fill.UserPicture` was rejected by a live probe: on a
-    picture shape it overlays a second picture-fill instead of replacing the
-    displayed picture. Raises `OpError` if the shape isn't a floating picture.
+    Preserves the full layout — wrap *type and side*, the four text-distance
+    standoffs, position, size, lock-aspect, **rotation**, **crop insets**,
+    alt-text, and name — so swapping the image keeps everything but the pixels.
+    (Crop is best-effort: the captured insets are absolute point amounts off the
+    natural image, so a replacement of a different native size crops a different
+    region.) Returns the new `Shape`. `Shape.Fill.UserPicture` was rejected by a
+    live probe: on a picture shape it overlays a second picture-fill instead of
+    replacing the displayed picture. Raises `OpError` if the shape isn't a
+    floating picture.
     """
     if shape_kind(shape) != "picture":
         raise OpError("replace_image needs a picture shape (a floating image)")
     pos = int(shape.Anchor.Start)
     wrap = int(shape.WrapFormat.Type)
+    wrap_side = _read_float(shape.WrapFormat, "Side")
+    standoffs = {
+        attr: _read_float(shape.WrapFormat, attr)
+        for attr in ("DistanceTop", "DistanceBottom", "DistanceLeft", "DistanceRight")
+    }
     left, top = float(shape.Left), float(shape.Top)
     width, height = float(shape.Width), float(shape.Height)
     rel_h = int(shape.RelativeHorizontalPosition)
     rel_v = int(shape.RelativeVerticalPosition)
     lock = int(shape.LockAspectRatio)
+    rotation = _read_float(shape, "Rotation")
+    crops = {
+        attr: _read_float(shape.PictureFormat, attr)
+        for attr in ("CropLeft", "CropTop", "CropRight", "CropBottom")
+    }
     try:
         alt = str(shape.AlternativeText or "")
     except Exception:
@@ -455,11 +479,28 @@ def replace_shape_image(doc_com: Any, shape: Any, disk_path: str) -> Any:
     )
     new_shape = ish.ConvertToShape()
     new_shape.WrapFormat.Type = wrap
+    if wrap_side is not None:
+        with contextlib.suppress(Exception):
+            new_shape.WrapFormat.Side = int(wrap_side)
+    for attr, val in standoffs.items():
+        if val is not None:
+            with contextlib.suppress(Exception):
+                setattr(new_shape.WrapFormat, attr, val)
+    # Crop the freshly-inserted full image before sizing — Word's model is
+    # crop-the-natural-image-then-scale, so the captured display Width/Height
+    # (which were the *cropped* dimensions) come out right.
+    for attr, val in crops.items():
+        if val is not None:
+            with contextlib.suppress(Exception):
+                setattr(new_shape.PictureFormat, attr, val)
     new_shape.LockAspectRatio = int(MsoTriState.FALSE)  # honour both dimensions exactly
     new_shape.Width, new_shape.Height = width, height
     new_shape.RelativeHorizontalPosition = rel_h
     new_shape.RelativeVerticalPosition = rel_v
     new_shape.Left, new_shape.Top = left, top
+    if rotation is not None:
+        with contextlib.suppress(Exception):
+            new_shape.Rotation = rotation
     new_shape.LockAspectRatio = lock
     if alt:
         new_shape.AlternativeText = alt

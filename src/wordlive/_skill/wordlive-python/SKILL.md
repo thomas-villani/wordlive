@@ -532,9 +532,10 @@ doc.diff(cp_a, cp_b)                  # diff two stored checkpoints; cp.to_json(
 fires when content changes, so checkpoint+diff is the *only* way to answer "what
 changed in session" and to verify your own edits landed). `changes_since(cp)`
 diffs a stored checkpoint against the document now, `diff(a, b)` diffs two stored
-checkpoints; each change is `replace`/`insert`/`delete`/`restyle`/`reformat`
-carrying the **current** `para:N`, aligned by paragraph content (not index — ids
-renumber), with an unchanged doc returning `[]`. `include="text+format"` also
+checkpoints; each change is `replace`/`insert`/`delete`/`restyle`/`reformat` (plus
+`table_change`/`table_insert`/`table_delete` for tables) carrying the **current**
+`para:N`/`table:N`, aligned by paragraph content (not index — ids renumber), with
+an unchanged doc returning `[]`. `include="text+format"` also
 catches a direct-formatting edit as a `reformat`.
 
 `doc.properties` (read/write) and `doc.variables` (read/write) manage the file's

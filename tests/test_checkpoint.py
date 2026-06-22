@@ -13,9 +13,45 @@ from __future__ import annotations
 import pytest
 
 import wordlive
-from wordlive import Checkpoint, _com
-from wordlive._checkpoint import diff_checkpoints
+from wordlive import Checkpoint, _com, _findreplace
+from wordlive._checkpoint import _change_hash, _sha1, diff_checkpoints
 from wordlive.exceptions import OpError
+
+
+def _mk_cp(paras, tables=None, *, include="text+style", styles=None, fmts=None):
+    """Build a `Checkpoint` directly (no COM) so the diff classifier — especially
+    the table-diff and restyle/reformat gating — can be unit-tested precisely."""
+    tables = tables or []
+    pgs = []
+    for i, text in enumerate(paras):
+        style = (styles or {}).get(i, "Normal")
+        fmt = (fmts or {}).get(i)
+        norm = _findreplace._normalize(text).text
+        pgs.append(
+            {
+                "i": i,
+                "text": text,
+                "style": style,
+                "level": 10,
+                "list": None,
+                "fmt": fmt,
+                "key": _sha1(norm),
+                "hash": _change_hash(include, norm, style, fmt),
+            }
+        )
+    doc_hash = _sha1(
+        "\n".join(p["hash"] for p in pgs)
+        + "\n\x1etables\x1e\n"
+        + "\n".join(t["cells_hash"] for t in tables)
+    )
+    return Checkpoint(
+        version=1,
+        include=include,
+        scope=None,
+        paragraphs=pgs,
+        tables=tables,
+        doc_hash=doc_hash,
+    )
 
 
 def _attach(monkeypatch, app):
@@ -145,6 +181,70 @@ def test_text_mode_ignores_restyle(monkeypatch):
     # style is outside the 'text' fingerprint, so doc_hash matches → no change
     assert a.doc_hash == b.doc_hash
     assert diff_checkpoints(a, b) == []
+
+
+def test_reformat_only_in_text_plus_format_with_real_fmt_diff(monkeypatch):
+    # Same text, same style, different format fingerprint → reformat (text+format).
+    a = _mk_cp(["Body"], include="text+format", fmts={0: "fmtA"})
+    b = _mk_cp(["Body"], include="text+format", fmts={0: "fmtB"})
+    changes = diff_checkpoints(a, b)
+    assert [c["op"] for c in changes] == ["reformat"]
+
+
+def test_no_reformat_verdict_without_format_fingerprint(monkeypatch):
+    # In text+style mode there is no `fmt`, so a same-text hash difference can only
+    # be a restyle — never a `reformat` (which would have no format data behind it).
+    a = _mk_cp(["Body"], include="text+style", styles={0: "Normal"})
+    b = _mk_cp(["Body"], include="text+style", styles={0: "Quote"})
+    changes = diff_checkpoints(a, b)
+    assert [c["op"] for c in changes] == ["restyle"]
+
+
+def test_table_cell_change_surfaces_as_table_change(monkeypatch):
+    # A table-only edit must not slip through (doc_hash breaks the fast path, then
+    # the paragraph diff finds nothing) — it surfaces as a coarse table_change.
+    a = _mk_cp(["Body"], tables=[{"index": 1, "shape": [2, 2], "cells_hash": _sha1("old")}])
+    b = _mk_cp(["Body"], tables=[{"index": 1, "shape": [2, 2], "cells_hash": _sha1("new")}])
+    changes = diff_checkpoints(a, b)
+    assert [c["op"] for c in changes] == ["table_change"]
+    assert changes[0]["anchor_id"] == "table:1"
+
+
+def test_table_insert_and_delete(monkeypatch):
+    none = _mk_cp(["Body"], tables=[])
+    one = _mk_cp(["Body"], tables=[{"index": 1, "shape": [2, 2], "cells_hash": _sha1("x")}])
+    assert [c["op"] for c in diff_checkpoints(none, one)] == ["table_insert"]
+    assert [c["op"] for c in diff_checkpoints(one, none)] == ["table_delete"]
+
+
+def test_edit_amid_blank_lines_detected_with_correct_anchor(monkeypatch):
+    # Blank paragraphs share an alignment key, but the real content edit must still
+    # be classified correctly with the right anchor (the documented limitation is
+    # only spurious blank-line churn, not a misclassified real change).
+    a = _checkpoint(monkeypatch, ["Alpha", "", "Beta", "", "Gamma"])
+    b = _checkpoint(monkeypatch, ["Alpha", "", "Beta edited", "", "Gamma"])
+    changes = diff_checkpoints(a, b)
+    assert any(
+        c["op"] == "replace" and c["text_after"] == "Beta edited" and c["anchor_id"] == "para:3"
+        for c in changes
+    )
+
+
+def test_changes_since_rejects_offset_range_scope(monkeypatch):
+    base = _checkpoint(monkeypatch, ["X"])
+    forged = Checkpoint(
+        version=1,
+        include=base.include,
+        scope="range:0-5",
+        paragraphs=base.paragraphs,
+        tables=base.tables,
+        doc_hash=base.doc_hash,
+    )
+    app = _make_app(paragraphs=_paras(["X"]))
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        with pytest.raises(OpError, match="offset-based scope"):
+            word.documents.active.changes_since(forged)
 
 
 def test_text_plus_format_populates_fmt(monkeypatch):

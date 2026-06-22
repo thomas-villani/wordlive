@@ -123,6 +123,22 @@ def test_apply_list_format_bullet_without_glyph_raises(fake_word):
             doc.range(0, 12).apply_list_format([{"kind": "bullet"}])
 
 
+def test_apply_list_format_invalid_later_level_leaves_no_orphan_template(fake_word):
+    # A valid first level + a malformed second one must NOT mint a template — all
+    # validation happens before ListTemplates.Add, so no orphan is left behind.
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        before = int(doc.com.ListTemplates.Count)
+        with pytest.raises(OpError):
+            doc.range(0, 12).apply_list_format(
+                [
+                    {"kind": "number", "format": "%1.", "style": "arabic"},
+                    {"kind": "number", "style": "squiggly"},  # invalid → must abort early
+                ]
+            )
+        assert int(doc.com.ListTemplates.Count) == before
+
+
 def test_read_list_levels_on_plain_range_is_empty(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active

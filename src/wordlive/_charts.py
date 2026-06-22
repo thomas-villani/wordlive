@@ -137,9 +137,6 @@ ERRORBAR_AXIS: dict[str, XlErrorBarDirection] = {
     "category": XlErrorBarDirection.X,
 }
 
-# Standard-error error bars compute their own amount; the others use the supplied one.
-_ERRORBAR_NEEDS_AMOUNT: frozenset[str] = frozenset({"fixed", "percent", "stdev"})
-
 
 def _marker_value(marker: Any) -> int:
     """Map a marker name (or raw int) onto an `XlMarkerStyle` int."""
@@ -540,7 +537,11 @@ def add_error_bars(
     etype = _lookup(kind, ERRORBAR_KINDS, label="error-bar kind")
     incl = _lookup(include, ERRORBAR_INCLUDE, label="error-bar include")
     axdir = _lookup(axis, ERRORBAR_AXIS, label="error-bar axis")
-    needs_amount = kind.strip().lower() in _ERRORBAR_NEEDS_AMOUNT
+    # Only standard-error bars compute their own amount; every other type needs
+    # one. Key off the *resolved* enum, not the raw `kind` string — otherwise the
+    # aliases ("percentage", "standard_deviation") bypass the check and silently
+    # draw bogus amount-1.0 bars while their canonical spellings correctly raise.
+    needs_amount = etype != XlErrorBarType.STANDARD_ERROR
     if amount is None:
         if needs_amount:
             raise OpError(f"error-bar kind {kind!r} needs an amount")

@@ -29,7 +29,7 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from . import _com, _findreplace
-from ._anchors import paragraph_text, range_text
+from ._anchors import _read_font, _read_paragraph_format, range_text
 from ._tables import _strip_cell_text
 from .exceptions import OpError
 
@@ -62,11 +62,18 @@ class Checkpoint:
 
     `paragraphs` is one dict per paragraph in document order
     (`{i, text, style, level, list, fmt, key, hash}`): `key` is the alignment
-    identity (normalised text only — so a restyled paragraph still aligns), and
-    `hash` is the change key (normalised text plus, per `include`, style and the
-    format fingerprint). `tables` fingerprints each table coarsely
-    (`{index, shape, cells_hash}` — detects *a* cell changed); `doc_hash` is the
-    whole-fingerprint fast-path (equal ⇒ no changes).
+    identity (normalised text **only** — deliberately not style/level, so a
+    restyled paragraph still aligns as `equal` and surfaces as a `restyle` rather
+    than a delete+insert), and `hash` is the change key (normalised text plus, per
+    `include`, style and the format fingerprint). `tables` fingerprints each table
+    coarsely (`{index, shape, cells_hash}` — detects *a* cell changed); `doc_hash`
+    is the whole-fingerprint fast-path (equal ⇒ no changes).
+
+    Because `key` is text-only, paragraphs with identical normalised text (blank
+    lines, repeated boilerplate) share a key and are interchangeable to the
+    aligner, so an edit amid many identical lines can mis-pair them (usually a
+    spurious blank-line insert/delete, not a misclassified real change). Exact
+    per-paragraph identity is the deferred `track=True` (pin-backed) mode.
     """
 
     version: int
@@ -119,21 +126,42 @@ def _overlaps(span: Span | None, lo: int, hi: int) -> bool:
     return lo < span[1] and hi > span[0]
 
 
-def _format_fingerprint(doc: Document, idx: int) -> str:
-    """A stable hash of `para:{idx}`'s effective paragraph + character formatting,
-    for `include="text+format"`. Reuses `format_info()` (the linter's read mirror)
-    and folds the per-field *effective* values into a sorted, deterministic
-    string. Only built in `text+format` mode — it's the expensive path (one anchor
-    + format probe per paragraph)."""
-    info = doc.anchor_by_id(f"para:{idx}").format_info()
+def _format_fingerprint(rng: Any) -> str:
+    """A stable hash of a paragraph range's effective paragraph + character
+    formatting, for `include="text+format"`. Reads the *effective* values straight
+    off the already-iterated `rng` (same `_read_paragraph_format`/`_read_font`
+    helpers `format_info` uses) and folds them into a sorted, deterministic string.
+
+    Takes the live range rather than re-resolving `para:{idx}` via `anchor_by_id`
+    — resolving a `Paragraph` anchor re-enumerates `doc.Paragraphs` from the top,
+    so probing every paragraph that way made the `text+format` checkpoint O(n²) in
+    paragraph count. This stays O(n)."""
+    eff_para = _read_paragraph_format(rng.ParagraphFormat)
+    eff_font, _mixed = _read_font(rng.Font)
     parts: list[str] = []
-    for section in ("paragraph", "font"):
-        block = info.get(section, {})
+    for section, block in (("paragraph", eff_para), ("font", eff_font)):
         for key in sorted(block):
-            entry = block[key]
-            if isinstance(entry, dict) and "value" in entry:
-                parts.append(f"{section}.{key}={entry['value']}")
+            parts.append(f"{section}.{key}={block[key]}")
     return _sha1("\x1f".join(parts))
+
+
+def _stable_paragraph_text(rng: Any) -> str:
+    """A paragraph's text read with a fixed field-code / hidden-text policy.
+
+    `Range.Text` otherwise reflects the live ``ShowFieldCodes`` / ``ShowHidden``
+    view state, so the *same* document could fingerprint differently depending on
+    how the user happens to be viewing it (a phantom `replace`), or a `{ DATE }`
+    shown as a code vs its result would flip the hash. Pinning the retrieval mode
+    makes the read view-independent. (An auto-updating field whose *result*
+    changes — e.g. `PAGEREF` — can still surface as a change; excluding field
+    results entirely is a deeper follow-up.)"""
+    try:
+        mode = rng.TextRetrievalMode
+        mode.IncludeFieldCodes = False
+        mode.IncludeHiddenText = False
+    except Exception:
+        pass
+    return range_text(rng).rstrip("\r\n\x07")
 
 
 def _change_hash(include: str, norm: str, style: str, fmt: str | None) -> str:
@@ -207,7 +235,7 @@ def build_checkpoint(
             lo, hi = int(rng.Start), int(rng.End)
             if not _overlaps(span, lo, hi):
                 continue
-            raw = paragraph_text(para)
+            raw = _stable_paragraph_text(rng)
             norm = _findreplace._normalize(raw).text
             try:
                 level = int(para.OutlineLevel)
@@ -217,7 +245,7 @@ def build_checkpoint(
                 style = str(rng.ParagraphStyle.NameLocal)
             except Exception:
                 style = ""
-            fmt = _format_fingerprint(doc, idx) if include == "text+format" else None
+            fmt = _format_fingerprint(rng) if include == "text+format" else None
             paragraphs.append(
                 {
                     "i": idx - 1,
@@ -334,9 +362,11 @@ def diff_checkpoints(
     `para:N` renumbers under inserts/deletes) with `difflib.SequenceMatcher`, then
     classifies each opcode: `replace` (text edit) / `insert` / `delete`, and —
     within an `equal` block whose change-`hash` still differs — `restyle` (style
-    changed) or `reformat` (only the format fingerprint changed). A matching
-    `doc_hash` short-circuits to `[]` (the cheap "nothing changed" path). Move
-    detection is deferred — a cut-paste surfaces as delete+insert.
+    changed) or `reformat` (only the format fingerprint changed, `text+format`
+    only). Tables are then compared coarsely by index, emitting
+    `table_change` / `table_insert` / `table_delete`. A matching `doc_hash`
+    short-circuits to `[]` (the cheap "nothing changed" path). Move detection is
+    deferred — a cut-paste surfaces as delete+insert.
     """
     a = _coerce(cp_a)
     b = _coerce(cp_b)
@@ -361,7 +391,19 @@ def diff_checkpoints(
                 pa_k, pb_k = pa[i1 + k], pb[j1 + k]
                 if pa_k["hash"] == pb_k["hash"]:
                     continue
-                op = "restyle" if pa_k["style"] != pb_k["style"] else "reformat"
+                # `reformat` is only a meaningful verdict in `text+format` mode and
+                # only when the format fingerprint actually moved; otherwise the
+                # same-text hash difference is a style change. (In `text`/
+                # `text+style` mode no `fmt` is captured, so a hash diff here is
+                # always a restyle — never report a `reformat` with no format data.)
+                if (
+                    pa_k["style"] == pb_k["style"]
+                    and a.include == "text+format"
+                    and pa_k.get("fmt") != pb_k.get("fmt")
+                ):
+                    op = "reformat"
+                else:
+                    op = "restyle"
                 changes.append(_record(op, pa_k, pb_k))
         elif tag == "replace":
             # Pair old→new by text similarity so an edit beside an insert/delete
@@ -379,6 +421,46 @@ def diff_checkpoints(
         elif tag == "insert":
             for k in range(j1, j2):
                 changes.append(_record("insert", None, pb[k]))
+
+    # Tables are folded into `doc_hash` (so a table-only edit breaks the fast
+    # path) but the paragraph alignment above can't see them — without this pass
+    # a table-only change would slip through and `diff` would wrongly return [].
+    # Compare coarsely by 1-based index (per-cell diffing is deferred): a shape
+    # or cell-content change surfaces as `table_change`; an added/removed table
+    # as `table_insert`/`table_delete`.
+    ta = {t["index"]: t for t in a.tables}
+    tb = {t["index"]: t for t in b.tables}
+    for index in sorted(set(ta) | set(tb)):
+        before, after = ta.get(index), tb.get(index)
+        if before == after:
+            continue
+        if before is None:
+            changes.append(
+                {
+                    "op": "table_insert",
+                    "index_after": index - 1,
+                    "anchor_id": f"table:{index}",
+                    "shape_after": after["shape"],  # type: ignore[index]
+                }
+            )
+        elif after is None:
+            changes.append(
+                {
+                    "op": "table_delete",
+                    "index_before": index - 1,
+                    "shape_before": before["shape"],
+                }
+            )
+        else:
+            changes.append(
+                {
+                    "op": "table_change",
+                    "index_after": index - 1,
+                    "anchor_id": f"table:{index}",
+                    "shape_before": before["shape"],
+                    "shape_after": after["shape"],
+                }
+            )
     return changes
 
 
@@ -387,5 +469,16 @@ def changes_since(doc: Document, cp: Checkpoint | str | dict[str, Any]) -> list[
     checkpoint's `include` depth and `scope` so the two fingerprints are
     comparable."""
     base = _coerce(cp)
+    # A `range:START-END` scope is pinned to character offsets; re-resolving it
+    # against the *current* document (after edits that shifted offsets — exactly
+    # what we're diffing for) would clip a different window than the original
+    # checkpoint covered, silently comparing mismatched regions. Stable semantic
+    # anchors (`heading:N`, `bookmark:`, `cc:`, `start`/`end`) re-resolve cleanly.
+    if base.scope is not None and base.scope.startswith("range:"):
+        raise OpError(
+            f"changes_since cannot re-derive an offset-based scope ({base.scope!r}) — "
+            "offsets shift under edits. Scope the checkpoint with a stable anchor "
+            "(heading:N / bookmark: / cc:), or diff two stored checkpoints with diff()."
+        )
     now = build_checkpoint(doc, include=base.include, within=base.scope)
     return diff_checkpoints(base, now)

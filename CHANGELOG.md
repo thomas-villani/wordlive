@@ -273,6 +273,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `word_read` command `lint`, `word_write` command `regularize`. `Finding` is
     exported from the package. Detailed design: `spec-linter.md`.
 
+### Fixed
+- **Export: underline never reached HTML output.** `to_html` advertised it kept
+  underline, but the COM walk routed `Font.Underline` (a `WdUnderline` enum:
+  `1`=single, `3`=double, …) through the `-1`/`0` bold/italic coercion, so every
+  underline read as off. Underlined text now renders `<u>…</u>`.
+- **Export: `doc.read(budget=N)` could exceed the budget on many-section docs.**
+  Per-section lead snippets were emitted regardless of remaining budget, so output
+  grew with section count. Snippets now draw from one shared budget pool (the
+  heading spine remains the fixed navigation backbone, as documented).
+- **Export: multi-word hyperlinks split into one link per word** (e.g.
+  `[one](url) [two](url)`); adjacent spans of the same hyperlink now coalesce into
+  a single `[one two three](url)`. Link word-tagging also switched from a
+  point-test to range-overlap so a trailing word can't be dropped.
+- **Export: inline images inside table cells became unaddressable** — they're now
+  appended as `![alt](image:N)` so every `image:N` stays referenceable.
+- **Checkpoint/diff: a table-only edit reported no changes.** The table hash
+  broke the fast path but the diff only walked paragraphs, so `diff` returned `[]`
+  for a changed document. Tables are now compared, emitting
+  `table_change` / `table_insert` / `table_delete` records.
+- **Checkpoint: the `text+format` fingerprint was O(n²)** (it re-resolved each
+  `para:N`, re-enumerating paragraphs from the top); it now reads formatting off
+  the already-iterated range.
+- **Checkpoint: field-code/view state could cause phantom changes.** Paragraph
+  text is now read with a pinned `TextRetrievalMode`, so toggling ShowFieldCodes
+  between checkpoints no longer surfaces a spurious `replace`.
+- **Checkpoint: `reformat` could be reported with no format data** (in
+  `text`/`text+style` mode); a same-text change is now `reformat` only in
+  `text+format` mode when the format fingerprint actually moved, else `restyle`.
+- **Checkpoint: `changes_since` now rejects an offset-based `range:` scope** with
+  a clear error (offsets shift under edits; use a stable anchor or `diff()` of two
+  stored checkpoints).
+- **Linter: `list-numbering-continuity` missed number-only / mixed numbered
+  lists** (only simple/outline were recognised) — all numbered list types are now
+  checked.
+- **Linter: `regularize` dropped `run_batch`'s failure detail** on a failed fix;
+  the structured failure now rides on the raised error.
+- **Lists: `apply_list_format` could orphan a `ListTemplate`** when a later level
+  spec was invalid — every level is now validated before the template is minted.
+- **Charts: `add_error_bars` alias spellings bypassed amount validation**
+  (`percentage` / `standard_deviation` silently drew amount-1.0 bars); the
+  amount-required check now keys off the resolved error-bar type.
+- **Tables: `Cell.merge` docstring corrected** — the merged cell is addressed by
+  the rectangle's **upper-left** coordinate, not "this cell".
+- **Tables: column styling re-resolved each cell through `Table.cell()`** (an
+  extra COM round-trip + a logical-bounds check); `ColumnAnchor` now styles the
+  already-read column cells directly.
+- **Shapes: `replace_image` dropped crop, rotation, wrap side, and text-distance
+  standoffs** — the delete+reinsert swap now preserves the full layout.
+
+### Changed
+- **Crop edge fields accept `crop_*` aliases everywhere.** The `set_shape_crop` /
+  `set_image_crop` exec ops (and CLI) accept `crop_left`/`crop_top`/… in addition
+  to `left`/`top`/… — matching the MCP `word_write` names — so a batch authored
+  against either vocabulary works.
+
 ## 0.17.0
 
 ### Added

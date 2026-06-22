@@ -1205,6 +1205,32 @@ def test_insert_text_box_creates_floating_shape_with_text(scratch_doc):
     assert "Pull quote!" in str(shape.TextFrame.TextRange.Text)
 
 
+def test_replace_image_preserves_rotation_wrap_and_crop(scratch_doc, png_path):
+    """Swapping a floating picture's image keeps its rotation, wrap side, and crop
+    (delete+reinsert must re-apply the full layout, not just position/size)."""
+    doc = scratch_doc
+    with doc.edit("seed image"):
+        doc.end.insert_image(png_path, wrap="square", alt_text="orig")
+    with doc.edit("style image"):
+        sh = doc.anchor_by_id("shape:1")
+        sh.set_rotation(30)
+        sh.set_wrap(side="left", distance_right="0.2in")
+
+    s_before = doc.com.Shapes(1)
+    rot, side, dist = (
+        round(float(s_before.Rotation), 1),
+        int(s_before.WrapFormat.Side),
+        round(float(s_before.WrapFormat.DistanceRight), 2),
+    )
+    with doc.edit("replace image"):
+        doc.anchor_by_id("shape:1").replace_image(_PNG)
+
+    s_after = doc.com.Shapes(1)
+    assert round(float(s_after.Rotation), 1) == rot
+    assert int(s_after.WrapFormat.Side) == side
+    assert round(float(s_after.WrapFormat.DistanceRight), 2) == dist
+
+
 # ---------------------------------------------------------------------------
 # Charts (insert_chart + doc.charts) — real Excel-backed AddChart2 / BreakLink.
 # Requires Excel installed alongside Word. The recipe is hard-won (see _charts):
@@ -1480,9 +1506,30 @@ def test_merge_cells_via_api_makes_table_non_uniform(scratch_doc):
     with doc.edit("merge"):
         t.cell(1, 1).merge(t.cell(1, 2))
     assert t.is_uniform is False
-    # The merged cell keeps table:1:1:1 and carries both original texts.
+    # The merged cell is addressed by the rectangle's upper-left (1,1) and carries
+    # both original texts.
     merged = t.cell(1, 1).text
     assert "A" in merged and "B" in merged
+
+
+def test_merge_collapses_to_upper_left_regardless_of_receiver(scratch_doc):
+    """Cell.Merge always collapses to the upper-left cell, even when `self` is the
+    bottom-right receiver — the merged cell is addressed by the upper-left coord."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(2, 2, data=[["A", "B"], ["C", "D"]])
+    t = doc.tables[1]
+    with doc.edit("merge into upper-left"):
+        t.cell(2, 2).merge(t.cell(1, 1))  # receiver is (2,2), MergeTo is (1,1)
+    # The survivor is at (1,1) and holds every spanned cell's text…
+    merged = t.cell(1, 1).text
+    for ch in ("A", "B", "C", "D"):
+        assert ch in merged
+    # …and the bottom-right coordinate no longer resolves.
+    from wordlive.exceptions import AnchorNotFoundError
+
+    with pytest.raises(AnchorNotFoundError):
+        _ = t.cell(2, 2).text
 
 
 def test_split_cell_via_api_makes_table_non_uniform(scratch_doc):
@@ -1496,3 +1543,24 @@ def test_split_cell_via_api_makes_table_non_uniform(scratch_doc):
     assert t.is_uniform is False
     # Row 1 now has more physical cells than row 2.
     assert int(t.com.Rows(1).Cells.Count) > int(t.com.Rows(2).Cells.Count)
+
+
+def test_checkpoint_ignores_field_code_view_toggle(scratch_doc):
+    """A checkpoint is independent of the ShowFieldCodes view state: toggling it
+    between two checkpoints of an unchanged doc must not surface a phantom change
+    (the fingerprint pins TextRetrievalMode rather than reading the live view)."""
+    doc = scratch_doc
+    with doc.edit("seed field"):
+        # Insert a PAGE field via COM so the paragraph contains a real field.
+        rng = doc.anchor_by_id("start").com
+        doc.com.Fields.Add(Range=rng, Type=33)  # wdFieldPage
+
+    cp = doc.checkpoint()
+    view = doc.com.ActiveWindow.View
+    original = view.ShowFieldCodes
+    try:
+        view.ShowFieldCodes = not original
+        changes = doc.changes_since(cp)
+    finally:
+        view.ShowFieldCodes = original
+    assert changes == []

@@ -77,6 +77,17 @@ def test_lint_flags_split_numbered_lists(monkeypatch):
     assert [op["op"] for op in f["fix"]] == ["remove_list", "apply_list"]
 
 
+def test_lint_flags_split_number_only_lists(monkeypatch):
+    # number-only (WdListType.LIST_NUM_ONLY = 1) and mixed (5) numbered lists
+    # suffer the same split footgun and must be flagged, not just simple/outline.
+    app = _make_app(lists=[{"start": 0, "end": 10, "type": 1}, {"start": 10, "end": 20, "type": 5}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["list-numbering-continuity"])
+    assert len(findings) == 1
+    assert findings[0]["anchor_id"] == "range:0-20"
+
+
 def test_lint_ignores_separated_numbered_lists(monkeypatch):
     # A gap between the two lists -> intentionally separate, not a split.
     app = _make_app(lists=[{"start": 0, "end": 10, "type": 3}, {"start": 15, "end": 25, "type": 3}])
@@ -121,6 +132,28 @@ def test_regularize_heading_font_targeted_fix_is_idempotent(fake_word):
         assert doc.lint(rules=["heading-font-consistent"]) == []
         second = doc.regularize(rules=["heading-font-consistent"])
     assert second["applied"] == []
+
+
+def test_regularize_attaches_run_batch_failure_detail(fake_word, monkeypatch):
+    # When a fix op fails, run_batch's structured failure detail must ride on the
+    # raised error rather than being dropped (so the caller sees which fix failed).
+    import pytest
+
+    import wordlive._ops as ops_mod
+    from wordlive.exceptions import OpError
+
+    failure = {"index": 0, "op": {"op": "format_run"}, "error": "boom", "type": "OpError"}
+
+    def fake_run_batch(doc, ops, *, label, tracked=False):
+        return {"ok": False, "ops_run": 0, "label": label, "failure": failure}, OpError("boom")
+
+    monkeypatch.setattr(ops_mod, "run_batch", fake_run_batch)
+    fake_word.ActiveDocument.Paragraphs._items[0].Range.Font.Size = 15.0
+    with wordlive.attach() as word:
+        with pytest.raises(OpError) as ei:
+            word.documents.active.regularize(rules=["heading-font-consistent"])
+    assert getattr(ei.value, "failure", None) == failure
+    assert getattr(ei.value, "ops_run", None) == 0
 
 
 # --- consistency: mixed-run-format is report-only ----------------------------

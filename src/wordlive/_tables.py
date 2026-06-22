@@ -113,11 +113,14 @@ class Cell(Anchor):
 
     kind = "cell"
 
-    def __init__(self, table: Table, row: int, col: int) -> None:
+    def __init__(self, table: Table, row: int, col: int, _com_cell: Any | None = None) -> None:
         super().__init__(table._doc, name=f"table:{table.index}:{row}:{col}")
         self._table = table
         self._row = row
         self._col = col
+        # An already-resolved COM cell (e.g. from `Columns(C).Cells`), so callers
+        # iterating a collection don't pay a `Table.Cell(r, c)` round-trip per cell.
+        self._com_cell = _com_cell
 
     @property
     def anchor_id(self) -> str:
@@ -132,6 +135,8 @@ class Cell(Anchor):
         return self._col
 
     def _cell(self) -> Any:
+        if self._com_cell is not None:
+            return self._com_cell
         with _com.translate_com_errors():
             return self._table.com.Cell(self._row, self._col)
 
@@ -173,9 +178,12 @@ class Cell(Anchor):
     def merge(self, other: Cell) -> None:
         """Merge this cell with `other` into one cell spanning their rectangle.
 
-        `other` must belong to the **same table**. Word joins the two cells'
-        text; the merged cell keeps *this* cell's id (`table:N:R:C`), while the
-        absorbed cell's coordinates stop resolving. The table becomes
+        `other` must belong to the **same table**. Word joins the cells' text and
+        collapses the rectangle into its **upper-left** cell, regardless of which
+        corner is `self` vs `other` — so the merged cell is addressed by the
+        upper-left coordinate of the spanned rectangle (e.g.
+        ``cell(2, 2).merge(cell(1, 1))`` yields a cell at ``table:N:1:1``), and the
+        other spanned coordinates stop resolving. The table becomes
         **non-uniform** (`Table.is_uniform` → `False`) — afterwards `table:N:R:C`
         indexes *physical* cells (a short row has fewer than `column_count`), so
         re-read the table to see the new shape. Wrap in `doc.edit(...)` for
@@ -297,7 +305,11 @@ class ColumnAnchor(Anchor):
                 f"({e}); the table has merged or mixed-width cells — style its "
                 f"cells individually via table:{self._table.index}:R:{self._col}"
             ) from e
-        return [self._table.cell(int(c.RowIndex), self._col) for c in com_cells]
+        # Wrap each already-read COM cell directly (passing it through as the
+        # cached `_com_cell`) rather than re-resolving via `Table.cell()`, which
+        # would re-round-trip COM per cell and bounds-check the physical row/col
+        # against the *logical* row/column counts.
+        return [Cell(self._table, int(c.RowIndex), self._col, _com_cell=c) for c in com_cells]
 
     def set_shading(self, *, fill: Any = None, pattern: Any = None) -> None:
         for cell in self._cells():

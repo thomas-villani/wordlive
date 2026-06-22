@@ -100,6 +100,43 @@ def test_to_markdown_hyperlink(scratch_doc):
     assert "[Example](https://example.test" in out
 
 
+def test_to_html_keeps_underline(scratch_doc):
+    """Underlined text renders <u> — Font.Underline is a WdUnderline enum (1/3/…),
+    not a -1/0 bool, so it must not go through the bold/italic coercion."""
+    doc = scratch_doc
+    with doc.edit("smoke: underline"):
+        doc.anchor_by_id("start").insert_markdown("underlined")
+        doc.anchor_by_id("para:1").format_run(underline=True)
+
+    html = doc.to_html()
+    assert "<u>underlined</u>" in html
+
+
+def test_to_markdown_multiword_link_keeps_all_words(scratch_doc):
+    """A hyperlink spanning several words tags every word (range overlap, not a
+    point test on word.Start that can drop the trailing word)."""
+    doc = scratch_doc
+    with doc.edit("smoke: multiword link"):
+        doc.anchor_by_id("start").link_to("https://example.test", text="one two three")
+
+    out = doc.to_markdown()
+    assert "[one two three](https://example.test" in out
+
+
+def test_to_markdown_keeps_inline_image_inside_table_cell(scratch_doc, tmp_path):
+    """An inline image inside a table cell stays addressable as image:N."""
+    doc = scratch_doc
+    png = tmp_path / "pic.png"
+    png.write_bytes(_PNG)
+    with doc.edit("smoke: in-cell image"):
+        doc.end.insert_table(data=[{"Pic": "", "Note": "see"}], header=True)
+        # Drop an image into the first body cell (table:1:2:1).
+        doc.anchor_by_id("table:1:2:1").insert_image(str(png), wrap="inline", alt_text="cellpic")
+
+    out = doc.to_markdown()
+    assert "image:" in out and "cellpic" in out
+
+
 def test_to_html_renders_headings_lists_emphasis(scratch_doc):
     doc = scratch_doc
     with doc.edit("smoke: html"):

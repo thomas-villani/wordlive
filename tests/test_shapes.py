@@ -802,6 +802,28 @@ def test_exec_set_image_crop(fake_word):
     assert fake_word.ActiveDocument.InlineShapes.Item(1).PictureFormat.CropLeft == 7.2
 
 
+def test_exec_crop_ops_accept_crop_aliases(fake_word):
+    # `crop_*` (the MCP word_write names) are accepted aliases in exec/CLI too, so a
+    # batch authored from the word_exec docstring or word_write works either way.
+    from wordlive._ops import _crop_kwargs, unexpected_fields
+
+    assert _crop_kwargs({"crop_left": 5, "crop_top": 2}) == {"left": 5, "top": 2}
+    assert _crop_kwargs({"left": 1, "crop_left": 9}) == {"left": 1}  # bare wins
+    for kind in ("set_shape_crop", "set_image_crop"):
+        assert unexpected_fields({"op": kind, "anchor_id": "x", "crop_left": 5}, kind) == []
+
+    code, _ = _invoke(
+        [
+            "--json",
+            "exec",
+            "--ops",
+            '[{"op": "set_image_crop", "anchor_id": "image:1", "crop_left": "0.1in"}]',
+        ]
+    )
+    assert code == EXIT_OK
+    assert fake_word.ActiveDocument.InlineShapes.Item(1).PictureFormat.CropLeft == 7.2
+
+
 def test_cli_set_shape_crop(fake_word, png_file):
     _invoke(
         [

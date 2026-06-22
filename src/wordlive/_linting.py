@@ -168,11 +168,18 @@ def _check_table_repeat_header(doc: Document, span: Span | None) -> Iterator[Fin
         )
 
 
+# Every list type whose items carry an auto-number — all can suffer the "split
+# into independent 1. lists" footgun. Word can report an applied numbered list as
+# any of these depending on template/version, so the continuity rule must accept
+# them all, not just simple/outline numbering.
+_NUMBERED_LIST_TYPES = frozenset({"numbered", "outline", "number-only", "mixed"})
+
+
 def _numbered_list_spans(doc: Document) -> list[Span]:
-    """The character spans of every *numbered* (or outline-numbered) Word list,
-    in document order. Word models each distinct list as one `Document.Lists`
-    entry, so a numbered list that got split into independent "1." lists shows up
-    as several entries whose ranges abut."""
+    """The character spans of every *numbered* (incl. outline / number-only /
+    mixed) Word list, in document order. Word models each distinct list as one
+    `Document.Lists` entry, so a numbered list that got split into independent
+    "1." lists shows up as several entries whose ranges abut."""
     spans: list[Span] = []
     with _com.translate_com_errors():
         count = int(doc.com.Lists.Count)
@@ -181,7 +188,7 @@ def _numbered_list_spans(doc: Document) -> list[Span]:
             start, end = int(rng.Start), int(rng.End)
             from ._lists import read_list_info
 
-            if read_list_info(rng)["type"] in ("numbered", "outline"):
+            if read_list_info(rng)["type"] in _NUMBERED_LIST_TYPES:
                 spans.append((start, end))
     return sorted(spans)
 
@@ -354,6 +361,14 @@ def regularize(
     if own_undo:
         result, exc = run_batch(doc, ops, label="Regularize formatting")
         if exc is not None:
+            # `run_batch` stops at the first failing op and records a structured
+            # `failure` dict (op index, the op, error message/type, partial
+            # `ops_run`). Surface it on the raised error rather than dropping it,
+            # so the caller can see which fix failed and how far the batch got.
+            failure = result.get("failure")
+            if failure is not None:
+                exc.failure = failure  # type: ignore[attr-defined]
+                exc.ops_run = result.get("ops_run", 0)  # type: ignore[attr-defined]
             raise exc
         report["ops_run"] = result.get("ops_run", 0)
         if result.get("warnings"):
