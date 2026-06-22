@@ -217,6 +217,99 @@ def test_delete_row_out_of_range_raises(fake_word):
     assert exc_info.value.kind == "table row"
 
 
+def test_add_column_increases_count(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("add column"):
+            t.add_column()
+        assert t.column_count == 3
+
+
+def test_add_column_with_values_fills_down_rows(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("add column with values"):
+            t.add_column(["X", "Y"])
+        assert t.cell(1, 3).text == "X"
+        assert t.cell(2, 3).text == "Y"
+
+
+def test_delete_column_decreases_count(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("delete column"):
+            t.delete_column(1)
+        assert t.column_count == 1
+        # Column 2 ("B1"/"B2") is now the only column.
+        assert t.cell(1, 1).text == "B1"
+
+
+def test_delete_column_out_of_range_raises(fake_word):
+    with wordlive.attach() as word:
+        t = word.documents.active.tables[1]
+        with pytest.raises(AnchorNotFoundError) as exc_info:
+            t.delete_column(9)
+    assert exc_info.value.kind == "table column"
+
+
+# ---------------------------------------------------------------------------
+# Merge / split — non-uniform grids
+# ---------------------------------------------------------------------------
+
+
+def test_fresh_table_is_uniform(fake_word):
+    with wordlive.attach() as word:
+        assert word.documents.active.tables[1].is_uniform is True
+
+
+def test_merge_cells_makes_table_non_uniform(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("merge"):
+            t.cell(1, 1).merge(t.cell(1, 2))
+        assert t.is_uniform is False
+        # The merged cell keeps the anchor id and joins both texts.
+        assert "A1" in t.cell(1, 1).text and "B1" in t.cell(1, 1).text
+
+
+def test_split_cell_makes_table_non_uniform(fake_word):
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        with doc.edit("split"):
+            t.cell(1, 1).split(rows=1, cols=2)
+        assert t.is_uniform is False
+
+
+def test_split_cell_rejects_bad_counts(fake_word):
+    with wordlive.attach() as word:
+        t = word.documents.active.tables[1]
+        with pytest.raises(OpError):
+            t.cell(1, 1).split(rows=0, cols=2)
+
+
+def test_merge_across_tables_raises(fake_word):
+    from wordlive._tables import Table
+
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        t = doc.tables[1]
+        # A second wrapper reporting a different table index → cross-table guard.
+        other = Table(t._doc, t._com, 99).cell(1, 1)
+        with pytest.raises(OpError, match="different tables"):
+            t.cell(1, 2).merge(other)
+
+
+def test_read_reports_uniform_flag(fake_word):
+    with wordlive.attach() as word:
+        data = word.documents.active.tables[1].read()
+        assert data["uniform"] is True
+
+
 # ---------------------------------------------------------------------------
 # Heading-row repeat — Rows(n).HeadingFormat / AllowBreakAcrossPages
 # ---------------------------------------------------------------------------

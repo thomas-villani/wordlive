@@ -71,6 +71,7 @@ Quick index (capability → real release):
 | Table styling & polish (`Table.set_style`/`set_alignment`/`set_borders`/`set_banding`, `Cell.set_vertical_alignment`; row/column anchors `table:N:row:R` [`RowAnchor`] / `table:N:col:C` [`ColumnAnchor`] + `Table.row`/`column`) | Unreleased |
 | Markdown/HTML export + budgeted read (`doc.to_markdown`/`to_html(within=)` — flat node walk, GFM tables, `![alt](image:N)`, `[text](url)`; `doc.read(budget=,depth=)` — heading-spine digest, depth-weighted body elision, addressable markers; `_export.py`; `read markdown`/`html`/`digest`, MCP `to_markdown`/`to_html`/`digest`) | Unreleased |
 | List polish (`anchor.apply_list_format(levels)` authors a custom multi-level list template — per-level number/bullet format, style, indent, marker font; `read_list_levels` read mirror; bullet=glyph+symbol-font not NumberStyle; `WdListNumberStyle`/`WdTrailingCharacter`; CLI `list format`/`list levels`, exec `apply_list_format`, MCP `list` action `format` / read `list_levels`) | Unreleased |
+| Table structural polish (`Table.add_column`/`delete_column` mirror the row ops; `Cell.merge`/`split` — merged-cell story; `Table.is_uniform` + physical-cell `read()`/`grid()`; `delete_column` raises clean `OpError` on a merged table; CLI `table add-column`/`delete-column`/`merge-cells`/`split-cell`, exec ops, MCP) | Unreleased |
 
 ## Load-bearing reference facts
 
@@ -592,9 +593,20 @@ Part III's catalogue (promoted here, not re-derived).
 > mixed-width table (`Column.Range` is absent and `Columns(C)` raises "mixed cell
 > widths"), so a column op there raises a clean `OpError` pointing at per-cell
 > `table:N:R:C` styling. See Part I's `table:N:row:R`/`col:C` taxonomy note and
-> `CHANGELOG.md`. **Still deferred (the structural-polish strand below):** restyle
-> preserving conditional formatting nuances aside, merged/split-cell addressing and
-> `add_column`/`delete_column`.
+> `CHANGELOG.md`.
+>
+> **Structural-polish strand — ✅ shipped (Unreleased, 2026-06-21).**
+> `Table.add_column(values=None)` / `delete_column(index)` mirror the row ops
+> (`add_column` fills top-to-bottom; `delete_column` raises a clean `OpError` on a
+> merged / mixed-width table, pointing at per-cell deletion). `Cell.merge(other)` /
+> `Cell.split(rows=1, cols=2)` are the **merged-cell addressing story**: either
+> makes the table **non-uniform**, so `Table.is_uniform` reports `False`,
+> `table:N:R:C` indexes *physical* cells, and `Table.read()`/`grid()` walk each
+> row's physical cells (the read carries a `uniform` flag). Wired Python / CLI
+> (`table add-column`/`delete-column`/`merge-cells`/`split-cell`) / `exec` ops /
+> MCP; live-probed + smoke-validated 2026-06-21. See `CHANGELOG.md`. **Still
+> deferred:** add/remove of an *interior* column at an index (only right-edge
+> append today), and restyle nuances that preserve conditional formatting.
 
 Two strands: a **table-styling surface** (the agent-publishing need — restyle
 cells/rows/columns and whole tables with ease) and the **structural polish**
@@ -648,6 +660,26 @@ user set (Word reapplies the style's conditional formatting — confirm it doesn
 clobber explicit shading/borders, or document that it does).
 
 ### 6. List polish
+
+> **✅ Shipped (Unreleased, 2026-06-21).** `anchor.apply_list_format(levels)`
+> **authors a custom multi-level list template** (`Document.ListTemplates.Add` +
+> per-`ListLevel` mutation) and applies it — each per-level spec sets marker
+> `format` / number `style` / `bullet` glyph + `font` / indentation (`number_position`
+> / `text_position`) / `trailing` / `alignment` / marker `bold`/`italic`/`color`;
+> >1 level mints an outline template. `anchor.read_list_levels()` is the read
+> mirror. Live-probed 2026-06-21 (all per-level props settable; the one trap —
+> baked in — is that a bullet level is the glyph + a symbol font, **not**
+> `NumberStyle=bullet`, which raises `0x800a1200`). Wired Python / CLI (`list
+> format` / `list levels`) / `exec` op (`apply_list_format`) / MCP; smoke-validated.
+> New constants `WdListNumberStyle` / `WdTrailingCharacter` / `WdListLevelAlignment`.
+> See `CHANGELOG.md`. **Deferred:** the "multi-section `LinkToPrevious`" sub-item is
+> really a **header/footer** capability (`HeaderFooter.linked_to_previous` exists
+> read-only in `_sections.py`) — making it writable is a separate create-but-can't-edit
+> fix, not list work, so it's parked there rather than here.
+
+Per-level bullet / number format and custom list-template authoring — **shipped**
+above. (The "multi-section `LinkToPrevious`" sub-item was reclassified as a
+header/footer gap — see the ✅ note.)
 
 > **✅ Shipped (Unreleased, 2026-06-21).** `anchor.apply_list_format(levels)`
 > **authors a custom multi-level list template** (`Document.ListTemplates.Add` +
@@ -823,9 +855,12 @@ that works *alongside* the user in a live session. Feasibility **proven live**
   `table:N:col:C` anchors), banding / table-style options (`set_banding`),
   whole-table alignment + borders (`set_alignment` / `set_borders`), and cell
   vertical alignment (`Cell.set_vertical_alignment`) all landed (see Part II item 5
-  + Part I). *Still open:* merged/split cells (addressing assumes rectangular) and
-  `add_column`/`delete_column`. (AutoFit shipped v0.15.0 as `Table.autofit`;
-  whole-table style settable at *creation* via `insert_table(style=…)`.)
+  + Part I). *Structural strand also shipped (Unreleased):* `add_column` /
+  `delete_column` (mirror the row ops) and `Cell.merge` / `split` + `is_uniform`
+  (the merged/split-cell addressing story — `table:N:R:C` then indexes physical
+  cells). *Still open:* interior-index column insert (only right-edge append today).
+  (AutoFit shipped v0.15.0 as `Table.autofit`; whole-table style settable at
+  *creation* via `insert_table(style=…)`.)
   **→ Part II Priority 3 (item 5, table styling & polish).**
 - **List polish** — custom list-template authoring + per-level bullet/number
   format **✅ shipped (Unreleased)** as `apply_list_format` / `read_list_levels`

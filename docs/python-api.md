@@ -592,6 +592,18 @@ per-column model on a table with merged or mixed-width cells, so a column op the
 raises `OpError` pointing at per-cell `table:N:R:C` styling (a regular table fans
 the op across the column's cells transparently).
 
+**Add or remove a column; merge or split cells.** `Table.add_column(values=None)`
+appends a column at the right edge — the column mirror of `add_row`, with
+`values` filling **top-to-bottom**; `Table.delete_column(index)` removes one.
+(`delete_column` raises `OpError` on a merged / mixed-width table — Word can't
+address an individual column there, so delete its cells via `table:N:R:C`.)
+`Cell.merge(other)` joins two cells (and the rectangle they span) into one,
+keeping the calling cell's id; `Cell.split(rows=1, cols=2)` is its inverse.
+Either makes the table **non-uniform**: `Table.is_uniform` then reports `False`,
+`table:N:R:C` indexes *physical* cells (a merged row has fewer than
+`column_count`), and `Table.read()` walks each row's physical cells so it stays
+safe on an irregular grid (its `uniform` field flags the shape).
+
 ::: wordlive.TableCollection
 
 ::: wordlive.Table

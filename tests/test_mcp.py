@@ -307,6 +307,26 @@ class TestWriteImpl:
         assert r["ok"] is True
         assert fake_word.ActiveDocument.Tables(1).ApplyStyleRowBands is False
 
+    def test_table_add_column(self, fake_word: Any) -> None:
+        r = _write_impl(W, "table", {"action": "add_column", "table": 1, "values": ["X", "Y"]})
+        assert r["ok"] is True
+        assert fake_word.ActiveDocument.Tables(1).Columns.Count == 3
+
+    def test_table_delete_column(self, fake_word: Any) -> None:
+        r = _write_impl(W, "table", {"action": "delete_column", "table": 1, "column": 1})
+        assert r["ok"] is True
+        assert fake_word.ActiveDocument.Tables(1).Columns.Count == 1
+
+    def test_table_merge_cells(self, fake_word: Any) -> None:
+        r = _write_impl(
+            W, "table", {"action": "merge_cells", "table": 1, "from": "1:1", "to": "1:2"}
+        )
+        assert r["ok"] is True
+
+    def test_table_split_cell(self, fake_word: Any) -> None:
+        r = _write_impl(W, "table", {"action": "split_cell", "table": 1, "cell": [1, 1], "cols": 3})
+        assert r["ok"] is True
+
     def test_table_unknown_action_raises(self, fake_word: Any) -> None:
         with pytest.raises(OpError):
             _write_impl(W, "table", {"action": "nope", "table": 1})

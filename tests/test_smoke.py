@@ -1428,3 +1428,71 @@ def test_column_anchor_on_merged_table_raises_operror(scratch_doc):
     with pytest.raises(OpError):
         with doc.edit("col shade"):
             doc.anchor_by_id("table:1:col:1").set_shading(fill="red")
+
+
+def test_add_column_appends_and_fills(scratch_doc):
+    """add_column appends a column at the right edge and fills it top-to-bottom."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(2, 2, data=[["A", "B"], ["C", "D"]])
+    t = doc.tables[1]
+    with doc.edit("add column"):
+        t.add_column(["x", "y"])
+    assert t.column_count == 3
+    assert t.cell(1, 3).text == "x"
+    assert t.cell(2, 3).text == "y"
+
+
+def test_delete_column_removes_a_column(scratch_doc):
+    """delete_column drops a column on a regular table."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(2, 3, data=[["a", "b", "c"], ["d", "e", "f"]])
+    t = doc.tables[1]
+    with doc.edit("delete column"):
+        t.delete_column(2)
+    assert t.column_count == 2
+    assert t.cell(1, 2).text == "c"  # old column 3 shifts left
+
+
+def test_delete_column_on_merged_table_raises_operror(scratch_doc):
+    """delete_column on a merged / mixed-width table raises a clean OpError
+    (Word can't address an individual column there) — not a raw COM error."""
+    from wordlive.exceptions import OpError
+
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(3, 3)
+    with doc.edit("merge"):
+        doc.tables[1].cell(1, 1).merge(doc.tables[1].cell(1, 2))
+    with pytest.raises(OpError, match="mixed-width|merged"):
+        with doc.edit("delete column"):
+            doc.tables[1].delete_column(1)
+
+
+def test_merge_cells_via_api_makes_table_non_uniform(scratch_doc):
+    """Cell.merge joins two cells; the table reports is_uniform False afterwards."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(3, 3, data=[["A", "B", "C"], ["d", "e", "f"], ["g", "h", "i"]])
+    t = doc.tables[1]
+    assert t.is_uniform is True
+    with doc.edit("merge"):
+        t.cell(1, 1).merge(t.cell(1, 2))
+    assert t.is_uniform is False
+    # The merged cell keeps table:1:1:1 and carries both original texts.
+    merged = t.cell(1, 1).text
+    assert "A" in merged and "B" in merged
+
+
+def test_split_cell_via_api_makes_table_non_uniform(scratch_doc):
+    """Cell.split divides one cell into a grid; the row gains physical cells."""
+    doc = scratch_doc
+    with doc.edit("seed"):
+        doc.add_table(2, 2, data=[["A", "B"], ["C", "D"]])
+    t = doc.tables[1]
+    with doc.edit("split"):
+        t.cell(1, 1).split(rows=1, cols=3)
+    assert t.is_uniform is False
+    # Row 1 now has more physical cells than row 2.
+    assert int(t.com.Rows(1).Cells.Count) > int(t.com.Rows(2).Cells.Count)
