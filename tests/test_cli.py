@@ -1087,6 +1087,58 @@ def test_table_delete_row_out_of_range_returns_exit_2(fake_word):
     assert code == EXIT_ANCHOR_NOT_FOUND
 
 
+def test_table_add_column(fake_word):
+    code, out, _ = _invoke(["table", "add-column", "--table", "1"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["columns"] == 3
+
+
+def test_table_add_column_with_values(fake_word):
+    code, _, _ = _invoke(["table", "add-column", "--table", "1", "--values", '["X", "Y"]'])
+    assert code == EXIT_OK
+    code, out, _ = _invoke(["table", "read", "1"])
+    data = json.loads(out)
+    assert data["cells"][0][2]["text"] == "X"
+    assert data["cells"][1][2]["text"] == "Y"
+
+
+def test_table_delete_column(fake_word):
+    code, out, _ = _invoke(["table", "delete-column", "--table", "1", "--column", "1"])
+    assert code == EXIT_OK
+    assert json.loads(out)["columns"] == 1
+
+
+def test_table_delete_column_out_of_range_returns_exit_2(fake_word):
+    code, _, _ = _invoke(["table", "delete-column", "--table", "1", "--column", "9"])
+    assert code == EXIT_ANCHOR_NOT_FOUND
+
+
+def test_table_merge_cells(fake_word):
+    code, out, _ = _invoke(["table", "merge-cells", "--table", "1", "--from", "1:1", "--to", "1:2"])
+    assert code == EXIT_OK
+    data = json.loads(out)
+    assert data["anchor_id"] == "table:1:1:1"
+    # The table is now non-uniform.
+    code, out, _ = _invoke(["table", "read", "1"])
+    assert json.loads(out)["uniform"] is False
+
+
+def test_table_split_cell(fake_word):
+    code, out, _ = _invoke(
+        ["table", "split-cell", "--table", "1", "--cell", "1:1", "--columns", "3"]
+    )
+    assert code == EXIT_OK
+    code, out, _ = _invoke(["table", "read", "1"])
+    assert json.loads(out)["uniform"] is False
+
+
+def test_table_merge_cells_bad_coord_is_usage_error(fake_word):
+    code, _, _ = _invoke(["table", "merge-cells", "--table", "1", "--from", "nope", "--to", "1:2"])
+    assert code != EXIT_OK
+
+
 def test_replace_cell_via_anchor_id(fake_word):
     code, out, _ = _invoke(["replace", "--anchor-id", "table:1:1:1", "--text", "Z"])
     assert code == EXIT_OK
@@ -1132,6 +1184,26 @@ def test_exec_supports_add_and_delete_row_ops(fake_word, tmp_path: Path):
     code, out, _ = _invoke(["exec", "--script", str(script)])
     assert code == EXIT_OK
     assert json.loads(out)["ops_run"] == 2
+
+
+def test_exec_supports_column_and_merge_ops(fake_word, tmp_path: Path):
+    script = tmp_path / "ops.json"
+    script.write_text(
+        json.dumps(
+            {
+                "ops": [
+                    {"op": "add_column", "table": 1, "values": ["c", "d"]},
+                    {"op": "delete_column", "table": 1, "column": 3},
+                    {"op": "merge_cells", "table": 1, "from": [1, 1], "to": [1, 2]},
+                    {"op": "split_cell", "table": 1, "cell": "2:1", "cols": 2},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = _invoke(["exec", "--script", str(script)])
+    assert code == EXIT_OK
+    assert json.loads(out)["ops_run"] == 4
 
 
 def test_exec_set_cell_missing_field_reports_cleanly(fake_word, tmp_path: Path):

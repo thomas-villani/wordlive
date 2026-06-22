@@ -121,9 +121,13 @@ OP_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "set_cell": ("table", "row", "col", "text"),
     "autofit_table": ("table",),
     "add_row": ("table",),
+    "add_column": ("table",),
     "append_record": ("table", "record"),
     "update_row": ("table", "key", "values"),
     "delete_row": ("table", "row"),
+    "delete_column": ("table", "column"),
+    "merge_cells": ("table", "from", "to"),
+    "split_cell": ("table", "cell"),
     "set_heading_row": ("table",),
     "set_table_style": ("table", "style"),
     "set_table_alignment": ("table", "alignment"),
@@ -391,9 +395,13 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "set_cell": (),
     "autofit_table": ("mode",),
     "add_row": ("values",),
+    "add_column": ("values",),
     "append_record": (),
     "update_row": ("column",),
     "delete_row": (),
+    "delete_column": (),
+    "merge_cells": (),
+    "split_cell": ("rows", "cols"),
     "set_heading_row": ("row", "heading", "allow_break"),
     "set_table_style": (),
     "set_table_alignment": (),
@@ -468,6 +476,24 @@ def op_before(op: dict[str, Any]) -> bool:
     if "after" in op:
         return not bool(op["after"])
     return op.get("where") == "before"
+
+
+def _rc_pair(value: Any) -> tuple[int, int]:
+    """Coerce a cell coordinate to `(row, col)` — accepts `[r, c]` or `"R:C"`."""
+    if isinstance(value, str):
+        row_str, sep, col_str = value.partition(":")
+        if not sep:
+            raise OpError(f"cell {value!r} must look like 'R:C' (1-based)")
+        try:
+            return int(row_str), int(col_str)
+        except ValueError as e:
+            raise OpError(f"cell {value!r} must look like 'R:C' (1-based)") from e
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        try:
+            return int(value[0]), int(value[1])
+        except (TypeError, ValueError) as e:
+            raise OpError(f"cell {value!r} must be [row, col] of integers") from e
+    raise OpError(f"cell coordinate must be [row, col] or 'R:C', got {value!r}")
 
 
 def _apply_bind(doc: Document, op: dict[str, Any], rng: Any) -> dict[str, Any]:
@@ -1023,6 +1049,8 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         doc.tables[op["table"]].autofit(op.get("mode", "content"))
     elif kind == "add_row":
         doc.tables[op["table"]].add_row(op.get("values"))
+    elif kind == "add_column":
+        doc.tables[op["table"]].add_column(op.get("values"))
     elif kind == "append_record":
         doc.tables[op["table"]].append_record(op["record"])
     elif kind == "update_row":
@@ -1030,6 +1058,17 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
         doc.tables[op["table"]].update_row(op["key"], op["values"], **kwargs)
     elif kind == "delete_row":
         doc.tables[op["table"]].delete_row(op["row"])
+    elif kind == "delete_column":
+        doc.tables[op["table"]].delete_column(op["column"])
+    elif kind == "merge_cells":
+        tbl = doc.tables[op["table"]]
+        fr, fc = _rc_pair(op["from"])
+        tr, tc = _rc_pair(op["to"])
+        tbl.cell(fr, fc).merge(tbl.cell(tr, tc))
+    elif kind == "split_cell":
+        tbl = doc.tables[op["table"]]
+        srow, scol = _rc_pair(op["cell"])
+        tbl.cell(srow, scol).split(int(op.get("rows", 1)), int(op.get("cols", 2)))
     elif kind == "set_heading_row":
         kwargs = {k: op[k] for k in ("heading", "allow_break") if k in op}
         doc.tables[op["table"]].set_heading_row(int(op.get("row", 1)), **kwargs)

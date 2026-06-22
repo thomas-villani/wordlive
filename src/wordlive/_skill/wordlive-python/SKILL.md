@@ -381,6 +381,9 @@ with doc.edit("Build + edit tables"):
     t.update_row("Wobble", {"Monthly": "$12"})                # match first column, set by header
     doc.heading("Budget").insert_table(2, 2)                   # at any position anchor
     doc.tables[1].delete_row(3)
+    doc.tables[1].add_column(["Setup", "1h", "2h"])           # append a column (fills top-to-bottom)
+    doc.tables[1].delete_column(4)                            # remove a column (mirror of delete_row)
+    doc.tables[1].cell(1, 1).merge(doc.tables[1].cell(1, 2))  # merge cells → table goes non-uniform
     doc.tables[1].set_heading_row(1)                          # row 1 repeats on every page
     doc.tables[1].autofit("content")                          # fit columns to cells (or "window"/"fixed")
     doc.tables[2].delete()
@@ -415,6 +418,13 @@ an anchor too, so the `set_shading`/`set_borders`/`apply_style`/`format_run`/
 `format_paragraph` verbs style the strip in one call. A column op on a table with
 merged / mixed-width cells raises `OpError` — style those cells via `table:N:R:C`.
 `Cell.set_vertical_alignment("top"|"center"|"bottom")` sets vertical alignment.
+**Structure:** `add_column(values=None)` / `delete_column(index)` mirror the row
+ops (`add_column` fills top-to-bottom; `delete_column` raises `OpError` on a
+merged table — delete its cells via `table:N:R:C`). `Cell.merge(other)` /
+`Cell.split(rows=1, cols=2)` join or divide cells; either makes the table
+**non-uniform** (`Table.is_uniform` → `False`), after which `table:N:R:C` indexes
+*physical* cells and `Table.read()` walks each row's real cells (its `uniform`
+field flags the shape).
 
 ### Lists, sections, headers/footers
 

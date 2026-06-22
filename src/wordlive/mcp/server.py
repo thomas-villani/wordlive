@@ -815,6 +815,27 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             return op
         if action == "delete_row":
             return {"op": "delete_row", "table": need("table"), "row": need("row")}
+        if action == "add_column":
+            op = {"op": "add_column", "table": need("table")}
+            if p.get("values") is not None:
+                op["values"] = p["values"]
+            return op
+        if action == "delete_column":
+            return {"op": "delete_column", "table": need("table"), "column": need("column")}
+        if action == "merge_cells":
+            return {
+                "op": "merge_cells",
+                "table": need("table"),
+                "from": need("from"),
+                "to": need("to"),
+            }
+        if action == "split_cell":
+            op = {"op": "split_cell", "table": need("table"), "cell": need("cell")}
+            if p.get("rows") is not None:
+                op["rows"] = p["rows"]
+            if p.get("cols") is not None:
+                op["cols"] = p["cols"]
+            return op
         if action == "append_record":
             return {"op": "append_record", "table": need("table"), "record": need("record")}
         if action == "update_row":
@@ -1681,7 +1702,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         comment {action=add|resolve|delete,...} ·
         revision {action=accept|reject (index) | accept_all|reject_all ([anchor_id] scopes to that
             range, else whole doc)} — resolve tracked changes; accept/reject renumber the rest ·
-        table {action=set_cell|add_row|append_record|update_row|delete_row|set_heading_row|autofit|
+        table {action=set_cell|add_row|delete_row|add_column|delete_column|merge_cells|split_cell|
+               append_record|update_row|set_heading_row|autofit|
                set_style|set_alignment|set_borders|set_banding|create|delete,
                create needs anchor_id and [rows,cols] (optional when data is given —
                inferred from it),[style,header,data,before]; data is a 2-D array OR
@@ -1690,6 +1712,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
                update_row {table,key,values,[column]} — set cells (values={header: value})
                on the first row whose key-column (column=, default first) equals key;
                set_heading_row {table,[row=1,heading=true,allow_break]} — repeating header row;
+               add_column {table,[values]} — append a column (values fill top-to-bottom);
+               delete_column {table,column} — fails on a merged/mixed-width table (delete its cells via table:N:R:C);
+               merge_cells {table,from,to} — merge the rectangle between two cells ([row,col] or "R:C"); makes the table non-uniform;
+               split_cell {table,cell,[rows=1,cols=2]} — split one cell ([row,col] or "R:C") into a grid;
                autofit {table,[mode=content|window|fixed]} — resize columns to content/window or pin them;
                set_style {table,style} — restyle an existing table (restyle first, then cell overrides);
                set_alignment {table,alignment=left|center|right} — the whole table across the page;
@@ -2100,6 +2126,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           create_table {anchor_id, [rows,cols] (optional when data given — inferred),[style,data,header,before]} —
             data is a 2-D array OR records (objects whose keys become a header row); cells default to Normal; returns the new index in outputs ·
           set_cell {table,row,col,text} · add_row {table,[values]} · delete_row {table,row} ·
+          add_column {table,[values]} — append a column (values fill top-to-bottom) ·
+          delete_column {table,column} — fails on a merged/mixed-width table (delete its cells via table:N:R:C) ·
+          merge_cells {table,from,to} — merge the rectangle between two cells (from/to are [row,col] or "R:C"); makes the table non-uniform ·
+          split_cell {table,cell,[rows=1,cols=2]} — split one cell (cell is [row,col] or "R:C") into a grid ·
           append_record {table,record} — append a row from a {header: value} object ·
           update_row {table,key,values,[column]} — set cells (values={header: value}) on the first row whose key-column equals key ·
           set_heading_row {table,[row=1,heading,allow_break]} — repeating header row on a multi-page table ·
