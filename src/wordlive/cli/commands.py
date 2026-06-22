@@ -4646,6 +4646,20 @@ def _parse_pages_range(value: str) -> tuple[int, int]:
     return start, end
 
 
+def _parse_rc(value: str) -> tuple[int, int]:
+    """Parse a 1-based cell coordinate like `2:3` into `(row, col)`."""
+    row_str, sep, col_str = value.partition(":")
+    if not sep:
+        raise click.UsageError("cell must look like 'R:C' (1-based), e.g. '2:3'")
+    try:
+        row, col = int(row_str), int(col_str)
+    except ValueError as e:
+        raise click.UsageError("cell must look like 'R:C' (1-based), e.g. '2:3'") from e
+    if row < 1 or col < 1:
+        raise click.UsageError(f"invalid cell {value!r}: row and column are 1-based")
+    return row, col
+
+
 def _parse_color(value: str | None) -> str | tuple[int, int, int] | None:
     """Turn a `--color` value into something `to_bgr` understands.
 
@@ -5895,9 +5909,11 @@ def _fmt_table_read(grid: dict[str, Any]) -> str:
     cells = grid.get("cells") or []
     if not cells:
         return f"table:{grid.get('index')} (empty)"
+    # Rows can be ragged on a merged / split table, so size columns off the
+    # widest row and guard each per-column scan against shorter rows.
+    ncols = max((len(row) for row in cells), default=0)
     widths = [
-        max((len(row[c]["text"]) for row in cells), default=0)
-        for c in range(grid.get("columns", 0))
+        max((len(row[c]["text"]) for row in cells if c < len(row)), default=0) for c in range(ncols)
     ]
     lines = []
     for row in cells:
@@ -5988,6 +6004,121 @@ def table_delete_row(ctx: click.Context, table_index: int, row: int) -> None:
                 {"ok": True, "table": table_index, "rows": t.row_count},
                 as_text=not ctx.obj["as_json"],
                 text=f"deleted row {row} from table:{table_index} (now {t.row_count} rows)",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="add-column")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option(
+    "--values",
+    "values",
+    default=None,
+    help="Optional JSON array of cell values for the new column (top-to-bottom).",
+)
+@click.pass_context
+def table_add_column(ctx: click.Context, table_index: int, values: str | None) -> None:
+    """Append a column to the table (atomic-undo)."""
+    parsed: list[Any] | None = None
+    if values is not None:
+        try:
+            parsed = json.loads(values)
+        except json.JSONDecodeError as e:
+            raise click.UsageError(f"--values must be a JSON array: {e}") from e
+        if not isinstance(parsed, list):
+            raise click.UsageError("--values must be a JSON array")
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: add column to table {table_index}"):
+                t.add_column(parsed)
+            emit(
+                {"ok": True, "table": table_index, "columns": t.column_count},
+                as_text=not ctx.obj["as_json"],
+                text=f"added column to table:{table_index} (now {t.column_count} columns)",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="delete-column")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option("--column", "column", type=int, required=True, help="1-based column to delete.")
+@click.pass_context
+def table_delete_column(ctx: click.Context, table_index: int, column: int) -> None:
+    """Delete a column from the table (atomic-undo).
+
+    Fails with an OpError on a table with merged / mixed-width cells — Word can't
+    address an individual column there; delete its cells via table:N:R:C instead.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: delete column {column} from table {table_index}"):
+                t.delete_column(column)
+            emit(
+                {"ok": True, "table": table_index, "columns": t.column_count},
+                as_text=not ctx.obj["as_json"],
+                text=f"deleted column {column} from table:{table_index} (now {t.column_count} columns)",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="merge-cells")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option("--from", "from_cell", required=True, help='Anchor cell "R:C" (1-based).')
+@click.option("--to", "to_cell", required=True, help='Opposite cell "R:C" (1-based).')
+@click.pass_context
+def table_merge_cells(ctx: click.Context, table_index: int, from_cell: str, to_cell: str) -> None:
+    """Merge two cells (and the rectangle they span) into one (atomic-undo)."""
+    fr, fc = _parse_rc(from_cell)
+    tr, tc = _parse_rc(to_cell)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: merge cells in table {table_index}"):
+                t.cell(fr, fc).merge(t.cell(tr, tc))
+            emit(
+                {"ok": True, "table": table_index, "anchor_id": f"table:{table_index}:{fr}:{fc}"},
+                as_text=not ctx.obj["as_json"],
+                text=f"merged into table:{table_index}:{fr}:{fc} (table is now non-uniform)",
+            )
+
+    _run(ctx, go)
+
+
+@table.command(name="split-cell")
+@click.option("--table", "table_index", type=int, required=True, help="1-based table index.")
+@click.option("--cell", "cell", required=True, help='Cell to split, "R:C" (1-based).')
+@click.option("--rows", "rows", type=int, default=1, show_default=True, help="Rows to split into.")
+@click.option(
+    "--columns", "columns", type=int, default=2, show_default=True, help="Columns to split into."
+)
+@click.pass_context
+def table_split_cell(
+    ctx: click.Context, table_index: int, cell: str, rows: int, columns: int
+) -> None:
+    """Split one cell into a rows x columns grid (atomic-undo)."""
+    cr, cc = _parse_rc(cell)
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            t = doc.tables[table_index]
+            with doc.edit(f"CLI: split cell in table {table_index}"):
+                t.cell(cr, cc).split(rows, columns)
+            emit(
+                {"ok": True, "table": table_index, "anchor_id": f"table:{table_index}:{cr}:{cc}"},
+                as_text=not ctx.obj["as_json"],
+                text=f"split table:{table_index}:{cr}:{cc} into {rows}x{columns} (table is now non-uniform)",
             )
 
     _run(ctx, go)
@@ -7503,6 +7634,7 @@ def exec_(ctx: click.Context, script: Path | None, ops_inline: str | None) -> No
     insert_bibliography, mark_citation, insert_table_of_authorities,
     apply_theme, set_theme_colors, set_theme_fonts,
     set_cell, add_row, append_record, update_row, delete_row,
+    add_column, delete_column, merge_cells, split_cell,
     set_heading_row, autofit_table, create_table, delete_table,
     set_table_style, set_table_alignment, set_table_borders, set_table_banding,
     set_cell_vertical_alignment,

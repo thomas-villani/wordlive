@@ -1352,7 +1352,7 @@ class _FakeTable:
 
     @property
     def Columns(self) -> Any:
-        return _FakeColumns(self._rows)
+        return _FakeColumns(self._rows, self._mk_cell_range)
 
     def Cell(self, row: int, col: int) -> Any:
         # Persist per-(row,col) so cell-level COM property writes (e.g.
@@ -1362,6 +1362,38 @@ class _FakeTable:
         if cell is None:
             cell = MagicMock(name=f"Cell[{row},{col}]")
             cell.Range = self._rows[row - 1][col - 1]
+            cell.RowIndex = row
+            cell.ColumnIndex = col
+            rows = self._rows
+            mk = self._mk_cell_range
+            mocks = self._cell_mocks
+
+            def _merge(other: Any, _r: int = row, _c: int = col) -> None:
+                # Simplified horizontal merge within a row: drop the physical
+                # cells between this cell and `other`, leaving the row shorter
+                # (so Table.is_uniform reports False). Faithful enough for wiring
+                # + the non-uniform signal; live smoke covers real COM merging.
+                oc = int(getattr(other, "ColumnIndex", _c))
+                lo, hi = sorted((_c, oc))
+                target = rows[_r - 1]
+                joined = "".join(str(getattr(target[i - 1], "Text", "")) for i in range(lo, hi + 1))
+                for i in range(hi, lo, -1):
+                    if i - 1 < len(target):
+                        del target[i - 1]
+                if lo - 1 < len(target):
+                    target[lo - 1].Text = joined
+                mocks.clear()
+
+            def _split(nrows: int = 1, ncols: int = 2, _r: int = row, _c: int = col) -> None:
+                # Insert (ncols-1) physical cells after this one in the row, so
+                # the row grows and the table goes non-uniform.
+                target = rows[_r - 1]
+                for _ in range(max(0, int(ncols) - 1)):
+                    target.insert(_c, mk(""))
+                mocks.clear()
+
+            cell.Merge = _merge
+            cell.Split = _split
             self._cell_mocks[(row, col)] = cell
         return cell
 
@@ -1407,12 +1439,27 @@ class _FakeRows:
             # A whole-row Range (RowAnchor styles table:N:row:R through it) — full
             # range surface so Shading / Borders / Font writes round-trip.
             row.Range = _make_range(0, 0)
+            # Live physical-cell count for that row (Table.is_uniform reads
+            # Rows(r).Cells.Count; a merge/split changes the row's length).
+            row.Cells = _FakeRowCells(self._rows, index)
             self._row_mocks[index] = row
         return row
 
 
+class _FakeRowCells:
+    """`Rows(r).Cells` — only `.Count`, read live off the shared row list."""
+
+    def __init__(self, rows: list[list[Any]], index: int) -> None:
+        self._rows = rows
+        self._index = index
+
+    @property
+    def Count(self) -> int:
+        return len(self._rows[self._index - 1]) if self._rows else 0
+
+
 class _FakeColumns:
-    """Callable Columns view: `Columns.Count` and `Columns(c)` -> a `_FakeColumn`.
+    """Callable Columns view: `Count`, `Add()`, and `Columns(c)` -> a `_FakeColumn`.
 
     Backs ColumnAnchor (`table:N:col:C`): the anchor reads `Columns(c).Cells`,
     each carrying a `RowIndex`, to fan styling out across the column's cells. A
@@ -1420,12 +1467,20 @@ class _FakeColumns:
     fake always succeeds (that error path is covered by the live smoke test).
     """
 
-    def __init__(self, rows: list[list[Any]]) -> None:
+    def __init__(self, rows: list[list[Any]], mk: Any | None = None) -> None:
         self._rows = rows
+        self._mk = mk
 
     @property
     def Count(self) -> int:
         return len(self._rows[0]) if self._rows else 0
+
+    def Add(self, BeforeColumn: Any | None = None) -> Any:
+        # Append a physical cell to every row (Table.add_column appends at end).
+        mk = self._mk or (lambda _t: MagicMock(name="ColCellRange"))
+        for row in self._rows:
+            row.append(mk(""))
+        return MagicMock(name="Column")
 
     def __call__(self, col: int) -> Any:
         return _FakeColumn(self._rows, col)
@@ -1444,6 +1499,12 @@ class _FakeColumn:
             cell.RowIndex = r + 1
             out.append(cell)
         return out
+
+    def Delete(self) -> None:
+        # Drop this column's physical cell from each row (Table.delete_column).
+        for row in self._rows:
+            if self._col - 1 < len(row):
+                del row[self._col - 1]
 
 
 class _FakeTablesCollection:

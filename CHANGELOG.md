@@ -24,6 +24,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`apply_list_format`) / MCP (`word_write` list action `format`, `word_read`
   command `list_levels`). New constants `WdListNumberStyle` / `WdTrailingCharacter`
   / `WdListLevelAlignment`.
+- **Table structural polish — add/delete columns, merge/split cells.** Completes
+  the table editing surface (Priority 3): `Table.add_column(values=None)` and
+  `Table.delete_column(index)` mirror the existing `add_row`/`delete_row`
+  (`add_column` fills its cells top-to-bottom). `Cell.merge(other)` joins two
+  cells (and the rectangle they span) into one, and `Cell.split(rows=1, cols=2)`
+  is its inverse — the merged-cell "addressing story": either makes the table
+  **non-uniform**, so `Table.is_uniform` reports `False`, `table:N:R:C` indexes
+  *physical* cells (a merged row has fewer than `column_count`), and `Table.read()`
+  / `grid()` now walk each row's physical cells (robust to irregular tables; the
+  read carries a `uniform` flag). `delete_column` on a merged / mixed-width table
+  raises a clean `OpError` pointing at per-cell deletion (Word has no per-column
+  model there — the same contract as a column-anchor style op). No new COM surface
+  beyond `Columns.Add`/`Delete` + `Cell.Merge`/`Split` (live-probed 2026-06-21).
+  Wired Python / CLI (`table add-column` / `delete-column` / `merge-cells` /
+  `split-cell`) / `exec` ops (`add_column`/`delete_column`/`merge_cells`/
+  `split_cell`; cell coords as `[row,col]` or `"R:C"`) / MCP.
 - **Markdown / HTML export — `doc.to_markdown()` / `doc.to_html()`.** The read
   mirror of `insert_markdown`: serialise the whole document, or any anchor's
   range (`within=`), to clean Markdown or an HTML fragment. Both render from one
