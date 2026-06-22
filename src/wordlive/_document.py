@@ -491,8 +491,9 @@ class Document:
             probe_name = f"_wl_shape_{secrets.token_hex(8)}"
             group.Name = probe_name
             index = _shapes.index_of_named(self.com, probe_name)
-            if orig_name:
-                group.Name = orig_name
+            # Restore unconditionally so an empty original name doesn't leave the
+            # `_wl_shape_*` probe lingering in list().
+            group.Name = orig_name
         return ShapeAnchor(self, index)
 
     @property

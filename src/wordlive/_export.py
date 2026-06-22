@@ -151,6 +151,23 @@ def _escape_table_cell(text: str) -> str:
     return _escape_inline(text).replace("|", "\\|").replace("\r", " ").replace("\n", " ")
 
 
+def _md_target(target: str) -> str:
+    """A Markdown link/image destination safe for the bare ``(...)`` form.
+
+    A target with spaces or parentheses (SharePoint URLs, ``#bookmark`` subadresses)
+    breaks an unwrapped ``](url)``; CommonMark's angle-bracket form ``<url>`` allows
+    both, so wrap when needed and escape the only chars it can't carry literally
+    (``<`` / ``>`` / line breaks)."""
+    if not target:
+        return target
+    if set(target) & {" ", "(", ")", "<", ">", "\n", "\r"}:
+        inner = (
+            target.replace("<", "%3C").replace(">", "%3E").replace("\r", "").replace("\n", "%0A")
+        )
+        return f"<{inner}>"
+    return target
+
+
 def _render_spans(spans: tuple[Span, ...]) -> str:
     """Render inline spans to Markdown (emphasis, links, inline images).
 
@@ -162,7 +179,7 @@ def _render_spans(spans: tuple[Span, ...]) -> str:
     out: list[str] = []
     for s in spans:
         if s.image_ref is not None:
-            out.append(f"![{_escape_inline(s.text)}]({s.image_ref})")
+            out.append(f"![{_escape_inline(s.text)}]({_md_target(s.image_ref)})")
             continue
         decorated = s.href is not None or s.bold or s.italic
         if not decorated:
@@ -177,7 +194,7 @@ def _render_spans(spans: tuple[Span, ...]) -> str:
         trail = s.text[len(s.text.rstrip()) :]
         text = _escape_inline(core)
         if s.href is not None:
-            text = f"[{text}]({s.href})"
+            text = f"[{text}]({_md_target(s.href)})"
         # Underline has no Markdown markup in wordlive's dialect (write side only
         # reaches it via structured runs), so it is intentionally dropped here.
         if s.bold and s.italic:
@@ -223,7 +240,7 @@ def _render_block_md(b: Block) -> str:
     if b.kind == TABLE and b.table is not None:
         return _render_table(b.table)
     if b.kind == IMAGE:
-        return f"![{_escape_inline(b.image_alt or '')}]({b.image_ref or ''})"
+        return f"![{_escape_inline(b.image_alt or '')}]({_md_target(b.image_ref or '')})"
     return ""  # BLANK or unknown → nothing
 
 
@@ -506,17 +523,40 @@ def _paragraph_spans(
     return _coalesce_spans(raw)
 
 
-def _heading_level(outline_level: int, style: str | None) -> int | None:
+def _heading_level(
+    outline_level: int, style: str | None, heading_styles: dict[str, int] | None = None
+) -> int | None:
     """The heading level for a paragraph, or ``None`` if it is body text.
 
     Prefers Word's `OutlineLevel` (1–9 = the anchor model's heading space); falls
-    back to a ``Heading N`` style name for a renamed-outline paragraph.
+    back to a heading *style* name. `heading_styles` maps this document's
+    localized built-in heading names (``"Heading 1"``, ``"Überschrift 1"``, …) to
+    their level, so the fallback works on non-English Word; the English
+    ``Heading N`` regex is a last resort for renamed-outline paragraphs.
     """
     if outline_level < _BODY_OUTLINE_LEVEL:
         return outline_level
-    if style and (m := _HEADING_STYLE.fullmatch(style)):
-        return int(m.group(1))
+    if style:
+        if heading_styles and style in heading_styles:
+            return heading_styles[style]
+        if m := _HEADING_STYLE.fullmatch(style):
+            return int(m.group(1))
     return None
+
+
+def _builtin_heading_styles(doc_com: Any) -> dict[str, int]:
+    """Map this document's localized built-in heading style names to their level.
+
+    `wdStyleHeadingN` is the magic constant ``-(N + 1)``; reading each style's
+    `NameLocal` yields the language-specific name Word stamps on paragraphs, so a
+    name-based heading fallback stays correct on a non-English install."""
+    out: dict[str, int] = {}
+    for n in range(1, 10):
+        try:
+            out[str(doc_com.Styles(-(n + 1)).NameLocal)] = n
+        except Exception:
+            continue
+    return out
 
 
 def _table_block(doc: Document, index: int, image_by_start: dict[int, tuple[int, str]]) -> Block:
@@ -604,6 +644,7 @@ def walk_blocks(doc: Document, within: str | Anchor | None = None) -> list[Block
             image_by_start[int(sh.Range.Start)] = (i, str(sh.AlternativeText or ""))
         except Exception:
             continue
+    heading_styles = _builtin_heading_styles(doc_com)
 
     blocks: list[Block] = []
     seen_tables: set[int] = set()
@@ -630,7 +671,7 @@ def walk_blocks(doc: Document, within: str | Anchor | None = None) -> list[Block
         text = "".join(s.text for s in spans)
         words = len(text.split())
 
-        level = _heading_level(outline_level, style)
+        level = _heading_level(outline_level, style, heading_styles)
         if level is not None:
             blocks.append(
                 Block(
@@ -674,13 +715,27 @@ def _depth_weight(level: int) -> float:
     return _DEPTH_WEIGHTS.get(level, _DEEP_WEIGHT)
 
 
-def _lead_snippet(line: str) -> tuple[str, int]:
-    """A bounded lead of a rendered body line — its first sentence, ≤ `_LEAD_WORDS`."""
-    first = re.split(r"(?<=[.!?])\s+", line, maxsplit=1)[0]
+def _lead_snippet(line: str) -> tuple[str, bool]:
+    """A bounded lead of a rendered body line — its first sentence, ≤ `_LEAD_WORDS`.
+
+    Returns the snippet and whether anything was dropped (a later sentence exists
+    or the first sentence was word-capped) so the caller only marks elided text
+    when text was actually elided.
+    """
+    parts = re.split(r"(?<=[.!?])\s+", line, maxsplit=1)
+    first = parts[0]
     words = first.split()
     if len(words) > _LEAD_WORDS:
-        return " ".join(words[:_LEAD_WORDS]) + " …", _LEAD_WORDS
-    return first, len(words)
+        return " ".join(words[:_LEAD_WORDS]) + " …", True
+    return first, len(parts) > 1
+
+
+def _plain_lead_words(b: Block) -> int:
+    """Words of `b`'s first sentence, counted off the same plain-text source as
+    `word_count` — so `word_count − this` is a consistent "words shown" figure."""
+    plain = "".join(s.text for s in b.spans)
+    first = re.split(r"(?<=[.!?])\s+", plain, maxsplit=1)[0]
+    return min(len(first.split()), _LEAD_WORDS)
 
 
 def _anchor_comment(anchor_id: str | None) -> str:
@@ -754,13 +809,16 @@ def _render_body_segment(
             # The section's first block overflows: keep a bounded lead snippet so
             # the section stays useful — but only while the global body budget
             # isn't spent, so `budget` actually bounds the whole digest.
-            snippet, snip_words = _lead_snippet(line)
+            snippet, truncated = _lead_snippet(line)
             out.append(snippet)
             scost = _est_tokens(snippet)
             used += scost
             budget_left[0] -= scost
             kept += 1
-            rest = b.word_count - snip_words
+            # Only mark elided text when the snippet actually dropped some, and
+            # count the remainder off the same plain-text source as word_count so
+            # a fully-shown paragraph never emits a spurious "N more words".
+            rest = b.word_count - _plain_lead_words(b) if truncated else 0
             if rest > 0:
                 out.append(f"…({b.anchor_id}, {rest} more words)…")
         else:

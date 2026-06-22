@@ -405,7 +405,12 @@ def apply_chart_format(
         except Exception as e:
             raise OpError("gap_width / overlap apply only to bar/column charts") from e
     if data_table is not None:
-        chart_com.HasDataTable = bool(data_table)
+        try:
+            chart_com.HasDataTable = bool(data_table)
+        except Exception as e:
+            raise OpError(
+                "data_table applies only to category-axis charts (not pie/scatter)"
+            ) from e
 
 
 def apply_axis_format(
@@ -459,6 +464,8 @@ def add_trendline(
     `order` is the polynomial degree (2–6, `kind="polynomial"`); `period` is the
     moving-average window (`kind="moving_average"`)."""
     xl = _lookup(kind, TRENDLINE_KINDS, label="trendline kind")
+    if order is not None and not 2 <= int(order) <= 6:
+        raise OpError(f"order must be 2–6 (polynomial degree); got {order!r}")
     sc = chart_com.SeriesCollection(int(series))
     tl = sc.Trendlines().Add(int(xl))  # positional Type — keywords drop under late binding
     if order is not None:
@@ -499,6 +506,10 @@ def format_series(
     `explosion` / the data-label font target that single point; `marker_size` /
     `smooth` / the `data_labels` toggle stay series-wide.
     """
+    if marker_size is not None and not 2 <= int(marker_size) <= 72:
+        raise OpError(f"marker_size must be 2–72 points; got {marker_size!r}")
+    if explosion is not None and not 0 <= int(explosion) <= 400:
+        raise OpError(f"explosion must be 0–400 (percent of radius); got {explosion!r}")
     sc = chart_com.SeriesCollection(int(series))
     pt = sc.Points(int(point)) if point is not None else None
     if marker is not None:
@@ -512,6 +523,11 @@ def format_series(
     if data_labels is not None:
         sc.HasDataLabels = bool(data_labels)
     if data_label_size is not None or data_label_color is not None:
+        if data_labels is False:
+            raise OpError(
+                "data_label_size/data_label_color need labels shown; "
+                "don't combine them with data_labels=False"
+            )
         sc.HasDataLabels = True  # DataLabels() raises until labels are shown
         font = pt.DataLabel.Font if pt is not None else sc.DataLabels().Font
         if data_label_size is not None:

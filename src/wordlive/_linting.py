@@ -25,6 +25,7 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 from . import _com
+from .exceptions import ComError
 
 if TYPE_CHECKING:
     from ._anchors import Anchor
@@ -130,24 +131,24 @@ def _check_table_repeat_header(doc: Document, span: Span | None) -> Iterator[Fin
     """A table that breaks across a page boundary should repeat its header row so
     the column labels carry over. Fix: mark row 1 as a heading row."""
     for table in doc.tables:
+        # One location() over the table's whole range gives both its first and
+        # last page (page = start, end_page = end) in a single repaginate —
+        # cheaper than two per-cell calls, and it never resolves a cell so a
+        # merged/odd grid doesn't trip it.
         try:
-            first = table.cell(1, 1).location()
-            last = table.cell(table.row_count, table.column_count).location()
-        except Exception:
-            # A merged/odd grid or a transient COM hiccup — skip rather than fail
-            # the whole lint.
-            continue
-        if int(first["page"]) == int(last["end_page"]):
+            trng = table.com.Range
+            lo, hi = int(trng.Start), int(trng.End)
+            loc = doc.range(lo, hi).location()
+            first_page, last_page = int(loc["page"]), int(loc["end_page"])
+        except ComError:
+            continue  # transient COM hiccup — skip rather than fail the whole lint
+        if first_page == last_page:
             continue  # single-page table; no repeating header needed
-        try:
-            lo = int(table.com.Range.Start)
-        except Exception:
-            lo = 0
         if not _overlaps(span, lo, lo):
             continue
         try:
             already = bool(table.com.Rows(1).HeadingFormat)
-        except Exception:
+        except ComError:
             already = False
         if already:
             continue
@@ -158,7 +159,7 @@ def _check_table_repeat_header(doc: Document, span: Span | None) -> Iterator[Fin
             severity="warning",
             anchor_id=anchor_id,
             message=(
-                f"Table {table.index} spans pages {first['page']}–{last['end_page']} "
+                f"Table {table.index} spans pages {first_page}–{last_page} "
                 "but row 1 doesn't repeat as a header."
             ),
             fixable=True,

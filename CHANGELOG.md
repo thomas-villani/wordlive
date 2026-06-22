@@ -322,6 +322,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shapes: `replace_image` dropped crop, rotation, wrap side, and text-distance
   standoffs** — the delete+reinsert swap now preserves the full layout.
 
+- **Low-severity review polish (correctness/robustness across modules).**
+  - *Charts:* `format_chart(data_table=…)` on a pie/scatter now raises a clear
+    `OpError` instead of a raw HRESULT; `format_series(data_labels=False, …font…)`
+    no longer silently re-enables labels (it errors); `add_trendline(order)` /
+    `format_series(marker_size, explosion)` validate their documented ranges.
+  - *Shapes:* `set_size(width, height)` (both dims, no `lock_aspect`) restores the
+    prior aspect-lock instead of leaving it permanently off; `set_position(left=…,
+    relative_to=…)` only re-frames the axis being moved (a horizontal move no
+    longer shifts the shape vertically); inserting/grouping a shape no longer
+    leaves the internal `_wl_shape_*` probe name when the original name was empty;
+    a `ShapeAnchor`'s `text_final`/`text_original`/`revision_segments` now mirror
+    the shape's own text rather than the anchoring paragraph's history.
+  - *Lists:* a multi-level number level with no explicit `format` keeps Word's
+    built-in outline default instead of being overridden to a flat `%N.`;
+    `read_list_levels()` now also surfaces the raw `number_style` int.
+  - *Export:* Markdown link/image targets with spaces or parentheses are
+    angle-bracket-wrapped (`<url>`) so they don't break; a fully-shown lead snippet
+    in `read(budget=N)` no longer emits a spurious "N more words" marker; the
+    heading-style fallback resolves localized built-in names (works on non-English
+    Word), not just the English `Heading N`.
+  - *Checkpoint:* an unreadable (merged) table cell now gets a positional sentinel
+    in the fingerprint rather than being silently dropped.
+  - *Linter:* the table-repeat-header rule computes pages from one `location()`
+    over the table range (one repaginate, merged-grid-safe) and narrows its broad
+    excepts to the typed COM error.
+  - *Docstrings:* `XlErrorBarInclude` (`include=`, not `direction=`), MCP
+    error-bar `axis` choices (`y|value|x|category`), and the CLI border `--style`
+    ↔ exec/MCP `line_style` alias are now documented accurately.
+
 ### Changed
 - **Crop edge fields accept `crop_*` aliases everywhere.** The `set_shape_crop` /
   `set_image_crop` exec ops (and CLI) accept `crop_left`/`crop_top`/… in addition

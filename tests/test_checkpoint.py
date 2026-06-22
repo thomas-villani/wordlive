@@ -10,11 +10,20 @@ live in the smoke pass.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 import wordlive
 from wordlive import Checkpoint, _com, _findreplace
-from wordlive._checkpoint import _change_hash, _sha1, diff_checkpoints
+from wordlive._checkpoint import (
+    _SIM_PAIR_CAP,
+    _change_hash,
+    _pair_replace,
+    _sha1,
+    _table_fingerprints,
+    diff_checkpoints,
+)
 from wordlive.exceptions import OpError
 
 
@@ -307,3 +316,93 @@ def test_within_scopes_and_records_anchor(fake_word):
     assert cp.scope == "heading:1"
     assert cp.tables == []  # tables skipped for a scoped checkpoint
     assert all(p["text"] == "Introduction" for p in cp.paragraphs)
+
+
+# --- documented-failure-mode coverage (CHECKPOINT-7/8/9) --------------------
+
+
+def test_sim_pair_cap_falls_back_to_positional(monkeypatch):
+    # CHECKPOINT-8: a whole-block rewrite larger than the similarity cap must fall
+    # back to cheap positional pairing — n replaces, in order, no insert/delete.
+    n = 51  # 51×51 = 2601 > _SIM_PAIR_CAP, so the O(n²) matcher is skipped
+    assert n * n > _SIM_PAIR_CAP
+    a = _mk_cp([f"old line {i}" for i in range(n)])
+    b = _mk_cp([f"new text {i}" for i in range(n)])
+    changes = diff_checkpoints(a, b)
+    assert [c["op"] for c in changes] == ["replace"] * n
+    assert [c["anchor_id"] for c in changes] == [f"para:{i + 1}" for i in range(n)]
+
+
+def test_pair_replace_positional_above_cap():
+    # Direct: above the cap, pairing is purely positional (index k → index k).
+    a_items = [{"i": k, "text": f"a{k}"} for k in range(51)]
+    b_items = [{"i": k, "text": f"b{k}"} for k in range(51)]
+    pairs = _pair_replace(a_items, b_items)
+    assert all(pa is not None and pb is not None for pa, pb in pairs)
+    assert [pa["i"] for pa, _ in pairs] == [pb["i"] for _, pb in pairs]
+
+
+class _FakeRange:
+    def __init__(self, text):
+        self.Text = text
+        self.Start = 0
+        self.InlineShapes = SimpleNamespace(Count=0)
+
+
+class _FakeCell:
+    def __init__(self, text="", *, boom=False):
+        self._text, self._boom = text, boom
+
+    @property
+    def Range(self):
+        if self._boom:
+            raise RuntimeError("Cannot access the merged cell range.")
+        return _FakeRange(self._text)
+
+
+class _FakeTable:
+    def __init__(self, cells):
+        self._cells = cells
+        self.Rows = SimpleNamespace(Count=2)
+        self.Columns = SimpleNamespace(Count=2)
+
+    def Cell(self, r, c):
+        return self._cells[(r, c)]
+
+
+def test_table_fingerprint_sentinels_unreadable_cell():
+    # CHECKPOINT-7: an unreadable (merged) cell gets a positional sentinel rather
+    # than being dropped, so it is distinguishable from the same cell being empty.
+    empty = _FakeTable(
+        {
+            (1, 1): _FakeCell("a"),
+            (1, 2): _FakeCell(""),
+            (2, 1): _FakeCell("c"),
+            (2, 2): _FakeCell("d"),
+        }
+    )
+    merged = _FakeTable(
+        {
+            (1, 1): _FakeCell("a"),
+            (1, 2): _FakeCell(boom=True),
+            (2, 1): _FakeCell("c"),
+            (2, 2): _FakeCell("d"),
+        }
+    )
+    h_empty = _table_fingerprints(SimpleNamespace(Tables=[empty]))[0]["cells_hash"]
+    h_merged = _table_fingerprints(SimpleNamespace(Tables=[merged]))[0]["cells_hash"]
+    assert h_empty != h_merged  # unreadable cell not silently treated as empty/dropped
+
+
+def test_checkpoint_and_changes_since_are_polite(fake_word):
+    # CHECKPOINT-9: the read-only walk leaves Selection / scroll / Saved untouched.
+    fake_word.Selection.Start = 7
+    fake_word.Selection.End = 12
+    fake_word.ActiveDocument.Saved = True
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        cp = doc.checkpoint()
+        doc.changes_since(cp)
+    assert fake_word.Selection.Start == 7 and fake_word.Selection.End == 12
+    fake_word.Selection.Select.assert_not_called()
+    assert fake_word.ActiveDocument.Saved is True  # checkpoint never dirties the doc

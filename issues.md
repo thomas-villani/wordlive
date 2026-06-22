@@ -15,7 +15,16 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` fixed/closed · `[wontfi
 > **Status — High + Medium addressed on branch `fix/post-v0.17-review`.** 19 of 21
 > fixed with tests; 2 (EXPORT-3, LINT-1) determined to be **false positives** on
 > deeper analysis (reasoning inline). All 1530 unit tests + the touched smoke
-> tests pass; ruff + mypy clean. The 26 Low findings remain open for a later pass.
+> tests pass; ruff + mypy clean.
+>
+> **Status — all 26 Low findings addressed on branch `fix/post-v0.17-review-low`.**
+> Code fixes + regression tests for the substantive ones; the few that were
+> documentation-only or genuinely harmless (LINT-5's sub-0.01pt snap, SURFACE-3's
+> intentional rename) are documented in place. LISTS-6's premise was corrected by
+> a live probe (Word's outline default is per-level `%N)`, not hierarchical — so
+> the old code over-rode the default rather than "flattening hierarchy"; the fix
+> now preserves Word's default). 1561 unit tests pass; ruff + mypy clean; the
+> COM-behavior fixes (shapes, lists, export headings) were live-validated.
 
 ## High severity (correctness / data-loss / invariant break)
 
@@ -46,30 +55,30 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` fixed/closed · `[wontfi
 
 ## Low severity (polish / consistency / test-gap)
 
-- [ ] **SHAPES-2** — `apply_shape_size` leaves `LockAspectRatio` permanently FALSE when both dims passed w/o `lock_aspect`
-- [ ] **SHAPES-3** — `insert_*`/`group_shapes` leave the `_wl_shape_*` probe name on shapes whose original name was empty
-- [ ] **SHAPES-4** — Inherited revision/text-history reads on `ShapeAnchor` report the anchoring paragraph, not the shape
-- [ ] **SHAPES-5** — `set_position(relative_to=…)` resets both axes' frames even when only one offset changes
-- [ ] **SHAPES-6** — No test for the politeness/cursor-restore invariant on shape mutators
-- [ ] **TABLES-1** — `add_column`/`delete_column` lack the index-drift warning the other structural ops carry
-- [ ] **LISTS-5** — Bullet/number read-back misclassifies a numbered level whose format has no `%N` placeholder
-- [ ] **LISTS-6** — `_configure_level` flattens outline numbering when `style` set but `format` omitted
-- [ ] **TABLES-7** — No test that `delete_column`/`ColumnAnchor` surface `OpError` on a merged table
-- [ ] **CHARTS-2** — `data_table` toggle unguarded → raw COM error on pie/scatter instead of a friendly message
-- [ ] **CHARTS-3** — `format_series(data_labels=False, data_label_size=…)` re-enables labels
-- [ ] **CHARTS-4** — No validation guidance on out-of-range `order` / `marker_size` / `explosion`
-- [ ] **EXPORT-6** — Lead-snippet word accounting approximate; can emit spurious "N more words" markers
-- [ ] **EXPORT-7** — Markdown link/image targets emitted unescaped (URLs with `)`/spaces break)
-- [ ] **EXPORT-8** — `walk_blocks` reads `Style.NameLocal` → locale-dependent heading fallback
-- [ ] **CHECKPOINT-7** — Table fingerprint drops un-readable cells without a sentinel → masks structural change
-- [ ] **CHECKPOINT-8** — Test gaps: blank-line mis-align, table diff, scoped round-trip, `_SIM_PAIR_CAP` fallback
-- [ ] **CHECKPOINT-9** — Politeness honored but unguarded by any test
-- [ ] **LINT-4** — `lint` table-repeat-header rule double-repaginates per table and swallows all exceptions
-- [ ] **LINT-5** — Float-rounding used as epsilon; fix writes rounded value back as a new direct override
-- [ ] **LINT-6** — Test gaps: `within`-scoped consistency rules, multi-rule regularize, `_overlaps`/`_in_span` duplication
-- [ ] **SURFACE-3** — Border line-style param name differs three ways (`--style` / `style`+`line_style` / `line_style`)
-- [ ] **SURFACE-4** — `XlErrorBarInclude` docstring names a non-existent `direction=` param (it's `include=`)
-- [ ] **SURFACE-5** — Error-bars `axis` choices differ between CLI (`y|value|x|category`) and MCP docs (`y|x`)
+- [x] **SHAPES-2** — *Fixed:* capture + restore the prior `LockAspectRatio` when both dims are passed without `lock_aspect`. Live-validated.
+- [x] **SHAPES-3** — *Fixed:* restore the original name unconditionally (Word accepts `""`), so the `_wl_shape_*` probe never lingers. Live-validated.
+- [x] **SHAPES-4** — *Fixed:* `ShapeAnchor.revision_segments` (and thus `text_final`/`text_original`) mirrors the shape's own text; documented that shape text has no tracked-change view.
+- [x] **SHAPES-5** — *Fixed:* only re-frame the axis being repositioned (both axes when neither offset is given). Live-validated.
+- [x] **SHAPES-6** — *Fixed:* test asserts mutators leave Selection untouched and ride one UndoRecord.
+- [x] **TABLES-1** — *Fixed:* index-drift notes added to `add_column` / `delete_column` docstrings.
+- [x] **LISTS-5** — *Addressed:* the no-`%N` heuristic is genuinely ambiguous in Word's model, so `read_list_levels()` now surfaces the raw `number_style` int to disambiguate (the finding's safer alternative) rather than risk regressing real bullet detection.
+- [x] **LISTS-6** — *Fixed (premise corrected):* a live probe showed Word's outline default is per-level `%N)`, **not** hierarchical — so the old code over-rode Word's default, it didn't "flatten hierarchy". A multi-level number level with no explicit `format` now keeps Word's default; docs note hierarchical numbering needs an explicit `format`. Live-validated.
+- [x] **TABLES-7** — *Fixed:* test monkeypatches `Columns(c)` to raise `ComError` and asserts both `delete_column` and `ColumnAnchor` re-raise `OpError` with the per-cell hint.
+- [x] **CHARTS-2** — *Fixed:* `data_table` toggle wrapped → friendly `OpError` on pie/scatter.
+- [x] **CHARTS-3** — *Fixed:* `data_labels=False` with a font field now raises rather than silently re-enabling labels.
+- [x] **CHARTS-4** — *Fixed:* range checks for `order` (2–6), `marker_size` (2–72), `explosion` (0–400).
+- [x] **EXPORT-6** — *Fixed:* `_lead_snippet` reports truncation; the "N more words" marker only fires when text was actually elided, counted off the same plain-text source as `word_count`.
+- [x] **EXPORT-7** — *Fixed:* link/image targets with spaces/parens are angle-bracket-wrapped (`<url>`); `<`/`>`/newlines percent-encoded.
+- [x] **EXPORT-8** — *Fixed:* heading fallback resolves the document's localized built-in heading names (`Styles(wdStyleHeadingN).NameLocal`); English regex kept as last resort. Live-validated the style map.
+- [x] **CHECKPOINT-7** — *Fixed:* an unreadable cell gets a positional `"\x00skip\x00"` sentinel instead of being dropped.
+- [x] **CHECKPOINT-8** — *Fixed:* added `_SIM_PAIR_CAP` positional-fallback test (+ `_pair_replace` direct test); blank-line/table-diff/scoped cases already covered.
+- [x] **CHECKPOINT-9** — *Fixed:* test asserts `checkpoint()` / `changes_since()` leave Selection + `Saved` untouched.
+- [x] **LINT-4** — *Fixed:* one `location()` over the table's whole range (one repaginate, merged-grid-safe); broad excepts narrowed to `ComError`.
+- [x] **LINT-5** — *Documented:* the ≤0.01pt snap is idempotent and below any visible threshold; carrying the unrounded baseline would widen the `format_info` contract for nothing. Documented in the module.
+- [x] **LINT-6** — *Fixed:* `_in_span` now delegates to the single `_overlaps` helper; added tests for `within`-scoped consistency, multi-rule single-undo regularize, and a body-font positive.
+- [x] **SURFACE-3** — *Fixed:* CLI `--style` help notes the exec/MCP `line_style` alias (rename is intentional, to avoid colliding with a `style` name).
+- [x] **SURFACE-4** — *Fixed:* `XlErrorBarInclude` docstring says `include=` (axis is the separate `axis=`).
+- [x] **SURFACE-5** — *Fixed:* MCP error-bar `axis` docs now list `y|value|x|category`.
 
 ---
 

@@ -1849,7 +1849,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             star|dot|dash|plus|none|auto,marker_size,smooth,explosion,data_labels,data_label_size,
             data_label_color]} — series/point markers, line smoothing, pie explosion, label font ·
         add_error_bars {anchor_id=chart:N, [series=1,kind=fixed|percent|stdev|sterror,amount,
-            include=both|plus|minus,axis=y|x]} — amount required unless kind=sterror ·
+            include=both|plus|minus,axis=y|value|x|category]} — amount required unless kind=sterror ·
         set_shape_wrap {anchor_id=shape:N, [wrap=square|tight|through|top-bottom|front|behind,
             side=both|left|right|largest,distance_top,distance_bottom,distance_left,distance_right]}
             — wrap style / which sides text flows past (side honoured by square/tight/through) /
@@ -2127,7 +2127,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           add_trendline {anchor_id=chart:N,[series=1,kind=linear|exponential|logarithmic|moving_average|polynomial|power,display_equation,display_r_squared,forward,backward,order,period]} ·
           set_series_color {anchor_id=chart:N,color,[series=1,point]} — recolour a series or one 1-based point/slice ·
           format_series {anchor_id=chart:N,[series=1,point,marker=circle|square|diamond|triangle|x|star|dot|dash|plus|none|auto,marker_size,smooth,explosion,data_labels,data_label_size,data_label_color]} — markers/smoothing/explosion/label font ·
-          add_error_bars {anchor_id=chart:N,[series=1,kind=fixed|percent|stdev|sterror,amount,include=both|plus|minus,axis=y|x]} — amount required unless kind=sterror ·
+          add_error_bars {anchor_id=chart:N,[series=1,kind=fixed|percent|stdev|sterror,amount,include=both|plus|minus,axis=y|value|x|category]} — amount required unless kind=sterror ·
           set_shape_wrap/set_shape_position/set_shape_size/format_shape/set_shape_alt_text/set_shape_text/replace_shape_image/delete_shape {anchor_id=shape:N,…} —
             restyle a floating shape (text box / image): wrap (style/side/distance_*), position (left/top/relative_to), size (width/height/lock_aspect), fill/border, alt text, text-box contents, picture swap (path|base64), or delete ·
           set_shape_crop {anchor_id=shape:N,[left,top,right,bottom]} — trim a floating PICTURE shape in from its edges (crop_* aliases also accepted) ·
