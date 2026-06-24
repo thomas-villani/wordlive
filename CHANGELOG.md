@@ -5,6 +5,19 @@ All notable changes to **wordlive** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Docs reorganised into browsable sections.** The CLI reference
+  (`docs/cli.md`) was a flat list of 130 `##` command headings; it's now grouped
+  into 23 thematic `##` sections (Inspecting · Reading · Editing · Formatting ·
+  Tables · Citations · …) with each command demoted to `###` under its category.
+  The Python API reference (`docs/python-api.md`) gained an 8-Part `##` layer over
+  its 25 sections (now `###`), with mkdocstrings `heading_level` bumped 2→3 so the
+  generated class docs nest one level deeper to match. Pure reorganisation — no
+  command, op, or API surface changed, and all heading anchors are preserved
+  (only heading *levels* changed), so existing cross-references still resolve.
+
 ## [0.18.0] - 2026-06-23
 
 ### Added
@@ -1269,6 +1282,7 @@ v0–v0.8 development line bundled here:
   trusted-publishing on tag push.
 
 
+[Unreleased]: https://github.com/thomas-villani/wordlive/compare/v0.18.0...HEAD
 [0.18.0]: https://github.com/thomas-villani/wordlive/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/thomas-villani/wordlive/compare/v0.16.1...v0.17.0
 [0.16.1]: https://github.com/thomas-villani/wordlive/compare/v0.16.0...v0.16.1
