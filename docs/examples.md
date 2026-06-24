@@ -46,3 +46,15 @@ Drive the [`wordlive` CLI](cli.md) — JSON in, JSON out, deterministic
 
 These are the same patterns walked through in the [Cookbook](cookbook.md), packaged
 to run end-to-end.
+
+## Sample document
+
+[`sample/`](https://github.com/thomas-villani/wordlive/tree/main/examples/sample)
+holds the short status report the [Tutorial](tutorial.md) drives —
+[`quarterly-report.docx`](https://github.com/thomas-villani/wordlive/blob/main/examples/sample/quarterly-report.docx).
+Open it in Word and follow the tutorial step by step, or regenerate it from the
+committed builder (so the binary stays reviewable):
+
+```bash
+uv run --with python-docx python examples/sample/build_quarterly_report.py
+```

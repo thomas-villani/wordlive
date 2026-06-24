@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Tutorial — a single guided editing session.** New `docs/tutorial.md` fills
+  the learning-oriented gap between the quickstart and the random-access
+  Cookbook: it drives one document end to end (attach → inspect → read a section
+  → first polite edit → batch under one undo → suggest via comment + tracked
+  change → verify with checkpoint/diff), dual-tabbed Python **and** CLI at every
+  step, so the four invariants land by doing. Ships the sample it drives —
+  `examples/sample/quarterly-report.docx` plus its committed, reviewable builder
+  `build_quarterly_report.py` — and adds the page to the nav with cross-links
+  from Getting started and Examples.
+
 ### Changed
 - **Docs reorganised into browsable sections.** The CLI reference
   (`docs/cli.md`) was a flat list of 130 `##` command headings; it's now grouped
