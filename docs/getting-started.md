@@ -149,6 +149,9 @@ see [Cookbook §3](cookbook.md#3-add-text-to-a-document).
 
 ## Where to next
 
+- [Tutorial](tutorial.md) — a single guided session that drives one document
+  end to end (inspect → read → edit → batch → suggest → verify), so the four
+  ideas land by doing.
 - [Concepts](concepts.md) — the four ideas that shape every wordlive API:
   politeness, semantic anchors, anchor IDs, and `EditScope`.
 - [Cookbook](cookbook.md) — end-to-end recipes including an LLM tool-use loop.

@@ -24,7 +24,11 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 
 ---
 
-## Connecting to Word
+## Connecting & documents
+
+Get a `Word` handle and reach the open documents.
+
+### Connecting to Word
 
 ::: wordlive.attach
 
@@ -32,13 +36,17 @@ See [Concepts](concepts.md) for the *why* behind these shapes.
 
 ::: wordlive.Word
 
-## Documents
+### Documents
 
 ::: wordlive.Document
 
 ::: wordlive.DocumentCollection
 
-## Anchors
+## Anchors, editing & formatting
+
+The anchor model, the edit scope, and the formatting / list / style verbs that run on any anchor.
+
+### Anchors
 
 Every anchor type inherits `apply_style(name)`, `format_paragraph(...)`,
 `format_run(...)`, `set_shading(...)`, `set_borders(...)`, `add_tab_stop(...)`,
@@ -172,7 +180,153 @@ and view untouched), so page numbers are print-layout truth.
 
 ::: wordlive.EndAnchor
 
-## Images
+### Editing
+
+`Selection` is the explicit cursor surface: `doc.selection.info()` reads where
+the cursor is, and `doc.selection.write(text, replace=...)` types at it.
+`write` deliberately moves the cursor, so wrap it in
+[`doc.edit()`](#wordlive.Document) and call
+[`scope.allow_cursor_move()`](#wordlive.EditScope) for atomic undo without
+snapping the cursor back. Everywhere else, prefer anchors over the cursor.
+
+::: wordlive.EditScope
+
+::: wordlive.Selection
+
+::: wordlive.SelectionSnapshot
+
+### Lists & numbering
+
+List operations apply to a *range's paragraphs*, so the verbs live on
+[`Anchor`](#wordlive.Anchor) — `apply_list("numbered")`, `remove_list()`,
+`list_info()`, `restart_numbering()`, and `indent_list()` / `outdent_list()`
+work on any anchor. `Document.lists` is a read-only
+[`ListCollection`](#wordlive.ListCollection) for discovering the lists already in
+the document; index it (`doc.lists[2]`) to get a
+[`RangeAnchor`](#wordlive.RangeAnchor) over a list's range.
+
+**Custom list formats.** Where `apply_list` only applies a gallery default,
+`anchor.apply_list_format(levels)` **authors a custom multi-level list template**
+and applies it. `levels` is a 1-based list of per-level spec dicts — each setting
+the marker `format` (`"%1."`, `"%1)"`, `"%1.%2"`), number `style` (`"arabic"`,
+`"upper-roman"`, `"lower-letter"`, …) or `bullet` glyph + `font`, plus
+`start_at` / `number_position` / `text_position` / `trailing` / `alignment` /
+`bold` / `color`. More than one level mints an outline template.
+`anchor.read_list_levels()` is the read mirror — one `{level, kind, format,
+number_style, style, trailing, number_position, text_position, font}` dict per
+template level (`number_style` is the raw `WdListNumberStyle` int). A multi-level
+number level authored without an explicit `format` keeps Word's built-in outline
+default; hierarchical numbering (`%1.%2.%3.`) still needs an explicit `format`.
+
+```python
+with doc.edit("custom numbering"):
+    doc.headings["Steps"].apply_list_format([
+        {"kind": "number", "format": "%1)", "style": "lower-letter", "trailing": "space"},
+        {"kind": "bullet", "bullet": "–", "font": "Symbol"},
+    ])
+```
+
+::: wordlive.ListCollection
+
+### Styles
+
+Styles are document-scoped handles. `Document.styles` is a
+[`StyleCollection`](#wordlive.StyleCollection); apply styles to anchors via
+[`Anchor.apply_style`](#wordlive.Anchor). Define a new style with
+`doc.styles.add(name, type="paragraph", based_on=…, next_style=…)`, which returns
+a writable [`Style`](#wordlive.Style): set its defaults with `style.format_run(…)`
+/ `style.format_paragraph(…)` (the same kwargs as the anchor methods, minus
+`highlight`) and chain styles via `style.base_style` / `style.next_paragraph_style`.
+The brand/template workflow: `add` a house style once, then `apply_style` it
+everywhere.
+
+::: wordlive.Style
+
+::: wordlive.StyleCollection
+
+## Tables
+
+Create, read, and restructure tables — a cell is itself an anchor.
+
+### Tables
+
+`Document.tables` is a [`TableCollection`](#wordlive.TableCollection). Index a
+table by 1-based position or `Title`, then read or edit it. A
+[`Cell`](#wordlive.Cell) *is* an [`Anchor`](#wordlive.Anchor) — its id is
+`table:N:R:C`, so `doc.anchor_by_id("table:1:2:3")` returns a cell that works
+with `set_text`, `apply_style`, and `format_paragraph` like any other anchor.
+
+Create tables with [`Document.add_table(rows, cols, …)`](#wordlive.Document)
+(append at the end) or [`Anchor.insert_table(...)`](#wordlive.Anchor) (at any
+position anchor); both return the new [`Table`](#wordlive.Table), populate cells
+from a row-major `data` grid, default to the `Table Grid` style, and keep
+appended tables from merging into an adjacent one. `Table.delete()` removes a
+whole table — the structural mirror of `add_row` / `delete_row`.
+`Table.set_heading_row(row=1, heading=True, allow_break=None)` marks a row as a
+repeating header that reprints on every page the table spans.
+
+Treat a table as **records** keyed by its header row (row 1) — the read/update
+mirror of building one from `data=[{...}]`. `Table.records()` returns the body
+rows as a list of `{header: cell_text}` dicts; `Table.append_record({...})`
+appends a row from a dict (keys mapped to header columns, missing → empty, extra
+→ ignored); `Table.update_row(key, {...}, column=None)` sets cells by header name
+on the first row whose key-column (the first column, or the header named by
+`column`) equals `key` — addressing a row by content instead of a fragile
+1-based index.
+
+**Restyle a table after creation.** `Table.set_style(name)` points an existing
+table at any built-in or custom table style — the post-creation counterpart of
+`insert_table(style=…)`. Applying a style reapplies its conditional formatting and
+**overwrites direct cell shading**, so restyle *first*, then layer cell-level
+overrides. `Table.set_alignment("left"|"center"|"right")` positions the whole
+table across the page; `Table.set_borders(sides=…, style=…, weight=…, color=…)`
+rules the **whole grid** in one call (the table-wide counterpart of the per-cell
+`set_borders`; interior gridlines via `"horizontal"`/`"vertical"`);
+`Table.set_banding(first_row=…, last_row=…, first_column=…, last_column=…,
+banded_rows=…, banded_columns=…)` toggles Word's "Table Style Options" (tri-state,
+`None` leaves a flag untouched — needs a real table style applied to show).
+`Cell.set_vertical_alignment("top"|"center"|"bottom")` sets a cell's vertical
+alignment.
+
+**Style a whole row or column in one call.** A row is addressable as
+`table:N:row:R` (a [`RowAnchor`](#wordlive.RowAnchor)) and a column as
+`table:N:col:C` (a [`ColumnAnchor`](#wordlive.ColumnAnchor)); `Table.row(R)` /
+`Table.column(C)` return the same objects. Both *are* anchors, so the inherited
+`set_shading` / `set_borders` / `apply_style` / `format_run` / `format_paragraph`
+style the whole strip — `doc.tables[1].row(1).set_shading(fill="#DDD")` shades the
+header row, `table.column(3).format_paragraph(alignment="right")` right-aligns a
+totals column. A **row** is a contiguous range. A **column** is not — Word has no
+per-column model on a table with merged or mixed-width cells, so a column op there
+raises `OpError` pointing at per-cell `table:N:R:C` styling (a regular table fans
+the op across the column's cells transparently).
+
+**Add or remove a column; merge or split cells.** `Table.add_column(values=None)`
+appends a column at the right edge — the column mirror of `add_row`, with
+`values` filling **top-to-bottom**; `Table.delete_column(index)` removes one.
+(`delete_column` raises `OpError` on a merged / mixed-width table — Word can't
+address an individual column there, so delete its cells via `table:N:R:C`.)
+`Cell.merge(other)` joins two cells (and the rectangle they span) into one,
+keeping the calling cell's id; `Cell.split(rows=1, cols=2)` is its inverse.
+Either makes the table **non-uniform**: `Table.is_uniform` then reports `False`,
+`table:N:R:C` indexes *physical* cells (a merged row has fewer than
+`column_count`), and `Table.read()` walks each row's physical cells so it stays
+safe on an irregular grid (its `uniform` field flags the shape).
+
+::: wordlive.TableCollection
+
+::: wordlive.Table
+
+::: wordlive.Cell
+
+::: wordlive.RowAnchor
+
+::: wordlive.ColumnAnchor
+
+## Embedded objects
+
+Pictures, floating shapes, equations, and charts as first-class anchors.
+
+### Images
 
 The read side of the image story (the write side is
 [`Anchor.insert_image`](#wordlive.Anchor)). `doc.images` is a read-only
@@ -198,7 +352,7 @@ below). To change the picture's bytes, delete and re-insert.
 
 ::: wordlive.ImageCollection
 
-## Watermarks, text boxes & floating shapes
+### Watermarks, text boxes & floating shapes
 
 `Document.set_watermark(text, …)` stamps a WordArt text watermark
 (DRAFT / CONFIDENTIAL) behind every page via each section's header story —
@@ -250,7 +404,7 @@ text box).
 
 ::: wordlive.TextBoxCollection
 
-## Equations
+### Equations
 
 Mathematical equations as first-class anchors. The write side is
 [`Anchor.insert_equation`](#wordlive.Anchor): it takes exactly one of three input
@@ -281,7 +435,7 @@ and re-insert to change it.
 
 ::: wordlive.EquationCollection
 
-## Charts
+### Charts
 
 Excel-backed charts as first-class anchors. The write side is
 [`Anchor.insert_chart`](#wordlive.Anchor): `kind` is `"bar"` (clustered
@@ -308,7 +462,7 @@ chart's `chart:N` id, `kind`, `title`, `chart_style`, `has_legend`, and the
 `chart.title` / `chart.chart_style` / `chart.has_legend`. A chart has no plain
 text, so `set_text` raises — delete and re-insert to change the *data*.
 
-### Formatting & design
+#### Formatting & design
 
 The chart's appearance — Word's "Design" and "Format" tabs — is a curated set of
 methods on [`ChartAnchor`](#wordlive.ChartAnchor). They operate on the
@@ -360,7 +514,11 @@ kind missing its amount) raises [`OpError`](errors.md#operror). Wrap calls in
 
 ::: wordlive.ChartCollection
 
-## Footnotes, endnotes & TOC
+## References, linking & layout
+
+Notes and the TOC family, cross-references, durable pins, hyperlinks, and section layout.
+
+### Footnotes, endnotes & TOC
 
 Notes and the table of contents are reference structures built from anchors.
 `anchor.insert_footnote(text)` / `insert_endnote(text)` drop a reference mark at
@@ -461,26 +619,7 @@ heading/body fonts. `doc.theme.colors` / `.major_font` / `.minor_font` /
 
 ::: wordlive.DocumentTheme
 
-## Durable handles (pins)
-
-Positional `para:N` / `heading:N` ids renumber when a structural edit shifts the
-document. When a positional anchor misses, `AnchorNotFoundError.hint` says why
-(out-of-range vs body-text-not-a-heading, the paragraph count, the nearest
-heading) and recommends pinning. `doc.pin(anchor, name=None)` (alias
-`doc.stamp`) plants a hidden bookmark over an anchor's range and returns a
-`pin:<code>` id — random, or a readable slug via `name="budget-intro"` — that
-Word keeps attached to the same content across inserts / deletes / edits;
-resolve it with `doc.anchor_by_id("pin:…")` like any anchor (a deleted target's
-pin vanishes). `doc.pin_outline(levels=…)` pins every heading in one call and
-returns the `{anchor_id: pin}` map (idempotent — reuses a heading's existing
-handle), and `doc.outline(pin=True)` adds a `pin` to each outline row. Wrap pin
-calls in `doc.edit(...)` for atomic undo. In an `exec` batch, `bind: "name"` on
-an insert op mints a pin on the new content, and `$ops[N].field` references an
-earlier op's output (see [CLI](cli.md#exec-script-opsjson) / [MCP](mcp.md#batches)). The methods
-are [`Document.pin`](#wordlive.Document) / `stamp`, `pin_outline`, and
-`outline(pin=…)`.
-
-## Anchoring & linking
+### Anchoring & linking
 
 Create a named anchor, then point at it. `doc.bookmarks.add(name, anchor)`
 creates a bookmark over an anchor's range (the `name` is validated against
@@ -524,97 +663,77 @@ wrong-kind control or bad input.
 
 ::: wordlive.BookmarkCollection
 
-## Styles
+### Durable handles (pins)
 
-Styles are document-scoped handles. `Document.styles` is a
-[`StyleCollection`](#wordlive.StyleCollection); apply styles to anchors via
-[`Anchor.apply_style`](#wordlive.Anchor). Define a new style with
-`doc.styles.add(name, type="paragraph", based_on=…, next_style=…)`, which returns
-a writable [`Style`](#wordlive.Style): set its defaults with `style.format_run(…)`
-/ `style.format_paragraph(…)` (the same kwargs as the anchor methods, minus
-`highlight`) and chain styles via `style.base_style` / `style.next_paragraph_style`.
-The brand/template workflow: `add` a house style once, then `apply_style` it
-everywhere.
+Positional `para:N` / `heading:N` ids renumber when a structural edit shifts the
+document. When a positional anchor misses, `AnchorNotFoundError.hint` says why
+(out-of-range vs body-text-not-a-heading, the paragraph count, the nearest
+heading) and recommends pinning. `doc.pin(anchor, name=None)` (alias
+`doc.stamp`) plants a hidden bookmark over an anchor's range and returns a
+`pin:<code>` id — random, or a readable slug via `name="budget-intro"` — that
+Word keeps attached to the same content across inserts / deletes / edits;
+resolve it with `doc.anchor_by_id("pin:…")` like any anchor (a deleted target's
+pin vanishes). `doc.pin_outline(levels=…)` pins every heading in one call and
+returns the `{anchor_id: pin}` map (idempotent — reuses a heading's existing
+handle), and `doc.outline(pin=True)` adds a `pin` to each outline row. Wrap pin
+calls in `doc.edit(...)` for atomic undo. In an `exec` batch, `bind: "name"` on
+an insert op mints a pin on the new content, and `$ops[N].field` references an
+earlier op's output (see [CLI](cli.md#exec-script-opsjson) / [MCP](mcp.md#batches)). The methods
+are [`Document.pin`](#wordlive.Document) / `stamp`, `pin_outline`, and
+`outline(pin=…)`.
 
-::: wordlive.Style
+### Hyperlinks & fields
 
-::: wordlive.StyleCollection
+`Document.hyperlinks` and `Document.fields` are discovery collections — the read
+mirrors of [`Anchor.link_to`](#wordlive.Anchor) /
+[`Anchor.insert_field`](#wordlive.Anchor). `doc.hyperlinks.list()` reports each
+link's visible text, external `address` or internal `sub_address` bookmark,
+screen tip, and a `range:START-END` / `para:N`; `doc.fields.list()` reports each
+field's `kind` (the code's leading keyword — `PAGE` / `REF` / `TOC` / …), raw
+`code`, rendered `result`, `locked`, and a `range:START-END` / `para:N`. Index
+either (`doc.hyperlinks[2]`, `doc.fields[2]`) for the single-item wrapper.
 
-## Tables
+Hyperlinks are also editable in place — no delete + reinsert. On the indexed
+[`Hyperlink`](#wordlive.Hyperlink), `h.update(address=…, sub_address=…, text=…,
+screen_tip=…)` (or the individual `set_address` / `set_sub_address` / `set_text` /
+`set_screen_tip`) retargets or relabels the link; omitted fields are left
+untouched, the setters are chainable, and `address` / `sub_address` stay
+orthogonal. They *retarget*, they don't unlink: `sub_address` / `screen_tip`
+clear with `""`, but Word keeps every link pointing somewhere with visible text,
+so `address` / `text` can't be emptied (raises `OpError`). Fields remain
+read-only.
 
-`Document.tables` is a [`TableCollection`](#wordlive.TableCollection). Index a
-table by 1-based position or `Title`, then read or edit it. A
-[`Cell`](#wordlive.Cell) *is* an [`Anchor`](#wordlive.Anchor) — its id is
-`table:N:R:C`, so `doc.anchor_by_id("table:1:2:3")` returns a cell that works
-with `set_text`, `apply_style`, and `format_paragraph` like any other anchor.
+::: wordlive.HyperlinkCollection
 
-Create tables with [`Document.add_table(rows, cols, …)`](#wordlive.Document)
-(append at the end) or [`Anchor.insert_table(...)`](#wordlive.Anchor) (at any
-position anchor); both return the new [`Table`](#wordlive.Table), populate cells
-from a row-major `data` grid, default to the `Table Grid` style, and keep
-appended tables from merging into an adjacent one. `Table.delete()` removes a
-whole table — the structural mirror of `add_row` / `delete_row`.
-`Table.set_heading_row(row=1, heading=True, allow_break=None)` marks a row as a
-repeating header that reprints on every page the table spans.
+::: wordlive.Hyperlink
 
-Treat a table as **records** keyed by its header row (row 1) — the read/update
-mirror of building one from `data=[{...}]`. `Table.records()` returns the body
-rows as a list of `{header: cell_text}` dicts; `Table.append_record({...})`
-appends a row from a dict (keys mapped to header columns, missing → empty, extra
-→ ignored); `Table.update_row(key, {...}, column=None)` sets cells by header name
-on the first row whose key-column (the first column, or the header named by
-`column`) equals `key` — addressing a row by content instead of a fragile
-1-based index.
+::: wordlive.FieldCollection
 
-**Restyle a table after creation.** `Table.set_style(name)` points an existing
-table at any built-in or custom table style — the post-creation counterpart of
-`insert_table(style=…)`. Applying a style reapplies its conditional formatting and
-**overwrites direct cell shading**, so restyle *first*, then layer cell-level
-overrides. `Table.set_alignment("left"|"center"|"right")` positions the whole
-table across the page; `Table.set_borders(sides=…, style=…, weight=…, color=…)`
-rules the **whole grid** in one call (the table-wide counterpart of the per-cell
-`set_borders`; interior gridlines via `"horizontal"`/`"vertical"`);
-`Table.set_banding(first_row=…, last_row=…, first_column=…, last_column=…,
-banded_rows=…, banded_columns=…)` toggles Word's "Table Style Options" (tri-state,
-`None` leaves a flag untouched — needs a real table style applied to show).
-`Cell.set_vertical_alignment("top"|"center"|"bottom")` sets a cell's vertical
-alignment.
+::: wordlive.Field
 
-**Style a whole row or column in one call.** A row is addressable as
-`table:N:row:R` (a [`RowAnchor`](#wordlive.RowAnchor)) and a column as
-`table:N:col:C` (a [`ColumnAnchor`](#wordlive.ColumnAnchor)); `Table.row(R)` /
-`Table.column(C)` return the same objects. Both *are* anchors, so the inherited
-`set_shading` / `set_borders` / `apply_style` / `format_run` / `format_paragraph`
-style the whole strip — `doc.tables[1].row(1).set_shading(fill="#DDD")` shades the
-header row, `table.column(3).format_paragraph(alignment="right")` right-aligns a
-totals column. A **row** is a contiguous range. A **column** is not — Word has no
-per-column model on a table with merged or mixed-width cells, so a column op there
-raises `OpError` pointing at per-cell `table:N:R:C` styling (a regular table fans
-the op across the column's cells transparently).
+### Sections, headers & footers
 
-**Add or remove a column; merge or split cells.** `Table.add_column(values=None)`
-appends a column at the right edge — the column mirror of `add_row`, with
-`values` filling **top-to-bottom**; `Table.delete_column(index)` removes one.
-(`delete_column` raises `OpError` on a merged / mixed-width table — Word can't
-address an individual column there, so delete its cells via `table:N:R:C`.)
-`Cell.merge(other)` joins two cells (and the rectangle they span) into one,
-keeping the calling cell's id; `Cell.split(rows=1, cols=2)` is its inverse.
-Either makes the table **non-uniform**: `Table.is_uniform` then reports `False`,
-`table:N:R:C` indexes *physical* cells (a merged row has fewer than
-`column_count`), and `Table.read()` walks each row's physical cells so it stays
-safe on an irregular grid (its `uniform` field flags the shape).
+`Document.sections` is a [`SectionCollection`](#wordlive.SectionCollection). Each
+[`Section`](#wordlive.Section) reaches its headers and footers as
+[`HeaderFooter`](#wordlive.HeaderFooter) anchors — `doc.sections[1].header()` /
+`.footer("first")` — addressed `header:S:WHICH` / `footer:S:WHICH` (WHICH is
+`primary` / `first` / `even`). A `HeaderFooter` *is* an `Anchor`, so
+`set_text`, `apply_style`, and `format_paragraph` work on it like any other, plus
+`insert_page_number()` sugar for a `{ PAGE }` field. `Section.set_page_setup(...)`
+is the write mirror of `page_setup()` — margins, orientation, paper size, gutter,
+and multi-column layout (`columns=N`), per section.
 
-::: wordlive.TableCollection
+::: wordlive.SectionCollection
 
-::: wordlive.Table
+::: wordlive.Section
 
-::: wordlive.Cell
+::: wordlive.HeaderFooter
 
-::: wordlive.RowAnchor
+## Review & track changes
 
-::: wordlive.ColumnAnchor
+Comments and tracked-change recording, reading, and resolution.
 
-## Comments
+### Comments
 
 `Document.comments` is a [`CommentCollection`](#wordlive.CommentCollection).
 `comments.add(anchor, text, author=...)` attaches a review comment to any
@@ -626,7 +745,7 @@ an agent to flag something. Existing comments are addressed by 1-based index
 
 ::: wordlive.Comment
 
-## Track Changes
+### Track Changes
 
 `Document.tracked_changes()` is a context manager that turns Word's Track
 Changes on for the scope and restores the prior setting on exit — pair it with
@@ -657,36 +776,11 @@ gone), so the original wording lives only on the delete revisions.
 
 ::: wordlive.Revision
 
-## Hyperlinks & fields
+## Inspecting, exporting & verifying
 
-`Document.hyperlinks` and `Document.fields` are discovery collections — the read
-mirrors of [`Anchor.link_to`](#wordlive.Anchor) /
-[`Anchor.insert_field`](#wordlive.Anchor). `doc.hyperlinks.list()` reports each
-link's visible text, external `address` or internal `sub_address` bookmark,
-screen tip, and a `range:START-END` / `para:N`; `doc.fields.list()` reports each
-field's `kind` (the code's leading keyword — `PAGE` / `REF` / `TOC` / …), raw
-`code`, rendered `result`, `locked`, and a `range:START-END` / `para:N`. Index
-either (`doc.hyperlinks[2]`, `doc.fields[2]`) for the single-item wrapper.
+Metadata and proofing, linting, Markdown / HTML export, checkpoints, and snapshots.
 
-Hyperlinks are also editable in place — no delete + reinsert. On the indexed
-[`Hyperlink`](#wordlive.Hyperlink), `h.update(address=…, sub_address=…, text=…,
-screen_tip=…)` (or the individual `set_address` / `set_sub_address` / `set_text` /
-`set_screen_tip`) retargets or relabels the link; omitted fields are left
-untouched, the setters are chainable, and `address` / `sub_address` stay
-orthogonal. They *retarget*, they don't unlink: `sub_address` / `screen_tip`
-clear with `""`, but Word keeps every link pointing somewhere with visible text,
-so `address` / `text` can't be emptied (raises `OpError`). Fields remain
-read-only.
-
-::: wordlive.HyperlinkCollection
-
-::: wordlive.Hyperlink
-
-::: wordlive.FieldCollection
-
-::: wordlive.Field
-
-## Document metadata, variables & proofing
+### Document metadata, variables & proofing
 
 `Document.properties` is a read/write [`PropertyCollection`](#wordlive.PropertyCollection)
 over the document's metadata: `read()` returns `{builtin, custom}` (the Title /
@@ -709,7 +803,7 @@ asks Word to (re)check the document. Documented on [`Document`](#wordlive.Docume
 
 ::: wordlive.VariableCollection
 
-## Linting & regularizing
+### Linting & regularizing
 
 `Document.lint(rules=None, within=None)` audits the document for formatting
 inconsistency, structural slips, and policy breaches — the "what's off before I
@@ -755,7 +849,7 @@ fields above, with a `.to_dict()`. `lint` / `regularize` are documented on
 
 ::: wordlive.Finding
 
-## Markdown & HTML export
+### Markdown & HTML export
 
 `Document.to_markdown(within=None)` and `Document.to_html(within=None)` are the
 read mirror of [`insert_markdown`](#wordlive.Anchor) — they serialise the whole
@@ -795,7 +889,7 @@ shallow = doc.read(budget=4000, depth=1)    # outline + only top-level bodies
 
 Documented on [`Document`](#wordlive.Document).
 
-## Checkpoint & diff
+### Checkpoint & diff
 
 `Document.checkpoint(include="text+style", within=None)` fingerprints the
 document's structure right now and returns an opaque, serialisable
@@ -849,73 +943,7 @@ Pure reads — not `exec` ops (the token round-trips through the caller, not Wor
 
 ::: wordlive.Checkpoint
 
-## Lists & numbering
-
-List operations apply to a *range's paragraphs*, so the verbs live on
-[`Anchor`](#wordlive.Anchor) — `apply_list("numbered")`, `remove_list()`,
-`list_info()`, `restart_numbering()`, and `indent_list()` / `outdent_list()`
-work on any anchor. `Document.lists` is a read-only
-[`ListCollection`](#wordlive.ListCollection) for discovering the lists already in
-the document; index it (`doc.lists[2]`) to get a
-[`RangeAnchor`](#wordlive.RangeAnchor) over a list's range.
-
-**Custom list formats.** Where `apply_list` only applies a gallery default,
-`anchor.apply_list_format(levels)` **authors a custom multi-level list template**
-and applies it. `levels` is a 1-based list of per-level spec dicts — each setting
-the marker `format` (`"%1."`, `"%1)"`, `"%1.%2"`), number `style` (`"arabic"`,
-`"upper-roman"`, `"lower-letter"`, …) or `bullet` glyph + `font`, plus
-`start_at` / `number_position` / `text_position` / `trailing` / `alignment` /
-`bold` / `color`. More than one level mints an outline template.
-`anchor.read_list_levels()` is the read mirror — one `{level, kind, format,
-number_style, style, trailing, number_position, text_position, font}` dict per
-template level (`number_style` is the raw `WdListNumberStyle` int). A multi-level
-number level authored without an explicit `format` keeps Word's built-in outline
-default; hierarchical numbering (`%1.%2.%3.`) still needs an explicit `format`.
-
-```python
-with doc.edit("custom numbering"):
-    doc.headings["Steps"].apply_list_format([
-        {"kind": "number", "format": "%1)", "style": "lower-letter", "trailing": "space"},
-        {"kind": "bullet", "bullet": "–", "font": "Symbol"},
-    ])
-```
-
-::: wordlive.ListCollection
-
-## Sections, headers & footers
-
-`Document.sections` is a [`SectionCollection`](#wordlive.SectionCollection). Each
-[`Section`](#wordlive.Section) reaches its headers and footers as
-[`HeaderFooter`](#wordlive.HeaderFooter) anchors — `doc.sections[1].header()` /
-`.footer("first")` — addressed `header:S:WHICH` / `footer:S:WHICH` (WHICH is
-`primary` / `first` / `even`). A `HeaderFooter` *is* an `Anchor`, so
-`set_text`, `apply_style`, and `format_paragraph` work on it like any other, plus
-`insert_page_number()` sugar for a `{ PAGE }` field. `Section.set_page_setup(...)`
-is the write mirror of `page_setup()` — margins, orientation, paper size, gutter,
-and multi-column layout (`columns=N`), per section.
-
-::: wordlive.SectionCollection
-
-::: wordlive.Section
-
-::: wordlive.HeaderFooter
-
-## Editing
-
-`Selection` is the explicit cursor surface: `doc.selection.info()` reads where
-the cursor is, and `doc.selection.write(text, replace=...)` types at it.
-`write` deliberately moves the cursor, so wrap it in
-[`doc.edit()`](#wordlive.Document) and call
-[`scope.allow_cursor_move()`](#wordlive.EditScope) for atomic undo without
-snapping the cursor back. Everywhere else, prefer anchors over the cursor.
-
-::: wordlive.EditScope
-
-::: wordlive.Selection
-
-::: wordlive.SelectionSnapshot
-
-## Snapshots
+### Snapshots
 
 [`Document.snapshot(...)`](#wordlive.Document) and
 [`Anchor.snapshot(...)`](#wordlive.Anchor) render page(s) of the live document
@@ -948,7 +976,11 @@ with wl.attach() as word:
 
 ::: wordlive.Snapshot
 
-## Constants
+## Reference
+
+Typed constants and the exception taxonomy.
+
+### Constants
 
 `wordlive.constants` re-exports the typed `IntEnum` mirrors of the Word `Wd*`
 magic numbers wordlive uses internally (alignment, break types, wrap types,
@@ -962,7 +994,7 @@ from wordlive import constants
 constants.WdParagraphAlignment.CENTER   # 1
 ```
 
-## Exceptions
+### Exceptions
 
 ::: wordlive.WordliveError
 
