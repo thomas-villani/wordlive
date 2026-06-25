@@ -145,7 +145,7 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 if text is None:
                     raise OpError("read command 'find' requires 'text'")
                 scope = doc.anchor_by_id(p["in_anchor"]) if p.get("in_anchor") else None
-                return doc.find(text, scope=scope)
+                return doc.find(text, scope=scope, mode=p.get("mode", "fuzzy"))
             if command == "read_bookmark":
                 return {"text": doc.bookmarks[_need(p, "name", command)].text}
             if command == "read_cc":
@@ -389,6 +389,8 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
                 op["occurrence"] = p["occurrence"]
             if p.get("in_anchor") is not None:
                 op["in"] = p["in_anchor"]
+            if p.get("mode") is not None:
+                op["mode"] = p["mode"]
             return op
         return {"op": "replace", "anchor_id": need("anchor_id"), "text": text}
     if command == "write_bookmark":
@@ -1258,6 +1260,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         name: str | None = None,
         text: str | None = None,
         in_anchor: str | None = None,
+        mode: str | None = None,
         anchor_id: str | None = None,
         heading: str | None = None,
         table: int | None = None,
@@ -1286,7 +1289,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         word_exec op vocabulary, and every field; read this first) ·
         status (no doc needed; reports name/path/saved/is_active per open doc) ·
         outline [all_paragraphs] · paragraphs [start,count] ·
-        find {text,[in_anchor]} · read_bookmark {name} · read_cc {name} ·
+        find {text,[in_anchor],[mode=fuzzy|literal|regex]} · read_bookmark {name} · read_cc {name} ·
         read_section {heading | anchor_id} (body under a heading) ·
         to_markdown {[within]} (serialise the document — or one anchor's range — to
         clean Markdown: headings, lists, **bold**/*italic*, GFM tables, ![alt](image:N),
@@ -1364,6 +1367,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "name": name,
             "text": text,
             "in_anchor": in_anchor,
+            "mode": mode,
             "anchor_id": anchor_id,
             "heading": heading,
             "table": table,
@@ -1703,7 +1707,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         delete_paragraph {anchor_id} — remove the paragraph(s) at an anchor, mark included ·
         append/prepend {text,[style]} — new final/first paragraph; pass paragraph=false
             to continue the adjacent paragraph inline (an inline append takes no style) ·
-        replace {text, find|anchor_id, [all,occurrence,in_anchor]} ·
+        replace {text, find|anchor_id, [all,occurrence,in_anchor,mode=fuzzy|literal|regex]} ·
         write_bookmark/write_cc {name,text} · apply_style {anchor_id,name} ·
         format_paragraph {anchor_id,[alignment,*_indent,space_*,line_spacing,page_break_before,keep_together,keep_with_next,widow_control]} ·
         format_run {anchor_id,[bold,italic,underline,strikethrough,font,size,color,

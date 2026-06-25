@@ -252,3 +252,86 @@ def test_replace_verification_error_classifies_distinctly():
     exc = ReplaceVerificationError("None", "None", "Looks", anchor_id="range:5-9")
     assert classify(exc) == ("replace_verification", False)
     assert _exit_for(exc) == 1  # generic exit code, not anchor/ambiguous
+
+
+# ---------------------------------------------------------------------------
+# find_replace modes: literal (exact) and regex (Python, per-match replacement)
+# ---------------------------------------------------------------------------
+
+
+def test_find_matches_literal_is_exact_no_folding():
+    # Literal mode does not fold smart quotes, dashes, or whitespace runs.
+    assert find_matches("a — b", "-", mode="literal") == []
+    assert find_matches("say “hi”", '"', mode="literal") == []
+    # An exact two-space run matches itself (fuzzy would collapse to one space).
+    m = find_matches("a  b  c", "  ", mode="literal")
+    assert [(x.start, x.end, x.text) for x in m] == [(1, 3, "  "), (4, 6, "  ")]
+
+
+def test_find_matches_regex_collapses_runs_in_one_pass():
+    m = find_matches("a   b", r" {2,}", mode="regex", replacement=" ")
+    assert len(m) == 1
+    assert (m[0].start, m[0].end, m[0].text, m[0].replacement) == (1, 4, "   ", " ")
+
+
+def test_find_matches_regex_expands_backreferences_per_match():
+    m = find_matches("1-2 and 30-40", r"\b(\d+)-(\d+)\b", mode="regex", replacement=r"\1_\2")
+    assert [x.text for x in m] == ["1-2", "30-40"]
+    assert [x.replacement for x in m] == ["1_2", "30_40"]  # per-match expansion
+
+
+def test_find_matches_regex_skips_zero_width():
+    # A pattern that only ever matches empty would otherwise spin the writer.
+    assert find_matches("abc", "x*", mode="regex", replacement="-") == []
+
+
+def test_find_matches_regex_invalid_pattern_raises_value_error():
+    with pytest.raises(ValueError):
+        find_matches("abc", "(unclosed", mode="regex")
+
+
+def test_find_matches_unknown_mode_raises():
+    with pytest.raises(ValueError):
+        find_matches("abc", "a", mode="wildcard")
+
+
+def test_document_find_replace_regex_collapses_double_space(fake_word):
+    fake_word.ActiveDocument.Content.Text = "a  b ok"
+    fake_word.ActiveDocument.Content.End = len("a  b ok")
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("fr"):
+            applied = doc.find_replace(r" {2,}", " ", all=True, mode="regex")
+    assert len(applied) == 1 and applied[0]["text"] == "  "
+    assert fake_word.ActiveDocument.Range(1, 3).Text == " "
+
+
+def test_document_find_replace_regex_backreference(fake_word):
+    fake_word.ActiveDocument.Content.Text = "see 1990-1995 now"
+    fake_word.ActiveDocument.Content.End = len("see 1990-1995 now")
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("fr"):
+            applied = doc.find_replace(r"\b(\d+)-(\d+)\b", r"\1–\2", all=True, mode="regex")
+    assert len(applied) == 1 and applied[0]["text"] == "1990-1995"
+    assert fake_word.ActiveDocument.Range(4, 13).Text == "1990–1995"
+
+
+def test_document_find_replace_literal_exact_runs(fake_word):
+    fake_word.ActiveDocument.Content.Text = "a  b  c"
+    fake_word.ActiveDocument.Content.End = len("a  b  c")
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("fr"):
+            applied = doc.find_replace("  ", " ", all=True, mode="literal")
+    assert len(applied) == 2
+
+
+def test_document_find_replace_not_required_tolerates_zero_matches(fake_word):
+    # required=False: an autofix whose target an earlier pass already cleaned is a
+    # no-op rather than a raise (the linter relies on this for overlapping fixes).
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("fr"):
+            applied = doc.find_replace("nowhere", "x", all=True, required=False)
+    assert applied == []

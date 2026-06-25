@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Linter Batch 1 — typography hygiene (10 new rules).** (Priority 1, item 1 —
+  `spec-linter.md` §5b·A, the P2 "run-walk / text-scan" cluster.) `doc.lint` /
+  `doc.regularize` gain a cheap, high-frequency text-defect cluster, all tagged
+  `typography`: `trailing-whitespace`, `leading-whitespace`,
+  `space-before-punctuation`, `double-space`, `manual-heading-formatting`
+  (a short, bold/enlarged `Normal` paragraph that reads like a heading but was
+  never styled — report-only), and `table-style-consistent` (restyle the minority
+  tables onto the document's dominant table style) ship **on** by default; the
+  opinionated `hyphen-as-range` (en-dash), `em-dash-usage`, `tabs-for-layout`, and
+  `manual-line-break` ship **off** (named or via the tag — `spec-linter.md` §5b
+  "default stance"). Detection is a pure paragraph-text scan; the whitespace /
+  punctuation / range fixes compose the new `find_replace` regex mode (below),
+  scoped to the offending `para:N`, so they never flatten inline formatting and a
+  second `regularize` is a clean no-op (live-probed). Wired Python / CLI (`lint
+  --rules typography`, `regularize`) / `regularize` exec op / MCP — rules
+  auto-surface from the registry.
+- **`find_replace` literal & regex modes + a new `default_on` rule flag.** The
+  find/replace surface (`doc.find` / `doc.find_replace`, the `find_replace` exec
+  op, CLI `find`/`replace`, MCP `find`/`replace`) gains a `mode` ∈
+  `fuzzy` (default, unchanged) / `literal` (exact, no folding) / `regex` (Python
+  regex; the replacement may use `\1` backreferences, expanded per match — so a
+  single call collapses runs or reorders groups). `find_replace` also gains
+  `required=False` (zero matches → `[]` instead of raising), used by idempotent
+  batch autofixes where an earlier fix already cleaned an overlapping match. The
+  linter `Rule` registry gains a `default_on` flag so opinionated/policy rules can
+  ship off-by-default yet stay reachable by id or tag.
 - **Tutorial — a single guided editing session.** New `docs/tutorial.md` fills
   the learning-oriented gap between the quickstart and the random-access
   Cookbook: it drives one document end to end (attach → inspect → read a section

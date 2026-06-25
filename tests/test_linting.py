@@ -290,6 +290,142 @@ def test_cli_read_format(fake_word):
     assert "keep_with_next" in info["paragraph"]
 
 
+# --- typography (P2 text-scan) batch -----------------------------------------
+
+
+def _typo_app(monkeypatch, paras):
+    app = _make_app(paragraphs=paras)
+    _attach(monkeypatch, app)
+    return app
+
+
+def test_lint_trailing_whitespace(monkeypatch):
+    _typo_app(monkeypatch, [{"text": "foo  ", "start": 0, "end": 6}])
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["trailing-whitespace"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["anchor_id"] == "para:1" and f["kind"] == "structural"
+    assert f["fix"]["op"] == "find_replace" and f["fix"]["mode"] == "regex"
+    assert f["fix"]["in"] == "para:1" and f["fix"]["required"] is False
+
+
+def test_lint_leading_whitespace(monkeypatch):
+    _typo_app(monkeypatch, [{"text": "   indented", "start": 0, "end": 12}])
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["leading-whitespace"])
+    assert {f["anchor_id"] for f in findings} == {"para:1"}
+    assert findings[0]["fix"]["find"] == r"^[ \t]+"
+
+
+def test_lint_double_space_skips_verbatim(monkeypatch):
+    _typo_app(
+        monkeypatch,
+        [
+            {"text": "a  b", "start": 0, "end": 5, "style": "Normal"},
+            {"text": "x  y", "start": 5, "end": 10, "style": "HTML Preformatted"},
+        ],
+    )
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["double-space"])
+    assert {f["anchor_id"] for f in findings} == {"para:1"}  # verbatim para skipped
+
+
+def test_lint_space_before_punctuation(monkeypatch):
+    _typo_app(monkeypatch, [{"text": "hello ,world", "start": 0, "end": 13}])
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["space-before-punctuation"])
+    assert len(findings) == 1
+    assert findings[0]["fix"]["text"] == r"\1"
+
+
+def test_lint_hyphen_as_range_off_by_default(monkeypatch):
+    _typo_app(monkeypatch, [{"text": "spanning 1990-1995", "start": 0, "end": 19}])
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "hyphen-as-range" not in _rules_seen(doc.lint())  # off by default
+        findings = doc.lint(rules=["hyphen-as-range"])  # opt-in by id
+    assert len(findings) == 1
+    assert "–" in findings[0]["fix"]["text"]  # en-dash backreference replacement
+
+
+def test_lint_em_dash_usage_report_only(monkeypatch):
+    _typo_app(monkeypatch, [{"text": "a — b", "start": 0, "end": 6}])
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["em-dash-usage"])
+    assert len(findings) == 1
+    assert findings[0]["fixable"] is False and findings[0]["fix"] is None
+
+
+def test_lint_tabs_for_layout_report_only(monkeypatch):
+    _typo_app(monkeypatch, [{"text": "name\tvalue", "start": 0, "end": 11}])
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["tabs-for-layout"])
+    assert len(findings) == 1 and findings[0]["fixable"] is False
+
+
+def test_lint_manual_line_break_report_only(monkeypatch):
+    _typo_app(monkeypatch, [{"text": "line one\x0bline two", "start": 0, "end": 18}])
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["manual-line-break"])
+    assert len(findings) == 1 and findings[0]["rule"] == "manual-line-break"
+
+
+def test_lint_manual_heading_formatting_report_only(monkeypatch):
+    app = _typo_app(
+        monkeypatch, [{"text": "Overview", "start": 0, "end": 9, "level": 10, "style": "Normal"}]
+    )
+    app.ActiveDocument.Paragraphs._items[0].Range.Font.Bold = True
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["manual-heading-formatting"])
+    assert len(findings) == 1
+    assert findings[0]["fixable"] is False and findings[0]["anchor_id"] == "para:1"
+
+
+def test_lint_manual_heading_skips_sentences(monkeypatch):
+    # A normal sentence (ends in a period) isn't a faux heading even if bold.
+    app = _typo_app(
+        monkeypatch, [{"text": "This is a sentence.", "start": 0, "end": 20, "style": "Normal"}]
+    )
+    app.ActiveDocument.Paragraphs._items[0].Range.Font.Bold = True
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["manual-heading-formatting"])
+    assert findings == []
+
+
+def test_lint_table_style_consistent_flags_minority(monkeypatch):
+    app = _make_app(
+        tables=[
+            {"grid": [["A"]], "style": "Grid Table 4"},
+            {"grid": [["B"]], "style": "Grid Table 4"},
+            {"grid": [["C"]], "style": "Plain Table 1"},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["table-style-consistent"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["anchor_id"] == "table:3:1:1"
+    assert f["fix"] == {"op": "set_table_style", "table": 3, "style": "Grid Table 4"}
+
+
+def test_lint_typography_tag_includes_off_by_default_rules(monkeypatch):
+    _typo_app(monkeypatch, [{"text": "a  b 1990-1995", "start": 0, "end": 15}])
+    with wordlive.attach() as word:
+        seen = _rules_seen(word.documents.active.lint(rules=["typography"]))
+    # The tag pulls in both on-by-default (double-space) and off-by-default
+    # (hyphen-as-range) typography rules.
+    assert {"double-space", "hyphen-as-range"} <= seen
+
+
+def test_lint_default_excludes_off_by_default_typography(monkeypatch):
+    _typo_app(monkeypatch, [{"text": "a — b", "start": 0, "end": 6}])
+    with wordlive.attach() as word:
+        seen = _rules_seen(word.documents.active.lint())
+    assert "em-dash-usage" not in seen  # default_on=False, not named/tagged
+
+
 # --- MCP ---------------------------------------------------------------------
 
 

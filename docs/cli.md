@@ -460,13 +460,15 @@ Failures: `3` Word busy, `4` Word not running.
 ### `find --text "…"`
 
 ```
-wordlive find --text "..." [--in ANCHOR_ID] [--doc DOC_NAME]
+wordlive find --text "..." [--in ANCHOR_ID] [--mode fuzzy|literal|regex] [--doc DOC_NAME]
 ```
 
-Locate every fuzzy occurrence of the given text in the document (read-only).
-Matching is forgiving of cosmetic differences that show up when LLMs re-emit
-text — whitespace runs collapse, smart quotes/dashes fold to ASCII, NBSPs
-become spaces, and the strings are NFKC-normalized before comparison.
+Locate every occurrence of the given text in the document (read-only). The
+default `--mode fuzzy` is forgiving of cosmetic differences that show up when
+LLMs re-emit text — whitespace runs collapse, smart quotes/dashes fold to ASCII,
+NBSPs become spaces, and the strings are NFKC-normalized before comparison.
+`--mode literal` matches exactly (no folding); `--mode regex` treats `--text` as
+a Python regular expression.
 
 ```bash
 $ wordlive find --text "the risk register"
@@ -772,8 +774,8 @@ Failures: `2` style not found, `3` Word busy.
 ### `replace`
 
 ```
-wordlive replace --anchor-id ID --text "..."                            [--doc DOC_NAME]   # anchor mode
-wordlive replace --find OLD --text NEW [--in ID] [--all|--occurrence N] [--doc DOC_NAME]   # fuzzy mode
+wordlive replace --anchor-id ID --text "..."                                          [--doc DOC_NAME]   # anchor mode
+wordlive replace --find OLD --text NEW [--in ID] [--all|--occurrence N] [--mode M]     [--doc DOC_NAME]   # find mode
 ```
 
 Two modes share the verb:
@@ -812,6 +814,7 @@ $ wordlive replace --find "Q1 2025" --text "Q2 2025"
 | `--in ID`      | Restrict search to the given anchor's range (headings expand to their section).               |
 | `--all`        | Replace every match. Mutually exclusive with `--occurrence`.                                  |
 | `--occurrence N` | Replace only the Nth match (1-based). Mutually exclusive with `--all`.                      |
+| `--mode M`     | Matcher: `fuzzy` (default; Unicode/whitespace-tolerant) · `literal` (exact) · `regex` (Python; `--text` may use `\1` backreferences, expanded per match). |
 
 Failures:
 
@@ -2789,16 +2792,29 @@ it over". Returns a severity-ranked list of findings, each
 (or list of them) — literally an `exec` op `regularize` would run.
 
 `--rule` / `--exclude` (repeatable, mutually exclusive) narrow the rule set by
-id or tag; with neither, the **default set** runs (every consistency +
-structural rule; policy rules are off — none ship yet). `--within` scopes the
-audit to one anchor (`heading:N` / `range:S-E` / `table:N:R:C`). It's a pure
+id or tag; with neither, the **default set** runs (every *on-by-default*
+consistency + structural rule; policy and opinionated rules are off). A rule
+that's off by default still runs when named (`--rule em-dash-usage`) or pulled in
+by its tag (`--rule typography` lights up the whole cluster). `--within` scopes
+the audit to one anchor (`heading:N` / `range:S-E` / `table:N:R:C`). It's a pure
 read: layout rules repaginate content-neutrally, leaving selection, scroll, and
 the document's `Saved` state untouched.
 
-v1 rules — structural: `heading-keep-with-next`, `table-repeat-header`,
+Foundation rules — structural: `heading-keep-with-next`, `table-repeat-header`,
 `list-numbering-continuity`; consistency: `heading-font-consistent`,
 `heading-spacing-consistent`, `body-font-consistent`, and `mixed-run-format`
 (report-only, not fixable).
+
+Typography rules (tag `typography`) — **on by default:** `trailing-whitespace`,
+`leading-whitespace`, `space-before-punctuation`, `double-space`,
+`manual-heading-formatting` (report-only — a short bold/enlarged `Normal`
+paragraph that reads like a heading but isn't styled), `table-style-consistent`
+(restyle the minority tables onto the dominant table style). **Off by default**
+(name them or use `--rule typography`): `hyphen-as-range` (→ en-dash),
+`em-dash-usage`, `tabs-for-layout`, `manual-line-break` (the last three are
+report-only). The fixable whitespace/punctuation/range rules write via the
+`find_replace` regex mode (below), scoped to the offending paragraph, so they're
+idempotent.
 
 ```bash
 $ wordlive lint --within heading:3
@@ -3193,7 +3209,7 @@ Script shape:
 | `set_image_size`       | `anchor_id`                                | `width`, `height`, `lock_aspect`  |
 | `set_image_crop`       | `anchor_id`                                | `left`, `top`, `right`, `bottom` (a.k.a. `crop_left`/`crop_top`/`crop_right`/`crop_bottom`) |
 | `replace`              | `anchor_id`, `text`                        | —                                 |
-| `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`         |
+| `find_replace`         | `find`, `text`                             | `in`, `all`, `occurrence`, `mode`, `required` |
 | `apply_style`          | `anchor_id`, `name`                        | —                                 |
 | `add_style`            | `name`                                     | `type`, `based_on`, `next_style`  |
 | `set_style`            | `name`                                     | `based_on`, `next_style`, plus the `format_paragraph` / `format_run` formatting fields |
@@ -3276,8 +3292,12 @@ Script shape:
 
 The `find_replace` op mirrors `wordlive replace --find …` — fuzzy whitespace
 + smart-quote match, optional `in` anchor to scope it, and either `all` or
-`occurrence` to handle multi-match. Ambiguous-match failures surface in the
-batch response's `failure.matches` so the LLM can rewrite the op and retry. To
+`occurrence` to handle multi-match. `mode` selects `fuzzy` (default) / `literal`
+(exact) / `regex` (Python; `text` may use `\1` backreferences, expanded per
+match — `{"op":"find_replace","find":"(\\d+)-(\\d+)","text":"\\1–\\2","mode":"regex","all":true}`).
+`required: false` makes a zero-match op a no-op instead of failing the batch (the
+linter's typography autofixes rely on this). Ambiguous-match failures surface in
+the batch response's `failure.matches` so the LLM can rewrite the op and retry. To
 edit text **inside a table**, scope the replace to the cell anchor
 (`"in": "table:N:R:C"`); a match resolved through a whole-document scope that
 can't be verified raises a `replace_verification` failure rather than risk

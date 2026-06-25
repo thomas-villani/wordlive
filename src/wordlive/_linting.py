@@ -69,6 +69,12 @@ class Rule:
     `check(doc, span)` walks the document (optionally clipped to `span`) and
     yields `Finding`s. `tags` lets a caller select a family (`["headings"]`) as
     well as by id.
+
+    `default_on` controls whether the rule runs in the **default** set (`rules=
+    None`). Unambiguous-defect structural/consistency rules ship on; opinionated
+    or stylistic rules (`spec-linter.md` §5b "default stance") ship **off** —
+    they only run when named explicitly or pulled in by a tag (`--rules
+    typography`). Policy rules are off in the default set regardless (by `kind`).
     """
 
     id: str
@@ -76,6 +82,7 @@ class Rule:
     severity: str
     tags: tuple[str, ...]
     check: Callable[[Document, Span | None], Iterator[Finding]]
+    default_on: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -278,12 +285,15 @@ def _registry() -> dict[str, Rule]:
 def _select_rules(rules: Any) -> list[Rule]:
     """Resolve the `rules=` selector into the concrete rule set to run.
 
-    - `None` — the default set: every consistency + structural rule (policy rules
-      stay off until a profile enables them; none ship in this slice).
-    - a list of ids/tags — only rules matching an id or carrying a tag.
+    - `None` — the default set: every on-by-default consistency + structural rule
+      (policy rules stay off until a profile enables them; opinionated rules with
+      `default_on=False` stay off until named/tagged — `spec-linter.md` §5b).
+    - a list of ids/tags — only rules matching an id or carrying a tag. This path
+      **ignores** `default_on`, so an off-by-default rule runs when asked for by
+      id or via its tag (`--rules typography` lights up the whole cluster).
     - `{"exclude": [...]}` — the default set minus the listed ids/tags.
     """
-    default = [r for r in _RULES if r.kind in ("consistency", "structural")]
+    default = [r for r in _RULES if r.kind in ("consistency", "structural") and r.default_on]
     if rules is None:
         return default
     if isinstance(rules, dict):
@@ -387,6 +397,7 @@ def _register_rule(rule: Rule) -> None:
     _RULES.append(rule)
 
 
-# Defer consistency-rule registration to keep import order simple; the module is
-# imported for its side effect of extending `_RULES`.
-from . import _linting_consistency  # noqa: E402,F401
+# Defer rule registration to keep import order simple; each module is imported
+# for its side effect of extending `_RULES` (it must run after `Rule` / `Finding`
+# / `_register_rule` are defined, hence the bottom-of-module import).
+from . import _linting_consistency, _linting_typography  # noqa: E402,F401

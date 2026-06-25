@@ -812,16 +812,25 @@ hand this over" read. It returns a severity-ranked list of findings, each a dict
 where `kind` is `"consistency"` / `"structural"` / `"policy"`, `severity` is
 `"error"` / `"warning"` / `"info"`, and `fix` (present iff `fixable`) is an
 op-shaped dict — literally the `exec` op [`regularize`](#wordlive.Document) would
-run. `rules=None` runs the default set (every consistency + structural rule;
-policy rules are off — none ship yet); pass a list of rule ids/tags to include
-just those, or `{"exclude": [ids/tags]}` to drop some. `within` scopes the audit
-to one anchor (`heading:N` / `range:S-E` / `table:N:R:C`, or an
-[`Anchor`](#wordlive.Anchor)). It's a pure read: layout rules repaginate
-content-neutrally, leaving selection, scroll, and `Saved` untouched. v1 rules —
-structural: `heading-keep-with-next`, `table-repeat-header`,
+run. `rules=None` runs the default set (every *on-by-default* consistency +
+structural rule; policy and opinionated rules are off); pass a list of rule
+ids/tags to include just those, or `{"exclude": [ids/tags]}` to drop some. A rule
+that's off by default still runs when named or via its tag — `rules=["typography"]`
+lights up the whole typography cluster including its off-by-default members.
+`within` scopes the audit to one anchor (`heading:N` / `range:S-E` /
+`table:N:R:C`, or an [`Anchor`](#wordlive.Anchor)). It's a pure read: layout rules
+repaginate content-neutrally, leaving selection, scroll, and `Saved` untouched.
+
+Foundation rules — structural: `heading-keep-with-next`, `table-repeat-header`,
 `list-numbering-continuity`; consistency: `heading-font-consistent`,
 `heading-spacing-consistent`, `body-font-consistent`, and `mixed-run-format`
-(report-only, not fixable).
+(report-only). Typography rules (tag `typography`) — on by default:
+`trailing-whitespace`, `leading-whitespace`, `space-before-punctuation`,
+`double-space`, `manual-heading-formatting` (report-only),
+`table-style-consistent`; off by default: `hyphen-as-range`, `em-dash-usage`,
+`tabs-for-layout`, `manual-line-break`. The fixable typography rules write via
+`find_replace`'s `regex` mode scoped to the offending paragraph, so they stay
+idempotent.
 
 `Document.regularize(rules=None, within=None, dry_run=False)` is the **write**
 side: it applies the fixable findings in one `doc.edit("Regularize formatting")`

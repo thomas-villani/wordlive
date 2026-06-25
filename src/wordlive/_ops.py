@@ -342,7 +342,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
         "crop_bottom",
     ),
     "replace": (),
-    "find_replace": ("in", "all", "occurrence"),
+    "find_replace": ("in", "all", "occurrence", "mode", "required"),
     "apply_style": (),
     "format_paragraph": _PARA_FIELDS,
     "format_run": _RUN_FIELDS,
@@ -848,6 +848,8 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             scope=scope,
             all=bool(op.get("all", False)),
             occurrence=op.get("occurrence"),
+            mode=op.get("mode", "fuzzy"),
+            required=bool(op.get("required", True)),
         )
     elif kind == "apply_style":
         doc.anchor_by_id(op["anchor_id"]).apply_style(op["name"])

@@ -65,6 +65,7 @@ Quick index (capability → real release):
 | Structural query helpers (`doc.between`, `doc.nearest_heading`, `doc.find_paragraphs`; content-under-heading already shipped) | Unreleased |
 | Format read mirror (`anchor.format_info` — effective vs style, per-field `override`, `mixed` runs) | Unreleased |
 | Linter + regularizer foundation (`doc.lint`/`doc.regularize`; 3 structural + heading/font/spacing consistency rules; targeted idempotent fixes; `regularize` exec op) | Unreleased |
+| Linter Batch 1 — typography hygiene (10 P2 text-scan rules: trailing/leading/double-space, space-before-punct, hyphen-as-range, em-dash, tabs, manual-line-break, manual-heading-formatting, table-style-consistent; `typography` tag, off-by-default `Rule.default_on`; `find_replace` `literal`/`regex` modes + `required=False`) | Unreleased |
 | Floating-shape anchor model (`shape:N`: `doc.shapes`/`doc.text_boxes`; `ShapeAnchor` set_wrap/position/size/format/alt_text/text/replace_image/delete; `insert_text_box`+floating `insert_image` return it) | Unreleased |
 | Shape depth + inline restyle + `textbox:N` (`ShapeAnchor` set_rotation/set_z_order/set_text_frame; `doc.group_shapes`/`ungroup`; `ImageAnchor` set_alt_text/set_size; `textbox:N` alias) | Unreleased |
 | Checkpoint + diff (`doc.checkpoint`/`changes_since`/`diff`; `Checkpoint` token, `include=text/+style/+format`; content-aligned `replace`/`insert`/`delete`/`restyle`/`reformat` w/ current `para:N`; `doc_hash` fast-path) | Unreleased |
@@ -418,15 +419,28 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 > the heading/font/spacing consistency rules + report-only `mixed-run-format`,
 > and `doc.lint()` / `doc.regularize()` with the **targeted, idempotent** default
 > fix — wired across Python / CLI (`lint`, `regularize`, `read format`) /
-> `regularize` exec op / MCP, and live-validated. **Still open (a follow-up
-> pass):** the **policy** rules (`body-justified`, `table-numeric-right-align`)
-> and the **profile / house-style** loader (the registry already carries `kind`,
-> so they slot in cleanly); the opt-in `Font.Reset()` strip-to-style fix; the
-> content-adding fixes (`stray-empty-paragraph`, `figure-caption-present`); and
-> the `docx-plus` cascade-provenance hybrid. A **v2 rule backlog** (~40 more
-> rules for publishing/academia, primitive-driven batches) was brainstormed
-> 2026-06-19 — see `spec-linter.md` **§5b**. See also `spec-linter.md` (§6, §7c,
-> §9) and `CHANGELOG.md`.
+> `regularize` exec op / MCP, and live-validated.
+>
+> **Batch 1 — typography hygiene ✅ shipped (Unreleased, 2026-06-24).** The §5b·A
+> text-scan cluster + `manual-heading-formatting` / `table-style-consistent` — 10
+> rules in `_linting_typography.py` (6 on, 4 opinionated off-by-default behind the
+> `typography` tag). Two enablers landed: `find_replace` gained **`literal` /
+> `regex` modes** + `required=False` (the fix path — fuzzy find_replace can't
+> express a literal whitespace edit, so the typography fixes are regex-mode
+> `find_replace` ops scoped to a `para:N`, re-scanning live text), and `Rule`
+> gained **`default_on`** for the default-off rules. Deferred to **1b**:
+> `straight-quotes` / `nbsp-missing` / `sentence-spacing-consistent` (heuristic-heavy).
+>
+> **Still open (a follow-up pass):** the **policy** rules (`body-justified`,
+> `table-numeric-right-align`) and the **profile / house-style** loader (the
+> registry already carries `kind`, so they slot in cleanly); the opt-in
+> `Font.Reset()` strip-to-style fix; the content-adding fixes
+> (`stray-empty-paragraph`, `figure-caption-present` — these want the deferred
+> `adds_content` Finding field); and the `docx-plus` cascade-provenance hybrid. A
+> **v2 rule backlog** (~40 more rules for publishing/academia, primitive-driven
+> batches: Batch 2 finalization · Batch 3 field-code backbone · Batch 4
+> layout/notices) — see `spec-linter.md` **§5b**. See also `spec-linter.md` (§6,
+> §7c, §9) and `CHANGELOG.md`.
 
 The highest-utility next feature: a declarative rule set that **audits** a document
 for publishing-quality defects and **autofixes** the mechanical ones. Pure

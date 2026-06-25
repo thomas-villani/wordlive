@@ -310,7 +310,14 @@ with doc.edit("Apply rewrite"):
     doc.find_replace("utilise", "use", all=True)                # every match
     doc.find_replace("needs review", "approved",
                      scope=doc.heading("Risks"), all=True)      # scoped to a section
+    doc.find_replace(r" {2,}", " ", all=True, mode="regex")     # regex: collapse runs
+    doc.find_replace(r"(\d+)-(\d+)", r"\1–\2", all=True, mode="regex")  # backrefs
 ```
+
+`mode=` is `"fuzzy"` (default; whitespace/smart-quote tolerant), `"literal"`
+(exact), or `"regex"` (Python regex; the replacement may use `\1` backreferences,
+expanded per match). `required=False` makes a zero-match call return `[]` instead
+of raising — handy for idempotent batch fixes. `find()` takes the same `mode=`.
 
 Returns the list of replacements applied. Word's range-replace preserves the
 matched span's character formatting (bold stays bold). Raises
@@ -518,6 +525,7 @@ doc.fields.list()                    # read mirror of insert_field: [{kind, code
 doc.proofing()                       # {spelling:{count,errors}, grammar:{…}, readability:{flesch_reading_ease,…}}
 doc.lint(within="heading:3")         # audit: [{rule, kind, severity, anchor_id, message, fixable, fix, …}] (pure read)
 doc.lint(rules={"exclude": ["mixed-run-format"]})  # rules=None → default set; list to include; {"exclude":[…]} to drop
+doc.lint(rules=["typography"])       # text-hygiene cluster (spaces/punct/hyphen→en-dash/faux headings; enables its off-by-default rules)
 doc.regularize(within="heading:3", dry_run=True)   # plan the fixable findings (no write)
 doc.regularize()                     # apply them in one atomic-undo → {applied, skipped, findings}; idempotent
 

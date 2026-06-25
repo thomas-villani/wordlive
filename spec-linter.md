@@ -21,6 +21,23 @@ aggressive `Font.Reset()` strip-to-style fix (§7c); the content-changing fixes
 **Backlog (v2, brainstormed 2026-06-19):** a primitive-driven catalogue of ~40
 more rules for publishing/academia — typography hygiene, finalization, captions /
 cross-references / citations, layout & notices — see **§5b**.
+**Batch 1 — typography hygiene ✅ shipped (Unreleased).** The §5b·A cluster plus
+`manual-heading-formatting` / `table-style-consistent`: 10 rules in
+`_linting_typography.py` (the P2 paragraph-text scan), 6 on by default + 4
+opinionated off-by-default behind the `typography` tag. Two enablers landed with
+it: `find_replace` gained **`literal` / `regex` modes** + a `required=False`
+no-op-on-zero-match flag (the fix path — Word's existing `find_replace` is fuzzy,
+which **cannot** express a literal whitespace/punctuation edit; a fuzzy find of
+`"  "` matches every single space — so the typography fixes are regex-mode
+`find_replace` ops scoped to the offending `para:N`, re-scanning live text with no
+precomputed offsets to drift), and `Rule` gained a **`default_on`** flag for the
+default-off opinion rules. **Decisions baked in:** no `adds_content` field this
+batch (every fixable rule is a pure in-place text/style edit; defer it to the
+caption/finalization batches that add content); `straight-quotes` / `nbsp-missing`
+/ `sentence-spacing-consistent` and `leading-whitespace`'s "→ real indent" half
+**deferred to Batch 1b** (heuristic-heavy). Live-probed 2026-06-24: trailing-mark
+preserved (no paragraph fuse), adjacent inline bold survives a sub-span collapse,
+`regularize` idempotent on the second pass.
 
 > Audit a document for publishing-quality defects (`doc.lint()`), then autofix the
 > mechanical ones in one atomic-undo step (`doc.regularize()`). Pure composition
@@ -195,7 +212,15 @@ treatment v1 gives `stray-empty-paragraph` / `figure-caption-present`).
 | **P3 · Revision / markup state** | `Document.Revisions`, `.Comments`, `TrackRevisions` | leftover comments, unaccepted changes, track-changes-on |
 | **P4 · Section / header-footer walk** | `_sections.py` (have it) + `Range.Fields` | page-numbers, confidentiality / copyright notice, header-footer consistency |
 
-### A. Whitespace & typography hygiene  *(P2; cheap, high-frequency)*
+### A. Whitespace & typography hygiene  *(P2; cheap, high-frequency)* — ✅ shipped (Unreleased)
+
+Shipped as `_linting_typography.py`: `trailing-whitespace`, `leading-whitespace`
+(strip-only), `space-before-punctuation`, `double-space` are **on**;
+`sentence-spacing-consistent`, `tabs-for-layout`, `manual-line-break`,
+`nbsp-missing`, `straight-quotes`, `hyphen-as-range`, `em-dash-usage` are **off**
+(tag/profile) — of which `straight-quotes`, `nbsp-missing`,
+`sentence-spacing-consistent` were **deferred to Batch 1b** and the rest landed.
+Fixes are regex-mode `find_replace` (see the status header).
 
 | id | kind | detect | fix | default |
 |---|---|---|---|---|
@@ -304,8 +329,10 @@ academia` / `--rules finalization` become the headline ergonomics; profiles
 
 ### Suggested batch order (primitive-driven)
 
-1. **Batch 1 — Typography hygiene (P2):** the §A rules + `manual-heading-formatting`,
-   `table-style-consistent`. Highest hit-rate, cheapest, no field plumbing.
+1. **Batch 1 — Typography hygiene (P2): ✅ shipped (Unreleased).** the §A rules +
+   `manual-heading-formatting`, `table-style-consistent`. Highest hit-rate,
+   cheapest, no field plumbing. (`straight-quotes` / `nbsp-missing` /
+   `sentence-spacing-consistent` deferred to a 1b follow-up.)
 2. **Batch 2 — Finalization (P3, §G):** all report-only, one small COM surface,
    very safe — ships the `finalization` tag.
 3. **Batch 3 — Field-code backbone (P1, §C):** build `Range.Fields` walk, then
