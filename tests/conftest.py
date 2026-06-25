@@ -1312,9 +1312,17 @@ class _FakeTable:
         *,
         start: int = 0,
         owner: Any | None = None,
+        style: str | None = None,
     ) -> None:
         self.Title = title
-        self.Style: Any = None
+        # Word's Table.Style is a Style object (its NameLocal names the table
+        # style); None until one is applied. The `table-style-consistent` linter
+        # rule reads `.Style.NameLocal`, so a test can seed it via `style=`.
+        if style is not None:
+            self.Style = MagicMock(name=f"TableStyle[{style}]")
+            self.Style.NameLocal = style
+        else:
+            self.Style = None
         self._start = start
         self._owner = owner
         self._rows = [[self._mk_cell_range(text) for text in row] for row in grid]
@@ -2309,7 +2317,7 @@ def _make_document(
     doc.Paragraphs = _FakeParagraphs(paragraphs or [])
     doc.Styles = _FakeStyles(styles if styles is not None else _DEFAULT_STYLES)
     doc.Tables = _FakeTablesCollection(
-        [_FakeTable(t["grid"], t.get("title", "")) for t in (tables or [])]
+        [_FakeTable(t["grid"], t.get("title", ""), style=t.get("style")) for t in (tables or [])]
     )
     doc.Comments = _FakeComments()
     doc.Revisions = _FakeRevisions(revisions or [])

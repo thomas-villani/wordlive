@@ -1172,13 +1172,20 @@ class Document:
         text: str,
         *,
         scope: Anchor | None = None,
+        mode: str = "fuzzy",
     ) -> list[dict[str, Any]]:
-        """Locate every fuzzy occurrence of `text` within `scope` (or the whole doc).
+        """Locate every occurrence of `text` within `scope` (or the whole doc).
 
-        Matching is whitespace- and Unicode-normalized (NFKC, smart quotes,
-        dashes, NBSP). Returns a list of `{anchor_id, start, end, text}` where
-        offsets are absolute document positions and `text` is the actual
-        original substring (not the normalized form).
+        `mode` selects the matcher:
+
+        - `fuzzy` (default): whitespace- and Unicode-normalized (NFKC, smart
+          quotes, dashes, NBSP) — forgiving of cosmetic drift.
+        - `literal`: exact substring, no folding.
+        - `regex`: `text` is a Python regular expression.
+
+        Returns a list of `{anchor_id, start, end, text}` where offsets are
+        absolute document positions and `text` is the actual original substring
+        (not the normalized form).
 
         `anchor_id` for each match is `range:START-END`, which resolves through
         `anchor_by_id` to a `RangeAnchor` — so a hit can be fed straight back
@@ -1192,7 +1199,7 @@ class Document:
         segments = self._scope_segments(scope)
         results: list[dict[str, Any]] = []
         for base, haystack in segments:
-            for m in _findreplace.find_matches(haystack, text):
+            for m in _findreplace.find_matches(haystack, text, mode=mode):
                 results.append(
                     {
                         "anchor_id": f"range:{base + m.start}-{base + m.end}",
@@ -1211,19 +1218,26 @@ class Document:
         scope: Anchor | None = None,
         all: bool = False,
         occurrence: int | None = None,
+        mode: str = "fuzzy",
+        required: bool = True,
     ) -> list[dict[str, Any]]:
-        """Fuzzy plain-text replace. See `find()` for matching semantics.
+        """Plain-text replace. See `find()` for matching semantics.
 
         Args:
-            find: the text to look for (fuzzy-matched).
-            replace: the replacement text.
+            find: the text to look for.
+            replace: the replacement text. In `regex` mode it may carry
+                backreferences (`\\1`) that expand per match.
             scope: optional anchor to restrict the search to. Headings expand
                 to their body section.
             all: replace every match.
             occurrence: 1-based index — replace only the Nth match.
+            mode: `fuzzy` (default) / `literal` / `regex` — see `find()`.
+            required: when `False`, zero matches returns `[]` instead of raising.
+                Used by idempotent batch autofixes (the linter) where an earlier
+                fix may already have removed an overlapping match in the same pass.
 
         Raises:
-            AnchorNotFoundError: zero matches (uses `kind='find'`).
+            AnchorNotFoundError: zero matches and `required` (uses `kind='find'`).
             AmbiguousMatchError: more than one match and neither `all` nor
                 `occurrence` was given.
 
@@ -1236,6 +1250,9 @@ class Document:
         and raises `ReplaceVerificationError` rather than overwriting the wrong
         span.
         """
+        # Only `regex` needs the replacement at match time (per-hit backreference
+        # expansion); `fuzzy`/`literal` apply the single `replace` to every match.
+        repl_template = replace if mode == "regex" else None
         segments = self._scope_segments(scope)
         match_payloads: list[dict[str, Any]] = [
             {
@@ -1243,11 +1260,15 @@ class Document:
                 "start": base + m.start,
                 "end": base + m.end,
                 "text": m.text,
+                # Private to the write loop; stripped from the returned payloads.
+                "_replacement": m.replacement if m.replacement is not None else replace,
             }
             for base, haystack in segments
-            for m in _findreplace.find_matches(haystack, find)
+            for m in _findreplace.find_matches(haystack, find, mode=mode, replacement=repl_template)
         ]
         if not match_payloads:
+            if not required:
+                return []
             raise AnchorNotFoundError("find", find)
 
         if occurrence is not None:
@@ -1282,8 +1303,9 @@ class Document:
                     raise ReplaceVerificationError(
                         find, m["text"], resolved, anchor_id=m["anchor_id"]
                     )
-                target.Text = replace
-        return to_apply
+                target.Text = m["_replacement"]
+        # Drop the internal replacement key; the documented payload is 4 keys.
+        return [{k: v for k, v in m.items() if k != "_replacement"} for m in to_apply]
 
     def prepend(self, text: str) -> None:
         """Prepend `text` to the very start of the document, inline (no new paragraph).

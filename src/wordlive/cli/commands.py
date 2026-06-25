@@ -5195,15 +5195,23 @@ def cursor_write(ctx: click.Context, text: str, replace: bool) -> None:
 @click.option(
     "--in", "in_", default=None, help="Optional anchor id to scope the search (e.g. 'heading:3')."
 )
+@click.option(
+    "--mode",
+    "mode",
+    type=click.Choice(["fuzzy", "literal", "regex"]),
+    default="fuzzy",
+    show_default=True,
+    help="Matcher: fuzzy (Unicode/whitespace-tolerant), literal (exact), or regex (Python).",
+)
 @click.pass_context
-def find_cmd(ctx: click.Context, text: str, in_: str | None) -> None:
-    """Locate every fuzzy occurrence of TEXT (read-only)."""
+def find_cmd(ctx: click.Context, text: str, in_: str | None, mode: str) -> None:
+    """Locate every occurrence of TEXT (read-only)."""
 
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
             scope = doc.anchor_by_id(in_) if in_ else None
-            matches = doc.find(text, scope=scope)
+            matches = doc.find(text, scope=scope, mode=mode)
             emit(matches, as_text=not ctx.obj["as_json"], text=_fmt_find(matches))
 
     _run(ctx, go)
@@ -5383,7 +5391,15 @@ def diff_cmd(ctx: click.Context, since: Path | None, frm: Path | None, to: Path 
     "occurrence",
     type=int,
     default=None,
-    help="In fuzzy mode, replace only the Nth match (1-based).",
+    help="In find mode, replace only the Nth match (1-based).",
+)
+@click.option(
+    "--mode",
+    "mode",
+    type=click.Choice(["fuzzy", "literal", "regex"]),
+    default="fuzzy",
+    show_default=True,
+    help="In find mode: fuzzy (tolerant), literal (exact), or regex (Python; --text may use \\1).",
 )
 @click.pass_context
 def replace(
@@ -5394,8 +5410,9 @@ def replace(
     in_: str | None,
     replace_all: bool,
     occurrence: int | None,
+    mode: str,
 ) -> None:
-    """Replace text. Either at an anchor (entire range) or via fuzzy find."""
+    """Replace text. Either at an anchor (entire range) or via find."""
     if (anchor_id is None) == (find is None):
         raise click.UsageError("provide exactly one of --anchor-id or --find")
     if anchor_id is not None and (in_ or replace_all or occurrence is not None):
@@ -5431,6 +5448,7 @@ def replace(
                         scope=scope,
                         all=replace_all,
                         occurrence=occurrence,
+                        mode=mode,
                     )
             except AmbiguousMatchError as exc:
                 emit(
