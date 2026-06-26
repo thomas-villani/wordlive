@@ -16,10 +16,17 @@ keywords = [
     "com",
     "pywin32",
     "automation",
+    "office-automation",
     "llm",
     "agent",
+    "agent-tools",
+    "ai-agents",
     "mcp",
+    "model-context-protocol",
+    "cli",
     "office",
+    "windows",
+    "xlwings",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
