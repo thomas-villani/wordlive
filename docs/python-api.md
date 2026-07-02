@@ -807,6 +807,10 @@ asks Word to (re)check the document. Documented on [`Document`](#wordlive.Docume
 
 ### Linting & regularizing
 
+New to the linter? The [Linting & regularizing guide](linting.md) has the mental
+model, a guided walkthrough, and the full rule catalog; this section is the
+API-level reference.
+
 `Document.lint(rules=None, within=None)` audits the document for formatting
 inconsistency, structural slips, and policy breaches — the "what's off before I
 hand this over" read. It returns a severity-ranked list of findings, each a dict

@@ -2777,7 +2777,9 @@ Word not running.
 
 ## Linting & regularizing
 
-Audit formatting/structure and write the fixes back.
+Audit formatting/structure and write the fixes back. New here? Start with the
+[Linting & regularizing guide](linting.md) for the mental model, a guided
+walkthrough, and the full rule catalog — this section is the flag-level reference.
 
 ### `lint`
 
@@ -2863,24 +2865,32 @@ wordlive regularize [--rule ID|TAG ...] [--exclude ID|TAG ...] [--within ID] [--
 
 Apply the **fixable** `lint` findings in one atomic-undo edit (labelled
 "Regularize formatting", so one Ctrl-Z reverts them all; selection and scroll
-are preserved). Returns `{applied, skipped, findings}` plus `ops_run` (and
-`dry_run` when set). The default fixes are **targeted and idempotent** — each
-writes the style's own value back as a direct property, so a *second*
-`regularize` applies nothing (a tested invariant). `--dry-run` plans without
-writing. Same `--rule` / `--exclude` / `--within` selection as `lint`.
+are preserved). Returns `{applied, skipped, findings}` — `applied` and `skipped`
+are **lists** of finding dicts — plus `ops_run` (and `dry_run` when set). On a
+dry run `applied` stays `[]` (nothing is written) and the plan is in `findings`.
+The default fixes are **targeted and idempotent** — each writes the style's own
+value back as a direct property, so a *second* `regularize` applies nothing (a
+tested invariant). `--dry-run` plans without writing. Same `--rule` / `--exclude`
+/ `--within` selection as `lint`.
 
 Content-changing fixes (deletes, caption inserts) are out of scope — this is a
 formatting/structure regularizer only. It's Track-Changes-aware: with Track
 Changes on, the edits are recorded as revisions.
 
 ```bash
-$ wordlive regularize --within heading:3 --dry-run
-{"applied": 0, "skipped": 0, "dry_run": true, "ops_run": 1,
- "findings": [{"rule": "heading-keep-with-next", "anchor_id": "heading:3", "fixable": true}]}
+$ wordlive regularize --within heading:7 --dry-run
+{"applied": [], "skipped": [], "dry_run": true,
+ "findings": [{"rule": "leading-whitespace", "anchor_id": "para:6", "fixable": true,
+               "fix": {"op": "find_replace", "find": "^[ \\t]+", "text": "",
+                       "in": "para:6", "all": true, "mode": "regex", "required": false}}]}
 
-$ wordlive regularize --within heading:3
-{"applied": 1, "skipped": 0, "ops_run": 1,
- "findings": [{"rule": "heading-keep-with-next", "anchor_id": "heading:3", "fixable": true}]}
+$ wordlive regularize --within heading:7
+{"applied": [{"rule": "leading-whitespace", "anchor_id": "para:6", "fixable": true}],
+ "skipped": [], "ops_run": 1, "findings": [ ... ]}
+
+$ wordlive --text regularize --within heading:7    # human-readable summary
+fixed 1; skipped 0 (report-only / not fixable)
+  fixed: leading-whitespace (para:6)
 ```
 
 Run `lint` first to preview; `regularize --dry-run` to see exactly which fixes
