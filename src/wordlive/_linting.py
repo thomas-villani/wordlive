@@ -400,4 +400,8 @@ def _register_rule(rule: Rule) -> None:
 # Defer rule registration to keep import order simple; each module is imported
 # for its side effect of extending `_RULES` (it must run after `Rule` / `Finding`
 # / `_register_rule` are defined, hence the bottom-of-module import).
-from . import _linting_consistency, _linting_typography  # noqa: E402,F401
+from . import (  # noqa: E402,F401
+    _linting_consistency,
+    _linting_finalization,
+    _linting_typography,
+)

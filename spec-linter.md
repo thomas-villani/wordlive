@@ -38,6 +38,21 @@ caption/finalization batches that add content); `straight-quotes` / `nbsp-missin
 **deferred to Batch 1b** (heuristic-heavy). Live-probed 2026-06-24: trailing-mark
 preserved (no paragraph fuse), adjacent inline bold survives a sub-span collapse,
 `regularize` idempotent on the second pass.
+**Batch 2 — finalization ✅ shipped (Unreleased).** The §5b·G cluster: 6 rules in
+`_linting_finalization.py`, all tagged `finalization` and — by decision this pass —
+**all off by default** (an opt-in "is-this-ready-to-send?" check, not a default-lint
+defect, since mid-authoring docs normally carry comments/revisions; this deviates
+from §G's per-rule default column). `comments-present`, `unaccepted-revisions`,
+`track-changes-on`, `hidden-text-present`, `stale-fields` are report-only;
+`leftover-highlight` is the one fix (clears the highlight, idempotent). Detection
+reuses the shipped `doc.comments` / `doc.revisions` / `doc.fields` /
+`doc.track_changes` wrappers plus two new `format_info` fields that landed with it
+(`font.hidden`, `font.highlight` — the read mirror of `format_run`'s writes).
+**Decision baked in:** `stale-fields` is a **report-only nudge** — Word exposes no
+field-staleness flag, so a presence-based `update_fields` fix couldn't satisfy the
+idempotency contract; the fixable version lands with Batch 3's field-code backbone.
+Live-probed 2026-07-01 (Word 16): all six fire on a seeded doc, none in the default
+set, highlight fix + idempotent re-run confirmed on real COM.
 
 > Audit a document for publishing-quality defects (`doc.lint()`), then autofix the
 > mechanical ones in one atomic-undo step (`doc.regularize()`). Pure composition
@@ -285,16 +300,27 @@ Fixes are regex-mode `find_replace` (see the status header).
 
 (`body-justified`, `table-numeric-right-align` already in v1, policy.)
 
-### G. Review-leftover & finalization hygiene  *(P3; "is this actually final?")*
+### G. Review-leftover & finalization hygiene  *(P3; "is this actually final?")* — ✅ shipped (Unreleased)
+
+Shipped as `_linting_finalization.py`. **All six ship off by default** (the
+`finalization` tag), not the per-rule defaults below — decided this pass: it's an
+opt-in pre-send check, since a mid-authoring doc normally carries comments/
+revisions. `stale-fields` is a **report-only nudge** (Word has no staleness flag,
+so a presence-based `update_fields` fix can't be idempotent — the fixable version
+waits for Batch 3's field-code backbone). `leftover-highlight` is the only fix.
 
 | id | kind | detect | fix | default |
 |---|---|---|---|---|
-| `unaccepted-revisions` | structural | `Document.Revisions.Count > 0` | report (accept is loud) | on (report) |
-| `track-changes-on` | structural | `TrackRevisions == True` | report / turn off | on (report) |
-| `comments-present` | structural | `Document.Comments.Count > 0` | report | on (report) |
-| `leftover-highlight` | consistency | highlight color present in body | clear highlight | off (tag) |
-| `hidden-text-present` | structural | `Font.Hidden` runs | report | on (report) |
-| `stale-fields` | structural | TOC/SEQ/REF/PAGE fields needing update | `update_fields` | on |
+| `unaccepted-revisions` | structural | `len(doc.revisions) > 0` | report (accept is loud) | off (tag) |
+| `track-changes-on` | structural | `doc.track_changes == True` | report | off (tag) |
+| `comments-present` | structural | `len(doc.comments) > 0` (+ `.done`) | report | off (tag) |
+| `leftover-highlight` | consistency | `format_info().font.highlight` ≠ none | clear highlight | off (tag) |
+| `hidden-text-present` | structural | `format_info().font.hidden` runs | report | off (tag) |
+| `stale-fields` | structural | `doc.fields`, kind ∈ TOC/SEQ/REF/PAGE… | report nudge (fix → Batch 3) | off (tag) |
+
+Two `format_info` fields landed with the batch — `font.hidden` (a Font property,
+full override detection) and `font.highlight` (a Range property, so effective-only,
+no style baseline) — the read mirror of `format_run`'s highlight/hidden writes.
 
 These cluster as a coherent **`finalization`** tag — useful as a standalone
 "is-this-ready-to-send?" check (and a building block for *prepare-for-sharing*).
@@ -333,8 +359,12 @@ academia` / `--rules finalization` become the headline ergonomics; profiles
    `manual-heading-formatting`, `table-style-consistent`. Highest hit-rate,
    cheapest, no field plumbing. (`straight-quotes` / `nbsp-missing` /
    `sentence-spacing-consistent` deferred to a 1b follow-up.)
-2. **Batch 2 — Finalization (P3, §G):** all report-only, one small COM surface,
-   very safe — ships the `finalization` tag.
+2. **Batch 2 — Finalization (P3, §G): ✅ shipped (Unreleased).** 6 rules in
+   `_linting_finalization.py`, all off-by-default behind the `finalization` tag,
+   one report-only fix (`leftover-highlight`); reused the shipped revision/comment/
+   field wrappers + `doc.track_changes`, and added `format_info`'s `hidden` /
+   `highlight` fields. `stale-fields` ships as a report-only nudge (its
+   `update_fields` fix waits for Batch 3 — no COM staleness flag).
 3. **Batch 3 — Field-code backbone (P1, §C):** build `Range.Fields` walk, then
    caption-manual-numbering, xref-as-literal-text, broken-cross-reference,
    page-numbers-present. The academia centerpiece.
@@ -542,6 +572,6 @@ targeted strategy is the default.
    `cookbook.md` entry: "hand-off a clean document").
 
 Steps 1–4 + wiring shipped (foundation slice). The **v2 backlog (§5b)** continues
-the build, primitive-driven: Batch 1 typography (P2) · Batch 2 finalization (P3) ·
-Batch 3 field-code backbone (P1) · Batch 4 layout/notices + profile loader ·
-later citations + accessibility.
+the build, primitive-driven: Batch 1 typography (P2) ✅ · Batch 2 finalization
+(P3) ✅ · Batch 3 field-code backbone (P1) · Batch 4 layout/notices + profile
+loader · later citations + accessibility.

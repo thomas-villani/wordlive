@@ -140,6 +140,21 @@ _HIGHLIGHT_NAMES: dict[str, WdColorIndex] = {
     "gray-25": WdColorIndex.GRAY_25,
 }
 
+# Reverse of `_HIGHLIGHT_NAMES` for reading a highlight index back to a keyword.
+# Skip the `auto` alias so index 0 renders as the canonical `"none"`.
+_HIGHLIGHT_BY_INDEX: dict[int, str] = {
+    int(v): k for k, v in _HIGHLIGHT_NAMES.items() if k != "auto"
+}
+
+
+def _read_highlight(raw: Any) -> str | None:
+    """A `Range.HighlightColorIndex` read as a keyword (`"yellow"`, `"none"`, …),
+    or `None` when Word reports `WD_UNDEFINED` (highlight varies across the runs)."""
+    idx = int(raw)
+    if idx == WD_UNDEFINED:
+        return None
+    return _HIGHLIGHT_BY_INDEX.get(idx, f"index:{idx}")
+
 
 # Content-control kind keyword -> WdContentControlType. Canonical keys plus a
 # few forgiving aliases (the names an agent is likely to reach for).
@@ -442,6 +457,7 @@ def _read_font(font: Any) -> tuple[dict[str, Any], list[str]]:
         "small_caps": _flag("small_caps", font.SmallCaps),
         "all_caps": _flag("all_caps", font.AllCaps),
         "spacing": _pts(font.Spacing),
+        "hidden": _flag("hidden", font.Hidden),
     }
     return values, mixed
 
@@ -3024,7 +3040,11 @@ class Anchor(ABC):
         they vary across the range's runs (e.g. a heading with one bold word) —
         those carry `value: null` rather than a bogus number. Lengths are in
         points; `color` is `#RRGGBB` (or `"auto"`); `alignment`/`line_spacing`
-        use the same keywords the write verbs accept.
+        use the same keywords the write verbs accept. `font.hidden` flags Word's
+        hidden-text attribute. `font.highlight` is a highlight keyword (`"yellow"`,
+        … or `"none"`); it lives on the range, not the style, so it's
+        effective-only — `style` is always `null` and `override` just means a
+        highlight is present.
 
         The field vocabulary is identical to the write side, so a value read here
         can be written straight back through `format_paragraph`/`format_run`.
@@ -3036,6 +3056,7 @@ class Anchor(ABC):
             sty_para = _read_paragraph_format(style.ParagraphFormat)
             eff_font, mixed = _read_font(rng.Font)
             sty_font, _ = _read_font(style.Font)
+            highlight = _read_highlight(rng.HighlightColorIndex)
             style_name = str(style.NameLocal)
 
         def _annotate(eff: dict[str, Any], sty: dict[str, Any]) -> dict[str, Any]:
@@ -3049,7 +3070,18 @@ class Anchor(ABC):
             }
 
         font = _annotate(eff_font, sty_font)
+        # Highlight lives on the Range, not the Font, and a style never carries it
+        # (see `_STYLE_RUN_FIELDS`), so it's effective-only: no style baseline, and
+        # an "override" simply means a highlight is present. A mixed read (some runs
+        # highlighted) surfaces via `mixed`, like the other character fields.
+        if highlight is None:
+            mixed.append("highlight")
         font["mixed"] = mixed
+        font["highlight"] = {
+            "value": highlight,
+            "style": None,
+            "override": highlight is not None and highlight != "none",
+        }
         return {
             "anchor_id": self.anchor_id,
             "style": style_name,

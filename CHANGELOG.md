@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Linter Batch 2 — finalization (6 new rules).** (Priority 1, item 1 —
+  `spec-linter.md` §5b·G, the P3 "is this actually final?" cluster.) `doc.lint` /
+  `doc.regularize` gain a leftover-review / markup-state cluster, all tagged
+  `finalization`: `comments-present`, `unaccepted-revisions`, `track-changes-on`,
+  `hidden-text-present`, `stale-fields` (updatable TOC/SEQ/REF/PAGE fields present
+  — a "refresh before finalizing" nudge; Word exposes no staleness flag, so the
+  fixable `update_fields` version waits for the Batch 3 field-code backbone), and
+  `leftover-highlight` (the one fixable rule — clears the highlight, idempotent).
+  The whole cluster ships **off by default**, behind the `finalization` tag: a
+  mid-authoring document normally carries comments and revisions, so this is an
+  opt-in pre-send check (`lint --rule finalization`), not a default-lint defect.
+  Detection reuses the shipped `doc.comments` / `doc.revisions` / `doc.fields` /
+  `doc.track_changes` wrappers plus the two new `format_info` fields (below).
+  Live-probed against Word 16. Rules auto-surface across Python / CLI / exec op /
+  MCP.
+- **`format_info` gains `hidden` + `highlight`.** The `anchor.format_info()` font
+  section (CLI `read format`, MCP `word_read command=format_info`) now reports
+  Word's hidden-text attribute (`font.hidden`, with the usual effective-vs-style
+  override annotation) and the highlight colour (`font.highlight`, a keyword or
+  `"none"`) — mirroring the `format_run` write side. Highlight lives on the range,
+  not the style, so it's effective-only (`style` is `null`).
 - **Linter Batch 1 — typography hygiene (10 new rules).** (Priority 1, item 1 —
   `spec-linter.md` §5b·A, the P2 "run-walk / text-scan" cluster.) `doc.lint` /
   `doc.regularize` gain a cheap, high-frequency text-defect cluster, all tagged

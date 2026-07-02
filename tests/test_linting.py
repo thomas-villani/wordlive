@@ -426,6 +426,121 @@ def test_lint_default_excludes_off_by_default_typography(monkeypatch):
     assert "em-dash-usage" not in seen  # default_on=False, not named/tagged
 
 
+# --- finalization (P3) batch -------------------------------------------------
+
+
+def test_lint_comments_present_report_only(monkeypatch):
+    app = _make_app()
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.comments.add(doc.range(0, 4), "please revise")
+        findings = doc.lint(rules=["comments-present"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["rule"] == "comments-present"
+    assert f["fixable"] is False and f["fix"] is None
+    assert f["anchor_id"] == "range:0-4"
+
+
+def test_lint_unaccepted_revisions_report_only(monkeypatch):
+    app = _make_app(revisions=[{"type": 1, "author": "Ann", "start": 0, "end": 4, "text": "new"}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["unaccepted-revisions"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["rule"] == "unaccepted-revisions" and f["severity"] == "warning"
+    assert f["fixable"] is False
+
+
+def test_lint_track_changes_on_report_only(monkeypatch):
+    app = _make_app()
+    app.ActiveDocument.TrackRevisions = True
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["track-changes-on"])
+    assert len(findings) == 1
+    assert findings[0]["anchor_id"] == "start" and findings[0]["fixable"] is False
+
+
+def test_lint_track_changes_off_is_clean(monkeypatch):
+    app = _make_app()  # TrackRevisions defaults False on the fake
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["track-changes-on"])
+    assert findings == []
+
+
+def test_lint_stale_fields_report_only(monkeypatch):
+    app = _make_app(
+        fields=[
+            {"code": "TOC \\o", "start": 0, "end": 5},
+            {"code": "PAGE", "start": 10, "end": 12},
+            {"code": "HYPERLINK http://x", "start": 20, "end": 25},  # not updatable
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["stale-fields"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["rule"] == "stale-fields" and f["fixable"] is False
+    assert "TOC" in f["message"] and "PAGE" in f["message"]
+
+
+def test_lint_hidden_text_present_report_only(monkeypatch):
+    app = _typo_app(monkeypatch, [{"text": "secret", "start": 0, "end": 7}])
+    app.ActiveDocument.Paragraphs._items[0].Range.Font.Hidden = -1  # wdToggle on
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["hidden-text-present"])
+    assert len(findings) == 1
+    assert findings[0]["anchor_id"] == "para:1" and findings[0]["fixable"] is False
+
+
+def test_lint_leftover_highlight_fix_and_idempotent(monkeypatch):
+    from wordlive.constants import WdColorIndex
+
+    app = _typo_app(monkeypatch, [{"text": "flagged", "start": 0, "end": 8}])
+    app.ActiveDocument.Paragraphs._items[0].Range.HighlightColorIndex = int(WdColorIndex.YELLOW)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        findings = doc.lint(rules=["leftover-highlight"])
+        assert len(findings) == 1
+        assert findings[0]["fix"] == {
+            "op": "format_run",
+            "anchor_id": "para:1",
+            "highlight": "none",
+        }
+        first = doc.regularize(rules=["leftover-highlight"])
+        assert len(first["applied"]) == 1
+        # The clear landed: re-lint is clean and a second pass is a no-op.
+        assert doc.lint(rules=["leftover-highlight"]) == []
+        second = doc.regularize(rules=["leftover-highlight"])
+    assert second["applied"] == []
+
+
+def test_finalization_off_by_default(monkeypatch):
+    app = _make_app(revisions=[{"type": 1, "start": 0, "end": 4}])
+    app.ActiveDocument.TrackRevisions = True
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        seen = _rules_seen(word.documents.active.lint())  # default set, no rules named
+    assert not (seen & {"unaccepted-revisions", "track-changes-on"})
+
+
+def test_finalization_tag_selects_cluster(monkeypatch):
+    app = _make_app(
+        revisions=[{"type": 1, "start": 0, "end": 4}],
+        fields=[{"code": "PAGE", "start": 0, "end": 2}],
+    )
+    app.ActiveDocument.TrackRevisions = True
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        seen = _rules_seen(word.documents.active.lint(rules=["finalization"]))
+    assert {"unaccepted-revisions", "track-changes-on", "stale-fields"} <= seen
+
+
 # --- MCP ---------------------------------------------------------------------
 
 
