@@ -2837,6 +2837,14 @@ paragraph mentioning a figure/table by literal number with no `REF` field —
 heuristic, so opt-in). All are report-only. The cross-reference/caption rules
 also carry the `academia` tag, so `--rule academia` selects the cluster.
 
+Hyperlink rules (a walk over `wordlive hyperlinks`) — **on by default:**
+`hyperlink-broken-internal` (an internal `HYPERLINK \l` jump whose target bookmark
+no longer exists — a dead link). **Off by default** (tags `hyperlinks` / `print`):
+`hyperlink-bare-for-print` (an external link whose visible text doesn't contain its
+URL — invisible in print) and `hyperlink-display-is-raw-url` (a link whose whole
+label is a bare URL). All report-only. `--rule hyperlinks` selects the cluster;
+`--rule print` selects just the two print/sharing rules.
+
 Policy rules run only when a `--profile PATH` (a JSON house-style config) enables
 them: `body-justified`, `body-line-spacing` (needs a `target`), and
 `table-numeric-right-align` (a `threshold`, default 0.8). The profile can also

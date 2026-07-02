@@ -445,6 +445,7 @@ from . import (  # noqa: E402,F401
     _linting_consistency,
     _linting_fields,
     _linting_finalization,
+    _linting_hyperlinks,
     _linting_policy,
     _linting_typography,
 )

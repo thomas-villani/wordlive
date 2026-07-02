@@ -714,6 +714,166 @@ def test_lint_xref_within_scoping(monkeypatch):
         assert doc.lint(rules=["xref-as-literal-text"], within="range:0-5") == []
 
 
+# --- hyperlinks (§I) batch ---------------------------------------------------
+
+
+def test_lint_hyperlink_broken_internal(monkeypatch):
+    # An in-document jump (sub_address set, address empty) to a bookmark that
+    # doesn't exist — a dead link.
+    app = _make_app(
+        hyperlinks=[{"text": "jump", "sub_address": "Ghost", "start": 10, "end": 14}],
+        bookmarks={"Target": (0, 5)},
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["hyperlink-broken-internal"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["anchor_id"] == "range:10-14" and f["kind"] == "structural"
+    assert f["severity"] == "warning" and f["fixable"] is False and f["fix"] is None
+    assert "Ghost" in f["message"]
+
+
+def test_lint_hyperlink_internal_valid_is_clean(monkeypatch):
+    # Jump to a bookmark that exists (Bookmarks.Exists → True) — not flagged.
+    app = _make_app(
+        hyperlinks=[{"text": "jump", "sub_address": "Target", "start": 10, "end": 14}],
+        bookmarks={"Target": (0, 5)},
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["hyperlink-broken-internal"]) == []
+
+
+def test_lint_hyperlink_external_not_broken_internal(monkeypatch):
+    # An external link (address set) with a sub_address is a fragment on a remote
+    # URL, not an in-document jump — never a broken-internal defect.
+    app = _make_app(
+        hyperlinks=[
+            {
+                "text": "docs",
+                "address": "https://x.example",
+                "sub_address": "sec",
+                "start": 5,
+                "end": 9,
+            }
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["hyperlink-broken-internal"]) == []
+
+
+def test_lint_hyperlink_broken_internal_within_scoping(monkeypatch):
+    app = _make_app(hyperlinks=[{"text": "jump", "sub_address": "Ghost", "start": 100, "end": 110}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert len(doc.lint(rules=["hyperlink-broken-internal"])) == 1
+        assert doc.lint(rules=["hyperlink-broken-internal"], within="range:0-5") == []
+
+
+def test_lint_hyperlink_bare_for_print(monkeypatch):
+    # External link whose visible text doesn't contain its URL — hidden on paper.
+    app = _make_app(
+        hyperlinks=[{"text": "Acme", "address": "https://acme.example/page", "start": 5, "end": 9}]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "hyperlink-bare-for-print" not in _rules_seen(doc.lint())  # off by default
+        findings = doc.lint(rules=["hyperlink-bare-for-print"])
+    assert len(findings) == 1
+    assert findings[0]["kind"] == "policy" and findings[0]["fixable"] is False
+
+
+def test_lint_hyperlink_bare_for_print_url_visible_is_clean(monkeypatch):
+    # The label already contains the URL, so the destination is visible in print.
+    app = _make_app(
+        hyperlinks=[
+            {
+                "text": "Acme (https://acme.example/page)",
+                "address": "https://acme.example/page",
+                "start": 5,
+                "end": 37,
+            }
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["hyperlink-bare-for-print"]) == []
+
+
+def test_lint_hyperlink_display_is_raw_url(monkeypatch):
+    # The whole visible text is a bare URL where a label was wanted.
+    app = _make_app(
+        hyperlinks=[
+            {
+                "text": "https://raw.example/very/long/path",
+                "address": "https://raw.example/very/long/path",
+                "start": 5,
+                "end": 39,
+            }
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "hyperlink-display-is-raw-url" not in _rules_seen(doc.lint())  # off by default
+        findings = doc.lint(rules=["hyperlink-display-is-raw-url"])
+    assert len(findings) == 1
+    assert findings[0]["kind"] == "consistency" and findings[0]["fixable"] is False
+    # A raw-URL display is NOT also flagged bare-for-print (the URL is visible).
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["hyperlink-bare-for-print"]) == []
+
+
+def test_lint_hyperlink_labelled_is_not_raw_url(monkeypatch):
+    app = _make_app(
+        hyperlinks=[{"text": "Acme", "address": "https://acme.example", "start": 5, "end": 9}]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["hyperlink-display-is-raw-url"]) == []
+
+
+def test_hyperlink_broken_internal_on_by_default(monkeypatch):
+    app = _make_app(hyperlinks=[{"text": "jump", "sub_address": "Ghost", "start": 10, "end": 14}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        seen = _rules_seen(word.documents.active.lint())  # default set, no rules named
+    assert "hyperlink-broken-internal" in seen
+    assert not (seen & {"hyperlink-bare-for-print", "hyperlink-display-is-raw-url"})
+
+
+def test_hyperlinks_tag_selects_cluster(monkeypatch):
+    app = _make_app(
+        hyperlinks=[
+            {"text": "jump", "sub_address": "Ghost", "start": 10, "end": 14},
+            {"text": "Acme", "address": "https://acme.example/page", "start": 20, "end": 24},
+            {
+                "text": "https://raw.example/x",
+                "address": "https://raw.example/x",
+                "start": 30,
+                "end": 51,
+            },
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert _rules_seen(doc.lint(rules=["hyperlinks"])) == {
+            "hyperlink-broken-internal",
+            "hyperlink-bare-for-print",
+            "hyperlink-display-is-raw-url",
+        }
+        # The `print` tag selects only the two print/sharing rules.
+        assert _rules_seen(doc.lint(rules=["print"])) == {
+            "hyperlink-bare-for-print",
+            "hyperlink-display-is-raw-url",
+        }
+
+
 # --- MCP ---------------------------------------------------------------------
 
 
