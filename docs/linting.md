@@ -233,57 +233,65 @@ applies all 26 in one undo record, and a second pass is still empty. See
 
 ## The rule catalog
 
-Thirty rules ship today. `kind` sets whether a rule runs by default; `on`
-marks the ones in the default set; `fix` marks the ones `regularize` can apply
-automatically (the rest are report-only).
+Thirty rules ship today. In the tables below, **on** (✅) marks the rules in the
+default set, and **fix** marks whether `regularize` can repair it automatically:
+✎ fixable, · report-only (yours to resolve by hand). The **tags** are what you
+pass to `rules=[…]` / `--rule` to select a whole cluster at once.
 
 ### Consistency — drift from the applied style
 
-| rule | on | fix | tags |
-|---|:-:|:-:|---|
-| `body-font-consistent` | ✅ | ✎ | fonts |
-| `heading-font-consistent` | ✅ | ✎ | headings, fonts |
-| `heading-spacing-consistent` | ✅ | ✎ | headings, spacing |
-| `mixed-run-format` | ✅ | · | headings, fonts |
-| `double-space` | ✅ | ✎ | typography |
-| `space-before-punctuation` | ✅ | ✎ | typography |
-| `table-style-consistent` | ✅ | ✎ | typography, tables |
-| `hyphen-as-range` | — | ✎ | typography, academia |
-| `tabs-for-layout` | — | · | typography |
-| `leftover-highlight` | — | ✎ | finalization |
+A direct override that contradicts the paragraph's own style — the formatting
+someone hand-applied that the style would otherwise have supplied.
+
+| rule | what it catches | on | fix | tags |
+|---|---|:-:|:-:|---|
+| `body-font-consistent` | A body paragraph whose font name is hand-set, overriding its style's font. | ✅ | ✎ | fonts |
+| `heading-font-consistent` | A heading whose font name, size, or bold is hand-set, overriding its heading style. | ✅ | ✎ | headings, fonts |
+| `heading-spacing-consistent` | A heading whose space-before / space-after is overridden away from its style. | ✅ | ✎ | headings, spacing |
+| `mixed-run-format` | A heading whose font varies run-to-run — part of it was separately restyled. | ✅ | · | headings, fonts |
+| `double-space` | Two or more spaces between words. | ✅ | ✎ | typography |
+| `space-before-punctuation` | Whitespace sitting before a `,` `.` `;` `:` or `)`. | ✅ | ✎ | typography |
+| `table-style-consistent` | A table that isn't on the document's dominant table style. | ✅ | ✎ | typography, tables |
+| `hyphen-as-range` | A numeric range written with a hyphen (`1990-1995`, `pp. 10-15`) rather than an en-dash. | — | ✎ | typography, academia |
+| `tabs-for-layout` | Tabs used mid-paragraph to lay out text — the job of a table or real indents. | — | · | typography |
+| `leftover-highlight` | Highlighter colour left on body text. | — | ✎ | finalization |
 
 ### Structural — an objective defect
 
-| rule | on | fix | tags |
-|---|:-:|:-:|---|
-| `heading-keep-with-next` | ✅ | ✎ | headings, pagination |
-| `table-repeat-header` | ✅ | ✎ | tables, pagination |
-| `list-numbering-continuity` | ✅ | ✎ | lists |
-| `trailing-whitespace` | ✅ | ✎ | typography |
-| `leading-whitespace` | ✅ | ✎ | typography |
-| `manual-heading-formatting` | ✅ | · | typography, headings |
-| `broken-cross-reference` | ✅ | · | crossref, academia |
-| `caption-manual-numbering` | ✅ | · | captions, academia |
-| `manual-line-break` | — | · | typography |
-| `xref-as-literal-text` | — | · | crossref, academia |
-| `comments-present` | — | · | finalization |
-| `unaccepted-revisions` | — | · | finalization |
-| `track-changes-on` | — | · | finalization |
-| `hidden-text-present` | — | · | finalization |
-| `stale-fields` | — | · | finalization |
+Wrong regardless of any style or house rule — a mechanical slip that will bite
+in layout, numbering, or hand-off.
+
+| rule | what it catches | on | fix | tags |
+|---|---|:-:|:-:|---|
+| `heading-keep-with-next` | A heading with keep-with-next off, so it can be stranded alone at the foot of a page. | ✅ | ✎ | headings, pagination |
+| `table-repeat-header` | A table that breaks across a page without repeating its header row. | ✅ | ✎ | tables, pagination |
+| `list-numbering-continuity` | A numbered list Word split into independent runs, so the numbering restarts at 1. | ✅ | ✎ | lists |
+| `trailing-whitespace` | A paragraph that ends in spaces or tabs. | ✅ | ✎ | typography |
+| `leading-whitespace` | A paragraph that starts with literal spaces or tabs (use a paragraph indent). | ✅ | ✎ | typography |
+| `manual-heading-formatting` | A short, all-bold or enlarged body paragraph that reads like a heading but was never styled as one. | ✅ | · | typography, headings |
+| `broken-cross-reference` | A `REF` / `PAGEREF` field rendering Word's "Error! Reference source not found." | ✅ | · | crossref, academia |
+| `caption-manual-numbering` | A `Caption` paragraph numbered with literal text instead of a `SEQ` field, so it won't renumber. | ✅ | · | captions, academia |
+| `manual-line-break` | A Shift+Enter line break inside a paragraph, where a real paragraph break likely belongs. | — | · | typography |
+| `xref-as-literal-text` | A body paragraph naming a figure/table by literal number ("see Figure 3") with no `REF` field to keep it in sync. | — | · | crossref, academia |
+| `comments-present` | Review comments still left in the document. | — | · | finalization |
+| `unaccepted-revisions` | Tracked changes that were never accepted or rejected. | — | · | finalization |
+| `track-changes-on` | Track Changes is still switched on (a document-global flag). | — | · | finalization |
+| `hidden-text-present` | Runs formatted as hidden text — they print and export invisibly. | — | · | finalization |
+| `stale-fields` | Updatable fields (`TOC` / `SEQ` / `REF` / `PAGE`) whose rendered result may have drifted — a refresh nudge. | — | · | finalization |
 
 ### Policy — deviates from a configured target
 
 Off in the default set; enabled by naming them, by tag, or via a profile (which
-also supplies their targets).
+also supplies their targets). These encode a *house style* — legitimate choices
+that only become "wrong" once you've declared the target.
 
-| rule | fix | tags | config |
-|---|:-:|---|---|
-| `body-justified` | ✎ | alignment, policy | — |
-| `body-line-spacing` | ✎ | spacing, policy | `target` (`"single"`/`"1.5"`/`"double"`) — required |
-| `table-numeric-right-align` | ✎ | tables, policy | `threshold` (default `0.8`) |
-| `em-dash-usage` | · | typography | — |
-| `page-numbers-present` | · | layout | — |
+| rule | what it catches | fix | tags | config |
+|---|---|:-:|---|---|
+| `body-justified` | Body paragraphs that aren't justified. | ✎ | alignment, policy | — |
+| `body-line-spacing` | Body paragraphs whose line spacing isn't the profile's target. | ✎ | spacing, policy | `target` (`"single"`/`"1.5"`/`"double"`) — required |
+| `table-numeric-right-align` | A table column that's mostly numbers but not right-aligned. | ✎ | tables, policy | `threshold` (default `0.8`) |
+| `em-dash-usage` | An em-dash is present — flags only; the `--` swap is too opinion-laden to auto-apply. | · | typography | — |
+| `page-numbers-present` | No `PAGE` field in any header or footer. | · | layout | — |
 
 ## Selecting which rules run
 
