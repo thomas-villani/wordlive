@@ -32,6 +32,7 @@ from ._linting import Finding, Rule, Span, _overlaps, _register_rule
 
 if TYPE_CHECKING:
     from ._document import Document
+    from ._lint_profile import Profile
 
 # Which format_info font field maps to which `format_run` op keyword (the read
 # mirror and the write verb diverge only on `name` -> `font`).
@@ -98,7 +99,9 @@ def _spacing_finding(
     )
 
 
-def _check_heading_font_consistent(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_heading_font_consistent(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     for row in doc.paragraphs.list():
         if not row["is_heading"] or not _in_span(span, row):
             continue
@@ -111,7 +114,9 @@ def _check_heading_font_consistent(doc: Document, span: Span | None) -> Iterator
                 yield finding
 
 
-def _check_heading_spacing_consistent(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_heading_spacing_consistent(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     for row in doc.paragraphs.list():
         if not row["is_heading"] or not _in_span(span, row):
             continue
@@ -122,7 +127,9 @@ def _check_heading_spacing_consistent(doc: Document, span: Span | None) -> Itera
                 yield finding
 
 
-def _check_body_font_consistent(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_body_font_consistent(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     for row in doc.paragraphs.list():
         if row["is_heading"] or not _in_span(span, row):
             continue
@@ -134,7 +141,9 @@ def _check_body_font_consistent(doc: Document, span: Span | None) -> Iterator[Fi
             yield finding
 
 
-def _check_mixed_run_format(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_mixed_run_format(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """A heading whose font varies across runs (a `wdUndefined` field). Headings
     are normally a uniform run, so a mixed one is often an accidental stray
     override — but pinpointing the outlier run needs a run-walk, so this is

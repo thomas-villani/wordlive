@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Linter Batch 4a — the house-style profile loader + 3 policy rules.** (Priority 1,
+  item 1 — `spec-linter.md` §6, the profile/policy half of Batch 4.) `doc.lint` /
+  `doc.regularize` gain a `profile=` argument (a path to a `wordlive.lint.json` file, an
+  inline dict, or `None`) that enables **policy** rules — off in the default set until a
+  profile opts them in — supplies their targets/thresholds, and can override a rule's
+  severity or disable a default rule. Three policy rules land in `_linting_policy.py`, all
+  fixing idempotently through the existing `format_paragraph` op: `body-justified` (body
+  paragraphs not justified), `body-line-spacing` (line spacing ≠ the profile's `target`,
+  e.g. `"1.5"`), and `table-numeric-right-align` (a table column that's mostly numbers,
+  above a `threshold`, but not right-aligned). The profile threads through every surface —
+  Python, CLI (`--profile PATH`), the `regularize` exec op, and MCP (`word_read
+  command=lint` / `word_write command=regularize`). No new COM write surface (the fixes
+  reuse `format_paragraph`); the `house_style` half of §6 (pinning consistency targets +
+  `set_style` fixes) is deferred to a later pass. Live-probed against Word 16 (fires,
+  fixes, and a second `regularize` is a no-op — the idempotency contract).
 - **Linter Batch 3b — `xref-as-literal-text` (1 new rule).** (Priority 1, item 1 —
   `spec-linter.md` §5b·C.) The heuristic cross-reference rule deferred from Batch 3:
   a body paragraph that mentions a figure/table by literal number ("As shown in

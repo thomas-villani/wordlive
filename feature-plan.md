@@ -69,6 +69,7 @@ Quick index (capability → real release):
 | Linter Batch 2 — finalization (6 P3 review-state rules: comments-present, unaccepted-revisions, track-changes-on, hidden-text-present, stale-fields, leftover-highlight; `finalization` tag, all off-by-default; `format_info` gains `hidden`/`highlight`) | Unreleased |
 | Linter Batch 3 — field-code backbone (3 P1 `Range.Fields`-walk rules: broken-cross-reference + caption-manual-numbering on-by-default & tagged `academia`, page-numbers-present off/`layout`; all report-only) | Unreleased |
 | Linter Batch 3b — `xref-as-literal-text` (a figure/table mentioned by literal number with no `REF` field; heuristic, off-by-default, tags `crossref`/`academia`; report-only) | Unreleased |
+| Linter Batch 4a — house-style profile loader (`profile=` on lint/regularize; `Profile` in `_lint_profile.py`) + 3 policy rules (`body-justified`, `body-line-spacing`, `table-numeric-right-align`) fixing idempotently via `format_paragraph`; threaded Python/CLI/exec/MCP; `house_style` deferred | Unreleased |
 | Floating-shape anchor model (`shape:N`: `doc.shapes`/`doc.text_boxes`; `ShapeAnchor` set_wrap/position/size/format/alt_text/text/replace_image/delete; `insert_text_box`+floating `insert_image` return it) | Unreleased |
 | Shape depth + inline restyle + `textbox:N` (`ShapeAnchor` set_rotation/set_z_order/set_text_frame; `doc.group_shapes`/`ungroup`; `ImageAnchor` set_alt_text/set_size; `textbox:N` alias) | Unreleased |
 | Checkpoint + diff (`doc.checkpoint`/`changes_since`/`diff`; `Checkpoint` token, `include=text/+style/+format`; content-aligned `replace`/`insert`/`delete`/`restyle`/`reformat` w/ current `para:N`; `doc_hash` fast-path) | Unreleased |
@@ -457,15 +458,22 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 > default** (tags `crossref` / `academia`; a bare "Table 2" in prose is often
 > legitimate). Caption/heading paragraphs skipped.
 >
-> **Still open (a follow-up pass):** the **profile / house-style** loader + its first
-> **policy** rules (`body-justified`, `body-line-spacing`, `table-numeric-right-align`)
-> — **Batch 4a** (the registry already carries `kind`, so they slot in cleanly); the opt-in
-> `Font.Reset()` strip-to-style fix; the content-adding fixes
-> (`stray-empty-paragraph`, `figure-caption-present` — these want the deferred
-> `adds_content` Finding field); and the `docx-plus` cascade-provenance hybrid. A
+> **Batch 4a — profile loader + first policy rules ✅ shipped (Unreleased, 2026-07-02).**
+> The §6 policy half: `profile=` on `lint`/`regularize` resolved by a new `Profile`
+> (`_lint_profile.py`), and `body-justified` / `body-line-spacing` /
+> `table-numeric-right-align` in `_linting_policy.py`, all fixing idempotently via
+> `format_paragraph`. `Rule.check` widened to `(doc, span, profile)`; threaded through
+> Python / CLI (`--profile`) / exec / MCP. `house_style` (§6's consistency-target pinning +
+> `set_style`) deferred.
+>
+> **Still open (a follow-up pass):** **Batch 4b** — the §H/§I detection rules (hyperlinks,
+> confidentiality/copyright notices, doc-properties, draft-watermark), some profile-driven;
+> the `house_style` half of profiles; the opt-in `Font.Reset()` strip-to-style fix; the
+> content-adding fixes (`stray-empty-paragraph`, `figure-caption-present` — these want the
+> deferred `adds_content` Finding field); and the `docx-plus` cascade-provenance hybrid. A
 > **v2 rule backlog** (~40 more rules for publishing/academia, primitive-driven
 > batches: Batch 2 finalization ✅ · Batch 3 field-code backbone ✅ · Batch 3b
-> heuristic xref-as-literal-text ✅ · Batch 4a profile loader + policy rules · Batch 4b
+> heuristic xref-as-literal-text ✅ · Batch 4a profile loader + policy rules ✅ · Batch 4b
 > layout/notices) — see `spec-linter.md` **§5b**. See also `spec-linter.md` (§6,
 > §7c, §9) and `CHANGELOG.md`.
 

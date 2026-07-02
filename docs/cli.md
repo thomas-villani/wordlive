@@ -2782,7 +2782,7 @@ Audit formatting/structure and write the fixes back.
 ### `lint`
 
 ```
-wordlive lint [--rule ID|TAG ...] [--exclude ID|TAG ...] [--within ID] [--doc DOC_NAME]
+wordlive lint [--rule ID|TAG ...] [--exclude ID|TAG ...] [--within ID] [--profile PATH] [--doc DOC_NAME]
 ```
 
 Audit the document for formatting inconsistency, structural slips, and policy
@@ -2835,7 +2835,13 @@ paragraph mentioning a figure/table by literal number with no `REF` field —
 heuristic, so opt-in). All are report-only. The cross-reference/caption rules
 also carry the `academia` tag, so `--rule academia` selects the cluster.
 
+Policy rules run only when a `--profile PATH` (a JSON house-style config) enables
+them: `body-justified`, `body-line-spacing` (needs a `target`), and
+`table-numeric-right-align` (a `threshold`, default 0.8). The profile can also
+override a rule's severity or disable a default rule. All three fix idempotently.
+
 ```bash
+$ wordlive lint --profile wordlive.lint.json      # enables the policy rules
 $ wordlive lint --within heading:3
 [{"rule": "heading-keep-with-next", "kind": "structural", "severity": "warning",
   "anchor_id": "heading:3", "message": "Heading does not keep with next paragraph.",
@@ -2852,7 +2858,7 @@ Failures: `1` unknown rule id/tag, `2` `--within` anchor not found,
 ### `regularize`
 
 ```
-wordlive regularize [--rule ID|TAG ...] [--exclude ID|TAG ...] [--within ID] [--dry-run] [--doc DOC_NAME]
+wordlive regularize [--rule ID|TAG ...] [--exclude ID|TAG ...] [--within ID] [--profile PATH] [--dry-run] [--doc DOC_NAME]
 ```
 
 Apply the **fixable** `lint` findings in one atomic-undo edit (labelled

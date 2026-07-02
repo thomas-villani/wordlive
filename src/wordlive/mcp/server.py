@@ -267,7 +267,9 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
             if command == "proofing":
                 return doc.proofing()
             if command == "lint":
-                return doc.lint(rules=p.get("rules"), within=p.get("within"))
+                return doc.lint(
+                    rules=p.get("rules"), within=p.get("within"), profile=p.get("profile")
+                )
             if command == "checkpoint":
                 cp = doc.checkpoint(
                     include=p.get("include") or "text+style",
@@ -506,7 +508,7 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         return {"op": "update_fields"}
     if command == "regularize":
         op = {"op": "regularize"}
-        for key in ("rules", "within", "dry_run"):
+        for key in ("rules", "within", "profile", "dry_run"):
             if p.get(key) is not None:
                 op[key] = p[key]
         return op
@@ -1278,6 +1280,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         depth: int | None = None,
         rules: Any = None,
         within: str | None = None,
+        profile: Any = None,
         include: str | None = None,
         checkpoint: Any = None,
         cp_a: Any = None,
@@ -1332,10 +1335,13 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         variables (invisible named storage: {name: value}) ·
         proofing (spelling/grammar errors with counts + flagged runs, and readability
         statistics — heavier than stats; it (re)checks the document) ·
-        lint {[rules],[within]} (audit publishing-quality defects: dangling headings,
-        multi-page tables with no repeating header, split numbered lists, direct
+        lint {[rules],[within],[profile]} (audit publishing-quality defects: dangling
+        headings, multi-page tables with no repeating header, split numbered lists, direct
         formatting drifted from the style — severity-ranked findings, each fixable one
-        carrying the op regularize would run; rules selects ids/tags or {exclude:[…]}) ·
+        carrying the op regularize would run; rules selects ids/tags or {exclude:[…]};
+        profile is a house-style config — a path or inline object — that enables policy
+        rules (body-justified, body-line-spacing, table-numeric-right-align) + their
+        targets) ·
         checkpoint {[include=text|text+style|text+format],[within]} (an opaque,
         serialisable structural fingerprint of the document now — store it, edit,
         then diff; the only way to answer "what changed" since Word has no
@@ -1385,6 +1391,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "depth": depth,
             "rules": rules,
             "within": within,
+            "profile": profile,
             "include": include,
             "checkpoint": checkpoint,
             "cp_a": cp_a,
@@ -1686,6 +1693,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         shapes: list[str] | None = None,
         rules: Any = None,
         within: str | None = None,
+        profile: Any = None,
         dry_run: bool | None = None,
     ) -> dict[str, Any]:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
@@ -2071,6 +2079,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "shapes": shapes,
             "rules": rules,
             "within": within,
+            "profile": profile,
             "dry_run": dry_run,
         }
         try:
@@ -2141,7 +2150,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           set_image_alt_text {anchor_id=image:N,text} · set_image_size {anchor_id=image:N,[width,height,lock_aspect]} · set_image_crop {anchor_id=image:N,[left,top,right,bottom]} — alt text / resize / crop an INLINE picture (crop_* aliases also accepted; re-wrap floats it via insert_image) ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
-          regularize {[rules],[within],[dry_run]} — apply the fixable word_read lint findings in one atomic step (targeted, idempotent); returns {applied,skipped,findings} ·
+          regularize {[rules],[within],[profile],[dry_run]} — apply the fixable word_read lint findings in one atomic step (targeted, idempotent); profile enables policy-rule fixes (justify, line-spacing, numeric-column alignment); returns {applied,skipped,findings} ·
           insert_footnote/insert_endnote {anchor_id,text,[before]} — returns the new footnote:N/endnote:N in outputs ·
           insert_toc {anchor_id,[levels=[upper,lower],use_heading_styles,hyperlinks,before]} — update_fields after to fill page numbers ·
           add_bookmark {name,anchor_id} · pin {anchor_id,[name]} — durable pin:CODE handle that
