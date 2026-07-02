@@ -8,13 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Linter Batch 3 — field-code backbone (3 new rules).** (Priority 1, item 1 —
+  `spec-linter.md` §5b·C, the P1 cross-reference/caption cluster.) `doc.lint` gains
+  a field-integrity cluster built on a `Range.Fields` walk: `broken-cross-reference`
+  (a `REF`/`PAGEREF` field rendering Word's "reference source not found" error) and
+  `caption-manual-numbering` (a `Caption` paragraph whose figure/table number is
+  literal text rather than a `SEQ` field) ship **on** by default (both also tagged
+  `academia`, so `lint --rule academia` selects them); `page-numbers-present` (no
+  `PAGE` field in any header/footer) is **off**, behind the `layout` tag. All three
+  are report-only this batch — the fixes they imply either add content (rebuild a
+  caption around a `SEQ` field, insert a page number) or need target matching (repair
+  a broken reference), so they're deferred; the heuristic `xref-as-literal-text`
+  ("see Figure 3" typed as text) is deferred to a Batch 3b. No new COM write surface
+  (the fixes' future verbs — `insert_caption`, `insert_cross_reference`,
+  `update_fields`, `insert_page_number` — already exist). Live-probed against Word 16.
+  Rules auto-surface across Python / CLI / MCP. (This also settles the Batch 2
+  `stale-fields` note: an idempotent auto-refresh is inherently infeasible without a
+  Word staleness flag, so it stays a report-only nudge — not an IOU.)
 - **Linter Batch 2 — finalization (6 new rules).** (Priority 1, item 1 —
   `spec-linter.md` §5b·G, the P3 "is this actually final?" cluster.) `doc.lint` /
   `doc.regularize` gain a leftover-review / markup-state cluster, all tagged
   `finalization`: `comments-present`, `unaccepted-revisions`, `track-changes-on`,
   `hidden-text-present`, `stale-fields` (updatable TOC/SEQ/REF/PAGE fields present
-  — a "refresh before finalizing" nudge; Word exposes no staleness flag, so the
-  fixable `update_fields` version waits for the Batch 3 field-code backbone), and
+  — a "refresh before finalizing" nudge; Word exposes no staleness flag, so an
+  idempotent auto-refresh fix is infeasible and it stays report-only), and
   `leftover-highlight` (the one fixable rule — clears the highlight, idempotent).
   The whole cluster ships **off by default**, behind the `finalization` tag: a
   mid-authoring document normally carries comments and revisions, so this is an

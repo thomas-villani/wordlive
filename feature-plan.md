@@ -66,6 +66,8 @@ Quick index (capability → real release):
 | Format read mirror (`anchor.format_info` — effective vs style, per-field `override`, `mixed` runs) | Unreleased |
 | Linter + regularizer foundation (`doc.lint`/`doc.regularize`; 3 structural + heading/font/spacing consistency rules; targeted idempotent fixes; `regularize` exec op) | Unreleased |
 | Linter Batch 1 — typography hygiene (10 P2 text-scan rules: trailing/leading/double-space, space-before-punct, hyphen-as-range, em-dash, tabs, manual-line-break, manual-heading-formatting, table-style-consistent; `typography` tag, off-by-default `Rule.default_on`; `find_replace` `literal`/`regex` modes + `required=False`) | Unreleased |
+| Linter Batch 2 — finalization (6 P3 review-state rules: comments-present, unaccepted-revisions, track-changes-on, hidden-text-present, stale-fields, leftover-highlight; `finalization` tag, all off-by-default; `format_info` gains `hidden`/`highlight`) | Unreleased |
+| Linter Batch 3 — field-code backbone (3 P1 `Range.Fields`-walk rules: broken-cross-reference + caption-manual-numbering on-by-default & tagged `academia`, page-numbers-present off/`layout`; all report-only) | Unreleased |
 | Floating-shape anchor model (`shape:N`: `doc.shapes`/`doc.text_boxes`; `ShapeAnchor` set_wrap/position/size/format/alt_text/text/replace_image/delete; `insert_text_box`+floating `insert_image` return it) | Unreleased |
 | Shape depth + inline restyle + `textbox:N` (`ShapeAnchor` set_rotation/set_z_order/set_text_frame; `doc.group_shapes`/`ungroup`; `ImageAnchor` set_alt_text/set_size; `textbox:N` alias) | Unreleased |
 | Checkpoint + diff (`doc.checkpoint`/`changes_since`/`diff`; `Checkpoint` token, `include=text/+style/+format`; content-aligned `replace`/`insert`/`delete`/`restyle`/`reformat` w/ current `para:N`; `doc_hash` fast-path) | Unreleased |
@@ -438,8 +440,16 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 > report-only; `leftover-highlight` the one fix). Reused the shipped revision/
 > comment/field wrappers + `doc.track_changes`; added `format_info`'s `hidden` /
 > `highlight` fields (the read mirror of `format_run`'s writes). `stale-fields` is a
-> report-only nudge — no COM staleness flag, so the `update_fields` fix waits for
-> Batch 3.
+> report-only nudge — no COM staleness flag (Batch 3 confirmed this is inherent, so
+> it stays a nudge rather than an IOU).
+>
+> **Batch 3 — field-code backbone ✅ shipped (Unreleased, 2026-07-02).** The §5b·C
+> cross-reference/caption cluster, built on a `Range.Fields` walk — 3 rules in
+> `_linting_fields.py`. `broken-cross-reference` + `caption-manual-numbering` ship
+> **on** by default (both also tagged `academia`); `page-numbers-present` is **off**,
+> tag `layout`. All three report-only (their fixes add content or need target
+> matching → deferred with the `adds_content` gate); the heuristic
+> `xref-as-literal-text` is deferred to **Batch 3b**. No new COM write surface.
 >
 > **Still open (a follow-up pass):** the **policy** rules (`body-justified`,
 > `table-numeric-right-align`) and the **profile / house-style** loader (the
@@ -448,8 +458,8 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 > (`stray-empty-paragraph`, `figure-caption-present` — these want the deferred
 > `adds_content` Finding field); and the `docx-plus` cascade-provenance hybrid. A
 > **v2 rule backlog** (~40 more rules for publishing/academia, primitive-driven
-> batches: Batch 2 finalization ✅ · Batch 3 field-code backbone · Batch 4
-> layout/notices) — see `spec-linter.md` **§5b**. See also `spec-linter.md` (§6,
+> batches: Batch 2 finalization ✅ · Batch 3 field-code backbone ✅ · Batch 3b
+> heuristic xref-as-literal-text · Batch 4 layout/notices) — see `spec-linter.md` **§5b**. See also `spec-linter.md` (§6,
 > §7c, §9) and `CHANGELOG.md`.
 
 The highest-utility next feature: a declarative rule set that **audits** a document

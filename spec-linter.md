@@ -53,6 +53,22 @@ field-staleness flag, so a presence-based `update_fields` fix couldn't satisfy t
 idempotency contract; the fixable version lands with Batch 3's field-code backbone.
 Live-probed 2026-07-01 (Word 16): all six fire on a seeded doc, none in the default
 set, highlight fix + idempotent re-run confirmed on real COM.
+**Batch 3 — field-code backbone ✅ shipped (Unreleased).** The §5b·C cluster,
+built on a `Range.Fields` walk (the P1 primitive): 3 rules in `_linting_fields.py`.
+`broken-cross-reference` (a `REF`/`PAGEREF` rendering Word's "reference source not
+found" error) and `caption-manual-numbering` (a `Caption` paragraph numbered with
+literal text, not a `SEQ` field) ship **on** by default (both also tagged `academia`);
+`page-numbers-present` (no `PAGE` field in any header/footer) is **off**, tag `layout`.
+**All three are report-only** — every fix the §C/§H catalogue implies either adds
+content (rebuild a caption around `SEQ`, insert a page number) or needs target matching
+(repair a broken ref), so they're deferred (and the `adds_content` gate with them); the
+heuristic `xref-as-literal-text` is deferred to **Batch 3b**. No new COM write surface —
+the fixes' future verbs already exist. This also **retires the Batch-2 `stale-fields`
+IOU**: an idempotent auto-refresh is inherently infeasible without a Word staleness flag,
+so it stays a report-only nudge. Live-probed 2026-07-02 (Word 16): both on-by-default
+rules fire on a seeded doc (a real `InsertCaption` SEQ is correctly not flagged), the
+broken-ref error string matches on real COM, page-numbers fires when absent and clears
+after `insert_page_number()`.
 
 > Audit a document for publishing-quality defects (`doc.lint()`), then autofix the
 > mechanical ones in one atomic-undo step (`doc.regularize()`). Pure composition
@@ -264,7 +280,13 @@ Fixes are regex-mode `find_replace` (see the status header).
 | `adjacent-headings` | structural | two headings, no body between | report | off (tag) |
 | `toc-present-and-current` | structural | doc has Heading 1s but no TOC field / TOC stale | `update_fields` or report | off (tag) |
 
-### C. Captions & cross-references  *(P1 — the academia backbone)*
+### C. Captions & cross-references  *(P1 — the academia backbone)* — ⚙️ mostly shipped (Unreleased)
+
+Shipped as `_linting_fields.py`: `broken-cross-reference` (on) and
+`caption-manual-numbering` (on, report) landed in **Batch 3**, both report-only and
+tagged `academia`. `xref-as-literal-text` is **deferred to Batch 3b** (heuristic
+text-scan, false-positive-prone). `caption-label-consistent` /
+`caption-position-consistent` remain backlog.
 
 | id | kind | detect | fix | default |
 |---|---|---|---|---|
@@ -365,9 +387,12 @@ academia` / `--rules finalization` become the headline ergonomics; profiles
    field wrappers + `doc.track_changes`, and added `format_info`'s `hidden` /
    `highlight` fields. `stale-fields` ships as a report-only nudge (its
    `update_fields` fix waits for Batch 3 — no COM staleness flag).
-3. **Batch 3 — Field-code backbone (P1, §C):** build `Range.Fields` walk, then
-   caption-manual-numbering, xref-as-literal-text, broken-cross-reference,
-   page-numbers-present. The academia centerpiece.
+3. **Batch 3 — Field-code backbone (P1, §C): ✅ shipped (Unreleased).** built the
+   `Range.Fields` walk, then `broken-cross-reference` (on), `caption-manual-numbering`
+   (on, report), `page-numbers-present` (off, tag `layout`) — all report-only in
+   `_linting_fields.py`. `xref-as-literal-text` deferred to **Batch 3b** (heuristic).
+   The academia centerpiece. Retired the Batch-2 `stale-fields` fixable-IOU (no
+   staleness flag → inherently non-idempotent, stays a nudge).
 4. **Batch 4 — Layout / notices (§H), hyperlinks (§I) + the profile/house-style
    loader** (the already-deferred v1 step-5).
 5. **Later — citations cluster (§D) + the accessibility sub-product** (with
@@ -573,5 +598,5 @@ targeted strategy is the default.
 
 Steps 1–4 + wiring shipped (foundation slice). The **v2 backlog (§5b)** continues
 the build, primitive-driven: Batch 1 typography (P2) ✅ · Batch 2 finalization
-(P3) ✅ · Batch 3 field-code backbone (P1) · Batch 4 layout/notices + profile
-loader · later citations + accessibility.
+(P3) ✅ · Batch 3 field-code backbone (P1) ✅ · Batch 3b heuristic xref-as-literal-text ·
+Batch 4 layout/notices + profile loader · later citations + accessibility.

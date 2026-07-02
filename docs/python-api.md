@@ -841,6 +841,14 @@ TOC/SEQ/REF/PAGE fields present — a refresh nudge) are report-only;
 `leftover-highlight` is the one fixable rule (clears the highlight, idempotent).
 Enable the cluster with `rules=["finalization"]`.
 
+Field-code rules (the P1 cross-reference/caption backbone) — on by default:
+`broken-cross-reference` (a `REF`/`PAGEREF` field rendering Word's "reference
+source not found" error) and `caption-manual-numbering` (a `Caption` paragraph
+whose figure/table number is literal text, not a `SEQ` field); off by default
+(tag `layout`): `page-numbers-present` (no `PAGE` field in any header/footer).
+All three are report-only this batch. The two cross-reference/caption rules also
+carry the `academia` tag, so `rules=["academia"]` selects the cluster.
+
 `Document.regularize(rules=None, within=None, dry_run=False)` is the **write**
 side: it applies the fixable findings in one `doc.edit("Regularize formatting")`
 (one Ctrl-Z reverts them all; selection and scroll preserved) and returns

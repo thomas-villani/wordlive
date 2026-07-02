@@ -1223,6 +1223,9 @@ def _make_range(start: int, end: int) -> MagicMock:
     # Tests that exercise the in-table path set a positive Count on their range.
     rng.Tables = MagicMock(name="RangeTables")
     rng.Tables.Count = 0
+    # Field support: header/footer stories expose Range.Fields for the page-numbers
+    # linter walk. Empty by default; tests seed a PAGE field on the story's range.
+    rng.Fields = _FakeFields([])
     # Snapshot support: Range.Information(wdActiveEndPageNumber=3) reports the
     # page a (collapsed) range sits on. The tiny fake document is all one page,
     # so report page 1 for any query; tests that need a specific page set
