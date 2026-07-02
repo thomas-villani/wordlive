@@ -528,6 +528,7 @@ doc.lint(within="heading:3")         # audit: [{rule, kind, severity, anchor_id,
 doc.lint(rules={"exclude": ["mixed-run-format"]})  # rules=None → default set; list to include; {"exclude":[…]} to drop
 doc.lint(rules=["typography"])       # text-hygiene cluster (spaces/punct/hyphen→en-dash/faux headings; enables its off-by-default rules)
 doc.lint(rules=["finalization"])     # off-by-default "ready-to-send?" cluster: leftover comments/revisions, track-changes-on, hidden text, highlight, updatable fields
+doc.lint(rules=["academia"])         # field-code cluster: broken-cross-reference + caption-manual-numbering (both on by default); page-numbers-present is off (tag "layout")
 doc.regularize(within="heading:3", dry_run=True)   # plan the fixable findings (no write)
 doc.regularize()                     # apply them in one atomic-undo → {applied, skipped, findings}; idempotent
 

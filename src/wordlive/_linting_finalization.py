@@ -14,10 +14,11 @@ normally carries comments and revisions, so these are an opt-in pre-send check
 (`--rule finalization`), not a default-lint defect. Every rule is **report-only**
 except `leftover-highlight`, whose highlight-clear fix is safe and idempotent
 (`format_run(highlight="none")` → `WdColorIndex.AUTO`, so a re-run is a no-op).
-`stale-fields` is a report-only nudge: Word exposes no "field is stale" flag, so a
-presence-based `update_fields` fix would re-flag after fixing and break the
-idempotency contract — the fixable version lands with Batch 3's field-code
-backbone (§5b·C).
+`stale-fields` stays a **report-only nudge**: Word exposes no "field is stale" flag,
+so a presence-based `update_fields` fix would re-flag after fixing and break the
+idempotency contract. Batch 3's field-code backbone (§5b·C) confirmed this is
+inherent (a doc-wide `Fields.Update()` can't be made idempotent without a staleness
+signal Word doesn't provide), so the nudge is the permanent shape — not an IOU.
 
 Imported by `_linting` for its side effect of registering the rules (after `Rule`
 / `Finding` / `_register_rule` are defined).

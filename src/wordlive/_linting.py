@@ -402,6 +402,7 @@ def _register_rule(rule: Rule) -> None:
 # / `_register_rule` are defined, hence the bottom-of-module import).
 from . import (  # noqa: E402,F401
     _linting_consistency,
+    _linting_fields,
     _linting_finalization,
     _linting_typography,
 )

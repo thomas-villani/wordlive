@@ -541,6 +541,121 @@ def test_finalization_tag_selects_cluster(monkeypatch):
     assert {"unaccepted-revisions", "track-changes-on", "stale-fields"} <= seen
 
 
+# --- field-code (P1) batch ---------------------------------------------------
+
+_BROKEN_REF = "Error! Reference source not found."
+
+
+def test_lint_broken_cross_reference(monkeypatch):
+    app = _make_app(
+        fields=[{"code": "REF _Ref1 \\h", "result": _BROKEN_REF, "start": 10, "end": 20}]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["broken-cross-reference"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["anchor_id"] == "range:10-20" and f["kind"] == "structural"
+    assert f["severity"] == "warning" and f["fixable"] is False and f["fix"] is None
+
+
+def test_lint_broken_cross_reference_healthy_is_clean(monkeypatch):
+    app = _make_app(
+        fields=[{"code": "REF _Ref1 \\h", "result": "Figure 1", "start": 10, "end": 20}]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["broken-cross-reference"]) == []
+
+
+def test_lint_broken_cross_reference_within_scoping(monkeypatch):
+    app = _make_app(fields=[{"code": "REF x", "result": _BROKEN_REF, "start": 100, "end": 110}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert len(doc.lint(rules=["broken-cross-reference"])) == 1
+        # A within-span that misses the field excludes it.
+        assert doc.lint(rules=["broken-cross-reference"], within="range:0-5") == []
+
+
+def test_lint_caption_manual_numbering(monkeypatch):
+    app = _make_app(
+        paragraphs=[{"text": "Figure 3: Results", "style": "Caption", "start": 0, "end": 18}]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["caption-manual-numbering"])
+    assert len(findings) == 1
+    assert findings[0]["anchor_id"] == "para:1" and findings[0]["fixable"] is False
+
+
+def test_lint_caption_with_seq_field_is_clean(monkeypatch):
+    app = _make_app(
+        paragraphs=[{"text": "Figure 3: Results", "style": "Caption", "start": 0, "end": 18}],
+        fields=[{"code": "SEQ Figure \\* ARABIC", "result": "3", "start": 6, "end": 7}],
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["caption-manual-numbering"]) == []
+
+
+def test_lint_caption_without_number_is_clean(monkeypatch):
+    # A Caption paragraph with no figure/table number isn't a manual-numbering defect.
+    app = _make_app(
+        paragraphs=[{"text": "A descriptive caption", "style": "Caption", "start": 0, "end": 22}]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["caption-manual-numbering"]) == []
+
+
+def test_lint_page_numbers_present_off_by_default(monkeypatch):
+    app = _make_app()  # one section, empty headers/footers, no PAGE field
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "page-numbers-present" not in _rules_seen(doc.lint())  # policy, off
+        assert {f["rule"] for f in doc.lint(rules=["page-numbers-present"])} == {
+            "page-numbers-present"
+        }
+        assert {f["rule"] for f in doc.lint(rules=["layout"])} == {"page-numbers-present"}
+
+
+def test_lint_page_numbers_present_clean_with_footer_field(monkeypatch):
+    from tests.conftest import _FakeFields
+
+    app = _make_app()
+    footer = app.ActiveDocument.Sections(1).Footers(1)  # primary footer
+    footer.Range.Fields = _FakeFields([{"code": "PAGE", "type": 33, "start": 0, "end": 2}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["layout"]) == []
+
+
+def test_fields_batch_on_by_default(monkeypatch):
+    app = _make_app(
+        paragraphs=[{"text": "Figure 3", "style": "Caption", "start": 0, "end": 9}],
+        fields=[{"code": "REF x", "result": _BROKEN_REF, "start": 20, "end": 30}],
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        seen = _rules_seen(word.documents.active.lint())  # default set
+    assert {"broken-cross-reference", "caption-manual-numbering"} <= seen
+    assert "page-numbers-present" not in seen  # policy stays off
+
+
+def test_fields_academia_tag_selects_cluster(monkeypatch):
+    app = _make_app(
+        paragraphs=[{"text": "Table 2", "style": "Caption", "start": 0, "end": 8}],
+        fields=[{"code": "PAGEREF y", "result": _BROKEN_REF, "start": 20, "end": 30}],
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        seen = _rules_seen(word.documents.active.lint(rules=["academia"]))
+    assert {"broken-cross-reference", "caption-manual-numbering"} <= seen
+    assert "page-numbers-present" not in seen  # layout, not academia
+
+
 # --- MCP ---------------------------------------------------------------------
 
 

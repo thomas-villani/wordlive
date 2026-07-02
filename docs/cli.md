@@ -2825,6 +2825,14 @@ Finalization rules (tag `finalization`, all **off by default** — an opt-in
 report-only; `leftover-highlight` clears leftover highlighter colour (the one
 fixable rule, idempotent).
 
+Field-code rules (the P1 cross-reference/caption backbone) — **on by default:**
+`broken-cross-reference` (a `REF`/`PAGEREF` field rendering Word's "reference
+source not found" error) and `caption-manual-numbering` (a `Caption` paragraph
+numbered with literal text, not a `SEQ` field). **Off by default** (tag
+`layout`): `page-numbers-present` (no `PAGE` field in any header/footer). All
+three are report-only. The two cross-reference/caption rules also carry the
+`academia` tag, so `--rule academia` selects the cluster.
+
 ```bash
 $ wordlive lint --within heading:3
 [{"rule": "heading-keep-with-next", "kind": "structural", "severity": "warning",
