@@ -69,6 +69,12 @@ so it stays a report-only nudge. Live-probed 2026-07-02 (Word 16): both on-by-de
 rules fire on a seeded doc (a real `InsertCaption` SEQ is correctly not flagged), the
 broken-ref error string matches on real COM, page-numbers fires when absent and clears
 after `insert_page_number()`.
+**Batch 3b — `xref-as-literal-text` ✅ shipped (Unreleased).** The one heuristic rule
+Batch 3 deferred: a body paragraph mentioning a figure/table by literal number ("see
+Figure 3") with no `REF`/`PAGEREF` field covering it — added to `_linting_fields.py`,
+report-only. Ships **off by default** behind the `crossref` / `academia` tags (a bare
+"Table 2" in prose is often legitimate — heuristic, false-positive-prone), deviating from
+§C's "on" column. Caption/heading paragraphs are skipped.
 
 > Audit a document for publishing-quality defects (`doc.lint()`), then autofix the
 > mechanical ones in one atomic-undo step (`doc.regularize()`). Pure composition
@@ -284,14 +290,15 @@ Fixes are regex-mode `find_replace` (see the status header).
 
 Shipped as `_linting_fields.py`: `broken-cross-reference` (on) and
 `caption-manual-numbering` (on, report) landed in **Batch 3**, both report-only and
-tagged `academia`. `xref-as-literal-text` is **deferred to Batch 3b** (heuristic
-text-scan, false-positive-prone). `caption-label-consistent` /
+tagged `academia`. `xref-as-literal-text` landed in **Batch 3b** — report-only and
+**off by default** (tags `crossref` / `academia`), deviating from the "on" column below
+because it's heuristic/false-positive-prone. `caption-label-consistent` /
 `caption-position-consistent` remain backlog.
 
 | id | kind | detect | fix | default |
 |---|---|---|---|---|
 | `caption-manual-numbering` | structural | a `Caption` para whose number is **literal text**, not a `SEQ` field | report → rebuild with SEQ (adds content, opt-in) | on (report) |
-| `xref-as-literal-text` | structural | `see Figure 3` / `Table 2` typed as text, not a `REF` field | report (auto-fix needs target match) | on (report) |
+| `xref-as-literal-text` | structural | `see Figure 3` / `Table 2` typed as text, not a `REF` field | report (auto-fix needs target match) | off (tag; heuristic — shipped Batch 3b) |
 | `caption-label-consistent` | consistency | mix of `Fig.`/`Figure`, `Table`/`Tbl`, `Eq.`/`Equation` | normalize label | off (tag) |
 | `caption-position-consistent` | consistency | some figure captions above, some below the image | report | off (tag) |
 | `broken-cross-reference` | structural | `REF`/`PAGEREF` rendering `Error! Reference source not found` | report | on |
@@ -390,11 +397,15 @@ academia` / `--rules finalization` become the headline ergonomics; profiles
 3. **Batch 3 — Field-code backbone (P1, §C): ✅ shipped (Unreleased).** built the
    `Range.Fields` walk, then `broken-cross-reference` (on), `caption-manual-numbering`
    (on, report), `page-numbers-present` (off, tag `layout`) — all report-only in
-   `_linting_fields.py`. `xref-as-literal-text` deferred to **Batch 3b** (heuristic).
-   The academia centerpiece. Retired the Batch-2 `stale-fields` fixable-IOU (no
-   staleness flag → inherently non-idempotent, stays a nudge).
+   `_linting_fields.py`. The academia centerpiece. Retired the Batch-2 `stale-fields`
+   fixable-IOU (no staleness flag → inherently non-idempotent, stays a nudge).
+   - **Batch 3b — `xref-as-literal-text` ✅ shipped (Unreleased).** The heuristic
+     text-scan rule (a figure/table mentioned by literal number with no `REF` field),
+     off by default (tags `crossref` / `academia`), report-only.
 4. **Batch 4 — Layout / notices (§H), hyperlinks (§I) + the profile/house-style
-   loader** (the already-deferred v1 step-5).
+   loader** (the already-deferred v1 step-5). Splitting: **4a** the profile loader +
+   the first policy rules (`body-justified`, `body-line-spacing`,
+   `table-numeric-right-align`); **4b** the §H/§I detection rules.
 5. **Later — citations cluster (§D) + the accessibility sub-product** (with
    *prepare-for-sharing*, §9).
 
@@ -598,5 +609,6 @@ targeted strategy is the default.
 
 Steps 1–4 + wiring shipped (foundation slice). The **v2 backlog (§5b)** continues
 the build, primitive-driven: Batch 1 typography (P2) ✅ · Batch 2 finalization
-(P3) ✅ · Batch 3 field-code backbone (P1) ✅ · Batch 3b heuristic xref-as-literal-text ·
-Batch 4 layout/notices + profile loader · later citations + accessibility.
+(P3) ✅ · Batch 3 field-code backbone (P1) ✅ · Batch 3b heuristic xref-as-literal-text ✅ ·
+Batch 4a profile loader + first policy rules · Batch 4b layout/notices + hyperlinks ·
+later citations + accessibility.

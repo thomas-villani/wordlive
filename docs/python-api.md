@@ -845,8 +845,10 @@ Field-code rules (the P1 cross-reference/caption backbone) — on by default:
 `broken-cross-reference` (a `REF`/`PAGEREF` field rendering Word's "reference
 source not found" error) and `caption-manual-numbering` (a `Caption` paragraph
 whose figure/table number is literal text, not a `SEQ` field); off by default
-(tag `layout`): `page-numbers-present` (no `PAGE` field in any header/footer).
-All three are report-only this batch. The two cross-reference/caption rules also
+(tag `layout`): `page-numbers-present` (no `PAGE` field in any header/footer);
+off by default (tag `crossref` / `academia`): `xref-as-literal-text` (a body
+paragraph mentioning a figure/table by literal number with no `REF` field —
+heuristic, so opt-in). All are report-only. The cross-reference/caption rules
 carry the `academia` tag, so `rules=["academia"]` selects the cluster.
 
 `Document.regularize(rules=None, within=None, dry_run=False)` is the **write**
