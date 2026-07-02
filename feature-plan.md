@@ -431,6 +431,16 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 > gained **`default_on`** for the default-off rules. Deferred to **1b**:
 > `straight-quotes` / `nbsp-missing` / `sentence-spacing-consistent` (heuristic-heavy).
 >
+> **Batch 2 — finalization ✅ shipped (Unreleased, 2026-07-01).** The §5b·G
+> "is-this-ready-to-send?" cluster — 6 rules in `_linting_finalization.py`, all
+> **off by default** behind the `finalization` tag (`comments-present`,
+> `unaccepted-revisions`, `track-changes-on`, `hidden-text-present`, `stale-fields`
+> report-only; `leftover-highlight` the one fix). Reused the shipped revision/
+> comment/field wrappers + `doc.track_changes`; added `format_info`'s `hidden` /
+> `highlight` fields (the read mirror of `format_run`'s writes). `stale-fields` is a
+> report-only nudge — no COM staleness flag, so the `update_fields` fix waits for
+> Batch 3.
+>
 > **Still open (a follow-up pass):** the **policy** rules (`body-justified`,
 > `table-numeric-right-align`) and the **profile / house-style** loader (the
 > registry already carries `kind`, so they slot in cleanly); the opt-in
@@ -438,7 +448,7 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 > (`stray-empty-paragraph`, `figure-caption-present` — these want the deferred
 > `adds_content` Finding field); and the `docx-plus` cascade-provenance hybrid. A
 > **v2 rule backlog** (~40 more rules for publishing/academia, primitive-driven
-> batches: Batch 2 finalization · Batch 3 field-code backbone · Batch 4
+> batches: Batch 2 finalization ✅ · Batch 3 field-code backbone · Batch 4
 > layout/notices) — see `spec-linter.md` **§5b**. See also `spec-linter.md` (§6,
 > §7c, §9) and `CHANGELOG.md`.
 

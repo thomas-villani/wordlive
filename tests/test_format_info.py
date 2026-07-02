@@ -52,6 +52,7 @@ def test_read_font_mixed_size_goes_to_mixed():
         SmallCaps=0,
         AllCaps=0,
         Spacing=0.0,
+        Hidden=0,
     )
     values, mixed = _read_font(font)
     assert values["size"] is None
@@ -128,6 +129,27 @@ def test_format_info_mixed_runs_listed(fake_word):
     # A mixed field is never reported as an override.
     assert info["font"]["size"]["override"] is False
     assert "size" in info["font"]["mixed"]
+
+
+def test_format_info_hidden_and_highlight(fake_word):
+    from wordlive.constants import WdColorIndex
+
+    rng = _addr_range(fake_word)
+    rng.Font.Hidden = -1  # wdToggle on
+    rng.HighlightColorIndex = int(WdColorIndex.YELLOW)
+    with wordlive.attach() as word:
+        info = word.documents.active.bookmarks["Address"].format_info()
+    assert info["font"]["hidden"]["value"] is True
+    hl = info["font"]["highlight"]
+    # Highlight is a range property with no style baseline — effective-only.
+    assert hl["value"] == "yellow" and hl["style"] is None and hl["override"] is True
+
+
+def test_format_info_highlight_none_by_default(fake_word):
+    with wordlive.attach() as word:
+        info = word.documents.active.bookmarks["Address"].format_info()
+    hl = info["font"]["highlight"]
+    assert hl["value"] == "none" and hl["override"] is False
 
 
 def test_format_info_paragraph_override_detected(fake_word):

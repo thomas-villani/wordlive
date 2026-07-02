@@ -1140,6 +1140,7 @@ def _fake_font(**kw: Any) -> MagicMock:
     f.SmallCaps = kw.get("SmallCaps", 0)
     f.AllCaps = kw.get("AllCaps", 0)
     f.Spacing = kw.get("Spacing", 0.0)
+    f.Hidden = kw.get("Hidden", 0)
     return f
 
 
@@ -1239,6 +1240,9 @@ def _make_range(start: int, end: int) -> MagicMock:
     rng.Font = _fake_font()
     rng.ParagraphFormat = _fake_paragraph_format()
     rng.ParagraphStyle = _fake_para_style()
+    # Format-read support: highlight is a Range property (not on Font). Default 0
+    # (wdNoHighlight -> "none"); tests that need a highlighted run set it themselves.
+    rng.HighlightColorIndex = 0
     return rng
 
 

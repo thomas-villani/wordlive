@@ -131,6 +131,7 @@ a.format_paragraph(alignment="center", space_before=6, line_spacing=1.5,  # lead
 a.format_run(bold=True, color="#FF0000", highlight="yellow", size="12pt")  # character formatting
 a.format_info()                         # read mirror of format_paragraph/format_run: {style, paragraph, font}
                                         #   each field → {value, style, override}; font.mixed = fields varying across runs
+                                        #   font also has hidden + highlight (keyword/"none", effective-only)
 a.set_shading(fill="navy")              # range/cell background fill
 a.set_borders(sides="all", style="single", weight=0.5, color="black")
 a.drop_cap(3, position="dropped", font="Georgia")  # oversized initial letter; position="none" removes
@@ -526,6 +527,7 @@ doc.proofing()                       # {spelling:{count,errors}, grammar:{…}, 
 doc.lint(within="heading:3")         # audit: [{rule, kind, severity, anchor_id, message, fixable, fix, …}] (pure read)
 doc.lint(rules={"exclude": ["mixed-run-format"]})  # rules=None → default set; list to include; {"exclude":[…]} to drop
 doc.lint(rules=["typography"])       # text-hygiene cluster (spaces/punct/hyphen→en-dash/faux headings; enables its off-by-default rules)
+doc.lint(rules=["finalization"])     # off-by-default "ready-to-send?" cluster: leftover comments/revisions, track-changes-on, hidden text, highlight, updatable fields
 doc.regularize(within="heading:3", dry_run=True)   # plan the fixable findings (no write)
 doc.regularize()                     # apply them in one atomic-undo → {applied, skipped, findings}; idempotent
 

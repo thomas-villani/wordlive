@@ -380,7 +380,9 @@ Lengths are in **points** (floats); `color` is `#RRGGBB` or `"auto"`;
 `first_line_indent`, `space_before`, `space_after`, `line_spacing`,
 `page_break_before`, `keep_together`, `keep_with_next`, `widow_control`. Font
 fields: `name`, `size`, `bold`, `italic`, `underline`, `strikethrough`, `color`,
-`subscript`, `superscript`, `small_caps`, `all_caps`, `spacing`. Non-mutating.
+`subscript`, `superscript`, `small_caps`, `all_caps`, `spacing`, `hidden`, and
+`highlight` (a keyword or `"none"`; effective-only, `style` is `null`).
+Non-mutating.
 
 ```bash
 $ wordlive read format --anchor-id heading:3
@@ -2815,6 +2817,13 @@ paragraph that reads like a heading but isn't styled), `table-style-consistent`
 report-only). The fixable whitespace/punctuation/range rules write via the
 `find_replace` regex mode (below), scoped to the offending paragraph, so they're
 idempotent.
+
+Finalization rules (tag `finalization`, all **off by default** — an opt-in
+"is-this-ready-to-send?" check, `--rule finalization`): `comments-present`,
+`unaccepted-revisions`, `track-changes-on`, `hidden-text-present`, and
+`stale-fields` (updatable TOC/SEQ/REF/PAGE fields present — a refresh nudge) are
+report-only; `leftover-highlight` clears leftover highlighter colour (the one
+fixable rule, idempotent).
 
 ```bash
 $ wordlive lint --within heading:3

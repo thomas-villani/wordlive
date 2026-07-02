@@ -125,7 +125,9 @@ or `"auto"`; `alignment` is `left`/`center`/`right`/`justify`; `line_spacing` is
 `line_spacing`, `page_break_before`, `keep_together`, `keep_with_next`,
 `widow_control`; the font fields are `name`, `size`, `bold`, `italic`,
 `underline`, `strikethrough`, `color`, `subscript`, `superscript`, `small_caps`,
-`all_caps`, `spacing`. It's a pure read — diff the `override` flags to see what a
+`all_caps`, `spacing`, `hidden`, and `highlight` (a keyword — `"yellow"`, … — or
+`"none"`; it lives on the range, not the style, so it's effective-only with
+`style: null`). It's a pure read — diff the `override` flags to see what a
 paragraph carries beyond its style (the input [`doc.regularize()`](#wordlive.Document)
 writes back). `set_shading`,
 `set_borders`, and `add_tab_stop` add range/cell fill, borders, and tab stops;
@@ -831,6 +833,13 @@ Foundation rules — structural: `heading-keep-with-next`, `table-repeat-header`
 `tabs-for-layout`, `manual-line-break`. The fixable typography rules write via
 `find_replace`'s `regex` mode scoped to the offending paragraph, so they stay
 idempotent.
+
+Finalization rules (tag `finalization`, all **off** by default — an opt-in
+"is-this-ready-to-send?" check): `comments-present`, `unaccepted-revisions`,
+`track-changes-on`, `hidden-text-present`, and `stale-fields` (updatable
+TOC/SEQ/REF/PAGE fields present — a refresh nudge) are report-only;
+`leftover-highlight` is the one fixable rule (clears the highlight, idempotent).
+Enable the cluster with `rules=["finalization"]`.
 
 `Document.regularize(rules=None, within=None, dry_run=False)` is the **write**
 side: it applies the fixable findings in one `doc.edit("Regularize formatting")`
