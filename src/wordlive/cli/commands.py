@@ -1706,9 +1706,19 @@ def _fmt_regularize(report: dict[str, Any]) -> str:
     default=None,
     help="Scope the audit to an anchor id (heading:N, range:S-E, table:N:R:C).",
 )
+@click.option(
+    "--profile",
+    "profile",
+    default=None,
+    help="Path to a JSON house-style profile (enables policy rules + their targets).",
+)
 @click.pass_context
 def lint_cmd(
-    ctx: click.Context, rule: tuple[str, ...], exclude: tuple[str, ...], within: str | None
+    ctx: click.Context,
+    rule: tuple[str, ...],
+    exclude: tuple[str, ...],
+    within: str | None,
+    profile: str | None,
 ) -> None:
     """Audit the document for publishing-quality defects (pure read).
 
@@ -1716,14 +1726,15 @@ def lint_cmd(
     tables with no repeating header, numbered lists Word split into independent
     runs, direct formatting that drifted from the applied style. Each `fixable`
     finding can be applied by `regularize`. `--rule`/`--exclude` select rules by
-    id or tag; `--within` scopes to an anchor.
+    id or tag; `--within` scopes to an anchor. `--profile PATH` loads a JSON
+    house-style config that enables **policy** rules and supplies their targets.
     """
     selector = _rules_selector(rule, exclude)
 
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
-            findings = doc.lint(rules=selector, within=within)
+            findings = doc.lint(rules=selector, within=within, profile=profile)
             emit(findings, as_text=not ctx.obj["as_json"], text=_fmt_lint(findings))
 
     _run(ctx, go)
@@ -1733,6 +1744,12 @@ def lint_cmd(
 @click.option("--rule", "rule", multiple=True, help="Only run these rule ids/tags (repeatable).")
 @click.option("--exclude", "exclude", multiple=True, help="Skip these rule ids/tags (repeatable).")
 @click.option("--within", "within", default=None, help="Scope to an anchor id.")
+@click.option(
+    "--profile",
+    "profile",
+    default=None,
+    help="Path to a JSON house-style profile (enables policy rules + their targets).",
+)
 @click.option(
     "--dry-run",
     "dry_run",
@@ -1746,6 +1763,7 @@ def regularize_cmd(
     rule: tuple[str, ...],
     exclude: tuple[str, ...],
     within: str | None,
+    profile: str | None,
     dry_run: bool,
 ) -> None:
     """Apply the fixable lint findings in one atomic-undo step.
@@ -1754,13 +1772,15 @@ def regularize_cmd(
     edit (one Ctrl-Z reverts the whole pass; selection/scroll preserved). The
     default fixes are targeted and idempotent — a second `regularize` is a no-op.
     Returns `{applied, skipped, findings}`. `--dry-run` plans without writing.
+    `--profile PATH` enables policy rules (justify, line-spacing, numeric-column
+    alignment) and their fixes.
     """
     selector = _rules_selector(rule, exclude)
 
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
-            report = doc.regularize(rules=selector, within=within, dry_run=dry_run)
+            report = doc.regularize(rules=selector, within=within, profile=profile, dry_run=dry_run)
             emit(report, as_text=not ctx.obj["as_json"], text=_fmt_regularize(report))
 
     _run(ctx, go)

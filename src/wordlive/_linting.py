@@ -21,10 +21,11 @@ a `run_lint` entry that `Document.lint` delegates to).
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from . import _com
+from ._lint_profile import Profile
 from .exceptions import ComError
 
 if TYPE_CHECKING:
@@ -66,8 +67,11 @@ Span = tuple[int, int]
 class Rule:
     """A registered rule: identity/metadata plus a `check` that yields findings.
 
-    `check(doc, span)` walks the document (optionally clipped to `span`) and
-    yields `Finding`s. `tags` lets a caller select a family (`["headings"]`) as
+    `check(doc, span, profile)` walks the document (optionally clipped to `span`)
+    and yields `Finding`s. Every check receives the resolved
+    [`Profile`][wordlive._lint_profile.Profile]; most ignore it (consistency /
+    structural rules need no config), while **policy** rules read their target /
+    threshold from it. `tags` lets a caller select a family (`["headings"]`) as
     well as by id.
 
     `default_on` controls whether the rule runs in the **default** set (`rules=
@@ -81,7 +85,7 @@ class Rule:
     kind: str
     severity: str
     tags: tuple[str, ...]
-    check: Callable[[Document, Span | None], Iterator[Finding]]
+    check: Callable[[Document, Span | None, Profile], Iterator[Finding]]
     default_on: bool = True
 
 
@@ -107,7 +111,9 @@ def _overlaps(span: Span | None, lo: int, hi: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _check_heading_keep_with_next(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_heading_keep_with_next(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """A heading paragraph with keep-with-next off can be stranded at a page foot,
     its body starting on the next page. Fix: turn keep-with-next on."""
     for row in doc.outline():
@@ -134,7 +140,9 @@ def _check_heading_keep_with_next(doc: Document, span: Span | None) -> Iterator[
             )
 
 
-def _check_table_repeat_header(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_table_repeat_header(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """A table that breaks across a page boundary should repeat its header row so
     the column labels carry over. Fix: mark row 1 as a heading row."""
     for table in doc.tables:
@@ -201,7 +209,9 @@ def _numbered_list_spans(doc: Document) -> list[Span]:
     return sorted(spans)
 
 
-def _check_list_numbering_continuity(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_list_numbering_continuity(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """The "N independent 1. lists" footgun: a run of numbered paragraphs Word
     split into separate lists, each restarting at 1. Detected as numbered lists
     whose character ranges **abut** (no body content between). Fix: drop the list
@@ -282,8 +292,8 @@ def _registry() -> dict[str, Rule]:
     return {r.id: r for r in _RULES}
 
 
-def _select_rules(rules: Any) -> list[Rule]:
-    """Resolve the `rules=` selector into the concrete rule set to run.
+def _select_rules(rules: Any, profile: Profile) -> list[Rule]:
+    """Resolve the `rules=` selector (composed with `profile`) into the rule set to run.
 
     - `None` — the default set: every on-by-default consistency + structural rule
       (policy rules stay off until a profile enables them; opinionated rules with
@@ -292,15 +302,36 @@ def _select_rules(rules: Any) -> list[Rule]:
       **ignores** `default_on`, so an off-by-default rule runs when asked for by
       id or via its tag (`--rules typography` lights up the whole cluster).
     - `{"exclude": [...]}` — the default set minus the listed ids/tags.
+
+    The `profile` then composes with that base set: any rule the profile enables is
+    **unioned in** (this is how a policy rule — off in the default set by `kind` —
+    opts in), and any rule the profile disables is **removed** (turn a default rule
+    off). An explicit id/tag selection is left untouched by a profile-*enable* (the
+    caller already chose the set) but a profile-*disable* still applies.
     """
-    default = [r for r in _RULES if r.kind in ("consistency", "structural") and r.default_on]
     if rules is None:
-        return default
-    if isinstance(rules, dict):
+        selected = [r for r in _RULES if r.kind in ("consistency", "structural") and r.default_on]
+    elif isinstance(rules, dict):
         excluded = set(rules.get("exclude", []))
-        return [r for r in default if not (r.id in excluded or excluded & set(r.tags))]
-    wanted = set(rules)
-    return [r for r in _RULES if r.id in wanted or wanted & set(r.tags)]
+        default = [r for r in _RULES if r.kind in ("consistency", "structural") and r.default_on]
+        selected = [r for r in default if not (r.id in excluded or excluded & set(r.tags))]
+    else:
+        wanted = set(rules)
+        selected = [r for r in _RULES if r.id in wanted or wanted & set(r.tags)]
+
+    chosen = {r.id: r for r in selected}
+    # Profile opts policy (and any off-by-default) rules in by id, and disables rules
+    # it turns off. Enabling only augments the *default-based* paths (None / exclude);
+    # an explicit id/tag list already picked its set, so there we apply profile
+    # *disables* only.
+    default_based = rules is None or isinstance(rules, dict)
+    for r in _RULES:
+        state = profile.is_enabled(r.id)
+        if state is True and default_based:
+            chosen[r.id] = r
+        elif state is False:
+            chosen.pop(r.id, None)
+    return [r for r in _RULES if r.id in chosen]
 
 
 # ---------------------------------------------------------------------------
@@ -315,17 +346,26 @@ def _resolve_span(doc: Document, within: Any) -> Span | None:
     return _anchor_span(anchor)
 
 
-def run_lint(doc: Document, *, rules: Any = None, within: Any = None) -> list[Finding]:
+def run_lint(
+    doc: Document, *, rules: Any = None, within: Any = None, profile: Any = None
+) -> list[Finding]:
     """Run the selected rules and return findings, ranked by severity.
 
     Pure read. The layout rules repaginate (content-neutrally, via
-    `anchor.location()`), but nothing is mutated. See
+    `anchor.location()`), but nothing is mutated. `profile` (a path / dict / `Profile`
+    / `None`) opts policy rules in, supplies their targets, and can override a rule's
+    severity — resolved once here and threaded to every rule. See
     [`Document.lint`][wordlive.Document.lint].
     """
+    resolved = Profile.load(profile)
     span = _resolve_span(doc, within)
     findings: list[Finding] = []
-    for rule in _select_rules(rules):
-        findings.extend(rule.check(doc, span))
+    for rule in _select_rules(rules, resolved):
+        for finding in rule.check(doc, span, resolved):
+            sev = resolved.severity_for(finding.rule)
+            if sev is not None and sev != finding.severity:
+                finding = replace(finding, severity=sev)
+            findings.append(finding)
     findings.sort(key=lambda f: _SEVERITY_RANK.get(f.severity, 9))
     return findings
 
@@ -339,6 +379,7 @@ def regularize(
     *,
     rules: Any = None,
     within: Any = None,
+    profile: Any = None,
     dry_run: bool = False,
     own_undo: bool = True,
 ) -> dict[str, Any]:
@@ -354,7 +395,7 @@ def regularize(
     """
     from ._ops import apply_op, run_batch
 
-    findings = run_lint(doc, rules=rules, within=within)
+    findings = run_lint(doc, rules=rules, within=within, profile=profile)
     fixable = [f for f in findings if f.fixable and f.fix is not None]
     skipped = [f.to_dict() for f in findings if not (f.fixable and f.fix is not None)]
     report: dict[str, Any] = {
@@ -404,5 +445,6 @@ from . import (  # noqa: E402,F401
     _linting_consistency,
     _linting_fields,
     _linting_finalization,
+    _linting_policy,
     _linting_typography,
 )

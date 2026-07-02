@@ -38,6 +38,7 @@ from .exceptions import ComError
 
 if TYPE_CHECKING:
     from ._document import Document
+    from ._lint_profile import Profile
 
 # Field kinds (leading code token) that resolve to a cross-reference into a bookmark.
 _CROSS_REF_KINDS = frozenset({"REF", "PAGEREF", "NOTEREF"})
@@ -74,7 +75,9 @@ def _range_of(anchor_id: Any) -> tuple[int, int] | None:
 # ---------------------------------------------------------------------------
 
 
-def _check_broken_cross_reference(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_broken_cross_reference(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """A REF / PAGEREF field rendering Word's "source not found" error — its target
     bookmark was deleted or renamed. Report-only: repairing it needs a human to pick
     the intended target."""
@@ -111,7 +114,9 @@ def _check_broken_cross_reference(doc: Document, span: Span | None) -> Iterator[
 # ---------------------------------------------------------------------------
 
 
-def _check_caption_manual_numbering(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_caption_manual_numbering(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """A Caption-styled paragraph whose number is literal text with no overlapping SEQ
     field — it won't renumber when figures are added/reordered. Report-only: rebuilding
     the number as a SEQ field adds content (an opt-in fix, deferred)."""
@@ -155,7 +160,9 @@ def _check_caption_manual_numbering(doc: Document, span: Span | None) -> Iterato
 # ---------------------------------------------------------------------------
 
 
-def _check_xref_as_literal_text(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_xref_as_literal_text(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """A body paragraph that refers to a figure/table by literal number ("see Figure 3")
     with no REF/PAGEREF field covering it — the reference is typed text, so it won't
     retarget when figures are added or reordered. Heuristic and false-positive-prone (a
@@ -216,7 +223,9 @@ def _has_page_field(hf: Any) -> bool:
     return False
 
 
-def _check_page_numbers_present(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_page_numbers_present(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """No PAGE field in any header or footer — the document has no automatic page
     numbers. Policy + off by default (some documents deliberately omit them). Report-only
     (inserting a page number adds content). Document-global, so `within` doesn't scope it."""

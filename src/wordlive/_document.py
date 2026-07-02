@@ -1720,7 +1720,11 @@ class Document:
         return _proofing.read_proofing(self)
 
     def lint(
-        self, *, rules: Any = None, within: str | Anchor | None = None
+        self,
+        *,
+        rules: Any = None,
+        within: str | Anchor | None = None,
+        profile: Any = None,
     ) -> list[dict[str, Any]]:
         """Audit the document for publishing-quality defects — a pure read.
 
@@ -1730,8 +1734,8 @@ class Document:
         applied style — a `Heading 1` at 15pt), `structural` (an objective layout
         defect — a heading that may dangle at a page foot, a multi-page table with
         no repeating header, a numbered list Word split into independent "1."
-        runs), or `policy` (a house-style target — none ship yet). A `fixable`
-        finding carries an op-shaped `fix` describing exactly what
+        runs), or `policy` (a house-style target — off unless a `profile` enables
+        it). A `fixable` finding carries an op-shaped `fix` describing exactly what
         [`regularize`][wordlive.Document.regularize] would change.
 
         `rules` selects which rules run: `None` is the default set (all
@@ -1740,16 +1744,26 @@ class Document:
         the default set minus the listed ids/tags. `within=anchor` scopes the
         audit to an anchor's range (a heading's section, a `range:`, a table).
 
+        `profile` is a house-style config (a path to a `wordlive.lint.json` file,
+        an inline dict, or `None`) that opts **policy** rules in, supplies their
+        targets (`body-line-spacing`'s spacing, `table-numeric-right-align`'s
+        threshold), and can override a rule's severity or disable a default rule —
+        `spec-linter.md` §6.
+
         Read-only — selection, scroll, and `Saved` are untouched (the layout
         rules repaginate content-neutrally, like [`stats`][wordlive.Document.stats]).
         """
-        return [f.to_dict() for f in _linting.run_lint(self, rules=rules, within=within)]
+        return [
+            f.to_dict()
+            for f in _linting.run_lint(self, rules=rules, within=within, profile=profile)
+        ]
 
     def regularize(
         self,
         *,
         rules: Any = None,
         within: str | Anchor | None = None,
+        profile: Any = None,
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """Apply the fixable [`lint`][wordlive.Document.lint] findings in one
@@ -1760,15 +1774,18 @@ class Document:
         whole pass and the user's selection/scroll are preserved. The default
         fixes are **targeted and idempotent** — they bring a drifted direct
         override back to its style's value, so running `regularize` twice applies
-        nothing the second time. `rules` / `within` are as for `lint`.
-        `dry_run=True` plans the fixes (returning them in `findings`) without
-        writing.
+        nothing the second time. `rules` / `within` / `profile` are as for `lint`
+        (a `profile` also lets its policy fixes — justify, line-spacing,
+        numeric-column alignment — participate). `dry_run=True` plans the fixes
+        (returning them in `findings`) without writing.
 
         Content-changing fixes (deleting stray paragraphs, inserting captions)
         are out of scope here — formatting/structure fixes only. If Track Changes
         is on, the edits are tracked like any other for the user to review.
         """
-        return _linting.regularize(self, rules=rules, within=within, dry_run=dry_run)
+        return _linting.regularize(
+            self, rules=rules, within=within, profile=profile, dry_run=dry_run
+        )
 
     def checkpoint(
         self,

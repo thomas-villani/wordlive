@@ -156,6 +156,15 @@ class _FakeParagraphs:
             style_name = p.get("style", "Normal")
             mock.Range.Style.NameLocal = style_name
             mock.Range.ParagraphStyle.NameLocal = style_name
+            # Optional per-paragraph ParagraphFormat overrides so the policy linter
+            # rules (body-justified / body-line-spacing) can read a real effective
+            # value via format_info(). Ints are WdParagraphAlignment / WdLineSpacing.
+            if "alignment" in p:
+                mock.Range.ParagraphFormat.Alignment = p["alignment"]
+            if "line_spacing_rule" in p:
+                mock.Range.ParagraphFormat.LineSpacingRule = p["line_spacing_rule"]
+            if "line_spacing" in p:
+                mock.Range.ParagraphFormat.LineSpacing = p["line_spacing"]
             self._items.append(mock)
 
     def __iter__(self) -> Iterable[Any]:

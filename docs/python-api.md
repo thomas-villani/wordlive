@@ -851,14 +851,36 @@ paragraph mentioning a figure/table by literal number with no `REF` field —
 heuristic, so opt-in). All are report-only. The cross-reference/caption rules
 carry the `academia` tag, so `rules=["academia"]` selects the cluster.
 
-`Document.regularize(rules=None, within=None, dry_run=False)` is the **write**
+Policy rules (off unless a `profile` enables them — `spec-linter.md` §6):
+`body-justified` (body paragraphs not justified — fix justifies them),
+`body-line-spacing` (line spacing ≠ the profile's `target`, e.g. `"1.5"` —
+fix sets it), `table-numeric-right-align` (a table column that's mostly numbers,
+above `threshold`, but not right-aligned — fix right-aligns those cells). All
+three fix idempotently through `format_paragraph`. A **profile** is a path to a
+`wordlive.lint.json` file or an inline dict; it opts policy rules in, supplies
+their targets, and can override a rule's severity or disable a default rule:
+
+```python
+profile = {
+    "rules": {
+        "body-justified":            {"enabled": True, "severity": "warning"},
+        "body-line-spacing":         {"enabled": True, "target": "1.5"},
+        "table-numeric-right-align": {"enabled": True, "threshold": 0.8},
+        "double-space":              {"enabled": False},   # disable a default rule
+    }
+}
+doc.lint(profile=profile)            # or profile="wordlive.lint.json"
+doc.regularize(profile=profile)      # applies the policy fixes too
+```
+
+`Document.regularize(rules=None, within=None, profile=None, dry_run=False)` is the **write**
 side: it applies the fixable findings in one `doc.edit("Regularize formatting")`
 (one Ctrl-Z reverts them all; selection and scroll preserved) and returns
 `{applied, skipped, findings}` (plus `ops_run`, and `dry_run` when set). The
 default fixes are **targeted and idempotent** — each writes the style's own value
 back as a direct property, so a second `regularize` applies nothing (a tested
-invariant). `dry_run=True` plans without writing; `rules` / `within` select the
-same way as `lint`. Content-changing fixes (deletes, caption inserts) are out of
+invariant). `dry_run=True` plans without writing; `rules` / `within` / `profile`
+select the same way as `lint`. Content-changing fixes (deletes, caption inserts) are out of
 scope — this is a formatting/structure regularizer only — and it's
 Track-Changes-aware (the edits are tracked when Track Changes is on).
 

@@ -12,10 +12,11 @@ the heading/font/spacing consistency rules + `mixed-run-format` (report-only),
 and the idempotency test, wired across Python / CLI (`lint`, `regularize`, `read
 format`) / `regularize` exec op / MCP. Live-validated against Word 16 (multi-page
 table, split list, heading override → fix → idempotent re-run).
-**Deferred to a follow-up:** the **policy** rules (`body-justified`,
-`table-numeric-right-align`) and the **profile / house-style** loader (§6) — the
-rule registry already carries `kind`, so they slot in without rework; the
-aggressive `Font.Reset()` strip-to-style fix (§7c); the content-changing fixes
+**Deferred to a follow-up:** ~~the **policy** rules and the **profile** loader~~ —
+**shipped in Batch 4a** (the policy half of §6: `profile=`, `Profile`, `body-justified`
+/ `body-line-spacing` / `table-numeric-right-align`); the **`house_style`** half of §6
+(consistency-target pinning + `set_style` fixes) is still deferred; the aggressive
+`Font.Reset()` strip-to-style fix (§7c); the content-changing fixes
 (`stray-empty-paragraph` delete, `figure-caption-present` insert); and the
 `docx-plus` cascade-provenance hybrid (§7c).
 **Backlog (v2, brainstormed 2026-06-19):** a primitive-driven catalogue of ~40
@@ -75,6 +76,16 @@ Figure 3") with no `REF`/`PAGEREF` field covering it — added to `_linting_fiel
 report-only. Ships **off by default** behind the `crossref` / `academia` tags (a bare
 "Table 2" in prose is often legitimate — heuristic, false-positive-prone), deviating from
 §C's "on" column. Caption/heading paragraphs are skipped.
+**Batch 4a — profile loader + first policy rules ✅ shipped (Unreleased).** The §6
+profile/policy half of Batch 4: `doc.lint` / `doc.regularize` gain a `profile=` arg (path /
+dict / `None`) resolved by a new `Profile` (`_lint_profile.py`) that opts **policy** rules
+in, supplies targets/thresholds, overrides severity, and can disable a default rule. Three
+policy rules land in `_linting_policy.py` — `body-justified`, `body-line-spacing` (needs a
+`target`), `table-numeric-right-align` (a `threshold`, default 0.8) — all fixing idempotently
+via `format_paragraph`. `Rule.check` widened to `(doc, span, profile)` across every module
+(mechanical sweep). Threaded through Python / CLI (`--profile`) / exec op / MCP. **`house_style`
+(§6's consistency-target pinning + `set_style` fixes) is deferred**; §H/§I detection rules are
+**Batch 4b**. Live-probed against Word 16 (fires, fixes, idempotent second pass).
 
 > Audit a document for publishing-quality defects (`doc.lint()`), then autofix the
 > mechanical ones in one atomic-undo step (`doc.regularize()`). Pure composition
@@ -199,7 +210,7 @@ and how it's **fixed** (the wordlive verb / exec op). All fixes are idempotent
 | `body-font-consistent` | consistency | body paragraphs with a directly-set font face differing from the `Normal`/body style | clear override |
 | `mixed-run-format` | consistency | a paragraph whose `Font.Size`/`Name` reads `wdUndefined` (mixed runs) where uniformity is expected | report-only (which run is the outlier needs run-walk; fix is opt-in) |
 
-### Alignment & justification (policy)
+### Alignment & justification (policy) — ✅ shipped Batch 4a (with `body-line-spacing`)
 
 | id | kind | detect | fix |
 |---|---|---|---|
@@ -403,13 +414,22 @@ academia` / `--rules finalization` become the headline ergonomics; profiles
      text-scan rule (a figure/table mentioned by literal number with no `REF` field),
      off by default (tags `crossref` / `academia`), report-only.
 4. **Batch 4 — Layout / notices (§H), hyperlinks (§I) + the profile/house-style
-   loader** (the already-deferred v1 step-5). Splitting: **4a** the profile loader +
-   the first policy rules (`body-justified`, `body-line-spacing`,
-   `table-numeric-right-align`); **4b** the §H/§I detection rules.
+   loader** (the already-deferred v1 step-5). Split:
+   - **Batch 4a — profile loader + first policy rules ✅ shipped (Unreleased).** The §6
+     policy half: `profile=` on `lint`/`regularize`, the `Profile` loader, and
+     `body-justified` / `body-line-spacing` / `table-numeric-right-align` in
+     `_linting_policy.py`. `house_style` deferred.
+   - **Batch 4b — the §H/§I detection rules** (hyperlinks, notices, doc-properties,
+     watermark), some profile-driven. Next up.
 5. **Later — citations cluster (§D) + the accessibility sub-product** (with
    *prepare-for-sharing*, §9).
 
 ## 6. Profiles (policy rules + house style)
+
+**Status: the policy half shipped in Batch 4a** (`_lint_profile.py` — `Profile.load`
+accepts a path / dict / `None`; `body-justified` / `body-line-spacing` /
+`table-numeric-right-align` are its first consumers). The **`house_style`** half below
+(pinning consistency targets + `set_style` fixes) is **deferred** to a later pass.
 
 A **profile** is a small declarative config that (a) enables policy rules and (b)
 supplies their targets — and optionally pins consistency targets to an explicit
@@ -603,12 +623,13 @@ targeted strategy is the default.
    `table-repeat-header`, `list-numbering-continuity`. Highest signal, simplest.
 3. Consistency rules (heading/font/spacing) on top of the format probe.
 4. `regularize` (the `apply_op`-over-findings loop) + the idempotency smoke test.
-5. Policy rules + the profile loader (`body-justified`, `table-numeric-right-align`).
+5. Policy rules + the profile loader (`body-justified`, `body-line-spacing`,
+   `table-numeric-right-align`). ✅ shipped as **Batch 4a**.
 6. Wire CLI / exec op / MCP; docs (`docs/cli.md`, `docs/mcp.md`, `SKILL.md`,
    `cookbook.md` entry: "hand-off a clean document").
 
 Steps 1–4 + wiring shipped (foundation slice). The **v2 backlog (§5b)** continues
 the build, primitive-driven: Batch 1 typography (P2) ✅ · Batch 2 finalization
 (P3) ✅ · Batch 3 field-code backbone (P1) ✅ · Batch 3b heuristic xref-as-literal-text ✅ ·
-Batch 4a profile loader + first policy rules · Batch 4b layout/notices + hyperlinks ·
+Batch 4a profile loader + first policy rules ✅ · Batch 4b layout/notices + hyperlinks ·
 later citations + accessibility.

@@ -37,6 +37,7 @@ from .exceptions import ComError
 
 if TYPE_CHECKING:
     from ._document import Document
+    from ._lint_profile import Profile
 
 # Paragraph styles where literal whitespace is meaningful (code / preformatted),
 # so the whitespace-collapsing rules skip them.
@@ -96,7 +97,9 @@ _SPACE_BEFORE_PUNCT = r"[ \t]+([,.;:\)])"
 _NUM_RANGE = r"\b(\d{1,4})-(\d{1,4})\b"
 
 
-def _check_trailing_whitespace(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_trailing_whitespace(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     for row in _iter_paras(doc, span):
         text = row["text"]
         if text != text.rstrip(" \t"):
@@ -113,7 +116,9 @@ def _check_trailing_whitespace(doc: Document, span: Span | None) -> Iterator[Fin
             )
 
 
-def _check_leading_whitespace(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_leading_whitespace(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     for row in _iter_paras(doc, span):
         text = row["text"]
         if text[:1] in (" ", "\t"):
@@ -130,7 +135,7 @@ def _check_leading_whitespace(doc: Document, span: Span | None) -> Iterator[Find
             )
 
 
-def _check_double_space(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_double_space(doc: Document, span: Span | None, profile: Profile) -> Iterator[Finding]:
     for row in _iter_paras(doc, span):
         if _is_verbatim(row):
             continue
@@ -148,7 +153,9 @@ def _check_double_space(doc: Document, span: Span | None) -> Iterator[Finding]:
             )
 
 
-def _check_space_before_punctuation(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_space_before_punctuation(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     for row in _iter_paras(doc, span):
         if _is_verbatim(row):
             continue
@@ -171,7 +178,7 @@ def _check_space_before_punctuation(doc: Document, span: Span | None) -> Iterato
 # ---------------------------------------------------------------------------
 
 
-def _check_hyphen_as_range(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_hyphen_as_range(doc: Document, span: Span | None, profile: Profile) -> Iterator[Finding]:
     """`1990-1995` / `pp. 10-15` written with a hyphen rather than an en-dash."""
     for row in _iter_paras(doc, span):
         if _is_verbatim(row):
@@ -190,7 +197,7 @@ def _check_hyphen_as_range(doc: Document, span: Span | None) -> Iterator[Finding
             )
 
 
-def _check_em_dash_usage(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_em_dash_usage(doc: Document, span: Span | None, profile: Profile) -> Iterator[Finding]:
     """An em-dash is present. Report-only — the `--` swap is a loud, opinion-laden
     edit, so it's never applied automatically."""
     for row in _iter_paras(doc, span):
@@ -206,7 +213,7 @@ def _check_em_dash_usage(doc: Document, span: Span | None) -> Iterator[Finding]:
             )
 
 
-def _check_tabs_for_layout(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_tabs_for_layout(doc: Document, span: Span | None, profile: Profile) -> Iterator[Finding]:
     """Tabs used mid-paragraph for layout (a tab after content, or a run of them).
     Report-only — the right fix (a table / real indents) needs human judgment."""
     for row in _iter_paras(doc, span):
@@ -222,7 +229,9 @@ def _check_tabs_for_layout(doc: Document, span: Span | None) -> Iterator[Finding
             )
 
 
-def _check_manual_line_break(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_manual_line_break(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """A Shift+Enter manual line break inside a paragraph. Report-only — whether it
     should become a paragraph break depends on intent."""
     for row in _iter_paras(doc, span):
@@ -245,7 +254,9 @@ def _check_manual_line_break(doc: Document, span: Span | None) -> Iterator[Findi
 _SENTENCE_TAIL = ".!?:,;"
 
 
-def _check_manual_heading_formatting(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_manual_heading_formatting(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """A short, fully-bold (or enlarged) body paragraph that reads like a heading
     but was never given a heading style — so it's invisible to the outline / TOC.
     Report-only: the right heading *level* is a judgment call, so we suggest rather
@@ -283,7 +294,9 @@ def _check_manual_heading_formatting(doc: Document, span: Span | None) -> Iterat
             )
 
 
-def _check_table_style_consistent(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_table_style_consistent(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """Tables that don't share the document's dominant table style. Fix: restyle the
     minority tables onto the dominant style (idempotent — re-applying is a no-op)."""
     entries: list[tuple[int, int, str]] = []  # (index, range_start, style_name)

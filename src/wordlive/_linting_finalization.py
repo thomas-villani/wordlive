@@ -34,6 +34,7 @@ from .exceptions import ComError
 
 if TYPE_CHECKING:
     from ._document import Document
+    from ._lint_profile import Profile
 
 # Field kinds whose result is computed and can drift as the document changes, so
 # their presence is a "refresh before finalizing" signal. Keyed on the string
@@ -70,7 +71,9 @@ def _range_of(anchor_id: Any) -> tuple[int, int] | None:
 # ---------------------------------------------------------------------------
 
 
-def _check_comments_present(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_comments_present(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """Any review comments left in the document. Report-only — resolving or
     removing a comment is a content decision, not a mechanical fix."""
     entries: list[tuple[str, bool]] = []
@@ -105,7 +108,9 @@ def _check_comments_present(doc: Document, span: Span | None) -> Iterator[Findin
     )
 
 
-def _check_unaccepted_revisions(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_unaccepted_revisions(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """Tracked changes that were never accepted or rejected. Report-only —
     accepting/rejecting in bulk is loud, so it's left to the user."""
     try:
@@ -135,7 +140,9 @@ def _check_unaccepted_revisions(doc: Document, span: Span | None) -> Iterator[Fi
     )
 
 
-def _check_track_changes_on(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_track_changes_on(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """Track Changes is still enabled — a document-global flag, so `within` doesn't
     scope it. Report-only (turning it off is a one-liner the user should own)."""
     try:
@@ -155,7 +162,7 @@ def _check_track_changes_on(doc: Document, span: Span | None) -> Iterator[Findin
         )
 
 
-def _check_stale_fields(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_stale_fields(doc: Document, span: Span | None, profile: Profile) -> Iterator[Finding]:
     """Updatable fields (TOC / SEQ / REF / PAGE …) whose rendered result can drift
     as the document changes. Report-only nudge — Word exposes no staleness flag, so
     a presence-based `update_fields` fix couldn't be idempotent (see module note)."""
@@ -192,7 +199,9 @@ def _check_stale_fields(doc: Document, span: Span | None) -> Iterator[Finding]:
 # ---------------------------------------------------------------------------
 
 
-def _check_hidden_text_present(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_hidden_text_present(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """Hidden-text runs left in the document (they print/export invisibly). Report-
     only — whether to reveal or delete hidden text is a content decision."""
     for row in _iter_paras(doc, span):
@@ -209,7 +218,9 @@ def _check_hidden_text_present(doc: Document, span: Span | None) -> Iterator[Fin
             )
 
 
-def _check_leftover_highlight(doc: Document, span: Span | None) -> Iterator[Finding]:
+def _check_leftover_highlight(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
     """Highlighter colour left on body text. Fix: clear it (idempotent — clearing an
     already-unhighlighted paragraph is a no-op)."""
     for row in _iter_paras(doc, span):
