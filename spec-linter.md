@@ -84,8 +84,22 @@ policy rules land in `_linting_policy.py` — `body-justified`, `body-line-spaci
 `target`), `table-numeric-right-align` (a `threshold`, default 0.8) — all fixing idempotently
 via `format_paragraph`. `Rule.check` widened to `(doc, span, profile)` across every module
 (mechanical sweep). Threaded through Python / CLI (`--profile`) / exec op / MCP. **`house_style`
-(§6's consistency-target pinning + `set_style` fixes) is deferred**; §H/§I detection rules are
-**Batch 4b**. Live-probed against Word 16 (fires, fixes, idempotent second pass).
+(§6's consistency-target pinning + `set_style` fixes) is deferred**; §H/§I detection rules were
+scoped as Batch 4b but **split** (see next).
+**Batch 4b — hyperlink rules (§I) ✅ shipped (Unreleased).** The §5b·I cluster: 3 rules in
+`_linting_hyperlinks.py`, a thin walk over the shipped `doc.hyperlinks` read wrapper (so **no new
+read surface** — pure rule engine, the Batch-3 shape). `hyperlink-broken-internal` (an in-document
+`HYPERLINK \l` jump whose target bookmark is gone) ships **on** by default (tag `hyperlinks`);
+`hyperlink-bare-for-print` (external link whose text hides its URL) and `hyperlink-display-is-raw-url`
+(a bare-URL label) ship **off** (tags `hyperlinks` / `print`). All three are report-only — repairs
+either need a human to pick the target or add content (`(url)` append / a label), deferred with the
+`adds_content` gate; the fix verb (`Hyperlink.update`) already exists, so no new COM write surface.
+Broken-internal reuses `name in doc.bookmarks` (Word's `Bookmarks.Exists`), which sees the hidden
+`_Toc…`/`_Ref…` bookmarks a live cross-reference targets, so a healthy jump isn't flagged. The
+**§H layout/notices** detection rules (the other half of the original Batch 4b) become **Batch 4c**.
+Live-probed 2026-07-02 (Word 16): internal (`Address=''`, `SubAddress=name`) vs external
+(`Address=URL`, `SubAddress=''`) vs raw-URL (`text==Address`) confirmed; `Exists` covers the
+(in)valid targets; the cluster fires, and the off-by-default two stay out of the default set.
 
 > Audit a document for publishing-quality defects (`doc.lint()`), then autofix the
 > mechanical ones in one atomic-undo step (`doc.regularize()`). Pure composition
@@ -376,13 +390,17 @@ These cluster as a coherent **`finalization`** tag — useful as a standalone
 | `document-properties-filled` | policy | Title / Author core props empty | set | off (tag) |
 | `draft-watermark-present` | structural | a "DRAFT" watermark / shape still in final | report | off (tag) |
 
-### I. Hyperlinks  *(print / sharing)*
+### I. Hyperlinks  *(print / sharing)* — ✅ shipped Batch 4b (Unreleased)
+
+Shipped as `_linting_hyperlinks.py`, a thin walk over `doc.hyperlinks` (no new read
+surface). All three report-only. `hyperlink-broken-internal` is **on**; the two
+print/sharing rules are **off**, behind the `hyperlinks` / `print` tags.
 
 | id | kind | detect | fix | default |
 |---|---|---|---|---|
-| `hyperlink-bare-for-print` | policy | hyperlink display text ≠ target URL (URL invisible on paper) | report / append `(url)` (opt-in) | off (profile: print) |
+| `hyperlink-bare-for-print` | policy | hyperlink display text ≠ target URL (URL invisible on paper) | report / append `(url)` (opt-in) | off (tags `hyperlinks`/`print`) |
 | `hyperlink-broken-internal` | structural | internal `HYPERLINK \l anchor` with no matching bookmark | report | on |
-| `hyperlink-display-is-raw-url` | consistency | long raw URL shown inline where a label is wanted | report | off (tag) |
+| `hyperlink-display-is-raw-url` | consistency | raw URL shown as the link's whole label where a label is wanted | report | off (tags `hyperlinks`/`print`) |
 
 ### Tag taxonomy
 
@@ -419,8 +437,15 @@ academia` / `--rules finalization` become the headline ergonomics; profiles
      policy half: `profile=` on `lint`/`regularize`, the `Profile` loader, and
      `body-justified` / `body-line-spacing` / `table-numeric-right-align` in
      `_linting_policy.py`. `house_style` deferred.
-   - **Batch 4b — the §H/§I detection rules** (hyperlinks, notices, doc-properties,
-     watermark), some profile-driven. Next up.
+   - **Batch 4b — the §I hyperlink rules ✅ shipped (Unreleased).** 3 rules in
+     `_linting_hyperlinks.py` over the shipped `doc.hyperlinks` wrapper (no new read
+     surface): `hyperlink-broken-internal` (on), `hyperlink-bare-for-print` /
+     `hyperlink-display-is-raw-url` (off, tags `hyperlinks` / `print`). All report-only.
+     Split out from the original §H/§I lump.
+   - **Batch 4c — the §H layout/notices detection rules** (notices, doc-properties,
+     watermark, header/footer consistency), some profile-driven. Next up — needs three
+     new probes (`BuiltInDocumentProperties`, watermark/shape detection, cross-section H/F
+     text scan), which is why it split from the hyperlink cluster.
 5. **Later — citations cluster (§D) + the accessibility sub-product** (with
    *prepare-for-sharing*, §9).
 
@@ -631,5 +656,5 @@ targeted strategy is the default.
 Steps 1–4 + wiring shipped (foundation slice). The **v2 backlog (§5b)** continues
 the build, primitive-driven: Batch 1 typography (P2) ✅ · Batch 2 finalization
 (P3) ✅ · Batch 3 field-code backbone (P1) ✅ · Batch 3b heuristic xref-as-literal-text ✅ ·
-Batch 4a profile loader + first policy rules ✅ · Batch 4b layout/notices + hyperlinks ·
-later citations + accessibility.
+Batch 4a profile loader + first policy rules ✅ · Batch 4b §I hyperlink rules ✅ ·
+Batch 4c §H layout/notices · later citations + accessibility.

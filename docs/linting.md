@@ -233,7 +233,7 @@ applies all 26 in one undo record, and a second pass is still empty. See
 
 ## The rule catalog
 
-Thirty rules ship today. In the tables below, **on** (✅) marks the rules in the
+Thirty-three rules ship today. In the tables below, **on** (✅) marks the rules in the
 default set, and **fix** marks whether `regularize` can repair it automatically:
 ✎ fixable, · report-only (yours to resolve by hand). The **tags** are what you
 pass to `rules=[…]` / `--rule` to select a whole cluster at once.
@@ -254,6 +254,7 @@ someone hand-applied that the style would otherwise have supplied.
 | `table-style-consistent` | A table that isn't on the document's dominant table style. | ✅ | ✎ | typography, tables |
 | `hyphen-as-range` | A numeric range written with a hyphen (`1990-1995`, `pp. 10-15`) rather than an en-dash. | — | ✎ | typography, academia |
 | `tabs-for-layout` | Tabs used mid-paragraph to lay out text — the job of a table or real indents. | — | · | typography |
+| `hyperlink-display-is-raw-url` | A hyperlink whose whole visible text is a bare URL, where a readable label was wanted. | — | · | hyperlinks, print |
 | `leftover-highlight` | Highlighter colour left on body text. | — | ✎ | finalization |
 
 ### Structural — an objective defect
@@ -273,6 +274,7 @@ in layout, numbering, or hand-off.
 | `caption-manual-numbering` | A `Caption` paragraph numbered with literal text instead of a `SEQ` field, so it won't renumber. | ✅ | · | captions, academia |
 | `manual-line-break` | A Shift+Enter line break inside a paragraph, where a real paragraph break likely belongs. | — | · | typography |
 | `xref-as-literal-text` | A body paragraph naming a figure/table by literal number ("see Figure 3") with no `REF` field to keep it in sync. | — | · | crossref, academia |
+| `hyperlink-broken-internal` | An internal jump (`HYPERLINK \l`) pointing at a bookmark that no longer exists — a dead link. | ✅ | · | hyperlinks |
 | `comments-present` | Review comments still left in the document. | — | · | finalization |
 | `unaccepted-revisions` | Tracked changes that were never accepted or rejected. | — | · | finalization |
 | `track-changes-on` | Track Changes is still switched on (a document-global flag). | — | · | finalization |
@@ -292,6 +294,7 @@ that only become "wrong" once you've declared the target.
 | `table-numeric-right-align` | A table column that's mostly numbers but not right-aligned. | ✎ | tables, policy | `threshold` (default `0.8`) |
 | `em-dash-usage` | An em-dash is present — flags only; the `--` swap is too opinion-laden to auto-apply. | · | typography | — |
 | `page-numbers-present` | No `PAGE` field in any header or footer. | · | layout | — |
+| `hyperlink-bare-for-print` | An external link whose visible text doesn't contain its URL, so the destination is invisible on paper. | · | hyperlinks, print | — |
 
 ## Selecting which rules run
 

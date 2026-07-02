@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Linter Batch 4b — hyperlink rules (3 new rules).** (Priority 1, item 1 —
+  `spec-linter.md` §5b·I, the §I "are the links sound and print-ready?" cluster.)
+  `doc.lint` gains a hyperlink cluster built on the existing `doc.hyperlinks` read
+  wrapper (no new read surface): `hyperlink-broken-internal` (an in-document jump —
+  `HYPERLINK \l` with an empty address — whose target bookmark no longer exists, a
+  dead link) ships **on** by default like the v1 structural set; `hyperlink-bare-for-print`
+  (an external link whose visible text doesn't contain its URL, so the destination is
+  invisible on paper) and `hyperlink-display-is-raw-url` (a link whose whole label is a
+  bare URL where a readable one was wanted) ship **off**, behind the `hyperlinks` / `print`
+  tags (`lint --rule hyperlinks`, or `--rule print` for the two print/sharing rules). All
+  three are report-only — the repairs either need a human to pick the intended target or
+  add content (append `(url)`, invent a label), so they're deferred (the fixes' verb,
+  `Hyperlink.update`, already exists). Broken-internal reuses `name in doc.bookmarks`
+  (Word's `Bookmarks.Exists`), which also sees the hidden `_Toc…`/`_Ref…` bookmarks a live
+  cross-reference targets, so a healthy jump isn't flagged. No new COM write surface; rules
+  auto-surface across Python / CLI / MCP. Live-probed against Word 16 (internal vs external
+  `Address`/`SubAddress`/`TextToDisplay`, and `Exists` over the target bookmark). The §H
+  layout/notices detection rules become **Batch 4c**.
 - **Linter Batch 4a — the house-style profile loader + 3 policy rules.** (Priority 1,
   item 1 — `spec-linter.md` §6, the profile/policy half of Batch 4.) `doc.lint` /
   `doc.regularize` gain a `profile=` argument (a path to a `wordlive.lint.json` file, an
