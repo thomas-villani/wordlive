@@ -10,6 +10,10 @@ unlocked by walking Word's field codes (`Range.Fields`). Three rules ship here:
   **literal text** rather than a `SEQ` field, so it won't renumber. **On (report).**
 - `page-numbers-present` — no `PAGE` field in any section header/footer story. A policy
   rule, **off by default** behind the `layout` tag.
+- `xref-as-literal-text` — a body paragraph that mentions a figure/table by literal number
+  ("see Figure 3") with no `REF`/`PAGEREF` field covering it, so it won't retarget if things
+  reorder. Heuristic (a bare "Table 2" in prose is often legitimate), so **off by default**
+  behind the `crossref` / `academia` tags — the Batch 3b follow-up promised when Batch 3 shipped.
 
 This batch is **pure detection** — every rule is `fixable=False`. The fixes the §C/§H
 catalogue envisions all either add content (rebuild a caption around a `SEQ` field, insert
@@ -147,6 +151,54 @@ def _check_caption_manual_numbering(doc: Document, span: Span | None) -> Iterato
 
 
 # ---------------------------------------------------------------------------
+# unlinked cross-references (body text scan cross-checked against REF fields)
+# ---------------------------------------------------------------------------
+
+
+def _check_xref_as_literal_text(doc: Document, span: Span | None) -> Iterator[Finding]:
+    """A body paragraph that refers to a figure/table by literal number ("see Figure 3")
+    with no REF/PAGEREF field covering it — the reference is typed text, so it won't
+    retarget when figures are added or reordered. Heuristic and false-positive-prone (a
+    plain "Table 2" in prose can be legitimate), so off by default. Report-only: an
+    auto-fix would have to guess which caption the mention points at."""
+    try:
+        paras = doc.paragraphs.list()
+        fields = doc.fields.list()
+    except ComError:
+        return
+    ref_spans = [
+        rng
+        for f in fields
+        if f.get("kind") in _CROSS_REF_KINDS and (rng := _range_of(f.get("anchor_id"))) is not None
+    ]
+    for row in paras:
+        # A caption legitimately reads "Figure 3" (that's `caption-manual-numbering`'s
+        # job); a heading numbered "Table 2" isn't a cross-reference either.
+        if row.get("style") == "Caption" or row.get("is_heading"):
+            continue
+        start, end = int(row["start"]), int(row["end"])
+        if not _overlaps(span, start, end):
+            continue
+        if not _CAPTION_NUMBER.search(str(row.get("text") or "")):
+            continue
+        if any(_overlaps((start, end), lo, hi) for lo, hi in ref_spans):
+            continue  # a real cross-reference field already covers this paragraph
+        yield Finding(
+            rule="xref-as-literal-text",
+            kind="structural",
+            severity="info",
+            anchor_id=row["anchor_id"],
+            message=(
+                "Paragraph refers to a figure/table by literal number, not a cross-reference "
+                "(REF) field; it won't update if the target is renumbered or moved."
+            ),
+            fixable=False,
+            observed="literal figure/table reference",
+            expected="a REF cross-reference field",
+        )
+
+
+# ---------------------------------------------------------------------------
 # page numbers (header/footer field walk)
 # ---------------------------------------------------------------------------
 
@@ -210,6 +262,14 @@ for _rule in (
         severity="info",
         tags=("layout",),
         check=_check_page_numbers_present,
+        default_on=False,
+    ),
+    Rule(
+        id="xref-as-literal-text",
+        kind="structural",
+        severity="info",
+        tags=("crossref", "academia"),
+        check=_check_xref_as_literal_text,
         default_on=False,
     ),
 ):

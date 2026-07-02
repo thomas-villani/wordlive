@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Linter Batch 3b — `xref-as-literal-text` (1 new rule).** (Priority 1, item 1 —
+  `spec-linter.md` §5b·C.) The heuristic cross-reference rule deferred from Batch 3:
+  a body paragraph that mentions a figure/table by literal number ("As shown in
+  Figure 3, …") with no `REF`/`PAGEREF` field covering it, so it won't retarget when
+  figures are renumbered or moved. Report-only (an auto-fix would have to guess the
+  intended target). Because a bare "Table 2" in prose is often legitimate, it ships
+  **off by default**, behind the `crossref` / `academia` tags (`lint --rule academia`) —
+  deviating from §C's "on" column, matching how Batch 1b deferred its heuristic rules.
+  Caption paragraphs (that's `caption-manual-numbering`'s job) and headings are
+  skipped. No new COM write surface. Live-probed against Word 16.
 - **Linter Batch 3 — field-code backbone (3 new rules).** (Priority 1, item 1 —
   `spec-linter.md` §5b·C, the P1 cross-reference/caption cluster.) `doc.lint` gains
   a field-integrity cluster built on a `Range.Fields` walk: `broken-cross-reference`

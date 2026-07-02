@@ -656,6 +656,64 @@ def test_fields_academia_tag_selects_cluster(monkeypatch):
     assert "page-numbers-present" not in seen  # layout, not academia
 
 
+def test_lint_xref_as_literal_text(monkeypatch):
+    app = _make_app(
+        paragraphs=[{"text": "As shown in Figure 3, the trend holds.", "start": 0, "end": 38}]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["xref-as-literal-text"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["anchor_id"] == "para:1" and f["kind"] == "structural"
+    assert f["severity"] == "info" and f["fixable"] is False and f["fix"] is None
+
+
+def test_lint_xref_with_ref_field_is_clean(monkeypatch):
+    # A REF field covering the paragraph means the mention is a real cross-reference.
+    app = _make_app(
+        paragraphs=[{"text": "As shown in Figure 3, the trend holds.", "start": 0, "end": 38}],
+        fields=[{"code": "REF _Ref1 \\h", "result": "Figure 3", "start": 12, "end": 20}],
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["xref-as-literal-text"]) == []
+
+
+def test_lint_xref_in_caption_is_clean(monkeypatch):
+    # A Caption paragraph reading "Figure 3" is caption-manual-numbering's concern, not
+    # an unlinked cross-reference.
+    app = _make_app(
+        paragraphs=[{"text": "Figure 3: Results", "style": "Caption", "start": 0, "end": 18}]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["xref-as-literal-text"]) == []
+
+
+def test_lint_xref_off_by_default(monkeypatch):
+    app = _make_app(
+        paragraphs=[{"text": "As shown in Figure 3, the trend holds.", "start": 0, "end": 38}]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "xref-as-literal-text" not in _rules_seen(doc.lint())  # heuristic, off
+        assert _rules_seen(doc.lint(rules=["crossref"])) >= {"xref-as-literal-text"}
+        assert _rules_seen(doc.lint(rules=["academia"])) >= {"xref-as-literal-text"}
+
+
+def test_lint_xref_within_scoping(monkeypatch):
+    app = _make_app(
+        paragraphs=[{"text": "As shown in Figure 3, the trend holds.", "start": 100, "end": 138}]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert len(doc.lint(rules=["xref-as-literal-text"])) == 1
+        assert doc.lint(rules=["xref-as-literal-text"], within="range:0-5") == []
+
+
 # --- MCP ---------------------------------------------------------------------
 
 
