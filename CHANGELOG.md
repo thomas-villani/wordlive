@@ -108,6 +108,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from Getting started and Examples.
 
 ### Changed
+- **New top-level docs page: [Linting & regularizing](docs/linting.md).** The linter
+  gets its own guide — motivation (formatting normalization is slow, error-prone
+  handwork), the two-verb mental model (`lint` reads → findings → `regularize` writes),
+  the anatomy of a finding, a guided walkthrough on a deliberately-messy sample
+  (`examples/sample/messy-brief.docx` + `build_messy_brief.py` + a `wordlive.lint.json`
+  house-style profile), the full 30-rule catalog (one canonical table: kind · default ·
+  fixable · tags), rule selection, and house-style profiles. Linked from the home page,
+  the nav (after Tutorial), and the Python/CLI reference sections. Corrected the
+  `regularize` JSON example in `docs/cli.md` (`applied`/`skipped` are lists of findings,
+  not counts — the counts are the `--text` summary). Docs/sample only; no code change.
 - **Docs reorganised into browsable sections.** The CLI reference
   (`docs/cli.md`) was a flat list of 130 `##` command headings; it's now grouped
   into 23 thematic `##` sections (Inspecting · Reading · Editing · Formatting ·

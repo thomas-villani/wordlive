@@ -76,6 +76,7 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - Tutorial: tutorial.md
+  - Linting & regularizing: linting.md
   - Concepts: concepts.md
   - Python API: python-api.md
   - CLI: cli.md

@@ -40,15 +40,20 @@ These drive the `wordlive` CLI — JSON in, JSON out, deterministic exit codes.
 .\powershell\Invoke-WordliveWithRetry.ps1 write bookmark Address --text "123 Main St"
 ```
 
-## Sample document (`sample/`)
+## Sample documents (`sample/`)
 
 `sample/quarterly-report.docx` is the short status report the
 [Tutorial](https://thomas-villani.github.io/wordlive/tutorial/) drives end to
-end. Open it in Word and follow along, or regenerate it from the committed
-builder (so the binary stays reviewable):
+end. `sample/messy-brief.docx` is its deliberately-sloppy sibling — a document
+full of formatting blemishes that the
+[Linting & regularizing guide](https://thomas-villani.github.io/wordlive/linting/)
+audits and cleans up, paired with a `sample/wordlive.lint.json` house-style
+profile. Open either in Word and follow along, or regenerate them from the
+committed builders (so the binaries stay reviewable):
 
 ```bash
 uv run --with python-docx python sample/build_quarterly_report.py
+uv run --with python-docx python sample/build_messy_brief.py
 ```
 
 For the patterns these scripts are built from, see the

@@ -44,6 +44,14 @@ Built for both human scripting and LLM agents. Windows-only.
 
     [:octicons-arrow-right-24: Python API](python-api.md)
 
+-   :material-broom:{ .lg .middle } **Clean up formatting**
+
+    ---
+
+    Audit a document and normalize its formatting in one atomic-undo pass.
+
+    [:octicons-arrow-right-24: Linting & regularizing](linting.md)
+
 </div>
 
 ---

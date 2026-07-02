@@ -1,0 +1,8 @@
+{
+  "extends": "default",
+  "rules": {
+    "body-justified": { "enabled": true },
+    "body-line-spacing": { "enabled": true, "target": "1.5" },
+    "table-numeric-right-align": { "enabled": true, "threshold": 0.8 }
+  }
+}
