@@ -1,8 +1,9 @@
 # Linter + formatting regularizer — design sketch
 
-Status: **Batch 5 shipped (Unreleased, 2026-07-06)** — design was a **sketch**
-(2026-06-17). Roadmap home: `feature-plan.md` Part II, Priority 1, item 1. This is
-the detailed design; the roadmap keeps the one-paragraph summary.
+Status: **Batch 5 + the `adds_content` gate shipped (Unreleased, 2026-07-06)** —
+design was a **sketch** (2026-06-17). Roadmap home: `feature-plan.md` Part II,
+Priority 1, item 1. This is the detailed design; the roadmap keeps the
+one-paragraph summary.
 
 ## Progress
 
@@ -19,23 +20,27 @@ the detailed design; the roadmap keeps the one-paragraph summary.
 | Batch 4b — hyperlinks (§I) | 3 rules over `doc.hyperlinks` (`_linting_hyperlinks.py`); no new read surface |
 | Batch 4c — layout / document-level (§H) | 5 rules (`_linting_layout.py`) + a new `doc.watermark()` read (`WatermarkInfo`) |
 | Batch 5 — heading & document structure (§B) | 6 rules over `doc.outline()` (`_linting_headings.py`); `heading-trailing-period` fixable (in-place strip), the new `structure` tag; no new read surface |
+| `adds_content` gate (§8) | `Finding.adds_content` field + `regularize(allow_content=…)` surface gating; content-changing fixes withheld into a new `deferred` report bucket by default; wired Python / CLI (`--allow-content`) / exec op / MCP. No content fixes wired *yet* — this is the infrastructure they plug into |
 
 Two standing decisions: `stale-fields` stays a **report-only nudge** (Word exposes
 no staleness flag, so a presence-based refresh can't be idempotent), and **no
-content-adding or repair fix has shipped** — every such fix waits on the
-`adds_content` gate (remaining item 1); `heading-trailing-period` (Batch 5) is the
+content-adding or repair fix has shipped yet** — the `adds_content` gate (the
+infrastructure) now exists, but the individual content fixes that plug into it
+(remaining item 1) are still to be wired. `heading-trailing-period` (Batch 5) is the
 only fix beyond the foundation/typography set, because stripping a period is a pure
 in-place edit that needs no such gate. So the report-only rules across Batches 2–5
 are deferred, not forgotten.
 
 **Remaining** (priority order; the full rule catalogue is §5b):
 
-1. **Close the loop — make the report-only rules fixable.** Add the
-   `adds_content: bool` Finding field + surface gating (§8), then wire the deferred
-   opt-in fixes: strip watermark, fill property, insert notice, append `(url)` /
-   label a hyperlink, repair a broken ref, rebuild a `SEQ` caption, insert a page
-   number, delete `stray-empty-paragraph`, `figure-caption-present`. Reuses existing
-   write verbs; each must stay idempotent.
+1. **Close the loop — make the report-only rules fixable.** The
+   `adds_content: bool` Finding field + surface gating (§8) has **shipped** (the
+   `deferred` bucket + `allow_content` across all four surfaces). What remains is
+   wiring the deferred opt-in fixes themselves: strip watermark, fill property,
+   insert notice, append `(url)` / label a hyperlink, repair a broken ref, rebuild
+   a `SEQ` caption, insert a page number, delete `stray-empty-paragraph`,
+   `figure-caption-present`. Reuses existing write verbs; each must stay idempotent
+   and flag `adds_content=True` so the gate withholds it by default.
 2. **`house_style` half of §6** — pin consistency-rule targets to named style values
    and fix by updating the style (`set_style`) — the brand/template path.
 3. **Batch 1b typography heuristics** — `straight-quotes`, `nbsp-missing`,
@@ -563,10 +568,17 @@ targeted strategy is the default.
   restoring `Saved` like `stats()` does); never moves selection/scroll.
 - `regularize` runs inside `doc.edit()` → snapshots/restores selection + scroll,
   one atomic undo for the whole pass.
-- Deletions (`stray-empty-paragraph`) and content-adding fixes
-  (`figure-caption-present`) are **report-only by default** — they change content,
-  not just formatting, so they're opt-in per profile. Formatting fixes are safe to
-  apply by default.
+- **The `adds_content` gate (shipped).** A fixable finding whose fix inserts or
+  destroys content — deletions (`stray-empty-paragraph`), content inserts
+  (`figure-caption-present`), a watermark strip — sets `Finding.adds_content =
+  True`. `regularize` **withholds** those by default (a formatting pass shouldn't
+  silently change what the document says) and reports them in a `deferred` bucket
+  (`{applied, skipped, deferred, findings}`). The caller opts in with
+  `allow_content=True` (Python), `--allow-content` (CLI), or `allow_content: true`
+  (the exec op / MCP `word_write`), which applies them in the same atomic-undo
+  pass. Pure in-place formatting/text fixes leave `adds_content = False` and apply
+  by default. (The individual content fixes are wired rule-by-rule — remaining
+  item 1; the gate itself is the infrastructure they plug into.)
 - Track-changes aware: if the document has Track Changes on, `regularize`'s edits
   are tracked like any other (the user reviews them) — call it out in docs.
 
@@ -598,6 +610,7 @@ targeted strategy is the default.
    `cookbook.md` entry: "hand-off a clean document").
 
 Steps 1–4 + wiring shipped as the foundation slice; the **v2 backlog (§5b)** then
-continued primitive-driven through Batch 5 (§B heading structure) — see the
-**Progress** table up top for the full shipped/remaining status. The `adds_content`
-gate (unlocking the deferred content/repair fixes) is next.
+continued primitive-driven through Batch 5 (§B heading structure), followed by the
+cross-cutting `adds_content` gate (§8) — see the **Progress** table up top for the
+full shipped/remaining status. With the gate now in place, **wiring the individual
+content/repair fixes** (remaining item 1) is next.

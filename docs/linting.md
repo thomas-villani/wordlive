@@ -82,11 +82,18 @@ Every finding is a plain dict (exported as the frozen
 | `anchor_id` | where it is, as an [anchor id](concepts.md#anchor-ids) you can pass to any op |
 | `fixable` | whether `regularize` can fix it automatically |
 | `fix` | present **iff** `fixable` — an op-shaped dict (or list of them), literally the `exec` op `regularize` runs |
+| `adds_content` | `true` when the `fix` inserts/deletes content (not just re-formats) — `regularize` withholds these unless `allow_content` |
 | `observed` / `expected` | the drifted value and the target it's measured against |
 
 A **report-only** finding (`fixable: false`) has no `fix` — it's flagging
 something only you can resolve (an unresolved comment, a manual "heading" that
 was never styled). `regularize` lists those under `skipped`.
+
+A fixable finding whose fix **adds or destroys content** (inserting a caption or
+notice, deleting a stray paragraph, stripping a watermark) carries
+`adds_content: true`. `regularize` **withholds** those by default — a formatting
+pass shouldn't silently change what the document *says* — and lists them under
+`deferred`. Pass `allow_content=True` (CLI `--allow-content`) to apply them too.
 
 ## A guided walkthrough
 
@@ -190,11 +197,15 @@ doc.regularize()["applied"]   # []  — nothing left to fix
 That idempotency is a tested invariant, and it's what makes `regularize` safe to
 run in a loop or a pre-commit-style check.
 
-!!! warning "What `regularize` will not do"
-    It's a **formatting/structure** regularizer. Content-changing fixes — deleting
-    a comment, inserting a real caption field, accepting revisions — are out of
-    scope and always come back report-only. And it's Track-Changes-aware: with
-    Track Changes on, the fixes are recorded as tracked revisions.
+!!! warning "Content-changing fixes are opt-in"
+    By default `regularize` is a **formatting/structure** pass: fixes that change
+    what the document *says* — deleting a stray paragraph, inserting a caption or
+    notice, stripping a watermark — are flagged `adds_content` and held back in
+    `deferred` rather than applied. Pass `allow_content=True` (CLI
+    `--allow-content`) to apply them in the same atomic-undo pass. Some things stay
+    report-only regardless (an unresolved comment, accepting revisions — those are
+    yours to judge). And it's Track-Changes-aware: with Track Changes on, the fixes
+    are recorded as tracked revisions.
 
 ### Step 4 — Apply a house style
 

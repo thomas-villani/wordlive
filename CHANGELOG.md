@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Linter `adds_content` gate — content-changing fixes are now opt-in.** (Priority 1, item 1 —
+  `spec-linter.md` §8.) `Finding` gains an `adds_content: bool` field: a fixable finding whose fix
+  **inserts or destroys content** (rather than just re-formatting existing content) sets it `True`.
+  `regularize` now **withholds** those fixes by default — a formatting pass no longer silently
+  rewrites what a document *says* — and reports them in a new `deferred` bucket
+  (`{applied, skipped, deferred, findings}`). Pass `allow_content=True` (Python), `--allow-content`
+  (CLI `regularize`), or `allow_content: true` (the `regularize` exec op / MCP `word_write`) to apply
+  them in the same atomic-undo pass. Pure in-place formatting/text fixes leave `adds_content` `False`
+  and still apply by default; the existing idempotency invariant is unchanged. This is the
+  cross-cutting infrastructure that unlocks the deferred content/repair fixes (strip watermark, fill
+  a property, insert a notice, delete a stray paragraph, rebuild a caption — wired rule-by-rule next).
 - **Linter Batch 5 — heading & document-structure rules (6 new rules).** (Priority 1, item 1 —
   `spec-linter.md` §5b·B, the P2 + outline-walk cluster.) `doc.lint` gains the §B cluster over
   `doc.outline()` (no new read surface): `heading-level-skip` (the outline jumps a level — an H1

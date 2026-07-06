@@ -51,6 +51,12 @@ class Finding:
     message: str
     fixable: bool = False
     fix: FixOps | None = None
+    # A fixable fix that **adds or destroys content** (inserts a caption/notice,
+    # deletes a stray paragraph, strips a watermark) rather than just re-formatting
+    # existing content. Such fixes are withheld by `regularize` unless the caller
+    # opts in with `allow_content=True` — see `spec-linter.md` §8. Pure in-place
+    # formatting/text fixes leave this `False` and apply by default.
+    adds_content: bool = False
     observed: str | None = None
     expected: str | None = None
 
@@ -381,9 +387,11 @@ def regularize(
     within: Any = None,
     profile: Any = None,
     dry_run: bool = False,
+    allow_content: bool = False,
     own_undo: bool = True,
 ) -> dict[str, Any]:
-    """Apply the fixable findings; return the `{applied, skipped, findings}` report.
+    """Apply the fixable findings; return the
+    `{applied, skipped, deferred, findings}` report.
 
     Runs `run_lint`, then applies every fixable finding's `fix` op(s). With
     `own_undo=True` (the `Document.regularize` path) the fixes run through
@@ -391,24 +399,34 @@ def regularize(
     `own_undo=False` (the `regularize` *exec op*, already inside a batch's
     `doc.edit`) they apply via `apply_op` directly, so the surrounding batch stays
     a single undo record rather than nesting one. `dry_run=True` plans without
-    writing. See [`Document.regularize`][wordlive.Document.regularize].
+    writing.
+
+    Fixes flagged `adds_content` (they insert or destroy content, not just
+    re-format) are **withheld** unless `allow_content=True`; withheld fixes land in
+    the `deferred` bucket so the caller sees what an opt-in would apply. See
+    `spec-linter.md` §8 and [`Document.regularize`][wordlive.Document.regularize].
     """
     from ._ops import apply_op, run_batch
 
     findings = run_lint(doc, rules=rules, within=within, profile=profile)
     fixable = [f for f in findings if f.fixable and f.fix is not None]
+    # Split the fixable set on the content gate: `deferred` fixes only apply when
+    # the caller opts in with `allow_content`. `skipped` stays "not fixable at all".
+    to_apply = [f for f in fixable if allow_content or not f.adds_content]
+    deferred = [f for f in fixable if not allow_content and f.adds_content]
     skipped = [f.to_dict() for f in findings if not (f.fixable and f.fix is not None)]
     report: dict[str, Any] = {
         "applied": [],
         "skipped": skipped,
+        "deferred": [f.to_dict() for f in deferred],
         "findings": [f.to_dict() for f in findings],
     }
-    if dry_run or not fixable:
+    if dry_run or not to_apply:
         report["dry_run"] = dry_run
         return report
 
     ops: list[dict[str, Any]] = []
-    for f in fixable:
+    for f in to_apply:
         ops.extend(_fix_ops(f.fix))  # type: ignore[arg-type]
     if own_undo:
         result, exc = run_batch(doc, ops, label="Regularize formatting")
@@ -429,7 +447,7 @@ def regularize(
         for op in ops:
             apply_op(doc, op)
         report["ops_run"] = len(ops)
-    report["applied"] = [f.to_dict() for f in fixable]
+    report["applied"] = [f.to_dict() for f in to_apply]
     return report
 
 

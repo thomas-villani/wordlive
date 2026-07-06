@@ -511,7 +511,7 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         return {"op": "update_fields"}
     if command == "regularize":
         op = {"op": "regularize"}
-        for key in ("rules", "within", "profile", "dry_run"):
+        for key in ("rules", "within", "profile", "dry_run", "allow_content"):
             if p.get(key) is not None:
                 op[key] = p[key]
         return op
@@ -1344,7 +1344,9 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         lint {[rules],[within],[profile]} (audit publishing-quality defects: dangling
         headings, multi-page tables with no repeating header, split numbered lists, direct
         formatting drifted from the style — severity-ranked findings, each fixable one
-        carrying the op regularize would run; rules selects ids/tags or {exclude:[…]};
+        carrying the op regularize would run, with adds_content=true marking fixes that
+        insert/delete content (regularize withholds those unless allow_content); rules
+        selects ids/tags or {exclude:[…]};
         profile is a house-style config — a path or inline object — that enables policy
         rules (body-justified, body-line-spacing, table-numeric-right-align) + their
         targets) ·
@@ -1701,6 +1703,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         within: str | None = None,
         profile: Any = None,
         dry_run: bool | None = None,
+        allow_content: bool | None = None,
     ) -> dict[str, Any]:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
@@ -2087,6 +2090,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "within": within,
             "profile": profile,
             "dry_run": dry_run,
+            "allow_content": allow_content,
         }
         try:
             return _write_impl(w, command, params, policy=policy)
@@ -2156,7 +2160,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
           set_image_alt_text {anchor_id=image:N,text} · set_image_size {anchor_id=image:N,[width,height,lock_aspect]} · set_image_crop {anchor_id=image:N,[left,top,right,bottom]} — alt text / resize / crop an INLINE picture (crop_* aliases also accepted; re-wrap floats it via insert_image) ·
           insert_break {anchor_id,[kind=page|column|section_next|section_continuous,before]} ·
           insert_field {anchor_id,kind,[text,before]} · update_fields {} · set_page_setup {section,[margins,*_margin,gutter,orientation,paper_size,columns,column_spacing]} ·
-          regularize {[rules],[within],[profile],[dry_run]} — apply the fixable word_read lint findings in one atomic step (targeted, idempotent); profile enables policy-rule fixes (justify, line-spacing, numeric-column alignment); returns {applied,skipped,findings} ·
+          regularize {[rules],[within],[profile],[dry_run],[allow_content]} — apply the fixable word_read lint findings in one atomic step (targeted, idempotent); profile enables policy-rule fixes (justify, line-spacing, numeric-column alignment); formatting fixes apply by default, content-changing fixes (insert caption/notice, delete stray para, strip watermark) are withheld into `deferred` unless allow_content=true; returns {applied,skipped,deferred,findings} ·
           insert_footnote/insert_endnote {anchor_id,text,[before]} — returns the new footnote:N/endnote:N in outputs ·
           insert_toc {anchor_id,[levels=[upper,lower],use_heading_styles,hyperlinks,before]} — update_fields after to fill page numbers ·
           add_bookmark {name,anchor_id} · pin {anchor_id,[name]} — durable pin:CODE handle that

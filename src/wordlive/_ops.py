@@ -918,6 +918,7 @@ def apply_op(doc: Document, op: dict[str, Any]) -> dict[str, Any] | None:
             within=op.get("within"),
             profile=op.get("profile"),
             dry_run=bool(op.get("dry_run", False)),
+            allow_content=bool(op.get("allow_content", False)),
             own_undo=False,
         )
     elif kind == "insert_footnote":

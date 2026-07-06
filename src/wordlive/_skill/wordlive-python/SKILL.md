@@ -535,7 +535,8 @@ doc.lint(rules=["layout"])           # §H page-layout/doc-level cluster (all of
 doc.lint(rules=["structure"])        # §B heading cluster: heading-level-skip + empty-heading (on) + adjacent-headings, heading-numbering-manual, heading-trailing-period (fixable), toc-present-and-current (off); tag "headings" also selects it
 doc.lint(profile="wordlive.lint.json")             # house-style profile (path or dict) enables POLICY rules: body-justified, body-line-spacing (needs target), table-numeric-right-align (threshold); also overrides severity / disables a default
 doc.regularize(within="heading:3", dry_run=True)   # plan the fixable findings (no write)
-doc.regularize()                     # apply them in one atomic-undo → {applied, skipped, findings}; idempotent
+doc.regularize()                     # apply formatting fixes in one atomic-undo → {applied, skipped, deferred, findings}; idempotent
+doc.regularize(allow_content=True)   # also apply adds_content fixes (insert caption/notice, delete stray para, strip watermark) — held in `deferred` by default
 
 cp = doc.checkpoint()                 # opaque structural fingerprint NOW (pure read; include=text|text+style|text+format)
 # … agent or user edits …
@@ -564,8 +565,10 @@ heavier than `stats()` — it (re)checks the document). `doc.lint()` audits
 formatting/structural/policy issues (a severity-ranked list; each finding's `fix`
 is an exec op when `fixable`), and `doc.regularize()` applies the fixable ones in
 one `doc.edit("Regularize formatting")` — idempotent (each writes the style's own
-value back), Track-Changes-aware, `dry_run=True` to preview. Wrap the writes in
-`doc.edit(...)` for atomic undo.
+value back), Track-Changes-aware, `dry_run=True` to preview. Formatting fixes
+apply by default; a fix that adds/deletes content is flagged `adds_content` and
+held in the report's `deferred` bucket unless you pass `allow_content=True`. Wrap
+the writes in `doc.edit(...)` for atomic undo.
 
 ### The explicit cursor surface
 

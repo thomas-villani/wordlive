@@ -1821,9 +1821,10 @@ class Document:
         within: str | Anchor | None = None,
         profile: Any = None,
         dry_run: bool = False,
+        allow_content: bool = False,
     ) -> dict[str, Any]:
         """Apply the fixable [`lint`][wordlive.Document.lint] findings in one
-        atomic-undo step. Returns `{applied, skipped, findings}`.
+        atomic-undo step. Returns `{applied, skipped, deferred, findings}`.
 
         Each fixable finding's `fix` op(s) run through the batch op loop inside a
         single `doc.edit("Regularize formatting")`, so one Ctrl-Z reverts the
@@ -1835,12 +1836,20 @@ class Document:
         numeric-column alignment — participate). `dry_run=True` plans the fixes
         (returning them in `findings`) without writing.
 
-        Content-changing fixes (deleting stray paragraphs, inserting captions)
-        are out of scope here — formatting/structure fixes only. If Track Changes
-        is on, the edits are tracked like any other for the user to review.
+        **Formatting/structure fixes apply by default; content-changing fixes are
+        opt-in.** A fix that adds or destroys content (inserting a caption/notice,
+        deleting a stray paragraph, stripping a watermark) is flagged
+        `adds_content` and **withheld** unless `allow_content=True`. Withheld fixes
+        are listed in `deferred` so you can see what an opt-in would apply. If
+        Track Changes is on, the edits are tracked like any other for review.
         """
         return _linting.regularize(
-            self, rules=rules, within=within, profile=profile, dry_run=dry_run
+            self,
+            rules=rules,
+            within=within,
+            profile=profile,
+            dry_run=dry_run,
+            allow_content=allow_content,
         )
 
     def checkpoint(
