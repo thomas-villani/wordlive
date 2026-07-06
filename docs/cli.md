@@ -401,6 +401,24 @@ input for `regularize`, which writes those back to the style's own value.
 
 Failures: `2` anchor not found, `3` Word busy, `4` Word not running.
 
+### `read watermark`
+
+```
+wordlive read watermark [--doc DOC_NAME]
+```
+
+Read the text watermark behind the pages — the read mirror of `watermark set` /
+`watermark remove`. Emits `{text, sections}` (the watermark's text and the 1-based
+section indices carrying it), or `null` when the document has no text watermark.
+Only text watermarks (the *Design → Watermark* kind) are reported. Non-mutating.
+
+```bash
+$ wordlive read watermark
+{"text": "DRAFT", "sections": [1]}
+```
+
+Failures: `3` Word busy, `4` Word not running.
+
 ### `read text --anchor-id ID [--view raw|final|original|segments]`
 
 ```
@@ -2844,6 +2862,17 @@ no longer exists — a dead link). **Off by default** (tags `hyperlinks` / `prin
 URL — invisible in print) and `hyperlink-display-is-raw-url` (a link whose whole
 label is a bare URL). All report-only. `--rule hyperlinks` selects the cluster;
 `--rule print` selects just the two print/sharing rules.
+
+Layout / document-level rules (§H — a walk over `wordlive sections` /
+`wordlive properties` plus `wordlive read watermark`), all **off by default** and
+report-only. Tag `layout`: `header-footer-consistent` (the primary header/footer
+text disagrees across the document's own sections) and `draft-watermark-present`
+(a leftover DRAFT / CONFIDENTIAL watermark, also tagged `finalization`). The
+profile-driven policy rules `document-properties-filled` (a required built-in
+property — `Title` / `Author` by default — left empty) and, tagged `notices`,
+`confidentiality-notice` / `copyright-notice` (a required notice string, default
+`©`, missing from every header/footer and the body). `--rule layout` selects the
+whole cluster; `--rule notices` selects just the two notice rules.
 
 Policy rules run only when a `--profile PATH` (a JSON house-style config) enables
 them: `body-justified`, `body-line-spacing` (needs a `target`), and

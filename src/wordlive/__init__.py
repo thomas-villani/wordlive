@@ -47,7 +47,7 @@ from ._app import Word, attach, connect
 from ._checkpoint import Checkpoint
 from ._citations import Bibliography, Citation
 from ._comments import Comment, CommentCollection
-from ._document import Document, DocumentCollection
+from ._document import Document, DocumentCollection, WatermarkInfo
 from ._edit import EditScope
 from ._fields import Field, FieldCollection
 from ._hyperlinks import Hyperlink, HyperlinkCollection
@@ -159,6 +159,7 @@ __all__ = [
     "TextBoxCollection",
     "Toc",
     "VariableCollection",
+    "WatermarkInfo",
     "Word",
     "WordBusyError",
     "WordNotRunningError",

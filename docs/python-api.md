@@ -42,6 +42,8 @@ Get a `Word` handle and reach the open documents.
 
 ::: wordlive.DocumentCollection
 
+::: wordlive.WatermarkInfo
+
 ## Anchors, editing & formatting
 
 The anchor model, the edit scope, and the formatting / list / style verbs that run on any anchor.
@@ -360,7 +362,9 @@ below). To change the picture's bytes, delete and re-insert.
 (DRAFT / CONFIDENTIAL) behind every page via each section's header story —
 `layout="diagonal"`/`"horizontal"`, `color`, `font`, `semitransparent`; it
 replaces any prior text watermark rather than stacking, and
-`Document.remove_watermark()` clears it (idempotent). `Anchor.insert_text_box(text, …)`
+`Document.remove_watermark()` clears it (idempotent). `Document.watermark()` is the
+read mirror — it returns a [`WatermarkInfo`](#wordlive.WatermarkInfo) (`text` + the
+sections carrying it) or `None`. `Anchor.insert_text_box(text, …)`
 drops a floating text box / pull quote anchored to any anchor's paragraph, with
 `width`/`height` (points or unit strings), `wrap` (the `insert_image` vocabulary
 minus `"inline"`), `where`, the text-format kwargs, and `fill`/`border`. Both are
@@ -862,6 +866,17 @@ no longer exists — a dead link); off by default (tags `hyperlinks` / `print`):
 URL, so the destination is invisible on paper) and `hyperlink-display-is-raw-url`
 (a link whose whole label is a bare URL). All report-only. `rules=["hyperlinks"]`
 selects the cluster; `rules=["print"]` selects just the two print/sharing rules.
+
+Layout / document-level rules (§H — a walk over `doc.sections` / `doc.properties`
+plus the `doc.watermark()` read), all off by default and report-only:
+`header-footer-consistent` (the primary header/footer text disagrees across the
+document's own sections) and `draft-watermark-present` (a leftover DRAFT /
+CONFIDENTIAL watermark, also tagged `finalization`); and three policy rules —
+`document-properties-filled` (a required built-in property left empty; `required`
+defaults to `["Title", "Author"]`), `confidentiality-notice` / `copyright-notice`
+(a profile-supplied notice string — `copyright-notice` defaults to `"©"` — missing
+from every header/footer and the body). `rules=["layout"]` selects the whole
+cluster; `rules=["notices"]` selects just the two notice rules.
 
 Policy rules (off unless a `profile` enables them — `spec-linter.md` §6):
 `body-justified` (body paragraphs not justified — fix justifies them),
