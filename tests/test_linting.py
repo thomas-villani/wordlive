@@ -618,7 +618,8 @@ def test_lint_page_numbers_present_off_by_default(monkeypatch):
         assert {f["rule"] for f in doc.lint(rules=["page-numbers-present"])} == {
             "page-numbers-present"
         }
-        assert {f["rule"] for f in doc.lint(rules=["layout"])} == {"page-numbers-present"}
+        # The `layout` tag pulls the whole §H cluster; page-numbers-present is in it.
+        assert "page-numbers-present" in {f["rule"] for f in doc.lint(rules=["layout"])}
 
 
 def test_lint_page_numbers_present_clean_with_footer_field(monkeypatch):
@@ -629,7 +630,7 @@ def test_lint_page_numbers_present_clean_with_footer_field(monkeypatch):
     footer.Range.Fields = _FakeFields([{"code": "PAGE", "type": 33, "start": 0, "end": 2}])
     _attach(monkeypatch, app)
     with wordlive.attach() as word:
-        assert word.documents.active.lint(rules=["layout"]) == []
+        assert word.documents.active.lint(rules=["page-numbers-present"]) == []
 
 
 def test_fields_batch_on_by_default(monkeypatch):
@@ -871,6 +872,186 @@ def test_hyperlinks_tag_selects_cluster(monkeypatch):
         assert _rules_seen(doc.lint(rules=["print"])) == {
             "hyperlink-bare-for-print",
             "hyperlink-display-is-raw-url",
+        }
+
+
+# --- layout / document-level (§H) batch --------------------------------------
+
+
+def test_lint_document_properties_filled(monkeypatch):
+    # Title is set, Author is missing from the bag (unset) — Author is flagged.
+    app = _make_app(builtin_properties={"Title": "My Report"})
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "document-properties-filled" not in _rules_seen(doc.lint())  # policy, off
+        findings = doc.lint(rules=["document-properties-filled"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["kind"] == "policy" and f["fixable"] is False and f["anchor_id"] == "start"
+    assert "Author" in f["message"]
+
+
+def test_lint_document_properties_filled_clean_when_set(monkeypatch):
+    app = _make_app(builtin_properties={"Title": "My Report", "Author": "Jane Roe"})
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["document-properties-filled"]) == []
+
+
+def test_lint_document_properties_filled_profile_required_override(monkeypatch):
+    # A profile can name the required set; here only Company (which is unset) matters.
+    app = _make_app(builtin_properties={"Title": "My Report", "Author": "Jane Roe"})
+    _attach(monkeypatch, app)
+    profile = {"rules": {"document-properties-filled": {"required": ["Company"]}}}
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["document-properties-filled"], profile=profile)
+    assert len(findings) == 1 and "Company" in findings[0]["message"]
+
+
+def test_document_properties_filled_opts_in_via_profile(monkeypatch):
+    # A policy rule the profile enables joins the default set.
+    app = _make_app(builtin_properties={"Title": "My Report"})
+    _attach(monkeypatch, app)
+    profile = {"rules": {"document-properties-filled": {"enabled": True}}}
+    with wordlive.attach() as word:
+        seen = _rules_seen(word.documents.active.lint(profile=profile))
+    assert "document-properties-filled" in seen
+
+
+def test_lint_confidentiality_notice_absent(monkeypatch):
+    # Profile demands a confidentiality notice; it's nowhere in the document.
+    app = _make_app(content="Just some body text.")
+    _attach(monkeypatch, app)
+    profile = {"rules": {"confidentiality-notice": {"text": "CONFIDENTIAL"}}}
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["confidentiality-notice"], profile=profile)
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["kind"] == "policy" and f["severity"] == "warning" and f["fixable"] is False
+    assert "CONFIDENTIAL" in f["message"]
+
+
+def test_lint_confidentiality_notice_present_in_footer_is_clean(monkeypatch):
+    app = _make_app(sections=[{"footers": {"primary": "CONFIDENTIAL — Acme Corp"}}])
+    _attach(monkeypatch, app)
+    profile = {"rules": {"confidentiality-notice": {"text": "CONFIDENTIAL"}}}
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["confidentiality-notice"], profile=profile) == []
+
+
+def test_confidentiality_notice_silent_without_configured_text(monkeypatch):
+    # No `text` configured → the rule polices nothing, even when selected.
+    app = _make_app(content="Body.")
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["confidentiality-notice"]) == []
+
+
+def test_lint_copyright_notice_defaults_to_symbol(monkeypatch):
+    # No configured text → the © symbol; absent here, so it fires.
+    app = _make_app(content="Body text with no copyright line.")
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "copyright-notice" not in _rules_seen(doc.lint())  # policy, off by default
+        findings = doc.lint(rules=["copyright-notice"])
+    assert len(findings) == 1 and findings[0]["kind"] == "policy"
+
+
+def test_lint_copyright_notice_present_in_body_is_clean(monkeypatch):
+    app = _make_app(content="Body text. © 2026 Acme Corp. More text.")
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["copyright-notice"]) == []
+
+
+def test_lint_header_footer_consistent_flags_divergent_text(monkeypatch):
+    app = _make_app(
+        sections=[
+            {"headers": {"primary": "Report A"}},
+            {"headers": {"primary": "Report B"}},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "header-footer-consistent" not in _rules_seen(doc.lint())  # off by default
+        findings = doc.lint(rules=["header-footer-consistent"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["kind"] == "consistency" and f["anchor_id"] == "header:2:primary"
+    assert "Report A" in f["message"] and "Report B" in f["message"]
+
+
+def test_lint_header_footer_consistent_clean_when_matching(monkeypatch):
+    app = _make_app(
+        sections=[
+            {"headers": {"primary": "Report"}},
+            {"headers": {"primary": "Report"}},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["header-footer-consistent"]) == []
+
+
+def test_lint_header_footer_consistent_single_section_is_clean(monkeypatch):
+    app = _make_app(sections=[{"headers": {"primary": "Report"}}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["header-footer-consistent"]) == []
+
+
+def test_lint_draft_watermark_present(monkeypatch):
+    app = _make_app()
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.set_watermark("DRAFT")
+        # The new read surface round-trips the watermark text.
+        mark = doc.watermark()
+        assert mark is not None and mark.text == "DRAFT" and mark.sections == [1]
+        assert "draft-watermark-present" not in _rules_seen(doc.lint())  # off by default
+        findings = doc.lint(rules=["draft-watermark-present"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["kind"] == "structural" and f["severity"] == "warning" and f["fixable"] is False
+    assert "DRAFT" in f["message"]
+
+
+def test_watermark_read_none_and_after_remove(monkeypatch):
+    app = _make_app()
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert doc.watermark() is None
+        doc.set_watermark("CONFIDENTIAL")
+        assert doc.watermark().text == "CONFIDENTIAL"
+        doc.remove_watermark()
+        assert doc.watermark() is None
+        assert doc.lint(rules=["draft-watermark-present"]) == []
+
+
+def test_layout_and_notices_tags_select_clusters(monkeypatch):
+    # A bare doc: no props, no PAGE field, no © — the layout tag pulls the whole
+    # cluster (incl. the shipped page-numbers-present), so the fired subset shows
+    # the new rules alongside it.
+    app = _make_app()
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        layout_seen = _rules_seen(doc.lint(rules=["layout"]))
+        assert {
+            "document-properties-filled",
+            "copyright-notice",
+            "page-numbers-present",
+        } <= layout_seen
+        # The `notices` tag selects only the two notice rules.
+        profile = {"rules": {"confidentiality-notice": {"text": "SECRET"}}}
+        assert _rules_seen(doc.lint(rules=["notices"], profile=profile)) == {
+            "confidentiality-notice",
+            "copyright-notice",
         }
 
 

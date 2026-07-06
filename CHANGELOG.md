@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Linter Batch 4c — page-layout / document-level rules (5 new rules) + `doc.watermark()`.**
+  (Priority 1, item 1 — `spec-linter.md` §5b·H, the P4 section/header-footer + document-level
+  cluster.) `doc.lint` gains the §H cluster, all **off by default** (a §H issue is rarely a
+  defect mid-authoring — an opt-in "getting it ready to hand off" check) and report-only:
+  `header-footer-consistent` (the primary header/footer text disagrees across the document's
+  own non-linked sections) and `draft-watermark-present` (a leftover DRAFT / CONFIDENTIAL
+  watermark, also tagged `finalization`); plus three **policy** rules —
+  `document-properties-filled` (a required built-in property left empty; `required` defaults
+  to `["Title", "Author"]`), and `confidentiality-notice` / `copyright-notice` (a
+  profile-supplied notice string — `copyright-notice` defaults to `"©"` — missing from every
+  header/footer and the body). `lint --rule layout` selects the whole cluster; `--rule notices`
+  selects just the two notice rules. Detection reuses the shipped `doc.properties` /
+  `doc.sections` read wrappers plus a **new `doc.watermark()` read** — the mirror of
+  `set_watermark` / `remove_watermark`, returning a `WatermarkInfo(text, sections)` or `None`,
+  wired across Python, CLI (`read watermark`), and MCP (`word_read command=watermark`). All
+  fixes (fill a property, insert a notice, strip a watermark) add or destroy content, so
+  they're deferred behind the `adds_content` gate — no new COM write surface (the write verbs
+  `doc.properties.set` / `remove_watermark` already exist). Rules auto-surface across Python /
+  CLI / MCP. Live-probed against Word 16 (watermark round-trip through `set_watermark` →
+  `doc.watermark()` → `remove_watermark`, and the cluster firing on a seeded doc).
 - **Linter Batch 4b — hyperlink rules (3 new rules).** (Priority 1, item 1 —
   `spec-linter.md` §5b·I, the §I "are the links sound and print-ready?" cluster.)
   `doc.lint` gains a hyperlink cluster built on the existing `doc.hyperlinks` read

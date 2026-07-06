@@ -2045,6 +2045,16 @@ class _FakeShapeRange:
         return group
 
 
+class _FakeTextEffect:
+    """A shape's WordArt TextEffect: a real `.Text` (so a watermark round-trips
+    through `set_watermark` → `doc.watermark()`), plus permissive attribute writes
+    for the cosmetic props `set_watermark` sets (NormalizedHeight, …)."""
+
+    def __init__(self, text: str = "") -> None:
+        self.Text = text
+        self.NormalizedHeight = True
+
+
 class _FakeFloatingShape:
     """A floating shape (text box / picture / WordArt) — the `shape:N` restyle surface.
 
@@ -2087,7 +2097,10 @@ class _FakeFloatingShape:
         anchor = _make_range(anchor_start, anchor_start)
         anchor.StoryType = story_type
         self.Anchor = anchor
-        for child in ("TextEffect", "Line", "Fill"):
+        # TextEffect carries a real .Text (WordArt/watermark text lives here in COM);
+        # Line/Fill are cosmetic and only ever written, so a MagicMock suffices.
+        self.TextEffect = _FakeTextEffect(text)
+        for child in ("Line", "Fill"):
             setattr(self, child, MagicMock(name=f"Shape.{child}"))
 
     @property

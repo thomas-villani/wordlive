@@ -497,6 +497,30 @@ def read_format(ctx: click.Context, anchor_id: str) -> None:
     _run(ctx, go)
 
 
+@read.command(name="watermark")
+@click.pass_context
+def read_watermark(ctx: click.Context) -> None:
+    """The text watermark stamped behind the pages, or none.
+
+    The read mirror of `watermark set` / `watermark remove`: emits
+    `{text, sections}` for the watermark Word draws in the header story, or
+    `null` when there is none. Pure read.
+    """
+
+    def go() -> None:
+        with attach() as word:
+            doc = _pick_doc(word, ctx.obj["doc_name"])
+            info = doc.watermark()
+            payload = info.to_dict() if info is not None else None
+            emit(
+                payload,
+                as_text=not ctx.obj["as_json"],
+                text=(info.text if info is not None else "(no watermark)"),
+            )
+
+    _run(ctx, go)
+
+
 _WITHIN_HELP = (
     "Scope to an anchor's range (e.g. 'heading:3', 'range:120-540'); default is the whole document."
 )

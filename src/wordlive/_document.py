@@ -6,6 +6,7 @@ import difflib
 import secrets
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -113,6 +114,24 @@ def _resolve_level_band(levels: int | tuple[int, int] | None) -> tuple[int, int]
             raise OpError(f"invalid level band: {levels!r} (expected 1 <= lo <= hi <= 9)")
         return lo, hi
     raise OpError(f"levels must be an int or (lo, hi) tuple, got {levels!r}")
+
+
+@dataclass(frozen=True)
+class WatermarkInfo:
+    """The text watermark stamped behind a document's pages (`doc.watermark()`).
+
+    `text` is the watermark's text (Word stamps the same text into every
+    section's header story, so this is the common value); `sections` lists the
+    1-based section indices that carry it. The read mirror of
+    [`set_watermark`][wordlive.Document.set_watermark] /
+    [`remove_watermark`][wordlive.Document.remove_watermark].
+    """
+
+    text: str
+    sections: list[int]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class Document:
@@ -779,6 +798,43 @@ class Document:
                         shape.Delete()
                         removed += 1
         return removed
+
+    def watermark(self) -> WatermarkInfo | None:
+        """The text watermark stamped behind the pages, or `None` if there is none.
+
+        The read side of [`set_watermark`][wordlive.Document.set_watermark] /
+        [`remove_watermark`][wordlive.Document.remove_watermark] — it walks each
+        section's primary header story for the WordArt shape Word's watermark
+        feature draws (named like `PowerPlusWaterMarkObject…`) and reads its text.
+        Returns a [`WatermarkInfo`][wordlive.WatermarkInfo] (`text` + the 1-based
+        `sections` carrying it), or `None` when the document has no text
+        watermark. Pure read — selection, scroll, and `Saved` are untouched.
+
+        Only text watermarks (the `set_watermark` / *Design → Watermark* kind) are
+        reported; a picture watermark or an ordinary floating shape is not.
+        """
+        found: dict[int, str] = {}
+        with _com.translate_com_errors():
+            sections = self._doc.Sections
+            for s in range(1, int(sections.Count) + 1):
+                header = sections(s).Headers(int(WdHeaderFooterIndex.PRIMARY))
+                shapes = header.Shapes
+                for i in range(1, int(shapes.Count) + 1):
+                    shape = shapes(i)
+                    if not str(shape.Name or "").startswith(self._WATERMARK_NAME_PREFIX):
+                        continue
+                    try:
+                        text = str(shape.TextEffect.Text or "")
+                    except Exception:
+                        # A non-text (picture) watermark shape has no TextEffect text.
+                        text = ""
+                    found[s] = text
+        if not found:
+            return None
+        # Word stamps the same text into every section; surface the common value
+        # (the first non-empty one), falling back to "" if every read came back blank.
+        non_empty = [t for t in found.values() if t]
+        return WatermarkInfo(text=non_empty[0] if non_empty else "", sections=sorted(found))
 
     def add_table(
         self,

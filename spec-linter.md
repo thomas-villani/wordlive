@@ -100,6 +100,24 @@ Broken-internal reuses `name in doc.bookmarks` (Word's `Bookmarks.Exists`), whic
 Live-probed 2026-07-02 (Word 16): internal (`Address=''`, `SubAddress=name`) vs external
 (`Address=URL`, `SubAddress=''`) vs raw-URL (`text==Address`) confirmed; `Exists` covers the
 (in)valid targets; the cluster fires, and the off-by-default two stay out of the default set.
+**Batch 4c — page-layout / document-level rules (§H) ✅ shipped (Unreleased).** The §5b·H
+cluster (the P4 section/header-footer walk + document-level probes): 5 rules in
+`_linting_layout.py`, **all off by default** (a §H issue is rarely a mid-authoring defect —
+an opt-in hand-off check) and **all report-only**. `header-footer-consistent` (primary H/F
+text disagrees across the document's own non-linked sections) and `draft-watermark-present`
+(a leftover DRAFT/CONFIDENTIAL watermark; also tagged `finalization`) sit behind the `layout`
+tag; three **policy** rules — `document-properties-filled` (a required built-in property, by
+default `Title`/`Author`, left empty), `confidentiality-notice` / `copyright-notice` (a
+profile-supplied notice string, `©` by default, absent from every H/F and the body) — opt in
+via a profile, the notice pair tagged `notices`. Detection reuses the shipped `doc.properties`
+/ `doc.sections` wrappers plus a **new `doc.watermark()` read** — the mirror of
+`set_watermark`/`remove_watermark` (`WatermarkInfo(text, sections)` or `None`), the batch's one
+new surface, wired Python / CLI (`read watermark`) / MCP (`word_read command=watermark`), no
+exec op. The fixes (fill a property, insert a notice, strip a watermark) add/destroy content, so
+they're deferred with the `adds_content` gate; the write verbs already exist, so no new COM
+**write** surface. `page-numbers-present` (also §H) shipped earlier in Batch 3. Live-probed
+2026-07-06 (Word 16): watermark round-trips `set_watermark` → `doc.watermark()` →
+`remove_watermark`, and the cluster fires on a seeded doc while staying out of the default set.
 
 > Audit a document for publishing-quality defects (`doc.lint()`), then autofix the
 > mechanical ones in one atomic-undo step (`doc.regularize()`). Pure composition
@@ -379,16 +397,22 @@ no style baseline) — the read mirror of `format_run`'s highlight/hidden writes
 These cluster as a coherent **`finalization`** tag — useful as a standalone
 "is-this-ready-to-send?" check (and a building block for *prepare-for-sharing*).
 
-### H. Page layout & document-level  *(P4)*
+### H. Page layout & document-level  *(P4)* — ✅ shipped Batch 4c (Unreleased)
+
+Shipped as `_linting_layout.py` (`page-numbers-present` shipped earlier in Batch 3).
+All **off by default** and **report-only**; the notice pair also carries the new
+`notices` tag. `header-footer-consistent` is scoped to **text** for v1 (cross-section
+*format* comparison deferred — heuristic + not exercisable by the fake fixture).
+Detection reuses `doc.properties` / `doc.sections` plus the new `doc.watermark()` read.
 
 | id | kind | detect | fix | default |
 |---|---|---|---|---|
-| `page-numbers-present` | policy | no `PAGE` field in any footer/header | insert (adds content, opt-in) | off (tag) |
-| `confidentiality-notice` | policy | profile-supplied text not found in H/F or body | report (insert opt-in) | off (profile) |
-| `copyright-notice` | policy | profile `©` / text not present | report | off (profile) |
-| `header-footer-consistent` | consistency | H/F text/format differs across sections unexpectedly | report | off (tag) |
-| `document-properties-filled` | policy | Title / Author core props empty | set | off (tag) |
-| `draft-watermark-present` | structural | a "DRAFT" watermark / shape still in final | report | off (tag) |
+| `page-numbers-present` | policy | no `PAGE` field in any footer/header | insert (adds content, opt-in) | off (tag `layout`; shipped Batch 3) |
+| `confidentiality-notice` | policy | profile-supplied text not found in H/F or body | report (insert opt-in) | off (profile; tags `layout`/`notices`) |
+| `copyright-notice` | policy | profile `©` / text not present | report | off (profile; tags `layout`/`notices`) |
+| `header-footer-consistent` | consistency | primary H/F **text** differs across the document's own (non-linked) sections | report | off (tag `layout`) |
+| `document-properties-filled` | policy | a required built-in prop (default Title / Author) empty | report (set needs a value — opt-in) | off (tag `layout`) |
+| `draft-watermark-present` | structural | a text watermark (DRAFT / CONFIDENTIAL) still present | report | off (tags `layout`/`finalization`) |
 
 ### I. Hyperlinks  *(print / sharing)* — ✅ shipped Batch 4b (Unreleased)
 
@@ -407,9 +431,10 @@ print/sharing rules are **off**, behind the `hyperlinks` / `print` tags.
 Rules carry **tags** so a user enables a *cluster* instead of naming ids. Proposed
 top-level tags: `typography`, `headings`, `lists`, `tables`, `captions`,
 `crossref`, `citations` (alias `academia` = captions + crossref + citations +
-nbsp + en-dash), `finalization`, `layout`, `print`, `accessibility`. `--rules
-academia` / `--rules finalization` become the headline ergonomics; profiles
-(§6) toggle tags + supply policy targets.
+nbsp + en-dash), `finalization`, `layout`, `notices` (the confidentiality /
+copyright notice pair, a sub-cluster of `layout`), `print`, `accessibility`.
+`--rules academia` / `--rules finalization` become the headline ergonomics;
+profiles (§6) toggle tags + supply policy targets.
 
 ### Suggested batch order (primitive-driven)
 
@@ -442,10 +467,12 @@ academia` / `--rules finalization` become the headline ergonomics; profiles
      surface): `hyperlink-broken-internal` (on), `hyperlink-bare-for-print` /
      `hyperlink-display-is-raw-url` (off, tags `hyperlinks` / `print`). All report-only.
      Split out from the original §H/§I lump.
-   - **Batch 4c — the §H layout/notices detection rules** (notices, doc-properties,
-     watermark, header/footer consistency), some profile-driven. Next up — needs three
-     new probes (`BuiltInDocumentProperties`, watermark/shape detection, cross-section H/F
-     text scan), which is why it split from the hyperlink cluster.
+   - **Batch 4c — the §H layout/notices detection rules ✅ shipped (Unreleased).** 5 rules
+     in `_linting_layout.py` (notices, doc-properties, watermark, header/footer consistency),
+     all off by default + report-only; the notice pair profile-driven and tagged `notices`.
+     Of the "three new probes" anticipated, `BuiltInDocumentProperties` (`doc.properties`) and
+     the cross-section H/F text scan (`doc.sections`) already had read wrappers — the only new
+     surface was the **`doc.watermark()` read** (mirror of `set_watermark`/`remove_watermark`).
 5. **Later — citations cluster (§D) + the accessibility sub-product** (with
    *prepare-for-sharing*, §9).
 
@@ -657,4 +684,4 @@ Steps 1–4 + wiring shipped (foundation slice). The **v2 backlog (§5b)** conti
 the build, primitive-driven: Batch 1 typography (P2) ✅ · Batch 2 finalization
 (P3) ✅ · Batch 3 field-code backbone (P1) ✅ · Batch 3b heuristic xref-as-literal-text ✅ ·
 Batch 4a profile loader + first policy rules ✅ · Batch 4b §I hyperlink rules ✅ ·
-Batch 4c §H layout/notices · later citations + accessibility.
+Batch 4c §H layout/notices (P4) + `doc.watermark()` ✅ · later citations + accessibility.

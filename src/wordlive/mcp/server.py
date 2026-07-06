@@ -258,6 +258,9 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.fields.list()
             if command == "properties":
                 return doc.properties.read()
+            if command == "watermark":
+                info = doc.watermark()
+                return info.to_dict() if info is not None else None
             if command == "variables":
                 return doc.variables.list()
             if command == "theme":
@@ -1246,6 +1249,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
             "hyperlinks",
             "fields",
             "properties",
+            "watermark",
             "variables",
             "proofing",
             "lint",
@@ -1332,6 +1336,8 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         mirror of add_hyperlink) · fields (PAGE/REF/TOC/…: kind, code, rendered
         result, range id — the read mirror of insert_field) ·
         properties (document metadata: {builtin, custom} name→value bags) ·
+        watermark ({text, sections}, or null — the text watermark behind the pages;
+        the read mirror of watermark set/remove) ·
         variables (invisible named storage: {name: value}) ·
         proofing (spelling/grammar errors with counts + flagged runs, and readability
         statistics — heavier than stats; it (re)checks the document) ·
