@@ -532,6 +532,7 @@ doc.lint(rules=["finalization"])     # off-by-default "ready-to-send?" cluster: 
 doc.lint(rules=["academia"])         # field-code cluster: broken-cross-reference + caption-manual-numbering (on by default) + xref-as-literal-text (heuristic, off); page-numbers-present is off (tag "layout")
 doc.lint(rules=["hyperlinks"])       # link cluster: hyperlink-broken-internal (dead \l jump, on by default) + bare-for-print + display-is-raw-url (both off; tag "print" selects just those two)
 doc.lint(rules=["layout"])           # §H page-layout/doc-level cluster (all off): header-footer-consistent, draft-watermark-present, document-properties-filled + notices (tag "notices" selects confidentiality-/copyright-notice)
+doc.lint(rules=["structure"])        # §B heading cluster: heading-level-skip + empty-heading (on) + adjacent-headings, heading-numbering-manual, heading-trailing-period (fixable), toc-present-and-current (off); tag "headings" also selects it
 doc.lint(profile="wordlive.lint.json")             # house-style profile (path or dict) enables POLICY rules: body-justified, body-line-spacing (needs target), table-numeric-right-align (threshold); also overrides severity / disables a default
 doc.regularize(within="heading:3", dry_run=True)   # plan the fixable findings (no write)
 doc.regularize()                     # apply them in one atomic-undo → {applied, skipped, findings}; idempotent

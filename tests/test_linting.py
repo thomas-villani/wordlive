@@ -1055,6 +1055,198 @@ def test_layout_and_notices_tags_select_clusters(monkeypatch):
         }
 
 
+# --- heading & document structure (§B) batch --------------------------------
+
+
+def test_lint_heading_level_skip(monkeypatch):
+    # H1 then H3 with no H2 between them: the outline skips level 2.
+    app = _make_app(
+        paragraphs=[
+            {"level": 1, "text": "Intro", "start": 0, "end": 6},
+            {"level": 10, "text": "Body", "start": 6, "end": 11},
+            {"level": 3, "text": "Deep", "start": 11, "end": 16},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["heading-level-skip"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["anchor_id"] == "heading:3" and f["kind"] == "structural"
+    assert f["fixable"] is False and "skips level 2" in f["message"]
+
+
+def test_lint_heading_level_skip_allows_deep_start(monkeypatch):
+    # A document that simply starts deep (H2, H3) and nests consistently is fine —
+    # the skip is measured against the *previous* heading, not an assumed H1.
+    app = _make_app(
+        paragraphs=[
+            {"level": 2, "text": "Sub", "start": 0, "end": 4},
+            {"level": 3, "text": "Subsub", "start": 4, "end": 11},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["heading-level-skip"]) == []
+
+
+def test_lint_empty_heading(monkeypatch):
+    app = _make_app(
+        paragraphs=[
+            {"level": 1, "text": "Real", "start": 0, "end": 5},
+            {"level": 2, "text": "", "start": 5, "end": 6},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["empty-heading"])
+    assert len(findings) == 1
+    assert findings[0]["anchor_id"] == "heading:2" and findings[0]["fixable"] is False
+
+
+def test_lint_adjacent_headings_off_by_default(monkeypatch):
+    # heading:1 and heading:2 are consecutive paragraphs — no body between.
+    app = _make_app(
+        paragraphs=[
+            {"level": 1, "text": "Title", "start": 0, "end": 6},
+            {"level": 2, "text": "Subtitle", "start": 6, "end": 15},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "adjacent-headings" not in _rules_seen(doc.lint())  # off by default
+        findings = doc.lint(rules=["adjacent-headings"])
+    assert len(findings) == 1
+    assert findings[0]["anchor_id"] == "heading:1" and "Subtitle" in findings[0]["message"]
+
+
+def test_lint_adjacent_headings_not_flagged_with_body_between(monkeypatch):
+    app = _make_app(
+        paragraphs=[
+            {"level": 1, "text": "Title", "start": 0, "end": 6},
+            {"level": 10, "text": "Some body", "start": 6, "end": 16},
+            {"level": 2, "text": "Section", "start": 16, "end": 24},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["adjacent-headings"]) == []
+
+
+def test_lint_heading_numbering_manual(monkeypatch):
+    app = _make_app(paragraphs=[{"level": 1, "text": "3.1 Methods", "start": 0, "end": 12}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "heading-numbering-manual" not in _rules_seen(doc.lint())  # off by default
+        findings = doc.lint(rules=["heading-numbering-manual"])
+    assert len(findings) == 1
+    assert findings[0]["anchor_id"] == "heading:1" and "'3.1'" in findings[0]["message"]
+
+
+def test_lint_heading_numbering_manual_skips_auto_numbered(monkeypatch):
+    # A heading Word auto-numbers (a live ListString) is not double-flagged, even if
+    # its text happens to open with digits.
+    app = _make_app(paragraphs=[{"level": 1, "text": "3.1 Methods", "start": 0, "end": 12}])
+    app.ActiveDocument.Paragraphs._items[0].Range.ListFormat.ListString = "3.1"
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["heading-numbering-manual"]) == []
+
+
+def test_lint_heading_trailing_period_fix_shape(monkeypatch):
+    app = _make_app(paragraphs=[{"level": 1, "text": "Summary.", "start": 0, "end": 9}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "heading-trailing-period" not in _rules_seen(doc.lint())  # off by default
+        findings = doc.lint(rules=["heading-trailing-period"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["anchor_id"] == "heading:1" and f["fixable"] is True
+    assert f["fix"]["op"] == "find_replace" and f["fix"]["mode"] == "regex"
+    # The fix scopes to the *paragraph* (para:N), not the heading anchor, whose
+    # find_replace scope would expand to the body under the heading.
+    assert f["fix"]["in"] == "para:1" and f["fix"]["required"] is False
+
+
+def test_lint_heading_trailing_period_ignores_ellipsis(monkeypatch):
+    app = _make_app(paragraphs=[{"level": 1, "text": "To be continued...", "start": 0, "end": 19}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["heading-trailing-period"]) == []
+
+
+def test_lint_toc_present_and_current(monkeypatch):
+    # A level-1 heading and no TOC field → the document lacks a table of contents.
+    app = _make_app(paragraphs=[{"level": 1, "text": "Chapter", "start": 0, "end": 8}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "toc-present-and-current" not in _rules_seen(doc.lint())  # off by default
+        findings = doc.lint(rules=["toc-present-and-current"])
+    assert len(findings) == 1
+    assert findings[0]["anchor_id"] == "start" and findings[0]["fixable"] is False
+
+
+def test_lint_toc_not_flagged_when_present(monkeypatch):
+    app = _make_app(
+        paragraphs=[{"level": 1, "text": "Chapter", "start": 0, "end": 8}],
+        fields=[{"code": 'TOC \\o "1-3" \\h', "type": 13, "start": 0, "end": 8}],
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["toc-present-and-current"]) == []
+
+
+def test_lint_toc_not_flagged_without_top_level_headings(monkeypatch):
+    # Only H2s — a TOC isn't expected, so the absence of one isn't reported.
+    app = _make_app(paragraphs=[{"level": 2, "text": "Sub", "start": 0, "end": 4}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        assert word.documents.active.lint(rules=["toc-present-and-current"]) == []
+
+
+def test_heading_structure_tags_select_cluster(monkeypatch):
+    app = _make_app(
+        paragraphs=[
+            {"level": 1, "text": "1. Intro.", "start": 0, "end": 10},
+            {"level": 3, "text": "Deep.", "start": 10, "end": 16},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        # `structure` pulls the whole §B cluster (on- and off-by-default alike).
+        structure_seen = _rules_seen(doc.lint(rules=["structure"]))
+        assert {
+            "heading-level-skip",
+            "heading-numbering-manual",
+            "heading-trailing-period",
+            "toc-present-and-current",
+        } <= structure_seen
+        # `headings` selects the §B cluster too, alongside the v1 heading rules.
+        headings_seen = _rules_seen(doc.lint(rules=["headings"]))
+        assert {"heading-level-skip", "heading-keep-with-next"} <= headings_seen
+
+
+def test_lint_default_includes_on_by_default_heading_rules(monkeypatch):
+    app = _make_app(
+        paragraphs=[
+            {"level": 1, "text": "Intro", "start": 0, "end": 6},
+            {"level": 3, "text": "", "start": 6, "end": 7},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        seen = _rules_seen(word.documents.active.lint())
+    # The two unambiguous outline defects run in the default set...
+    assert {"heading-level-skip", "empty-heading"} <= seen
+    # ...but the opinionated ones stay off until named/tagged.
+    assert "adjacent-headings" not in seen and "heading-trailing-period" not in seen
+
+
 # --- MCP ---------------------------------------------------------------------
 
 

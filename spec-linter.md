@@ -1,123 +1,53 @@
 # Linter + formatting regularizer — design sketch
 
-Status: **foundation slice shipped (Unreleased, 2026-06-19)** — design was a
-**sketch** (2026-06-17). Roadmap home: `feature-plan.md` Part II, Priority 1,
-item 1. This is the detailed design; the roadmap keeps the one-paragraph summary.
+Status: **Batch 5 shipped (Unreleased, 2026-07-06)** — design was a **sketch**
+(2026-06-17). Roadmap home: `feature-plan.md` Part II, Priority 1, item 1. This is
+the detailed design; the roadmap keeps the one-paragraph summary.
 
-**Shipped (build order §10 steps 1–4 + full wiring):** `anchor.format_info()`
-(the read mirror + direct-override detection, §7), the three structural rules
-(`heading-keep-with-next`, `table-repeat-header`, `list-numbering-continuity`),
-the heading/font/spacing consistency rules + `mixed-run-format` (report-only),
-`doc.lint()` / `doc.regularize()` with the **targeted, idempotent** default fix
-and the idempotency test, wired across Python / CLI (`lint`, `regularize`, `read
-format`) / `regularize` exec op / MCP. Live-validated against Word 16 (multi-page
-table, split list, heading override → fix → idempotent re-run).
-**Deferred to a follow-up:** ~~the **policy** rules and the **profile** loader~~ —
-**shipped in Batch 4a** (the policy half of §6: `profile=`, `Profile`, `body-justified`
-/ `body-line-spacing` / `table-numeric-right-align`); the **`house_style`** half of §6
-(consistency-target pinning + `set_style` fixes) is still deferred; the aggressive
-`Font.Reset()` strip-to-style fix (§7c); the content-changing fixes
-(`stray-empty-paragraph` delete, `figure-caption-present` insert); and the
-`docx-plus` cascade-provenance hybrid (§7c).
-**Backlog (v2, brainstormed 2026-06-19):** a primitive-driven catalogue of ~40
-more rules for publishing/academia — typography hygiene, finalization, captions /
-cross-references / citations, layout & notices — see **§5b**.
-**Batch 1 — typography hygiene ✅ shipped (Unreleased).** The §5b·A cluster plus
-`manual-heading-formatting` / `table-style-consistent`: 10 rules in
-`_linting_typography.py` (the P2 paragraph-text scan), 6 on by default + 4
-opinionated off-by-default behind the `typography` tag. Two enablers landed with
-it: `find_replace` gained **`literal` / `regex` modes** + a `required=False`
-no-op-on-zero-match flag (the fix path — Word's existing `find_replace` is fuzzy,
-which **cannot** express a literal whitespace/punctuation edit; a fuzzy find of
-`"  "` matches every single space — so the typography fixes are regex-mode
-`find_replace` ops scoped to the offending `para:N`, re-scanning live text with no
-precomputed offsets to drift), and `Rule` gained a **`default_on`** flag for the
-default-off opinion rules. **Decisions baked in:** no `adds_content` field this
-batch (every fixable rule is a pure in-place text/style edit; defer it to the
-caption/finalization batches that add content); `straight-quotes` / `nbsp-missing`
-/ `sentence-spacing-consistent` and `leading-whitespace`'s "→ real indent" half
-**deferred to Batch 1b** (heuristic-heavy). Live-probed 2026-06-24: trailing-mark
-preserved (no paragraph fuse), adjacent inline bold survives a sub-span collapse,
-`regularize` idempotent on the second pass.
-**Batch 2 — finalization ✅ shipped (Unreleased).** The §5b·G cluster: 6 rules in
-`_linting_finalization.py`, all tagged `finalization` and — by decision this pass —
-**all off by default** (an opt-in "is-this-ready-to-send?" check, not a default-lint
-defect, since mid-authoring docs normally carry comments/revisions; this deviates
-from §G's per-rule default column). `comments-present`, `unaccepted-revisions`,
-`track-changes-on`, `hidden-text-present`, `stale-fields` are report-only;
-`leftover-highlight` is the one fix (clears the highlight, idempotent). Detection
-reuses the shipped `doc.comments` / `doc.revisions` / `doc.fields` /
-`doc.track_changes` wrappers plus two new `format_info` fields that landed with it
-(`font.hidden`, `font.highlight` — the read mirror of `format_run`'s writes).
-**Decision baked in:** `stale-fields` is a **report-only nudge** — Word exposes no
-field-staleness flag, so a presence-based `update_fields` fix couldn't satisfy the
-idempotency contract; the fixable version lands with Batch 3's field-code backbone.
-Live-probed 2026-07-01 (Word 16): all six fire on a seeded doc, none in the default
-set, highlight fix + idempotent re-run confirmed on real COM.
-**Batch 3 — field-code backbone ✅ shipped (Unreleased).** The §5b·C cluster,
-built on a `Range.Fields` walk (the P1 primitive): 3 rules in `_linting_fields.py`.
-`broken-cross-reference` (a `REF`/`PAGEREF` rendering Word's "reference source not
-found" error) and `caption-manual-numbering` (a `Caption` paragraph numbered with
-literal text, not a `SEQ` field) ship **on** by default (both also tagged `academia`);
-`page-numbers-present` (no `PAGE` field in any header/footer) is **off**, tag `layout`.
-**All three are report-only** — every fix the §C/§H catalogue implies either adds
-content (rebuild a caption around `SEQ`, insert a page number) or needs target matching
-(repair a broken ref), so they're deferred (and the `adds_content` gate with them); the
-heuristic `xref-as-literal-text` is deferred to **Batch 3b**. No new COM write surface —
-the fixes' future verbs already exist. This also **retires the Batch-2 `stale-fields`
-IOU**: an idempotent auto-refresh is inherently infeasible without a Word staleness flag,
-so it stays a report-only nudge. Live-probed 2026-07-02 (Word 16): both on-by-default
-rules fire on a seeded doc (a real `InsertCaption` SEQ is correctly not flagged), the
-broken-ref error string matches on real COM, page-numbers fires when absent and clears
-after `insert_page_number()`.
-**Batch 3b — `xref-as-literal-text` ✅ shipped (Unreleased).** The one heuristic rule
-Batch 3 deferred: a body paragraph mentioning a figure/table by literal number ("see
-Figure 3") with no `REF`/`PAGEREF` field covering it — added to `_linting_fields.py`,
-report-only. Ships **off by default** behind the `crossref` / `academia` tags (a bare
-"Table 2" in prose is often legitimate — heuristic, false-positive-prone), deviating from
-§C's "on" column. Caption/heading paragraphs are skipped.
-**Batch 4a — profile loader + first policy rules ✅ shipped (Unreleased).** The §6
-profile/policy half of Batch 4: `doc.lint` / `doc.regularize` gain a `profile=` arg (path /
-dict / `None`) resolved by a new `Profile` (`_lint_profile.py`) that opts **policy** rules
-in, supplies targets/thresholds, overrides severity, and can disable a default rule. Three
-policy rules land in `_linting_policy.py` — `body-justified`, `body-line-spacing` (needs a
-`target`), `table-numeric-right-align` (a `threshold`, default 0.8) — all fixing idempotently
-via `format_paragraph`. `Rule.check` widened to `(doc, span, profile)` across every module
-(mechanical sweep). Threaded through Python / CLI (`--profile`) / exec op / MCP. **`house_style`
-(§6's consistency-target pinning + `set_style` fixes) is deferred**; §H/§I detection rules were
-scoped as Batch 4b but **split** (see next).
-**Batch 4b — hyperlink rules (§I) ✅ shipped (Unreleased).** The §5b·I cluster: 3 rules in
-`_linting_hyperlinks.py`, a thin walk over the shipped `doc.hyperlinks` read wrapper (so **no new
-read surface** — pure rule engine, the Batch-3 shape). `hyperlink-broken-internal` (an in-document
-`HYPERLINK \l` jump whose target bookmark is gone) ships **on** by default (tag `hyperlinks`);
-`hyperlink-bare-for-print` (external link whose text hides its URL) and `hyperlink-display-is-raw-url`
-(a bare-URL label) ship **off** (tags `hyperlinks` / `print`). All three are report-only — repairs
-either need a human to pick the target or add content (`(url)` append / a label), deferred with the
-`adds_content` gate; the fix verb (`Hyperlink.update`) already exists, so no new COM write surface.
-Broken-internal reuses `name in doc.bookmarks` (Word's `Bookmarks.Exists`), which sees the hidden
-`_Toc…`/`_Ref…` bookmarks a live cross-reference targets, so a healthy jump isn't flagged. The
-**§H layout/notices** detection rules (the other half of the original Batch 4b) become **Batch 4c**.
-Live-probed 2026-07-02 (Word 16): internal (`Address=''`, `SubAddress=name`) vs external
-(`Address=URL`, `SubAddress=''`) vs raw-URL (`text==Address`) confirmed; `Exists` covers the
-(in)valid targets; the cluster fires, and the off-by-default two stay out of the default set.
-**Batch 4c — page-layout / document-level rules (§H) ✅ shipped (Unreleased).** The §5b·H
-cluster (the P4 section/header-footer walk + document-level probes): 5 rules in
-`_linting_layout.py`, **all off by default** (a §H issue is rarely a mid-authoring defect —
-an opt-in hand-off check) and **all report-only**. `header-footer-consistent` (primary H/F
-text disagrees across the document's own non-linked sections) and `draft-watermark-present`
-(a leftover DRAFT/CONFIDENTIAL watermark; also tagged `finalization`) sit behind the `layout`
-tag; three **policy** rules — `document-properties-filled` (a required built-in property, by
-default `Title`/`Author`, left empty), `confidentiality-notice` / `copyright-notice` (a
-profile-supplied notice string, `©` by default, absent from every H/F and the body) — opt in
-via a profile, the notice pair tagged `notices`. Detection reuses the shipped `doc.properties`
-/ `doc.sections` wrappers plus a **new `doc.watermark()` read** — the mirror of
-`set_watermark`/`remove_watermark` (`WatermarkInfo(text, sections)` or `None`), the batch's one
-new surface, wired Python / CLI (`read watermark`) / MCP (`word_read command=watermark`), no
-exec op. The fixes (fill a property, insert a notice, strip a watermark) add/destroy content, so
-they're deferred with the `adds_content` gate; the write verbs already exist, so no new COM
-**write** surface. `page-numbers-present` (also §H) shipped earlier in Batch 3. Live-probed
-2026-07-06 (Word 16): watermark round-trips `set_watermark` → `doc.watermark()` →
-`remove_watermark`, and the cluster fires on a seeded doc while staying out of the default set.
+## Progress
+
+**Shipped** (all Unreleased; per-batch detail lives in `CHANGELOG.md`, and each
+§5b cluster below carries an inline ✅). Every slice was live-probed against Word 16.
+
+| Slice | What landed |
+|---|---|
+| Foundation (§10 steps 1–4) | `anchor.format_info()` + direct-override detection (§7); the 3 structural rules (`heading-keep-with-next`, `table-repeat-header`, `list-numbering-continuity`) + heading/font/spacing consistency rules + `mixed-run-format`; `doc.lint()` / `doc.regularize()` with the targeted-idempotent default fix + idempotency test; wired Python / CLI / `regularize` exec op / MCP |
+| Batch 1 — typography hygiene (§A) | 10 P2 text-scan rules (`_linting_typography.py`); enablers `find_replace` `literal`/`regex` modes + `required=False`, and `Rule.default_on` |
+| Batch 2 — finalization (§G) | 6 review-state rules (`_linting_finalization.py`), all off-by-default `finalization` tag; `format_info` gained `font.hidden` / `font.highlight` |
+| Batch 3 + 3b — field-code backbone (§C) | `Range.Fields` walk (P1): `broken-cross-reference` + `caption-manual-numbering` (on, `academia`), `page-numbers-present` (off, `layout`), `xref-as-literal-text` (3b, off, heuristic) |
+| Batch 4a — profiles + policy (§6) | `profile=` + the `Profile` loader; `body-justified` / `body-line-spacing` / `table-numeric-right-align`; `Rule.check(doc, span, profile)` |
+| Batch 4b — hyperlinks (§I) | 3 rules over `doc.hyperlinks` (`_linting_hyperlinks.py`); no new read surface |
+| Batch 4c — layout / document-level (§H) | 5 rules (`_linting_layout.py`) + a new `doc.watermark()` read (`WatermarkInfo`) |
+| Batch 5 — heading & document structure (§B) | 6 rules over `doc.outline()` (`_linting_headings.py`); `heading-trailing-period` fixable (in-place strip), the new `structure` tag; no new read surface |
+
+Two standing decisions: `stale-fields` stays a **report-only nudge** (Word exposes
+no staleness flag, so a presence-based refresh can't be idempotent), and **no
+content-adding or repair fix has shipped** — every such fix waits on the
+`adds_content` gate (remaining item 1); `heading-trailing-period` (Batch 5) is the
+only fix beyond the foundation/typography set, because stripping a period is a pure
+in-place edit that needs no such gate. So the report-only rules across Batches 2–5
+are deferred, not forgotten.
+
+**Remaining** (priority order; the full rule catalogue is §5b):
+
+1. **Close the loop — make the report-only rules fixable.** Add the
+   `adds_content: bool` Finding field + surface gating (§8), then wire the deferred
+   opt-in fixes: strip watermark, fill property, insert notice, append `(url)` /
+   label a hyperlink, repair a broken ref, rebuild a `SEQ` caption, insert a page
+   number, delete `stray-empty-paragraph`, `figure-caption-present`. Reuses existing
+   write verbs; each must stay idempotent.
+2. **`house_style` half of §6** — pin consistency-rule targets to named style values
+   and fix by updating the style (`set_style`) — the brand/template path.
+3. **Batch 1b typography heuristics** — `straight-quotes`, `nbsp-missing`,
+   `sentence-spacing-consistent` (deferred from Batch 1 as false-positive-prone).
+4. **Detection remainders** — §D citations cluster (`citation-as-literal-text`,
+   `footnote-numbering-manual`, `mixed-citation-styles`, `orphan-citation`); §E
+   `table-empty` / `table-overflows-margin`; §F `justify-misapplied` /
+   `paragraph-too-long`; §C `caption-label-consistent` / `caption-position-consistent`;
+   and `header-footer-consistent`'s cross-section **format** comparison (text-only shipped).
+5. **Advanced / later** — the opt-in aggressive `Font.Reset()` strip-to-style fix
+   (§7c); the `docx-plus` cascade-provenance hybrid (§7c); accessibility rules + the
+   `prepare-for-sharing` product (§9); a custom-rule plugin API (only on a concrete need).
 
 > Audit a document for publishing-quality defects (`doc.lint()`), then autofix the
 > mechanical ones in one atomic-undo step (`doc.regularize()`). Pure composition
@@ -317,17 +247,28 @@ Fixes are regex-mode `find_replace` (see the status header).
 
 (`double-space`, `stray-empty-paragraph` already in v1.)
 
-### B. Heading & document structure  *(P2 + outline walk)*
+### B. Heading & document structure  *(P2 + outline walk)* — ✅ shipped (Unreleased)
+
+Shipped as `_linting_headings.py` in **Batch 5** — six rules over `doc.outline()`.
+`heading-level-skip` and `empty-heading` ship **on** (unambiguous outline defects);
+the other four ship **off** behind the `headings` / `structure` tags. Five are
+report-only; `heading-trailing-period` is **fixable** (a paragraph-scoped
+`find_replace` regex strips the period in place — idempotent, no `adds_content` gate,
+and it must scope to `para:N` not `heading:N`, since `find_replace` expands a heading
+scope to its body section). `toc-present-and-current` is **presence-only** (Word
+exposes no field-staleness flag — the same limit `stale-fields` hit — so the "current"
+half stays a report). `manual-heading-formatting` (the first row) shipped earlier in
+**Batch 1**.
 
 | id | kind | detect | fix | default |
 |---|---|---|---|---|
-| `manual-heading-formatting` | structural | a bold/large `Normal` para that looks like a heading but isn't styled | report → suggest `apply_style("Heading N")` | on (report) |
-| `heading-level-skip` | structural | outline jumps H1→H3 with no H2 | report-only | on (report) |
-| `heading-numbering-manual` | consistency | heading text starts with literal `3.1` not list-numbered | report | off (tag) |
-| `heading-trailing-period` | consistency | heading text ends with `.` | strip | off (tag) |
-| `empty-heading` | structural | heading paragraph with no text | report | on (report) |
-| `adjacent-headings` | structural | two headings, no body between | report | off (tag) |
-| `toc-present-and-current` | structural | doc has Heading 1s but no TOC field / TOC stale | `update_fields` or report | off (tag) |
+| `manual-heading-formatting` | structural | a bold/large `Normal` para that looks like a heading but isn't styled | report → suggest `apply_style("Heading N")` | on (report) — Batch 1 |
+| `heading-level-skip` | structural | outline jumps H1→H3 with no H2 | report-only | on (report) ✅ |
+| `heading-numbering-manual` | consistency | heading text starts with literal `3.1` not list-numbered | report | off (tag) ✅ |
+| `heading-trailing-period` | consistency | heading text ends with `.` | strip | off (tag) ✅ |
+| `empty-heading` | structural | heading paragraph with no text | report | on (report) ✅ |
+| `adjacent-headings` | structural | two headings, no body between | report | off (tag) ✅ |
+| `toc-present-and-current` | structural | doc has Heading 1s but no TOC field / TOC stale | report (presence-only) | off (tag) ✅ |
 
 ### C. Captions & cross-references  *(P1 — the academia backbone)* — ⚙️ mostly shipped (Unreleased)
 
@@ -438,43 +379,19 @@ profiles (§6) toggle tags + supply policy targets.
 
 ### Suggested batch order (primitive-driven)
 
-1. **Batch 1 — Typography hygiene (P2): ✅ shipped (Unreleased).** the §A rules +
-   `manual-heading-formatting`, `table-style-consistent`. Highest hit-rate,
-   cheapest, no field plumbing. (`straight-quotes` / `nbsp-missing` /
-   `sentence-spacing-consistent` deferred to a 1b follow-up.)
-2. **Batch 2 — Finalization (P3, §G): ✅ shipped (Unreleased).** 6 rules in
-   `_linting_finalization.py`, all off-by-default behind the `finalization` tag,
-   one report-only fix (`leftover-highlight`); reused the shipped revision/comment/
-   field wrappers + `doc.track_changes`, and added `format_info`'s `hidden` /
-   `highlight` fields. `stale-fields` ships as a report-only nudge (its
-   `update_fields` fix waits for Batch 3 — no COM staleness flag).
-3. **Batch 3 — Field-code backbone (P1, §C): ✅ shipped (Unreleased).** built the
-   `Range.Fields` walk, then `broken-cross-reference` (on), `caption-manual-numbering`
-   (on, report), `page-numbers-present` (off, tag `layout`) — all report-only in
-   `_linting_fields.py`. The academia centerpiece. Retired the Batch-2 `stale-fields`
-   fixable-IOU (no staleness flag → inherently non-idempotent, stays a nudge).
-   - **Batch 3b — `xref-as-literal-text` ✅ shipped (Unreleased).** The heuristic
-     text-scan rule (a figure/table mentioned by literal number with no `REF` field),
-     off by default (tags `crossref` / `academia`), report-only.
-4. **Batch 4 — Layout / notices (§H), hyperlinks (§I) + the profile/house-style
-   loader** (the already-deferred v1 step-5). Split:
-   - **Batch 4a — profile loader + first policy rules ✅ shipped (Unreleased).** The §6
-     policy half: `profile=` on `lint`/`regularize`, the `Profile` loader, and
-     `body-justified` / `body-line-spacing` / `table-numeric-right-align` in
-     `_linting_policy.py`. `house_style` deferred.
-   - **Batch 4b — the §I hyperlink rules ✅ shipped (Unreleased).** 3 rules in
-     `_linting_hyperlinks.py` over the shipped `doc.hyperlinks` wrapper (no new read
-     surface): `hyperlink-broken-internal` (on), `hyperlink-bare-for-print` /
-     `hyperlink-display-is-raw-url` (off, tags `hyperlinks` / `print`). All report-only.
-     Split out from the original §H/§I lump.
-   - **Batch 4c — the §H layout/notices detection rules ✅ shipped (Unreleased).** 5 rules
-     in `_linting_layout.py` (notices, doc-properties, watermark, header/footer consistency),
-     all off by default + report-only; the notice pair profile-driven and tagged `notices`.
-     Of the "three new probes" anticipated, `BuiltInDocumentProperties` (`doc.properties`) and
-     the cross-section H/F text scan (`doc.sections`) already had read wrappers — the only new
-     surface was the **`doc.watermark()` read** (mirror of `set_watermark`/`remove_watermark`).
-5. **Later — citations cluster (§D) + the accessibility sub-product** (with
-   *prepare-for-sharing*, §9).
+Batches 1–4c have shipped — see the **Progress** table up top for what each landed,
+and the ✅ on each cluster below for which rules. The primitive-driven ordering that
+guided them, and what it implies next:
+
+1. **Typography (§A, P2)** → **Batch 1** ✅ — highest hit-rate, cheapest, no field plumbing.
+2. **Finalization (§G, P3)** → **Batch 2** ✅ — reused the revision/comment/field wrappers.
+3. **Field-code backbone (§C, P1)** → **Batch 3 / 3b** ✅ — the `Range.Fields` walk; the academia centerpiece.
+4. **Profiles + §H/§I (P4 + §6)** → **Batch 4a** (profiles/policy) ✅, **4b** (hyperlinks §I) ✅, **4c** (layout §H + `doc.watermark()`) ✅.
+5. **Heading & document structure (§B, P2 + outline)** → **Batch 5** ✅ — six rules over `doc.outline()`; `heading-trailing-period` fixable, the new `structure` tag.
+6. **Later** — citations (§D), then the accessibility sub-product with *prepare-for-sharing* (§9).
+
+Cross-cutting (not a detection batch): the `adds_content` gate that unlocks the
+deferred content/repair fixes, and the `house_style` half of §6 — both in **Remaining**, up top.
 
 ## 6. Profiles (policy rules + house style)
 
@@ -680,8 +597,7 @@ targeted strategy is the default.
 6. Wire CLI / exec op / MCP; docs (`docs/cli.md`, `docs/mcp.md`, `SKILL.md`,
    `cookbook.md` entry: "hand-off a clean document").
 
-Steps 1–4 + wiring shipped (foundation slice). The **v2 backlog (§5b)** continues
-the build, primitive-driven: Batch 1 typography (P2) ✅ · Batch 2 finalization
-(P3) ✅ · Batch 3 field-code backbone (P1) ✅ · Batch 3b heuristic xref-as-literal-text ✅ ·
-Batch 4a profile loader + first policy rules ✅ · Batch 4b §I hyperlink rules ✅ ·
-Batch 4c §H layout/notices (P4) + `doc.watermark()` ✅ · later citations + accessibility.
+Steps 1–4 + wiring shipped as the foundation slice; the **v2 backlog (§5b)** then
+continued primitive-driven through Batch 5 (§B heading structure) — see the
+**Progress** table up top for the full shipped/remaining status. The `adds_content`
+gate (unlocking the deferred content/repair fixes) is next.
