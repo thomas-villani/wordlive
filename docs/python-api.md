@@ -911,15 +911,18 @@ doc.lint(profile=profile)            # or profile="wordlive.lint.json"
 doc.regularize(profile=profile)      # applies the policy fixes too
 ```
 
-`Document.regularize(rules=None, within=None, profile=None, dry_run=False)` is the **write**
-side: it applies the fixable findings in one `doc.edit("Regularize formatting")`
-(one Ctrl-Z reverts them all; selection and scroll preserved) and returns
-`{applied, skipped, findings}` (plus `ops_run`, and `dry_run` when set). The
-default fixes are **targeted and idempotent** — each writes the style's own value
-back as a direct property, so a second `regularize` applies nothing (a tested
-invariant). `dry_run=True` plans without writing; `rules` / `within` / `profile`
-select the same way as `lint`. Content-changing fixes (deletes, caption inserts) are out of
-scope — this is a formatting/structure regularizer only — and it's
+`Document.regularize(rules=None, within=None, profile=None, dry_run=False, allow_content=False)`
+is the **write** side: it applies the fixable findings in one
+`doc.edit("Regularize formatting")` (one Ctrl-Z reverts them all; selection and
+scroll preserved) and returns `{applied, skipped, deferred, findings}` (plus
+`ops_run`, and `dry_run` when set). The default fixes are **targeted and
+idempotent** — each writes the style's own value back as a direct property, so a
+second `regularize` applies nothing (a tested invariant). `dry_run=True` plans
+without writing; `rules` / `within` / `profile` select the same way as `lint`.
+Fixes that change content rather than formatting (deleting a stray paragraph,
+inserting a caption, stripping a watermark) are flagged `adds_content` on the
+finding and **withheld into `deferred`** unless you pass `allow_content=True` —
+so a default pass never silently rewrites what the document says. It's
 Track-Changes-aware (the edits are tracked when Track Changes is on).
 
 ```python

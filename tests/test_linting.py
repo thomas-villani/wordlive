@@ -156,6 +156,87 @@ def test_regularize_attaches_run_batch_failure_detail(fake_word, monkeypatch):
     assert getattr(ei.value, "ops_run", None) == 0
 
 
+# --- content gate: adds_content + allow_content ------------------------------
+
+
+def _gate_findings():
+    """A formatting fix (applies by default) and an adds_content fix (gated)."""
+    from wordlive._linting import Finding
+
+    fmt = Finding(
+        rule="fake-format",
+        kind="consistency",
+        severity="info",
+        anchor_id="heading:1",
+        message="drifted",
+        fixable=True,
+        fix={"op": "format_paragraph", "anchor_id": "heading:1", "keep_with_next": True},
+    )
+    content = Finding(
+        rule="fake-content",
+        kind="structural",
+        severity="warning",
+        anchor_id="heading:3",
+        message="stray",
+        fixable=True,
+        adds_content=True,
+        fix={"op": "format_paragraph", "anchor_id": "heading:3", "keep_with_next": True},
+    )
+    return [fmt, content]
+
+
+def test_lint_findings_carry_adds_content_flag(fake_word):
+    # Every finding dict now exposes adds_content; ordinary rules leave it False.
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["heading-keep-with-next"])
+    assert findings and all(f["adds_content"] is False for f in findings)
+
+
+def test_regularize_withholds_content_fixes_by_default(fake_word, monkeypatch):
+    from wordlive import _linting
+
+    monkeypatch.setattr(_linting, "run_lint", lambda *a, **k: _gate_findings())
+    with wordlive.attach() as word:
+        report = word.documents.active.regularize()
+    assert {f["rule"] for f in report["applied"]} == {"fake-format"}
+    assert {f["rule"] for f in report["deferred"]} == {"fake-content"}
+    assert report["skipped"] == []
+
+
+def test_regularize_applies_content_fixes_when_allowed(fake_word, monkeypatch):
+    from wordlive import _linting
+
+    monkeypatch.setattr(_linting, "run_lint", lambda *a, **k: _gate_findings())
+    with wordlive.attach() as word:
+        report = word.documents.active.regularize(allow_content=True)
+    assert {f["rule"] for f in report["applied"]} == {"fake-format", "fake-content"}
+    assert report["deferred"] == []
+
+
+def test_regularize_dry_run_lists_deferred_content_fixes(fake_word, monkeypatch):
+    from wordlive import _linting
+
+    monkeypatch.setattr(_linting, "run_lint", lambda *a, **k: _gate_findings())
+    with wordlive.attach() as word:
+        report = word.documents.active.regularize(dry_run=True)
+    assert report["dry_run"] is True
+    assert report["applied"] == []
+    assert {f["rule"] for f in report["deferred"]} == {"fake-content"}
+
+
+def test_regularize_exec_op_honors_allow_content(fake_word, monkeypatch):
+    from wordlive import _linting
+    from wordlive._ops import apply_op
+
+    monkeypatch.setattr(_linting, "run_lint", lambda *a, **k: _gate_findings())
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        gated = apply_op(doc, {"op": "regularize"})
+        assert {f["rule"] for f in gated["deferred"]} == {"fake-content"}
+        opened = apply_op(doc, {"op": "regularize", "allow_content": True})
+        assert {f["rule"] for f in opened["applied"]} == {"fake-format", "fake-content"}
+
+
 # --- consistency: mixed-run-format is report-only ----------------------------
 
 

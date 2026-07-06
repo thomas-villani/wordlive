@@ -1714,10 +1714,16 @@ def _fmt_lint(findings: list[dict[str, Any]]) -> str:
 
 def _fmt_regularize(report: dict[str, Any]) -> str:
     applied, skipped = report.get("applied", []), report.get("skipped", [])
+    deferred = report.get("deferred", [])
     verb = "would fix" if report.get("dry_run") else "fixed"
-    lines = [f"{verb} {len(applied)}; skipped {len(skipped)} (report-only / not fixable)"]
+    summary = f"{verb} {len(applied)}; skipped {len(skipped)} (report-only / not fixable)"
+    if deferred:
+        summary += f"; deferred {len(deferred)} content fix(es) (pass --allow-content)"
+    lines = [summary]
     for f in applied:
         lines.append(f"  {verb}: {f['rule']} ({f['anchor_id']})")
+    for f in deferred:
+        lines.append(f"  deferred: {f['rule']} ({f['anchor_id']})")
     return "\n".join(lines)
 
 
@@ -1781,6 +1787,13 @@ def lint_cmd(
     default=False,
     help="Plan the fixes (in the findings) without writing anything.",
 )
+@click.option(
+    "--allow-content",
+    "allow_content",
+    is_flag=True,
+    default=False,
+    help="Also apply content-changing fixes (insert/delete content), not just formatting.",
+)
 @click.pass_context
 def regularize_cmd(
     ctx: click.Context,
@@ -1789,22 +1802,33 @@ def regularize_cmd(
     within: str | None,
     profile: str | None,
     dry_run: bool,
+    allow_content: bool,
 ) -> None:
     """Apply the fixable lint findings in one atomic-undo step.
 
     Runs `lint`, then applies every fixable finding's fix inside a single
     edit (one Ctrl-Z reverts the whole pass; selection/scroll preserved). The
     default fixes are targeted and idempotent — a second `regularize` is a no-op.
-    Returns `{applied, skipped, findings}`. `--dry-run` plans without writing.
-    `--profile PATH` enables policy rules (justify, line-spacing, numeric-column
-    alignment) and their fixes.
+    Returns `{applied, skipped, deferred, findings}`. `--dry-run` plans without
+    writing. `--profile PATH` enables policy rules (justify, line-spacing,
+    numeric-column alignment) and their fixes.
+
+    Formatting fixes apply by default; content-changing fixes (insert a caption,
+    delete a stray paragraph, strip a watermark) are withheld into `deferred`
+    unless you pass `--allow-content`.
     """
     selector = _rules_selector(rule, exclude)
 
     def go() -> None:
         with attach() as word:
             doc = _pick_doc(word, ctx.obj["doc_name"])
-            report = doc.regularize(rules=selector, within=within, profile=profile, dry_run=dry_run)
+            report = doc.regularize(
+                rules=selector,
+                within=within,
+                profile=profile,
+                dry_run=dry_run,
+                allow_content=allow_content,
+            )
             emit(report, as_text=not ctx.obj["as_json"], text=_fmt_regularize(report))
 
     _run(ctx, go)

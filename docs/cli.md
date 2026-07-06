@@ -2907,22 +2907,24 @@ Failures: `1` unknown rule id/tag, `2` `--within` anchor not found,
 ### `regularize`
 
 ```
-wordlive regularize [--rule ID|TAG ...] [--exclude ID|TAG ...] [--within ID] [--profile PATH] [--dry-run] [--doc DOC_NAME]
+wordlive regularize [--rule ID|TAG ...] [--exclude ID|TAG ...] [--within ID] [--profile PATH] [--dry-run] [--allow-content] [--doc DOC_NAME]
 ```
 
 Apply the **fixable** `lint` findings in one atomic-undo edit (labelled
 "Regularize formatting", so one Ctrl-Z reverts them all; selection and scroll
-are preserved). Returns `{applied, skipped, findings}` — `applied` and `skipped`
-are **lists** of finding dicts — plus `ops_run` (and `dry_run` when set). On a
+are preserved). Returns `{applied, skipped, deferred, findings}` — each a
+**list** of finding dicts — plus `ops_run` (and `dry_run` when set). On a
 dry run `applied` stays `[]` (nothing is written) and the plan is in `findings`.
 The default fixes are **targeted and idempotent** — each writes the style's own
 value back as a direct property, so a *second* `regularize` applies nothing (a
 tested invariant). `--dry-run` plans without writing. Same `--rule` / `--exclude`
 / `--within` selection as `lint`.
 
-Content-changing fixes (deletes, caption inserts) are out of scope — this is a
-formatting/structure regularizer only. It's Track-Changes-aware: with Track
-Changes on, the edits are recorded as revisions.
+Fixes that change content rather than formatting (deleting a stray paragraph,
+inserting a caption, stripping a watermark) are flagged `adds_content` and
+**withheld into `deferred`** — pass `--allow-content` to apply them in the same
+pass. It's Track-Changes-aware: with Track Changes on, the edits are recorded as
+revisions.
 
 ```bash
 $ wordlive regularize --within heading:7 --dry-run
@@ -3297,7 +3299,7 @@ Script shape:
 | `set_style`            | `name`                                     | `based_on`, `next_style`, plus the `format_paragraph` / `format_run` formatting fields |
 | `format_paragraph`     | `anchor_id`                                | `alignment`, `left_indent`, `right_indent`, `first_line_indent`, `space_before`, `space_after`, `line_spacing` (a multiple `1`/`1.5`/`2`, `single`/`1.5`/`double`, or an exact length like `14pt`), `page_break_before`, `keep_together`, `keep_with_next`, `widow_control` |
 | `format_run`           | `anchor_id`                                | `bold`, `italic`, `underline`, `strikethrough`, `font`, `size`, `color`, `highlight`, `subscript`, `superscript`, `small_caps`, `all_caps`, `spacing` |
-| `regularize`           | —                                          | `rules`, `within`, `dry_run`      |
+| `regularize`           | —                                          | `rules`, `within`, `profile`, `dry_run`, `allow_content` |
 | `set_shading`          | `anchor_id`                                | `fill`, `pattern`                 |
 | `set_borders`          | `anchor_id`                                | `sides` (`all`/`box`/`top`/`bottom`/`left`/`right`/`horizontal`/`vertical`), `style` (a.k.a. `line_style`: `single`/`double`/`dot`/`dash`/`none`/…), `weight`, `color` |
 | `drop_cap`             | `anchor_id`                                | `position` (`dropped`/`normal`/`margin`/`none`), `lines` (default 3), `distance`, `font` |
@@ -3425,9 +3427,10 @@ orphans).
 `regularize` runs the [`regularize`](#regularize) command inside the batch: it
 applies the fixable `lint` findings (selected by the optional `rules` / `within`
 fields) as one step of the batch's atomic undo, and returns its
-`{applied, skipped, findings}` report in the batch outputs. With `dry_run: true`
-it plans without writing — the natural lead-off op when you want to audit-then-fix
-in a single round-trip.
+`{applied, skipped, deferred, findings}` report in the batch outputs. With
+`dry_run: true` it plans without writing — the natural lead-off op when you want
+to audit-then-fix in a single round-trip. Content-changing fixes are held in
+`deferred` unless you pass `allow_content: true`.
 
 `set_cell`, `add_row`, `delete_row`, `add_column`, `delete_column`,
 `merge_cells`, `split_cell`, and `set_heading_row` operate on tables by 1-based
