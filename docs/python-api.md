@@ -867,6 +867,17 @@ URL, so the destination is invisible on paper) and `hyperlink-display-is-raw-url
 (a link whose whole label is a bare URL). All report-only. `rules=["hyperlinks"]`
 selects the cluster; `rules=["print"]` selects just the two print/sharing rules.
 
+Heading & document-structure rules (§B — a walk over `doc.outline()`) — on by
+default: `heading-level-skip` (the outline jumps a level — an H1 followed by an H3
+with no H2) and `empty-heading` (a heading paragraph with no text); off by default
+(tags `headings` / `structure`): `adjacent-headings` (two headings in a row with no
+body between), `heading-numbering-manual` (a heading numbered by hand, `3.1 Methods`,
+not by automatic numbering), `heading-trailing-period` (a heading ending in a period
+— the one fixable rule, strips it in place), and `toc-present-and-current` (top-level
+headings but no table-of-contents field — presence-only, since Word exposes no
+field-staleness flag). `rules=["structure"]` (or `rules=["headings"]`) selects the
+cluster.
+
 Layout / document-level rules (§H — a walk over `doc.sections` / `doc.properties`
 plus the `doc.watermark()` read), all off by default and report-only:
 `header-footer-consistent` (the primary header/footer text disagrees across the

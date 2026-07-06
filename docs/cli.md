@@ -2863,6 +2863,16 @@ URL — invisible in print) and `hyperlink-display-is-raw-url` (a link whose who
 label is a bare URL). All report-only. `--rule hyperlinks` selects the cluster;
 `--rule print` selects just the two print/sharing rules.
 
+Heading & document-structure rules (§B — a walk over `wordlive read outline`) —
+**on by default:** `heading-level-skip` (the outline jumps a level — an H1 followed
+by an H3 with no H2) and `empty-heading` (a heading paragraph with no text). **Off
+by default** (tags `headings` / `structure`): `adjacent-headings` (two headings in a
+row with no body between), `heading-numbering-manual` (a heading numbered by hand,
+`3.1 Methods`, not by automatic numbering), `heading-trailing-period` (a heading
+ending in a period — the one fixable rule, strips it in place), and
+`toc-present-and-current` (top-level headings but no table-of-contents field —
+presence-only). `--rule structure` (or `--rule headings`) selects the cluster.
+
 Layout / document-level rules (§H — a walk over `wordlive sections` /
 `wordlive properties` plus `wordlive read watermark`), all **off by default** and
 report-only. Tag `layout`: `header-footer-consistent` (the primary header/footer

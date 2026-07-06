@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Linter Batch 5 — heading & document-structure rules (6 new rules).** (Priority 1, item 1 —
+  `spec-linter.md` §5b·B, the P2 + outline-walk cluster.) `doc.lint` gains the §B cluster over
+  `doc.outline()` (no new read surface): `heading-level-skip` (the outline jumps a level — an H1
+  followed by an H3 with no H2) and `empty-heading` (a heading paragraph with no text) ship **on**
+  by default like the v1 structural set; the opinionated four ship **off**, behind the new
+  `structure` tag (and the existing `headings` tag) — `adjacent-headings` (two headings in a row
+  with no body between), `heading-numbering-manual` (a heading numbered by hand, `3.1 Methods`,
+  rather than by automatic numbering), `heading-trailing-period` (a heading whose text ends in a
+  period), and `toc-present-and-current` (top-level headings but no table-of-contents field).
+  `lint --rule structure` (or `--rule headings`) selects the cluster. Five are report-only;
+  `heading-trailing-period` is **fixable** — the fix strips the trailing period in place via a
+  paragraph-scoped `find_replace` regex (idempotent, no `adds_content` gate). `toc-present-and-current`
+  is presence-only: Word exposes no field-staleness flag (the same limit `stale-fields` hit), so the
+  "current" half stays a report. Rules auto-surface across Python / CLI / MCP. Live-probed against
+  Word 16 (all six firing on a seeded outline, the two on-by-default in the default set, the
+  trailing-period fix stripping + idempotent, and the TOC rule clearing once a TOC is inserted).
 - **Linter Batch 4c — page-layout / document-level rules (5 new rules) + `doc.watermark()`.**
   (Priority 1, item 1 — `spec-linter.md` §5b·H, the P4 section/header-footer + document-level
   cluster.) `doc.lint` gains the §H cluster, all **off by default** (a §H issue is rarely a

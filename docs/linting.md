@@ -233,7 +233,7 @@ applies all 26 in one undo record, and a second pass is still empty. See
 
 ## The rule catalog
 
-Thirty-eight rules ship today. In the tables below, **on** (✅) marks the rules in the
+Forty-four rules ship today. In the tables below, **on** (✅) marks the rules in the
 default set, and **fix** marks whether `regularize` can repair it automatically:
 ✎ fixable, · report-only (yours to resolve by hand). The **tags** are what you
 pass to `rules=[…]` / `--rule` to select a whole cluster at once.
@@ -249,6 +249,8 @@ someone hand-applied that the style would otherwise have supplied.
 | `heading-font-consistent` | A heading whose font name, size, or bold is hand-set, overriding its heading style. | ✅ | ✎ | headings, fonts |
 | `heading-spacing-consistent` | A heading whose space-before / space-after is overridden away from its style. | ✅ | ✎ | headings, spacing |
 | `mixed-run-format` | A heading whose font varies run-to-run — part of it was separately restyled. | ✅ | · | headings, fonts |
+| `heading-numbering-manual` | A heading numbered by hand (`3.1 Methods`) instead of automatic numbering, so it won't renumber when sections move. | — | · | headings, structure |
+| `heading-trailing-period` | A heading whose text ends in a period — most house styles drop it. | — | ✎ | headings, structure |
 | `double-space` | Two or more spaces between words. | ✅ | ✎ | typography |
 | `space-before-punctuation` | Whitespace sitting before a `,` `.` `;` `:` or `)`. | ✅ | ✎ | typography |
 | `table-style-consistent` | A table that isn't on the document's dominant table style. | ✅ | ✎ | typography, tables |
@@ -271,6 +273,10 @@ in layout, numbering, or hand-off.
 | `trailing-whitespace` | A paragraph that ends in spaces or tabs. | ✅ | ✎ | typography |
 | `leading-whitespace` | A paragraph that starts with literal spaces or tabs (use a paragraph indent). | ✅ | ✎ | typography |
 | `manual-heading-formatting` | A short, all-bold or enlarged body paragraph that reads like a heading but was never styled as one. | ✅ | · | typography, headings |
+| `heading-level-skip` | An outline that jumps a level — an H1 followed by an H3 with no H2 between them. | ✅ | · | headings, structure |
+| `empty-heading` | A heading paragraph with no text — a stray styled blank line that pollutes the outline. | ✅ | · | headings, structure |
+| `adjacent-headings` | Two headings in a row with no body text between them (often a heading whose body was deleted). | — | · | headings, structure |
+| `toc-present-and-current` | The document has top-level headings but no table-of-contents field. | — | · | headings, structure, layout |
 | `broken-cross-reference` | A `REF` / `PAGEREF` field rendering Word's "Error! Reference source not found." | ✅ | · | crossref, academia |
 | `caption-manual-numbering` | A `Caption` paragraph numbered with literal text instead of a `SEQ` field, so it won't renumber. | ✅ | · | captions, academia |
 | `manual-line-break` | A Shift+Enter line break inside a paragraph, where a real paragraph break likely belongs. | — | · | typography |

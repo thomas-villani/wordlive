@@ -72,6 +72,7 @@ Quick index (capability → real release):
 | Linter Batch 4a — house-style profile loader (`profile=` on lint/regularize; `Profile` in `_lint_profile.py`) + 3 policy rules (`body-justified`, `body-line-spacing`, `table-numeric-right-align`) fixing idempotently via `format_paragraph`; threaded Python/CLI/exec/MCP; `house_style` deferred | Unreleased |
 | Linter Batch 4b — §I hyperlink rules (3 rules in `_linting_hyperlinks.py` over `doc.hyperlinks`, no new read surface: `hyperlink-broken-internal` on/tag `hyperlinks`, `hyperlink-bare-for-print` + `hyperlink-display-is-raw-url` off/tags `hyperlinks`+`print`; all report-only) | Unreleased |
 | Linter Batch 4c — §H layout/document-level rules (5 rules in `_linting_layout.py`, all off/report-only: `header-footer-consistent`, `draft-watermark-present`, `document-properties-filled` on tag `layout`; profile-driven `confidentiality-notice`/`copyright-notice` on tag `notices`) + new `doc.watermark()` read (`WatermarkInfo`; mirror of set/remove_watermark; Python/CLI `read watermark`/MCP) | Unreleased |
+| Linter Batch 5 — §B heading & document-structure rules (6 rules in `_linting_headings.py` over `doc.outline()`, no new read surface: `heading-level-skip` + `empty-heading` on; `adjacent-headings`, `heading-numbering-manual`, `heading-trailing-period` (fixable, in-place strip), `toc-present-and-current` off/tags `headings`+`structure`) | Unreleased |
 | Floating-shape anchor model (`shape:N`: `doc.shapes`/`doc.text_boxes`; `ShapeAnchor` set_wrap/position/size/format/alt_text/text/replace_image/delete; `insert_text_box`+floating `insert_image` return it) | Unreleased |
 | Shape depth + inline restyle + `textbox:N` (`ShapeAnchor` set_rotation/set_z_order/set_text_frame; `doc.group_shapes`/`ungroup`; `ImageAnchor` set_alt_text/set_size; `textbox:N` alias) | Unreleased |
 | Checkpoint + diff (`doc.checkpoint`/`changes_since`/`diff`; `Checkpoint` token, `include=text/+style/+format`; content-aligned `replace`/`insert`/`delete`/`restyle`/`reformat` w/ current `para:N`; `doc_hash` fast-path) | Unreleased |
@@ -486,6 +487,16 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 > wired Python / CLI (`read watermark`) / MCP. No new COM write surface (fixes deferred with the
 > `adds_content` gate). `page-numbers-present` (also §H) shipped in Batch 3.
 >
+> **Batch 5 — §B heading & document-structure rules ✅ shipped (Unreleased, 2026-07-06).** 6 rules
+> in `_linting_headings.py` over `doc.outline()` (no new read surface): `heading-level-skip` (the
+> outline jumps a level) and `empty-heading` (a styled blank line) ship **on**; `adjacent-headings`,
+> `heading-numbering-manual` (a hand-typed `3.1`), `heading-trailing-period`, and
+> `toc-present-and-current` (top-level headings, no TOC field — presence-only) ship **off** behind
+> the new `structure` tag (and existing `headings`). Five report-only; `heading-trailing-period` is
+> **fixable** — an in-place `find_replace` regex strip (idempotent, no `adds_content` gate; scoped to
+> `para:N` because a `heading:N` find-scope expands to the body under the heading). Live-probed on
+> Word 16 (all six fire, the fix strips + re-runs clean, the TOC rule clears once a TOC is inserted).
+>
 > **Still open (a follow-up pass):** the `house_style` half of profiles; the opt-in
 > `Font.Reset()` strip-to-style fix; the content-adding fixes (`stray-empty-paragraph`,
 > `figure-caption-present` — these want the deferred `adds_content` Finding field); the
@@ -493,7 +504,8 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 > cascade-provenance hybrid. A **v2 rule backlog** (~40 more rules for publishing/academia,
 > primitive-driven batches: Batch 2 finalization ✅ · Batch 3 field-code backbone ✅ · Batch 3b
 > heuristic xref-as-literal-text ✅ · Batch 4a profile loader + policy rules ✅ · Batch 4b §I
-> hyperlinks ✅ · Batch 4c §H layout/notices ✅ · later citations + accessibility) — see
+> hyperlinks ✅ · Batch 4c §H layout/notices ✅ · Batch 5 §B heading structure ✅ · later citations +
+> accessibility) — see
 > `spec-linter.md` **§5b**. See also `spec-linter.md` (§6, §7c, §9) and `CHANGELOG.md`.
 
 The highest-utility next feature: a declarative rule set that **audits** a document
