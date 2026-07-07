@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: '3.13'
 
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v8.3.1
         with:
           # Pin the exact uv so the lockfile it produces matches the committed
           # one byte-for-byte (keep in sync with [tool.uv] required-version).
@@ -83,7 +83,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
 
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v8.3.1
         with:
           version: "0.11.17"
           enable-cache: true
