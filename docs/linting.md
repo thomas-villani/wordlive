@@ -69,6 +69,7 @@ Every finding is a plain dict (exported as the frozen
   "fixable": true,
   "fix": {"op": "find_replace", "find": "[ \\t]+([,.;:\\)])", "text": "\\1",
           "in": "para:4", "all": true, "mode": "regex", "required": false},
+  "adds_content": false,
   "observed": "space before , . ; : )",
   "expected": "no space before punctuation"
 }
@@ -347,7 +348,8 @@ finalization cluster, and policy rules stay off until you ask for them.
 
 Naming a rule (by id or tag) **overrides its default-off status** — `rules=["typography"]`
 lights up the entire typography cluster, including its off-by-default members
-(`hyphen-as-range`, `em-dash-usage`, `tabs-for-layout`, `manual-line-break`).
+(`hyphen-as-range`, `em-dash-usage`, `tabs-for-layout`, `manual-line-break`,
+`stray-empty-paragraph`).
 `within` scopes the audit to a single anchor (`heading:N`, `range:S-E`,
 `table:N:R:C`, or an [`Anchor`](python-api.md#wordlive.Anchor)).
 
@@ -404,9 +406,11 @@ resolve it once:
 | `rules.<id>.severity` | override the finding severity (`error`/`warning`/`info`) — retune what a lint failure means to you |
 | `extends` | accepted and recorded; only `"default"` is meaningful today |
 
-The three policy rules all fix idempotently through the same `format_paragraph`
-vocabulary the rest of wordlive uses, so a profile-driven `regularize` obeys the
-same one-undo, run-twice-is-a-no-op contract as the defaults.
+The three policy rules in this profile all fix idempotently through the same
+`format_paragraph` vocabulary the rest of wordlive uses, so a profile-driven
+`regularize` obeys the same one-undo, run-twice-is-a-no-op contract as the
+defaults. (Other policy rules carry content-adding fixes — a page-number field,
+a footer notice — flagged `✎⊕`; those apply only under `allow_content`.)
 
 ## Where next
 
