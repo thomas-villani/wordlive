@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Linter golden e2e — the published walkthrough is now pinned.** Two `e2e`/`smoke` tests in
+  `tests/test_e2e_cli.py` drive the real CLI (`lint`, `regularize`, `regularize --dry-run`, and a
+  `--profile` run) against the committed `examples/sample/messy-brief.docx` in live Word and assert
+  the exact findings `docs/linting.md` publishes — the six default findings in order, the
+  empty dry-run buckets, the 26-finding profile audit, and the fix → clean → idempotent-second-pass
+  sequence. A companion test rebuilds the sample from its committed `build_messy_brief.py` and
+  re-lints it, guarding against script↔binary drift. Closes the e2e-CLI linter coverage gap (the
+  prior lifecycle tests never touched `lint`/`regularize`).
 - **Linter Batch 6 — the first `adds_content` opt-in fixes (5 rules wired fixable + 1 new rule).**
   (Priority 1, item 1 — `spec-linter.md` Remaining item 1.) The `adds_content` gate finally has fixes
   plugged into it: six report-only rules now carry an opt-in `fix` flagged `adds_content=True`, so
