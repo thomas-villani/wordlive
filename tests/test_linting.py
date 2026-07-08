@@ -866,7 +866,14 @@ def test_lint_hyperlink_bare_for_print(monkeypatch):
         assert "hyperlink-bare-for-print" not in _rules_seen(doc.lint())  # off by default
         findings = doc.lint(rules=["hyperlink-bare-for-print"])
     assert len(findings) == 1
-    assert findings[0]["kind"] == "policy" and findings[0]["fixable"] is False
+    f = findings[0]
+    assert f["kind"] == "policy" and f["fixable"] is True and f["adds_content"] is True
+    # The fix folds the URL into the display text, targeting the link by 1-based index.
+    assert f["fix"] == {
+        "op": "set_hyperlink",
+        "index": 1,
+        "text": "Acme (https://acme.example/page)",
+    }
 
 
 def test_lint_hyperlink_bare_for_print_url_visible_is_clean(monkeypatch):
@@ -1009,7 +1016,13 @@ def test_lint_confidentiality_notice_absent(monkeypatch):
         findings = word.documents.active.lint(rules=["confidentiality-notice"], profile=profile)
     assert len(findings) == 1
     f = findings[0]
-    assert f["kind"] == "policy" and f["severity"] == "warning" and f["fixable"] is False
+    assert f["kind"] == "policy" and f["severity"] == "warning" and f["fixable"] is True
+    assert f["adds_content"] is True
+    assert f["fix"] == {
+        "op": "insert_paragraph",
+        "anchor_id": "footer:1:primary",
+        "text": "CONFIDENTIAL",
+    }
     assert "CONFIDENTIAL" in f["message"]
 
 
@@ -1097,7 +1110,8 @@ def test_lint_draft_watermark_present(monkeypatch):
         findings = doc.lint(rules=["draft-watermark-present"])
     assert len(findings) == 1
     f = findings[0]
-    assert f["kind"] == "structural" and f["severity"] == "warning" and f["fixable"] is False
+    assert f["kind"] == "structural" and f["severity"] == "warning" and f["fixable"] is True
+    assert f["adds_content"] is True and f["fix"] == {"op": "remove_watermark"}
     assert "DRAFT" in f["message"]
 
 
@@ -1355,3 +1369,182 @@ def test_mcp_write_regularize(fake_word):
     out = _write_impl(InlineWorker(), "regularize", {"rules": ["heading-keep-with-next"]})
     assert out["ok"] is True
     assert len(out["result"]["applied"]) == 2
+
+
+# --- Batch 6: the first adds_content opt-in fixes ----------------------------
+#
+# Six report-only rules gained a fix flagged adds_content=True, so `regularize`
+# withholds them into `deferred` by default and applies them under
+# `allow_content=True`. Where the fake round-trips the write (watermark, hyperlink
+# display text) we assert the full idempotency contract; where it can't render the
+# insert (footer paragraph/field) we assert gate routing + fix-op shape and leave the
+# rendered round-trip to the smoke suite.
+
+
+def test_stray_empty_paragraph_flags_only_between_blocks(monkeypatch):
+    # content / STRAY / content / trailing-blank(final mark). Only the middle blank,
+    # flanked by content, is stray; the leading/trailing blanks are exempt.
+    app = _make_app(
+        paragraphs=[
+            {"text": "Intro", "style": "Normal", "start": 0, "end": 6},
+            {"text": "", "style": "Normal", "start": 6, "end": 7},
+            {"text": "Body", "style": "Normal", "start": 7, "end": 12},
+            {"text": "", "style": "Normal", "start": 12, "end": 13},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert "stray-empty-paragraph" not in _rules_seen(doc.lint())  # off by default
+        findings = doc.lint(rules=["stray-empty-paragraph"])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["anchor_id"] == "para:2" and f["kind"] == "structural"
+    assert f["fixable"] is True and f["adds_content"] is True
+    assert f["fix"] == {"op": "delete_paragraph", "anchor_id": "para:2"}
+
+
+def test_stray_empty_paragraph_ignores_leading_trailing_and_styled(monkeypatch):
+    # leading blank, a blank that is a styled (non-Normal) paragraph, trailing blank —
+    # none are flagged.
+    app = _make_app(
+        paragraphs=[
+            {"text": "", "style": "Normal", "start": 0, "end": 1},
+            {"text": "Heading", "style": "Heading 1", "level": 1, "start": 1, "end": 9},
+            {"text": "", "style": "Quote", "start": 9, "end": 10},
+            {"text": "Body", "style": "Normal", "start": 10, "end": 15},
+            {"text": "", "style": "Normal", "start": 15, "end": 16},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["stray-empty-paragraph"])
+    assert findings == []
+
+
+def test_regularize_stray_empty_paragraph_gated_then_applied(monkeypatch):
+    app = _make_app(
+        paragraphs=[
+            {"text": "Intro", "style": "Normal", "start": 0, "end": 6},
+            {"text": "", "style": "Normal", "start": 6, "end": 7},
+            {"text": "Body", "style": "Normal", "start": 7, "end": 12},
+            {"text": "", "style": "Normal", "start": 12, "end": 13},
+        ]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        withheld = doc.regularize(rules=["stray-empty-paragraph"])
+        assert withheld["applied"] == []
+        assert {f["rule"] for f in withheld["deferred"]} == {"stray-empty-paragraph"}
+        opened = doc.regularize(rules=["stray-empty-paragraph"], allow_content=True)
+    assert {f["rule"] for f in opened["applied"]} == {"stray-empty-paragraph"}
+
+
+def test_regularize_orders_paragraph_deletes_descending(fake_word, monkeypatch):
+    # The multi-delete anchor-shift guard: deletes must reach the batch descending by
+    # document position so removing a later paragraph never shifts an earlier one.
+    from wordlive import _linting
+    from wordlive._linting import Finding
+
+    def _delete_finding(anchor):
+        return Finding(
+            rule="stray-empty-paragraph",
+            kind="structural",
+            severity="info",
+            anchor_id=anchor,
+            message="",
+            fixable=True,
+            adds_content=True,
+            fix={"op": "delete_paragraph", "anchor_id": anchor},
+        )
+
+    # A non-delete fix interleaved to prove deletes are pulled out and appended last.
+    fmt = Finding(
+        rule="fake-format",
+        kind="consistency",
+        severity="info",
+        anchor_id="heading:1",
+        message="",
+        fixable=True,
+        fix={"op": "format_paragraph", "anchor_id": "heading:1", "keep_with_next": True},
+    )
+    findings = [_delete_finding("para:2"), fmt, _delete_finding("para:5")]
+    monkeypatch.setattr(_linting, "run_lint", lambda *a, **k: findings)
+
+    captured = {}
+
+    def fake_run_batch(doc, ops, label):
+        captured["ops"] = ops
+        return ({"ops_run": len(ops)}, None)
+
+    monkeypatch.setattr("wordlive._ops.run_batch", fake_run_batch)
+    with wordlive.attach() as word:
+        word.documents.active.regularize(allow_content=True)
+    kinds = [op["op"] for op in captured["ops"]]
+    delete_anchors = [op["anchor_id"] for op in captured["ops"] if op["op"] == "delete_paragraph"]
+    assert kinds == ["format_paragraph", "delete_paragraph", "delete_paragraph"]
+    assert delete_anchors == ["para:5", "para:2"]  # descending — higher index first
+
+
+def test_regularize_watermark_removed_when_allowed_idempotent(monkeypatch):
+    app = _make_app()
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        doc.set_watermark("DRAFT")
+        withheld = doc.regularize(rules=["draft-watermark-present"])
+        assert withheld["applied"] == []
+        assert {f["rule"] for f in withheld["deferred"]} == {"draft-watermark-present"}
+        opened = doc.regularize(rules=["draft-watermark-present"], allow_content=True)
+        assert {f["rule"] for f in opened["applied"]} == {"draft-watermark-present"}
+        # Fix landed: watermark gone, re-lint clean, second pass a no-op.
+        assert doc.watermark() is None
+        assert doc.lint(rules=["draft-watermark-present"]) == []
+        again = doc.regularize(rules=["draft-watermark-present"], allow_content=True)
+    assert again["applied"] == []
+
+
+def test_regularize_hyperlink_bare_for_print_idempotent(monkeypatch):
+    app = _make_app(
+        hyperlinks=[{"text": "Acme", "address": "https://acme.example/page", "start": 5, "end": 9}]
+    )
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        withheld = doc.regularize(rules=["hyperlink-bare-for-print"])
+        assert withheld["applied"] == []
+        assert {f["rule"] for f in withheld["deferred"]} == {"hyperlink-bare-for-print"}
+        opened = doc.regularize(rules=["hyperlink-bare-for-print"], allow_content=True)
+        assert {f["rule"] for f in opened["applied"]} == {"hyperlink-bare-for-print"}
+        # URL now folded into the label → the address-in-text guard silences the rule.
+        assert doc.lint(rules=["hyperlink-bare-for-print"]) == []
+        again = doc.regularize(rules=["hyperlink-bare-for-print"], allow_content=True)
+    assert again["applied"] == []
+
+
+def test_regularize_page_number_gated_then_applied(monkeypatch):
+    app = _make_app()  # one section, empty footers, no PAGE field
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        withheld = doc.regularize(rules=["page-numbers-present"])
+        assert withheld["applied"] == []
+        assert {f["rule"] for f in withheld["deferred"]} == {"page-numbers-present"}
+        opened = doc.regularize(rules=["page-numbers-present"], allow_content=True)
+    assert {f["rule"] for f in opened["applied"]} == {"page-numbers-present"}
+
+
+def test_regularize_confidentiality_notice_gated_then_applied(monkeypatch):
+    app = _make_app(content="Just some body text.")
+    _attach(monkeypatch, app)
+    profile = {"rules": {"confidentiality-notice": {"text": "CONFIDENTIAL"}}}
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        withheld = doc.regularize(rules=["confidentiality-notice"], profile=profile)
+        assert withheld["applied"] == []
+        assert {f["rule"] for f in withheld["deferred"]} == {"confidentiality-notice"}
+        opened = doc.regularize(
+            rules=["confidentiality-notice"], profile=profile, allow_content=True
+        )
+    assert {f["rule"] for f in opened["applied"]} == {"confidentiality-notice"}

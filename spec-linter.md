@@ -1,9 +1,9 @@
 # Linter + formatting regularizer — design sketch
 
-Status: **Batch 5 + the `adds_content` gate shipped (Unreleased, 2026-07-06)** —
-design was a **sketch** (2026-06-17). Roadmap home: `feature-plan.md` Part II,
-Priority 1, item 1. This is the detailed design; the roadmap keeps the
-one-paragraph summary.
+Status: **Batch 6 — the first `adds_content` opt-in fixes shipped (Unreleased,
+2026-07-08)**; Batch 5 + the gate before it — design was a **sketch** (2026-06-17).
+Roadmap home: `feature-plan.md` Part II, Priority 1, item 1. This is the detailed
+design; the roadmap keeps the one-paragraph summary.
 
 ## Progress
 
@@ -20,27 +20,32 @@ one-paragraph summary.
 | Batch 4b — hyperlinks (§I) | 3 rules over `doc.hyperlinks` (`_linting_hyperlinks.py`); no new read surface |
 | Batch 4c — layout / document-level (§H) | 5 rules (`_linting_layout.py`) + a new `doc.watermark()` read (`WatermarkInfo`) |
 | Batch 5 — heading & document structure (§B) | 6 rules over `doc.outline()` (`_linting_headings.py`); `heading-trailing-period` fixable (in-place strip), the new `structure` tag; no new read surface |
-| `adds_content` gate (§8) | `Finding.adds_content` field + `regularize(allow_content=…)` surface gating; content-changing fixes withheld into a new `deferred` report bucket by default; wired Python / CLI (`--allow-content`) / exec op / MCP. No content fixes wired *yet* — this is the infrastructure they plug into |
+| `adds_content` gate (§8) | `Finding.adds_content` field + `regularize(allow_content=…)` surface gating; content-changing fixes withheld into a new `deferred` report bucket by default; wired Python / CLI (`--allow-content`) / exec op / MCP. The infrastructure the content fixes plug into |
+| Batch 6 — first `adds_content` opt-in fixes | 5 report-only rules wired fixable + 1 new rule, all `adds_content=True`, pure composition (no new COM write): `draft-watermark-present`→`remove_watermark`; `page-numbers-present`→`{ PAGE }` in `footer:1:primary`; `confidentiality-notice`/`copyright-notice`→notice into `footer:1:primary`; `hyperlink-bare-for-print`→fold URL into display text; **new** `stray-empty-paragraph` (off, `whitespace` tag)→`delete_paragraph`. `regularize` applies deletes last, descending, so a multi-blank pass keeps earlier anchors valid |
 
 Two standing decisions: `stale-fields` stays a **report-only nudge** (Word exposes
-no staleness flag, so a presence-based refresh can't be idempotent), and **no
-content-adding or repair fix has shipped yet** — the `adds_content` gate (the
-infrastructure) now exists, but the individual content fixes that plug into it
-(remaining item 1) are still to be wired. `heading-trailing-period` (Batch 5) is the
-only fix beyond the foundation/typography set, because stripping a period is a pure
-in-place edit that needs no such gate. So the report-only rules across Batches 2–5
-are deferred, not forgotten.
+no staleness flag, so a presence-based refresh can't be idempotent), and the
+**content-adding / repair fixes are now shipping rule-by-rule** — Batch 6 wired the
+first six into the `adds_content` gate (watermark strip, page number, both notices,
+bare-hyperlink fold, stray-blank delete). The rest stay report-only for concrete
+reasons (see Remaining item 1). `heading-trailing-period` (Batch 5) remains the only
+*ungated* fix beyond the foundation/typography set, because stripping a period is a
+pure in-place edit. So the report-only rules across Batches 2–5 are being closed out,
+not forgotten.
 
 **Remaining** (priority order; the full rule catalogue is §5b):
 
-1. **Close the loop — make the report-only rules fixable.** The
-   `adds_content: bool` Finding field + surface gating (§8) has **shipped** (the
-   `deferred` bucket + `allow_content` across all four surfaces). What remains is
-   wiring the deferred opt-in fixes themselves: strip watermark, fill property,
-   insert notice, append `(url)` / label a hyperlink, repair a broken ref, rebuild
-   a `SEQ` caption, insert a page number, delete `stray-empty-paragraph`,
-   `figure-caption-present`. Reuses existing write verbs; each must stay idempotent
-   and flag `adds_content=True` so the gate withholds it by default.
+1. **Close the loop — make the report-only rules fixable.** The gate (§8) and the
+   first six fixes have **shipped** (Batch 6): strip watermark, insert page number,
+   insert confidentiality/copyright notice, fold `(url)` into a bare hyperlink, and a
+   new `stray-empty-paragraph` delete — each reuses an existing write verb, is
+   idempotent, and flags `adds_content=True`. **Still deferred, for cause:**
+   `document-properties-filled` (the fix needs a *value* the linter doesn't have — a
+   profile-schema change, see item 2's `house_style`), `caption-manual-numbering`
+   (rebuilding the number as a `SEQ` field in place is a fragile edit, not one existing
+   verb), `figure-caption-present` (rule not yet written — needs an image/table-adjacency
+   detection walk), and `broken-cross-reference` / `xref-as-literal-text` (repairing a
+   `REF` needs a human-chosen target). These stay report-only until their blocker clears.
 2. **`house_style` half of §6** — pin consistency-rule targets to named style values
    and fix by updating the style (`set_style`) — the brand/template path.
 3. **Batch 1b typography heuristics** — `straight-quotes`, `nbsp-missing`,
@@ -166,7 +171,7 @@ and how it's **fixed** (the wordlive verb / exec op). All fixes are idempotent
 | `heading-widow-orphan` | structural | `WidowControl` off on a heading/body para | `format_paragraph(widow_control=True)` |
 | `heading-spacing-consistent` | consistency | a heading's `SpaceBefore`/`SpaceAfter` ≠ its style's | clear the override → style value (§7) |
 | `body-line-spacing` | policy | `LineSpacingRule`/`LineSpacing` ≠ profile target | `format_paragraph(line_spacing=…)` |
-| `stray-empty-paragraph` | structural | an empty `Normal` paragraph between blocks | `delete_paragraph` (report-only by default; deletes are loud) |
+| `stray-empty-paragraph` | structural | an empty `Normal` paragraph between blocks | `delete_paragraph` (✅ **shipped Batch 6** — off by default, `whitespace` tag; the fix is `adds_content` so the gate withholds it; deletes ordered descending) |
 | `double-space` | consistency | runs of 2+ spaces in body text | `find_replace` collapse (skip code/verbatim styles) |
 
 ### Font / character consistency
@@ -346,10 +351,14 @@ These cluster as a coherent **`finalization`** tag — useful as a standalone
 ### H. Page layout & document-level  *(P4)* — ✅ shipped Batch 4c (Unreleased)
 
 Shipped as `_linting_layout.py` (`page-numbers-present` shipped earlier in Batch 3).
-All **off by default** and **report-only**; the notice pair also carries the new
-`notices` tag. `header-footer-consistent` is scoped to **text** for v1 (cross-section
-*format* comparison deferred — heuristic + not exercisable by the fake fixture).
-Detection reuses `doc.properties` / `doc.sections` plus the new `doc.watermark()` read.
+All **off by default**; the notice pair also carries the new `notices` tag. Detection
+landed here; **Batch 6 then wired the opt-in fixes** (`adds_content=True`) for
+`draft-watermark-present` (→`remove_watermark`), `page-numbers-present` (→`{ PAGE }` in
+`footer:1:primary`), and both notices (→notice text into `footer:1:primary`).
+`document-properties-filled` (needs a value) and `header-footer-consistent` stay
+report-only — the latter scoped to **text** for v1 (cross-section *format* comparison
+deferred — heuristic + not exercisable by the fake fixture). Detection reuses
+`doc.properties` / `doc.sections` plus the new `doc.watermark()` read.
 
 | id | kind | detect | fix | default |
 |---|---|---|---|---|
@@ -363,8 +372,11 @@ Detection reuses `doc.properties` / `doc.sections` plus the new `doc.watermark()
 ### I. Hyperlinks  *(print / sharing)* — ✅ shipped Batch 4b (Unreleased)
 
 Shipped as `_linting_hyperlinks.py`, a thin walk over `doc.hyperlinks` (no new read
-surface). All three report-only. `hyperlink-broken-internal` is **on**; the two
-print/sharing rules are **off**, behind the `hyperlinks` / `print` tags.
+surface). `hyperlink-broken-internal` is **on**; the two print/sharing rules are
+**off**, behind the `hyperlinks` / `print` tags. **Batch 6 wired** the opt-in fix
+(`adds_content=True`) for `hyperlink-bare-for-print` — fold the URL into the display
+text as `label (url)` via `set_hyperlink` (targeting the link by positional index);
+the other two stay report-only (a broken jump / a bare-URL label need a human's call).
 
 | id | kind | detect | fix | default |
 |---|---|---|---|---|
@@ -393,10 +405,12 @@ guided them, and what it implies next:
 3. **Field-code backbone (§C, P1)** → **Batch 3 / 3b** ✅ — the `Range.Fields` walk; the academia centerpiece.
 4. **Profiles + §H/§I (P4 + §6)** → **Batch 4a** (profiles/policy) ✅, **4b** (hyperlinks §I) ✅, **4c** (layout §H + `doc.watermark()`) ✅.
 5. **Heading & document structure (§B, P2 + outline)** → **Batch 5** ✅ — six rules over `doc.outline()`; `heading-trailing-period` fixable, the new `structure` tag.
-6. **Later** — citations (§D), then the accessibility sub-product with *prepare-for-sharing* (§9).
+6. **First `adds_content` opt-in fixes** → **Batch 6** ✅ — five report-only rules wired fixable + the new `stray-empty-paragraph`, the first fixes to populate the gate's `deferred` bucket.
+7. **Later** — citations (§D), then the accessibility sub-product with *prepare-for-sharing* (§9).
 
-Cross-cutting (not a detection batch): the `adds_content` gate that unlocks the
-deferred content/repair fixes, and the `house_style` half of §6 — both in **Remaining**, up top.
+Cross-cutting (not a detection batch): the `adds_content` gate (✅ shipped) whose first
+fixes landed in Batch 6 — the rest close out rule-by-rule (Remaining item 1) — and the
+`house_style` half of §6, still in **Remaining**, up top.
 
 ## 6. Profiles (policy rules + house style)
 

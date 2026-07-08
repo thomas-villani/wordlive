@@ -380,6 +380,23 @@ def _fix_ops(fix: FixOps) -> list[dict[str, Any]]:
     return list(fix) if isinstance(fix, list) else [fix]
 
 
+def _delete_order_key(op: dict[str, Any]) -> int:
+    """The document position a `delete_paragraph` op targets — its `para:N` index or a
+    `range:START-END` start. `regularize` applies deletes in *descending* order of this
+    key so that removing a later paragraph never renumbers/shifts an earlier fix's
+    anchor within the same atomic pass (the multi-blank `stray-empty-paragraph` case)."""
+    anchor = str(op.get("anchor_id") or "")
+    kind, _, value = anchor.partition(":")
+    try:
+        if kind == "para":
+            return int(value)
+        if kind == "range":
+            return int(value.split("-", 1)[0])
+    except (ValueError, IndexError):
+        return 0
+    return 0
+
+
 def regularize(
     doc: Document,
     *,
@@ -426,8 +443,15 @@ def regularize(
         return report
 
     ops: list[dict[str, Any]] = []
+    deletes: list[dict[str, Any]] = []
     for f in to_apply:
-        ops.extend(_fix_ops(f.fix))  # type: ignore[arg-type]
+        for op in _fix_ops(f.fix):  # type: ignore[arg-type]
+            # Paragraph deletions shift every later anchor, so they can't run inline
+            # with the other fixes: collect them and apply last, descending by position
+            # (see `_delete_order_key`). Every other fix is anchor-stable in one pass.
+            (deletes if op.get("op") == "delete_paragraph" else ops).append(op)
+    deletes.sort(key=_delete_order_key, reverse=True)
+    ops.extend(deletes)
     if own_undo:
         result, exc = run_batch(doc, ops, label="Regularize formatting")
         if exc is not None:
