@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Linter Batch 6 — the first `adds_content` opt-in fixes (5 rules wired fixable + 1 new rule).**
+  (Priority 1, item 1 — `spec-linter.md` Remaining item 1.) The `adds_content` gate finally has fixes
+  plugged into it: six report-only rules now carry an opt-in `fix` flagged `adds_content=True`, so
+  `regularize` reports them in `deferred` by default and applies them under `allow_content=True`
+  (`--allow-content`). All compose existing exec ops — **no new COM write surface** — and all are
+  idempotent. `draft-watermark-present` → `remove_watermark`; `page-numbers-present` → a `{ PAGE }`
+  field in `footer:1:primary`; `confidentiality-notice` / `copyright-notice` → the notice text
+  dropped into `footer:1:primary`; `hyperlink-bare-for-print` → the URL folded into the display text
+  as `label (url)` (targeting the link by positional index). A **new** `stray-empty-paragraph` rule
+  (structural, **off** by default behind the new `whitespace` tag) flags an empty `Normal` paragraph
+  between content blocks and fixes it with `delete_paragraph`; `regularize` applies paragraph
+  deletions last and in descending document order, so a multi-blank pass never invalidates an earlier
+  fix's anchor. `document-properties-filled` (needs a value), `caption-manual-numbering` (fragile
+  in-place `SEQ` rebuild), `xref-as-literal-text` / `broken-cross-reference` (need a human-chosen
+  target) stay report-only. Live-probed against Word 16 (a messy doc — watermark, no page number,
+  bare hyperlink, two stray blanks — regularized to clean, second pass a no-op).
 - **Linter `adds_content` gate — content-changing fixes are now opt-in.** (Priority 1, item 1 —
   `spec-linter.md` §8.) `Finding` gains an `adds_content: bool` field: a fixable finding whose fix
   **inserts or destroys content** (rather than just re-formatting existing content) sets it `True`.

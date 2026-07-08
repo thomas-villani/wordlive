@@ -1564,3 +1564,47 @@ def test_checkpoint_ignores_field_code_view_toggle(scratch_doc):
     finally:
         view.ShowFieldCodes = original
     assert changes == []
+
+
+# ---------------------------------------------------------------------------
+# Batch 6 — the first adds_content opt-in linter fixes, end-to-end vs live Word
+# ---------------------------------------------------------------------------
+
+
+def test_regularize_content_fixes_round_trip(scratch_doc):
+    """A messy document -> regularize(allow_content=True) -> re-lint clean -> a second
+    pass is a no-op. Exercises the six wired fixes against real Word, and above all the
+    multi-delete reverse-order guard (two stray blank paragraphs deleted in one pass)."""
+    doc = scratch_doc
+    with doc.edit("seed messy doc"):
+        doc.append_paragraph("Intro body paragraph.", style="Normal")
+        doc.append_paragraph("", style="Normal")  # stray blank #1
+        doc.append_paragraph("Middle body paragraph.", style="Normal")
+        doc.append_paragraph("", style="Normal")  # stray blank #2
+        doc.append_paragraph("Final body paragraph.", style="Normal")
+        doc.set_watermark("DRAFT")
+        doc.end.link_to("https://acme.example/report", text="Acme")
+
+    # Selecting a policy rule by id enables it, so no profile is needed here.
+    rules_all = [
+        "stray-empty-paragraph",
+        "draft-watermark-present",
+        "hyperlink-bare-for-print",
+        "page-numbers-present",
+    ]
+
+    # Withheld by default: every fix is adds_content, so nothing applies unprompted.
+    withheld = doc.regularize(rules=rules_all)
+    assert withheld["applied"] == []
+    assert {f["rule"] for f in withheld["deferred"]} == set(rules_all)
+
+    report = doc.regularize(rules=rules_all, allow_content=True)
+    assert {f["rule"] for f in report["applied"]} == set(rules_all)
+    # Both stray blanks are gone (reverse-order deletes didn't corrupt each other):
+    # four distinct rules but stray-empty-paragraph fired twice → five applied fixes.
+    assert len(report["applied"]) == len(set(rules_all)) + 1
+
+    assert doc.watermark() is None
+    assert doc.lint(rules=rules_all) == []
+    again = doc.regularize(rules=rules_all, allow_content=True)
+    assert again["applied"] == []

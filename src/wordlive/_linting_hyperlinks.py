@@ -14,11 +14,13 @@ batch adds **no new read surface** — it is pure rule engine, the Batch-3 shape
   where a human-readable label is wanted. **Off by default** (tags `hyperlinks` /
   `print`; `--rule print` selects just these two print/sharing rules).
 
-All three are **report-only** (`fixable=False`): repairing a broken jump needs a
-human to pick the intended bookmark, and the print/label fixes add content
-(append `(url)`, invent a label) — opt-in, deferred with the `adds_content` gate.
-The write verbs those fixes would use already exist (`Hyperlink.update`), so this
-batch adds no new COM write surface.
+`hyperlink-bare-for-print` carries an **opt-in fix** (Batch 6): it folds the URL into
+the display text (``label (url)``) via `set_hyperlink`, flagged `adds_content=True` so
+the gate withholds it unless the caller passes `allow_content=True` (idempotent — the
+``address in text`` guard skips a link whose label already shows the URL). The other two
+stay **report-only**: repairing a broken jump needs a human to pick the intended
+bookmark, and inventing a readable label is a human call. The write verb already exists
+(`Hyperlink.update`), so no new COM write surface.
 
 Detection reuses the shipped `doc.hyperlinks` / `doc.bookmarks` read wrappers.
 `name in doc.bookmarks` resolves through Word's `Bookmarks.Exists`, which also sees
@@ -105,8 +107,15 @@ def _check_hyperlink_bare_for_print(
 ) -> Iterator[Finding]:
     """An external link whose visible text doesn't contain its URL — the destination
     is invisible when the document is printed. Off by default (a print/sharing
-    concern). Report-only: appending `(url)` adds content (an opt-in fix, deferred)."""
-    for link in _hyperlinks(doc):
+    concern). Opt-in fix (Batch 6): fold the URL into the display text as
+    ``label (url)`` so it survives on paper.
+
+    The fix targets the link by its 1-based positional `index` (what `set_hyperlink`
+    takes — a hyperlink has no stable anchor id), so the loop enumerates. Editing the
+    display text neither adds nor removes links, so the index stays valid across a
+    regularize pass. Idempotent: once the URL is in the label, the ``address in text``
+    guard below skips the link and the rule falls silent."""
+    for index, link in enumerate(_hyperlinks(doc), start=1):
         address = str(link.get("address") or "").strip()
         text = str(link.get("text") or "").strip()
         if not address:
@@ -125,7 +134,10 @@ def _check_hyperlink_bare_for_print(
                 f"Hyperlink {text!r} hides its destination ({address!r}); the URL is "
                 "invisible in print."
             ),
-            fixable=False,
+            fixable=True,
+            # Adds content (the URL text), so the gate withholds it by default.
+            adds_content=True,
+            fix={"op": "set_hyperlink", "index": index, "text": f"{text} ({address})"},
             observed=f"text={text!r}, address={address!r}",
             expected="the URL shown alongside the label",
         )

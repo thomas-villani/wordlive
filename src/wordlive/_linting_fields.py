@@ -15,12 +15,14 @@ unlocked by walking Word's field codes (`Range.Fields`). Three rules ship here:
   reorder. Heuristic (a bare "Table 2" in prose is often legitimate), so **off by default**
   behind the `crossref` / `academia` tags — the Batch 3b follow-up promised when Batch 3 shipped.
 
-This batch is **pure detection** — every rule is `fixable=False`. The fixes the §C/§H
-catalogue envisions all either add content (rebuild a caption around a `SEQ` field, insert
-a page number) or need target matching (repair a broken `REF`), so they're opt-in and
-deferred to a later batch (with the `adds_content` gating). The write verbs those fixes
-would use already exist (`update_fields`, `insert_caption`, `insert_cross_reference`,
-`HeaderFooter.insert_page_number`) — this batch adds no new COM write surface.
+Detection landed in Batch 3/3b; Batch 6 then wired the one clean fix: `page-numbers-present`
+carries an **opt-in fix** (`adds_content=True`) that inserts a `{ PAGE }` field into
+`footer:1:primary` via `insert_field` — withheld by the gate unless `allow_content=True`,
+and idempotent (`_has_page_field` re-reads the state, so a numbered document stops firing).
+The other three stay **report-only**: rebuilding a `caption-manual-numbering` around a `SEQ`
+field is a fragile in-place edit, and repairing a `broken-cross-reference` / `xref-as-literal
+-text` needs a human-chosen target. The write verbs already exist (`insert_field`,
+`insert_caption`, `insert_cross_reference`), so no new COM write surface.
 
 Detection reuses the shipped `doc.fields` / `doc.paragraphs` / `doc.sections` read wrappers.
 Imported by `_linting` for its side effect of registering the rules.
@@ -242,7 +244,13 @@ def _check_page_numbers_present(
         severity="info",
         anchor_id="start",
         message="No page-number (PAGE) field found in any header or footer.",
-        fixable=False,
+        fixable=True,
+        # Adds content — withheld by the gate unless the caller opts in. Idempotent:
+        # once a PAGE field lives in the first section's primary footer, `_has_page_field`
+        # finds it on the next pass and the rule falls silent. `footer:1:primary` is the
+        # conventional home for a page number.
+        adds_content=True,
+        fix={"op": "insert_field", "anchor_id": "footer:1:primary", "kind": "page"},
         observed="no PAGE field",
         expected="a PAGE field in a header/footer",
     )

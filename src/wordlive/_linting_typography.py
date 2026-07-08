@@ -21,6 +21,12 @@ Per `spec-linter.md` §5b "default stance", opinionated rules (`hyphen-as-range`
 unambiguous-defect ones (whitespace hygiene, manual-heading-formatting,
 table-style-consistent) ship on.
 
+`stray-empty-paragraph` (Batch 6) is the exception whose fix *destroys* content: an
+empty `Normal` paragraph between content blocks, deleted via `delete_paragraph`. It
+ships **off** (an empty paragraph is often a deliberate spacer) behind the new
+`whitespace` tag, and the delete is flagged `adds_content=True` so the gate withholds
+it unless the caller passes `allow_content=True`.
+
 Imported by `_linting` for its side effect of registering the rules (after `Rule`
 / `Finding` / `_register_rule` are defined).
 """
@@ -171,6 +177,57 @@ def _check_space_before_punctuation(
                 observed="space before , . ; : )",
                 expected="no space before punctuation",
             )
+
+
+def _check_stray_empty_paragraph(
+    doc: Document, span: Span | None, profile: Profile
+) -> Iterator[Finding]:
+    """An empty `Normal` paragraph sitting *between* content blocks — the blank line
+    someone left behind for spacing. Off by default (empty paragraphs are often
+    deliberate) and the fix (`delete_paragraph`) destroys content, so it's gated and
+    only offered when the caller opts in.
+
+    "Between blocks" is the guard against false positives: we require non-empty content
+    both **before** and **after** the blank, which exempts leading/trailing blanks and
+    Word's mandatory final paragraph mark. We restrict to the `Normal` style — an empty
+    heading is `empty-heading`'s job, and an empty styled paragraph elsewhere is too
+    ambiguous to touch. Deletions are ordered by `regularize` (descending, so earlier
+    `para:N` anchors stay valid across a multi-blank pass)."""
+    rows = doc.paragraphs.list()
+    # Does real (non-empty) content follow index i? One reverse pass, so the forward
+    # scan below is O(n) rather than O(n²).
+    content_after = [False] * len(rows)
+    seen = False
+    for i in range(len(rows) - 1, -1, -1):
+        content_after[i] = seen
+        if str(rows[i]["text"]).strip():
+            seen = True
+    content_before = False
+    for i, row in enumerate(rows):
+        if str(row["text"]).strip():
+            content_before = True
+            continue
+        # An empty (or whitespace-only) paragraph. Only stray if it's flanked by content.
+        if not content_before or not content_after[i]:
+            continue
+        if str(row.get("style") or "").casefold() != "normal":
+            continue  # a styled empty paragraph is a different (or intentional) thing
+        if not _in_span(span, row):
+            continue
+        yield Finding(
+            rule="stray-empty-paragraph",
+            kind="structural",
+            severity="info",
+            anchor_id=row["anchor_id"],
+            message="Empty paragraph between content blocks (a leftover blank line).",
+            fixable=True,
+            # Deletes content — the gate withholds it unless the caller opts in.
+            # Idempotent: the paragraph is gone after the delete, so a re-lint is clean.
+            adds_content=True,
+            fix={"op": "delete_paragraph", "anchor_id": row["anchor_id"]},
+            observed="empty Normal paragraph",
+            expected="no stray blank line",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +417,14 @@ for _rule in (
         severity="info",
         tags=("typography",),
         check=_check_space_before_punctuation,
+    ),
+    Rule(
+        id="stray-empty-paragraph",
+        kind="structural",
+        severity="info",
+        tags=("typography", "whitespace"),
+        check=_check_stray_empty_paragraph,
+        default_on=False,
     ),
     Rule(
         id="hyphen-as-range",

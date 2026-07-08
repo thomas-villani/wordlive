@@ -244,10 +244,11 @@ applies all 26 in one undo record, and a second pass is still empty. See
 
 ## The rule catalog
 
-Forty-four rules ship today. In the tables below, **on** (✅) marks the rules in the
+Forty-five rules ship today. In the tables below, **on** (✅) marks the rules in the
 default set, and **fix** marks whether `regularize` can repair it automatically:
-✎ fixable, · report-only (yours to resolve by hand). The **tags** are what you
-pass to `rules=[…]` / `--rule` to select a whole cluster at once.
+✎ fixable, · report-only (yours to resolve by hand). A **✎⊕** fix adds or deletes
+content, so it's applied only under `allow_content` (see the warning above). The
+**tags** are what you pass to `rules=[…]` / `--rule` to select a whole cluster at once.
 
 ### Consistency — drift from the applied style
 
@@ -283,6 +284,7 @@ in layout, numbering, or hand-off.
 | `list-numbering-continuity` | A numbered list Word split into independent runs, so the numbering restarts at 1. | ✅ | ✎ | lists |
 | `trailing-whitespace` | A paragraph that ends in spaces or tabs. | ✅ | ✎ | typography |
 | `leading-whitespace` | A paragraph that starts with literal spaces or tabs (use a paragraph indent). | ✅ | ✎ | typography |
+| `stray-empty-paragraph` | An empty `Normal` paragraph between content blocks — a leftover blank line. | — | ✎⊕ | typography, whitespace |
 | `manual-heading-formatting` | A short, all-bold or enlarged body paragraph that reads like a heading but was never styled as one. | ✅ | · | typography, headings |
 | `heading-level-skip` | An outline that jumps a level — an H1 followed by an H3 with no H2 between them. | ✅ | · | headings, structure |
 | `empty-heading` | A heading paragraph with no text — a stray styled blank line that pollutes the outline. | ✅ | · | headings, structure |
@@ -293,7 +295,7 @@ in layout, numbering, or hand-off.
 | `manual-line-break` | A Shift+Enter line break inside a paragraph, where a real paragraph break likely belongs. | — | · | typography |
 | `xref-as-literal-text` | A body paragraph naming a figure/table by literal number ("see Figure 3") with no `REF` field to keep it in sync. | — | · | crossref, academia |
 | `hyperlink-broken-internal` | An internal jump (`HYPERLINK \l`) pointing at a bookmark that no longer exists — a dead link. | ✅ | · | hyperlinks |
-| `draft-watermark-present` | A text watermark (a leftover DRAFT / CONFIDENTIAL stamp) still on the document. | — | · | layout, finalization |
+| `draft-watermark-present` | A text watermark (a leftover DRAFT / CONFIDENTIAL stamp) still on the document. | — | ✎⊕ | layout, finalization |
 | `comments-present` | Review comments still left in the document. | — | · | finalization |
 | `unaccepted-revisions` | Tracked changes that were never accepted or rejected. | — | · | finalization |
 | `track-changes-on` | Track Changes is still switched on (a document-global flag). | — | · | finalization |
@@ -312,11 +314,11 @@ that only become "wrong" once you've declared the target.
 | `body-line-spacing` | Body paragraphs whose line spacing isn't the profile's target. | ✎ | spacing, policy | `target` (`"single"`/`"1.5"`/`"double"`) — required |
 | `table-numeric-right-align` | A table column that's mostly numbers but not right-aligned. | ✎ | tables, policy | `threshold` (default `0.8`) |
 | `em-dash-usage` | An em-dash is present — flags only; the `--` swap is too opinion-laden to auto-apply. | · | typography | — |
-| `page-numbers-present` | No `PAGE` field in any header or footer. | · | layout | — |
-| `hyperlink-bare-for-print` | An external link whose visible text doesn't contain its URL, so the destination is invisible on paper. | · | hyperlinks, print | — |
+| `page-numbers-present` | No `PAGE` field in any header or footer. | ✎⊕ | layout | — |
+| `hyperlink-bare-for-print` | An external link whose visible text doesn't contain its URL, so the destination is invisible on paper. | ✎⊕ | hyperlinks, print | — |
 | `document-properties-filled` | A required built-in property (Title / Author) left empty. | · | layout | `required` (list of property names; default `["Title", "Author"]`) |
-| `confidentiality-notice` | A required confidentiality notice missing from every header/footer and the body. | · | layout, notices | `text` — required (the notice string to look for) |
-| `copyright-notice` | A copyright notice missing from every header/footer and the body. | · | layout, notices | `text` (default `"©"`) |
+| `confidentiality-notice` | A required confidentiality notice missing from every header/footer and the body. | ✎⊕ | layout, notices | `text` — required (the notice string to look for) |
+| `copyright-notice` | A copyright notice missing from every header/footer and the body. | ✎⊕ | layout, notices | `text` (default `"©"`) |
 
 ## Selecting which rules run
 

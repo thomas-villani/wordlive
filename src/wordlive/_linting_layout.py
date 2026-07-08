@@ -17,13 +17,17 @@ these are an opt-in "getting it ready to hand off" check):
 - `draft-watermark-present` — a text watermark (a leftover *DRAFT* / *CONFIDENTIAL*
   stamp) is still on the document.
 
-All five are **report-only** (`fixable=False`): filling a property, inserting a
-notice, or stripping a watermark each add or destroy content — opt-in fixes,
-deferred with the `adds_content` gate (the write verbs already exist —
-`doc.properties.set`, `doc.remove_watermark` — so this batch adds no new COM write
-surface). Detection reuses the shipped `doc.properties` / `doc.sections` read
-wrappers plus the new `doc.watermark()` read (the mirror of
-`set_watermark`/`remove_watermark` this batch added).
+`draft-watermark-present`, `confidentiality-notice` and `copyright-notice` carry an
+**opt-in fix** flagged `adds_content=True` (Batch 6): `remove_watermark` strips the
+watermark, and a missing notice is dropped into `footer:1:primary` via
+`insert_paragraph`. Both add or destroy content, so the `adds_content` gate withholds
+them unless the caller passes `allow_content=True`; both are idempotent (`doc.watermark
+()` / `_notice_present` re-read the state, so a fixed document stops firing). The write
+verbs already exist, so this adds no new COM write surface. `document-properties-filled`
+and `header-footer-consistent` stay **report-only** — filling a property needs a value
+the linter doesn't have, and which header/footer text is canonical is a human call.
+Detection reuses the shipped `doc.properties` / `doc.sections` read wrappers plus the
+`doc.watermark()` read (the mirror of `set_watermark`/`remove_watermark`).
 
 The two notice rules and `document-properties-filled` are `policy` (off until a
 profile opts them in and — for the notices — supplies the text); the other two are
@@ -95,6 +99,14 @@ def _notice_present(doc: Document, text: str) -> bool:
     return any(needle in hf.casefold() for hf in _header_footer_texts(doc))
 
 
+def _notice_fix(text: str) -> dict[str, Any]:
+    """The opt-in fix for a missing notice: drop the line into the first section's
+    primary footer (a notice's conventional home). `_notice_present` scans every
+    header/footer and the body, so once inserted the rule reads it back and stops
+    firing — the fix is idempotent."""
+    return {"op": "insert_paragraph", "anchor_id": "footer:1:primary", "text": text}
+
+
 def _check_document_properties_filled(
     doc: Document, span: Span | None, profile: Profile
 ) -> Iterator[Finding]:
@@ -142,7 +154,12 @@ def _check_confidentiality_notice(
         severity="warning",
         anchor_id="start",
         message=f"Confidentiality notice {text!r} not found in any header/footer or the body.",
-        fixable=False,
+        fixable=True,
+        # Adds content — the gate withholds it unless the caller opts in. Idempotent:
+        # once the notice sits in a footer, `_notice_present` sees it and the rule
+        # stops firing. `footer:1:primary` is the conventional home for a notice.
+        adds_content=True,
+        fix=_notice_fix(text),
         observed="notice absent",
         expected=f"the notice {text!r} present",
     )
@@ -165,7 +182,9 @@ def _check_copyright_notice(
         severity="warning",
         anchor_id="start",
         message=f"Copyright notice {text!r} not found in any header/footer or the body.",
-        fixable=False,
+        fixable=True,
+        adds_content=True,  # withheld by the gate; idempotent via `_notice_present`
+        fix=_notice_fix(text),
         observed="notice absent",
         expected=f"the notice {text!r} present",
     )
@@ -245,7 +264,12 @@ def _check_draft_watermark_present(
         severity="warning",
         anchor_id="start",
         message=f"A text watermark ({shown!r}) is still on the document.",
-        fixable=False,
+        fixable=True,
+        # Destroys content (the watermark), so the gate withholds it by default.
+        # Idempotent: after removal `doc.watermark()` is None and the rule is silent;
+        # a re-run of `remove_watermark` on a bare document is a no-op.
+        adds_content=True,
+        fix={"op": "remove_watermark"},
         observed=f"watermark={shown!r}",
         expected="no watermark on a final document",
     )
