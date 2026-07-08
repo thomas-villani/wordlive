@@ -52,6 +52,22 @@ Built for both human scripting and LLM agents. Windows-only.
 
     [:octicons-arrow-right-24: Linting & regularizing](linting.md)
 
+-   :material-rocket-launch-outline:{ .lg .middle } **Go deeper**
+
+    ---
+
+    The power features in one session: budgeted reads, pins, charts, vision snapshots.
+
+    [:octicons-arrow-right-24: Advanced](advanced.md)
+
+-   :material-robot-outline:{ .lg .middle } **Driving an LLM?**
+
+    ---
+
+    Connect an agent — including the one-drop `.mcpb` — then learn the patterns.
+
+    [:octicons-arrow-right-24: Agent patterns](agent-patterns.md)
+
 </div>
 
 ---

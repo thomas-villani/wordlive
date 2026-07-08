@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Docs — two new guides plus a prominent one-click agent install.** A new
+  [Advanced](docs/advanced.md) page walks the power features in one continuous session
+  (token-budgeted `read` digests + `to_markdown` drill, durable `pin`/`pin_outline` handles,
+  Excel-backed `insert_chart`, `snapshot` vision rendering, and profile-driven `regularize`).
+  A new [Agent patterns](docs/agent-patterns.md) page consolidates the LLM-driving patterns that
+  were scattered across the cookbook (skim/drill, anchor-not-cursor, pin-vs-renumber, one-intent
+  batches, suggest-don't-overwrite, checkpoint/diff verify, typed-failure self-correction, vision
+  snapshots, fuzzy locate). `docs/agents.md` now leads with the Claude Desktop `.mcpb` one-drop
+  path; `docs/concepts.md` gains a "Durable handles (pins)" section; and Cookbook §22 adds a
+  vision-snapshot recipe. Nav, landing-page cards, and cross-links updated; docs build clean under
+  `mkdocs build --strict`.
 - **Linter golden e2e — the published walkthrough is now pinned.** Two `e2e`/`smoke` tests in
   `tests/test_e2e_cli.py` drive the real CLI (`lint`, `regularize`, `regularize --dry-run`, and a
   `--profile` run) against the committed `examples/sample/messy-brief.docx` in live Word and assert

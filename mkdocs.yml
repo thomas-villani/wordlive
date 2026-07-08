@@ -76,12 +76,14 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - Tutorial: tutorial.md
+  - Advanced: advanced.md
   - Linting & regularizing: linting.md
   - Concepts: concepts.md
   - Python API: python-api.md
   - CLI: cli.md
   - MCP server: mcp.md
   - Agents & LLM tools: agents.md
+  - Agent patterns: agent-patterns.md
   - Cookbook: cookbook.md
   - Examples: examples.md
   - Errors & exit codes: errors.md

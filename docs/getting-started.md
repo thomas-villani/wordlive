@@ -152,6 +152,8 @@ see [Cookbook §3](cookbook.md#3-add-text-to-a-document).
 - [Tutorial](tutorial.md) — a single guided session that drives one document
   end to end (inspect → read → edit → batch → suggest → verify), so the four
   ideas land by doing.
+- [Advanced](advanced.md) — the power features in one continuous session:
+  token-budgeted reads, durable pins, charts, vision snapshots, house-style linting.
 - [Concepts](concepts.md) — the four ideas that shape every wordlive API:
   politeness, semantic anchors, anchor IDs, and `EditScope`.
 - [Cookbook](cookbook.md) — end-to-end recipes including an LLM tool-use loop.
@@ -163,5 +165,6 @@ see [Cookbook §3](cookbook.md#3-add-text-to-a-document).
   (`--both` adds the `import wordlive as wl` Python skill) into
   `./.agents/skills/` — or `--system` for `~/.agents/skills/`. To wire up MCP
   instead, `wordlive install-mcp` registers the server with Claude Desktop or
-  Claude Code. See [CLI §install-skill](cli.md#install-skill) and
-  [MCP](mcp.md).
+  Claude Code (on Claude Desktop, just drag the [`.mcpb`](agents.md) bundle onto
+  Settings → Extensions). See [Agents & LLM tools](agents.md) for install and
+  [Agent patterns](agent-patterns.md) for how to drive it well.

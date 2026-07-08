@@ -13,6 +13,21 @@ Both talk to the **already-open** Word document on the same Windows machine.
 Pick whichever your tool supports best (Claude Code supports both; Claude
 Desktop is MCP-only; a plain coding agent in your editor wants the skill).
 
+This page is about **connecting** an agent. For *how to drive it well* once it's
+wired up — the skim/drill, pin, batch, suggest, verify, and self-correct patterns
+— see [Agent patterns](agent-patterns.md).
+
+!!! tip "Fastest path — Claude Desktop, one drop, no JSON"
+    On **Claude Desktop** you don't need to edit any config. Download
+    [`wordlive.mcpb`](https://github.com/thomas-villani/wordlive/tree/main/mcpb)
+    and **drag it onto Settings → Extensions** — it installs in one click. The
+    bundle carries no code: it declares a dependency on the published
+    `wordlive[mcp,snapshot]` package and Claude Desktop's `uv` runtime resolves it
+    on first run (so you need [`uv`](https://docs.astral.sh/uv/) on `PATH`).
+    Restart Claude Desktop, open a `.docx` in Word, and the four `word_*` tools —
+    including the `word_snapshot` vision tool — are live. Everything below is the
+    manual alternative for other clients.
+
 ## The zero-install path: `llm-help`
 
 Before configuring anything, any agent that can run a shell command can read the
@@ -159,4 +174,5 @@ Whichever path you choose, the agent drives the same model:
   `wordlive://guide` resource).
 
 For the full tool list and op vocabulary see [MCP server](mcp.md); for the
-command surface see the [CLI reference](cli.md).
+command surface see the [CLI reference](cli.md); and for how to compose it all
+into a robust loop, [Agent patterns](agent-patterns.md).

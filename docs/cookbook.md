@@ -1256,3 +1256,62 @@ and marker font.
       {"kind":"bullet","bullet":"–","font":"Symbol"}
     ]'
     ```
+
+## 22. Let a vision model see the page
+
+Structured reads tell you what the document *says*; they can't tell you whether
+the *layout* is right — a heading stranded at a page foot, a figure that pushed
+text off the page, "did my restyle actually land." `snapshot` renders the live
+document to a pixel-faithful PNG (Word exports a PDF, wordlive rasterises it), so
+you — or a vision model — can look at the real page, real fonts and geometry
+included. It's read-only: the document, its `Saved` state, and the user's cursor
+are untouched. Needs the `snapshot` extra (`pip install "wordlive[snapshot]"`).
+
+=== "Python"
+
+    ```python
+    import wordlive as wl
+
+    with wl.attach() as word:
+        doc = word.documents.active
+
+        # The page(s) a section occupies — a heading expands to its whole section.
+        shots = doc.snapshot(pages=None, max_dim=1000)   # every page, long edge ≤1000px
+        first_png = shots[0].png                          # bytes → hand to a vision model
+
+        # One section, written to disk, with tracked changes/comments visible:
+        doc.snapshot(out="section.png", markup="all")
+    ```
+
+    `snapshot` returns one [`Snapshot`](python-api.md#wordlive.Snapshot) per page
+    (a single page is a one-element list); read `.png` for the bytes. `pages`
+    takes `None` (all), an `int` (one 1-based page), or a `(start, end)` tuple.
+    `max_dim` caps each page's long edge in pixels — the lever for a cheap
+    *whole-document* layout check, since a vision model bills on pixel area, so
+    the cap fixes a predictable per-page token budget (~1000 stays legible for
+    "did it land?"). `markup="all"` renders revision marks and comment balloons
+    from the export — it never changes the user's on-screen markup setting.
+
+=== "CLI"
+
+    ```bash
+    # One section's page(s), to disk.
+    wordlive snapshot --anchor-id heading:7 --out section.png
+
+    # Whole document, cheap — base64 PNG inline when you omit --out.
+    wordlive snapshot --max-dim 1000 --out doc.png
+
+    # A single page with revision marks visible.
+    wordlive snapshot --page 2 --markup all --out p2-marked.png
+    ```
+
+Pick at most one target (`--anchor-id`, `--page`, or `--pages A-B`); with none the
+whole document renders. Over [MCP](mcp.md), `word_snapshot` returns native image
+content the model sees directly, and `word_read command=read_image
+anchor_id=image:N` does the same for a single embedded picture. This is the
+feedback loop for any formatting work an agent does: **edit → snapshot → look →
+adjust** — see [Agent patterns §8](agent-patterns.md#8-when-its-visual-let-the-model-see-it).
+
+A missing `snapshot` extra raises [`SnapshotError`](errors.md) (exit code 1). If
+Word can't export a PDF (no printer subsystem on a locked-down machine), the same
+error carries the underlying reason.

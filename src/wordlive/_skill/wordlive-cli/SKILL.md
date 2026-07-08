@@ -415,9 +415,16 @@ target without a round-trip: `[{"op":"create_table",...},{"op":"set_cell","table
 
 ## Typical workflow
 1. `wordlive status` → confirm Word and the target document.
-2. `wordlive outline` / `paragraphs` / `find` → get the anchor ids you need.
-3. Edit with the verbs above, or batch related changes with `exec`.
-4. Read back to confirm. Edits are atomic and leave the user's cursor untouched.
+2. `wordlive outline` / `paragraphs` / `find` → get the anchor ids you need (for a
+   large doc, `read digest` first, then drill with `read markdown --within ID`).
+3. For a multi-step session, `pin` (or `pin-outline`) the blocks you'll revisit so
+   positional `heading:N` / `para:N` ids can't drift under your own edits.
+4. Edit with the verbs above, or batch related changes with `exec` (one user-visible
+   intent = one batch = one undo). Suggest rather than overwrite where it fits:
+   `comment add`, or `track on` for accept/reject-able tracked changes.
+5. Verify — Word fires **no** content-change event, so take a `checkpoint` first and
+   `diff --since` it afterwards to confirm exactly which paragraphs changed; use
+   `snapshot` when the change is visual. Edits are atomic and leave the cursor untouched.
 
 For Python instead of the CLI, `import wordlive as wl` exposes the same model
 (`wl.attach()`, `doc.edit("label")`, anchors with `.set_text()`,

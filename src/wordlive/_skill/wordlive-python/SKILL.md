@@ -655,9 +655,16 @@ def with_retry(fn, attempts=4, base=0.5):
 ## Typical workflow
 
 1. `with wl.attach() as word: doc = word.documents.active`.
-2. Discover anchors with `doc.outline()` / `doc.paragraphs.list()` / `doc.find(...)`.
-3. Mutate inside one `with doc.edit("label"):` block (atomic, polite).
-4. Read back to confirm; the user's cursor is untouched.
+2. Discover anchors with `doc.outline()` / `doc.paragraphs.list()` / `doc.find(...)`
+   (for a large doc, `doc.read(budget=…)` first, then `doc.to_markdown(within=ID)` to
+   drill). For a multi-step session, `doc.pin(...)` / `doc.pin_outline()` the blocks
+   you'll revisit so positional ids can't drift under your own edits.
+3. Mutate inside one `with doc.edit("label"):` block (atomic, polite) — one intent per
+   block. Suggest rather than overwrite where it fits: `with doc.tracked_changes():`
+   for accept/reject-able edits, or `doc.comments.add(...)`.
+4. Verify — no event fires when content changes, so `cp = doc.checkpoint()` first and
+   `doc.changes_since(cp)` afterwards confirms exactly what changed; `doc.snapshot(...)`
+   when it's visual. The user's cursor is untouched throughout.
 
 For the command line instead of Python, the `wordlive` CLI mirrors this model
 (`wordlive outline`, `wordlive replace --anchor-id …`, `wordlive exec`); see the
