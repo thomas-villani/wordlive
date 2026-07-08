@@ -330,11 +330,14 @@ of wordlive's four invariants exactly once:
 
 ## Where to next
 
+- [Advanced](advanced.md) — the sequel session: the power features (digest reads,
+  durable pins, charts, vision snapshots, house-style linting) on this same document.
 - [Concepts](concepts.md) — the same four ideas, explained rather than walked.
-- [Cookbook](cookbook.md) — 21 random-access recipes, including the full LLM
+- [Cookbook](cookbook.md) — 22 random-access recipes, including the full LLM
   tool-use loop ([§5](cookbook.md#5-llm-tool-use-loop)).
 - [Examples](examples.md) — runnable Python and PowerShell scripts.
 - [Python API](python-api.md) · [CLI](cli.md) — the complete reference for every
   verb you used above.
-- **Wiring up an agent?** `wordlive install-skill` drops the agent guide into
-  your project; [MCP](mcp.md) registers the four `word_*` tools with Claude.
+- **Wiring up an agent?** [Agents & LLM tools](agents.md) connects it (skills,
+  MCP, the one-drop `.mcpb`); [Agent patterns](agent-patterns.md) is how to drive
+  it well.

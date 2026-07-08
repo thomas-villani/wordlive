@@ -167,6 +167,34 @@ can share the same text ("Background", "Background") and the index
 disambiguates. The `heading:N` form always refers to the *Nth paragraph in
 the document*, which is stable across the lifetime of a session.
 
+### Durable handles (pins)
+
+`heading:N` / `para:N` are **positional** — they're paragraph indices, so an
+insert or delete earlier in the document renumbers every id after it. That's fine
+within a single read-decide-write, but a multi-step session (or an agent making
+several passes) has to re-read `outline` to stay in sync. A **pin** removes that
+churn: [`doc.pin("para:7")`](python-api.md#wordlive.Document) plants a
+wordlive-managed hidden bookmark over that range and hands back a `pin:<code>` id
+that Word keeps attached to the same *content* across later inserts, deletes, and
+edits — the durability comes from Word maintaining the association natively.
+
+```python
+with doc.edit("Pin the budget block"):
+    handle = doc.pin("heading:10", name="budget")   # → {"anchor_id": "pin:budget", …}
+
+# …insert paragraphs above it; heading:10 has shifted, pin:budget has not…
+doc.anchor_by_id("pin:budget").text                 # still the Budget heading
+```
+
+Resolve a pin like any other anchor (`doc.anchor_by_id("pin:budget")`), or feed it
+straight into another op. Omit `name=` for a random code; reuse a slug to move the
+handle. `doc.pin_outline()` pins every heading at once, and if pinned content is
+later deleted the handle correctly vanishes (resolving it raises
+`AnchorNotFoundError`). The rule of thumb: **positional ids for one pass, pins (or
+name-based `bookmark:` / `cc:` anchors) for anything you'll revisit.** The
+[Advanced session](advanced.md#step-2-pin-what-youre-about-to-move) walks a pin
+end to end.
+
 !!! info "Implementation"
     Resolution is centralised in
     [`Document.anchor_by_id`](python-api.md#wordlive.Document); see
