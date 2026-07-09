@@ -118,12 +118,15 @@ a.insert_after(" (verified)")           # inline insert, right
 a.insert_paragraph_before("…", style="Body Text")
 a.insert_paragraph_after("New paragraph.", style="Body Text")
 a.insert_block([                         # contiguous styled paragraphs in one op → RangeAnchor
-    {"text": "**Politeness** first.", "style": "List Bullet"},   # item text takes **bold**/*italic*
+    {"text": "**Politeness** first.", "style": "List Bullet"},   # text takes **bold**/*italic*/`code`
     {"runs": [{"text": "Atomic undo", "bold": True}, {"text": " — one Ctrl-Z."}], "style": "List Bullet"},
     "Plain third bullet.",
 ])                                       # → feed rng.anchor_id to apply_list("bulleted")
 a.insert_section("Results", ["Body para.", "Another."], level=2)  # heading + body in one op → RangeAnchor
-a.insert_markdown("# Title\n\nIntro.\n\n- bullet one\n- bullet two\n\n1. step")  # constrained MD → Word structure
+a.insert_markdown("# Title\n\nIntro.\n\n- Call `attach()`\n- bullet two\n\n1. step")  # constrained MD → Word structure
+# `code` spans become monospace (Consolas) runs, and to_markdown() emits them back as backticks.
+# Starting a blank doc? Lead with insert_markdown/insert_block/insert_section — they reuse the
+# lone empty paragraph. doc.append_paragraph() adds a *new* final one, stranding it above.
 doc.headings["Results"].replace_section_body("New body.", markdown=True)  # rewrite a section, keep its heading
 a.apply_style("Heading 2")
 a.format_paragraph(alignment="center", space_before=6, line_spacing=1.5,  # leading: 1.5/"double"/"14pt"

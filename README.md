@@ -82,7 +82,7 @@ wordlive insert --anchor-id heading:1 --text "..."          # after (default)
 wordlive insert --anchor-id para:3 --text "..." --before
 wordlive insert --anchor-id end --runs '[{"text":"Bold lead","bold":true},{"text":" — rest"}]'
 
-# Drop a whole styled section in ONE op (item text takes **bold**/*italic* markdown):
+# Drop a whole styled section in ONE op (item text takes **bold**/*italic*/`code` markdown):
 wordlive insert-block --anchor-id heading:1 --items \
     '[{"text":"**Politeness** first.","style":"List Bullet"},"Atomic undo."]'
 #   → reports range:START-END; then: wordlive list apply --anchor-id range:… --type bulleted

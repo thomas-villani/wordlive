@@ -77,16 +77,19 @@ is `read_image()`, which returns `(bytes, mime_type)` for the single picture in
 the anchor's range — see [Images](#images).
 `insert_block(items, where="after")` inserts a contiguous run of styled
 paragraphs in one op (each item a plain string or `{text | runs, style?}`, where
-`text` carries `**bold**`/`*italic*` markdown and `runs` is the structured
-`[{text, bold?, italic?, underline?, style?}]` form) and returns a
+`text` carries `**bold**`/`*italic*`/`` `code` `` markdown and `runs` is the
+structured `[{text, bold?, italic?, underline?, code?, style?}]` form) and returns a
 [`RangeAnchor`](#wordlive.RangeAnchor) spanning the block — feed it straight into
 `apply_list` to bullet the section. Two opinionated macros build on it:
 `insert_section(heading, body, *, level=1, where="after")` places a
 `Heading {level}` paragraph plus its body (the same items shape, or a bare
 string) in one op, and `insert_markdown(md, *, where="after")` maps a
 **constrained-Markdown subset** — `#`/`##`/`###` headings, `-`/`*` bullets, `1.`
-numbers, blank-line paragraphs, inline `**bold**`/`*italic*` — to real Word
-structure (not CommonMark: no code fences, nested lists, or tables in v1).
+numbers, blank-line paragraphs, inline `**bold**`/`*italic*`/`` `code` `` (a
+monospace run) — to real Word structure (not CommonMark: no code *fences*,
+nested lists, or tables in v1). On a blank document these structural inserts
+reuse the lone empty paragraph; `append_paragraph` promises a *new* final
+paragraph and so leaves it stranded above your content.
 Headings additionally have `replace_section_body(body, *, markdown=False)`, which
 clears the body under a heading (up to the next same-or-higher heading) and
 inserts a replacement, keeping the heading — the "rewrite section X" workflow.
@@ -952,9 +955,12 @@ fields above, with a `.to_dict()`. `lint` / `regularize` are documented on
 read mirror of [`insert_markdown`](#wordlive.Anchor) — they serialise the whole
 document (or one anchor's range) to clean **Markdown** or an **HTML** fragment.
 Both render from one document walk, so they agree on structure: headings, bullet
-/ numbered lists (nested), `**bold**` / `*italic*` (HTML keeps underline too),
-GFM pipe tables, inline images as `![alt](image:N)`, and hyperlinks as
-`[text](url)`. Export is **lossy by design**, like the constrained-subset import:
+/ numbered lists (nested), `**bold**` / `*italic*` / `` `code` `` (a monospace
+run; HTML keeps underline too), GFM pipe tables, inline images as
+`![alt](image:N)`, and hyperlinks as `[text](url)`. Round-tripping is a fixed
+point: `to_markdown` escapes exactly what `insert_markdown` unescapes, so
+read-modify-write neither drops nor accretes backslashes. Export is **lossy by
+design**, like the constrained-subset import:
 it round-trips the dialect import speaks and reads the rest richer (deeper
 headings, tables), but colours, merged table cells, and (in Markdown) underline
 don't survive.
