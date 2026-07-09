@@ -20,7 +20,7 @@ from wordlive.exceptions import AnchorNotFoundError, OpError
 def codes(monkeypatch: pytest.MonkeyPatch):
     """Deterministic pin codes: code1, code2, … (patches `_new_pin_code`)."""
     counter = iter(f"code{i}" for i in range(1, 1000))
-    monkeypatch.setattr("wordlive._document._new_pin_code", lambda: next(counter))
+    monkeypatch.setattr("wordlive._document._persistence._new_pin_code", lambda: next(counter))
 
 
 # ---------------------------------------------------------------------------
