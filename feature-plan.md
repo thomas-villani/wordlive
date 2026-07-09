@@ -372,8 +372,8 @@ polish); v1.0 **versions it and freezes the public API** under SemVer. The gate 
    **before 1.0** — while the unit + smoke + golden-e2e suite is strong and before
    external users pin import paths. It **must not change the public surface**
    (`__all__`, `from wordlive import …`, `doc.*`, the anchor-id scheme, CLI verbs, MCP
-   tools) — a pure restructure guarded by the test suite. Progress (branch
-   `refactor/split-mega-modules`):
+   tools) — a pure restructure guarded by the test suite. **Done** (branches
+   `refactor/split-mega-modules`, then `refactor/decompose-god-classes`):
    - ✅ **`cli/commands.py`** (8.2k lines) → a `cli/commands/` package: `_common.py`
      (formatters, anchor resolvers, option constants) + one module per cluster
      (read · edit · insert · references · tables · styles · charts · shapes · lists ·
@@ -384,21 +384,49 @@ polish); v1.0 **versions it and freezes the public API** under SemVer. The gate 
    - ✅ **`mcp/server.py`** (2.3k lines) → `build_server` + `main` only (~1.1k), with
      the dispatch impls in sibling modules (`_common`/`_read`/`_write`/`_exec`/
      `_snapshot`); `server.py` re-exports them via `__all__` so the test imports hold.
-   - ⏳ **`_document.py` (Document, 1935-line class) + `_anchors.py` (Anchor, 2238-line
-     base) — a dedicated follow-up pass.** These are **god-classes**, not flat function
-     collections, so the fix is **mixin decomposition** (a thin `Document(EditingMixin,
-     ReadingMixin, StructureMixin, PersistenceMixin, DocumentCore)`; likewise for
-     `Anchor`). The structural split is proven (script in hand: 1935 → max ~860-line
-     `_core.py`), but the codebase pervasively types collaborators
-     (`RevisionCollection`, `walk_blocks`, `run_lint`, anchor constructors) on the
-     **concrete `Document`**, and there are real cross-mixin calls (`outline` →
-     `pin_outline`), so the mixins need the **mypy mixin pattern**: `self: Document`
-     annotations (via a `TYPE_CHECKING` import) on the ~40 methods that touch that
-     surface. That's a deliberate, reviewable change — do `Document` and `Anchor`
-     together in one focused pass, not rushed alongside the mechanical splits.
-     `_anchors.py` also wants its ~1000 lines of module-level helpers extracted and its
-     ~21 peripheral classes rehomed in the same pass (`Anchor` references its own
-     subclasses + `Cell`/`Table`, so keep those references lazy to avoid a cycle).
+   - ✅ **`_document.py`** (2.1k lines; `Document` alone was a 1935-line god-class) →
+     a `_document/` package: `DocumentCore` (the spine — construction, `com`, `edit`,
+     `anchor_by_id`, the collection accessors) plus `Editing`/`Reading`/`Structure`/
+     `Persistence` mixins, assembled as
+     `class Document(EditingMixin, ReadingMixin, StructureMixin, PersistenceMixin)`.
+   - ✅ **`_anchors.py`** (5.3k lines) → an `_anchors/` package of 20 modules, largest
+     849. Two steps: (a) rehome the ~1000 lines of free helpers (`_helpers`, `_refs`)
+     and the 21 peripheral anchor/collection classes into thematic modules; (b)
+     mixin-decompose the 2232-line `Anchor` ABC into `AnchorCore` +
+     `insert`/`media`/`references`/`format`/`lists`/`read` mixins, assembled in
+     `_base.py` so `from ._base import Anchor` still works.
+
+   **The typing pattern — and a correction.** Collaborators (`RevisionCollection`,
+   `walk_blocks`, `run_lint`, the anchor constructors) are annotated on the concrete
+   `Document`, and mixins call across to one another (`outline` → `pin_outline`).
+   Inside a mixin a checker only sees the mixin, so both fail. This plan previously
+   said to annotate **`self: Document`** — **that does not type-check.** mypy rejects a
+   `self` annotation that is not a *supertype* of its class ("the erased type of self
+   … is not a supertype of its class"), and `Document` is a *subtype* of its own
+   mixins. A `TYPE_CHECKING` `_Base`-swap fails too, on the inheritance cycle. What
+   works is a self-narrowing property on the spine:
+
+   ```python
+   class DocumentCore:
+       @property
+       def _as_document(self) -> Document:      # TYPE_CHECKING-only import of Document
+           return cast("Document", self)        # runtime-free: cast returns its arg
+   ```
+
+   Applied at the 40 sites mypy flagged (and one `_as_anchor` site in `Anchor`).
+   Collaborator signatures stay `Document`/`Anchor`, so no annotation churn leaks into
+   the other 30 modules. `Anchor` needed almost none: an AST pass over its call graph
+   found **zero** cross-mixin `self.X` calls outside the core spine.
+
+   Two gotchas worth remembering for any future split of this shape:
+   - **Depth shift.** When a module becomes a subpackage, every `from .X` goes to
+     `from ..X` — *including* lazy imports inside function bodies, and including the
+     module-level `if TYPE_CHECKING:` guard (an `ast.If`, easy to mis-slice out of the
+     shared import header).
+   - **Monkeypatch where it's used.** `tests/test_pins.py` patched
+     `wordlive._document._new_pin_code`; `pin()` moved to `_persistence`, so the
+     fixture must patch that binding. Re-exporting the helper from the package
+     `__init__` would have made the patch a silent no-op.
 2. **`house_style` (linter §6).** The one linter item gated **pre-1.0** (decided
    2026-07-08): pin consistency-rule targets to named style values + fix via
    `set_style`. Also unlocks `document-properties-filled`'s fix and is the foundation

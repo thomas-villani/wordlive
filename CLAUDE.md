@@ -31,22 +31,42 @@ the user from dropping to COM.
 
 ## Layout
 
-Flat by design — Word → Document → Anchor, ~no hierarchy beyond that.
+Flat by design — Word → Document → Anchor, ~no hierarchy beyond that. The two
+central types are big enough to live in packages; everything else is one module.
 
 - `src/wordlive/__init__.py` — the public surface (`__all__`). Keep it and
   `docs/python-api.md` in sync.
-- `_app.py` `attach`/`connect`/`Word`; `_document.py` `Document` +
-  `anchor_by_id` (anchor-id resolution lives here); `_anchors.py` the anchor
-  classes; `_edit.py` `EditScope`; `_selection.py` snapshot/restore.
+- `_app.py` `attach`/`connect`/`Word`; `_edit.py` `EditScope`; `_selection.py`
+  snapshot/restore.
+- `_document/` — `Document`, assembled from `DocumentCore` (`_core.py`: the COM
+  handle, `edit`, `anchor_by_id` (anchor-id resolution lives here), the
+  collection accessors) plus the `_editing` / `_reading` / `_structure` /
+  `_persistence` mixins. `__init__.py` composes them and keeps
+  `DocumentCollection`.
+- `_anchors/` — `_base.py` assembles the `Anchor` ABC from `AnchorCore`
+  (`_anchor_core.py`) + the `_anchor_{insert,media,references,format,lists,read}`
+  mixins. Concrete anchors sit in siblings (`_range`, `_headings`, `_bookmarks`,
+  `_content_controls`, `_paragraphs`, and `_{image,equation,chart,shape}_anchors`
+  — suffixed to stay distinct from the same-named feature modules); free helpers
+  in `_helpers.py` / `_refs.py`.
 - Feature modules: `_tables.py`, `_lists.py`, `_sections.py`, `_comments.py`,
   `_styles.py`, `_images.py`, `_snapshot.py`, `_findreplace.py`.
 - `_ops.py` — the `exec` batch op vocabulary (shared by CLI and MCP).
 - `_com.py` COM plumbing; `exceptions.py` typed errors + HRESULT mapping;
   `constants.py` typed `IntEnum` mirrors of Word `Wd*` magic numbers.
-- `cli/` — Click CLI (`commands.py` = every command, `main.py` = exit-code
-  boundary). `mcp/server.py` — the `wordlive-mcp` dispatch-tool server.
+- `cli/` — Click CLI (`commands/` = one module per verb cluster, aggregated by
+  `register()`; `main.py` = exit-code boundary). `mcp/` — the `wordlive-mcp`
+  dispatch-tool server (`server.py` builds it; `_read`/`_write`/`_exec`/
+  `_snapshot` hold the impls).
 - `_skill/SKILL.md` — the bundled agent guide, surfaced by `llm-help` /
   `install-skill` and the `wordlive://guide` MCP resource. `_guide.py` reads it.
+
+**Mixins and typing.** `DocumentCore`/`AnchorCore` expose a TYPE_CHECKING-only
+`_as_document` / `_as_anchor` property (`cast("Document", self)`) — use it when a
+mixin hands `self` to a collaborator annotated on the concrete class, or calls a
+sibling mixin's method. Do *not* try `def m(self: Document)`: mypy requires a
+`self` annotation to be a **supertype** of its class, and `Document` is a subtype
+of its own mixins.
 
 ## Design surfaces stay parallel
 

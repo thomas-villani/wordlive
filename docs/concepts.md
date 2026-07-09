@@ -198,7 +198,7 @@ end to end.
 !!! info "Implementation"
     Resolution is centralised in
     [`Document.anchor_by_id`](python-api.md#wordlive.Document); see
-    [`src/wordlive/_document.py`](https://github.com/thomas-villani/wordlive/blob/main/src/wordlive/_document.py).
+    [`src/wordlive/_document/_core.py`](https://github.com/thomas-villani/wordlive/blob/main/src/wordlive/_document/_core.py).
 
 ## `EditScope` and atomic undo
 
