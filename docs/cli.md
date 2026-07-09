@@ -268,7 +268,8 @@ wordlive read html     [--within ANCHOR]   [--doc DOC_NAME]
 
 Serialise the whole document — or one anchor's range — to clean **Markdown**
 (or an **HTML** fragment). The read mirror of `insert-markdown`: headings,
-bullet / numbered lists (nested), `**bold**` / `*italic*`, GFM pipe tables,
+bullet / numbered lists (nested), `**bold**` / `*italic*` / `` `code` ``
+(monospace runs), GFM pipe tables,
 inline images as `![alt](image:N)`, and hyperlinks as `[text](url)`. Export is
 **lossy by design** (underline, colours, and merged table cells don't survive),
 so it round-trips the constrained subset import speaks and reads the rest richer.
@@ -581,7 +582,7 @@ single empty paragraph.
 
 Give exactly one of `--text` (a literal string — no markup) or `--runs` (a JSON
 array of inline-formatted spans, or `-` to read it from stdin). Each run is
-`{text, bold?, italic?, underline?, style?}`, so a bold lead-in is one op:
+`{text, bold?, italic?, underline?, code?, style?}`, so a bold lead-in is one op:
 
 ```bash
 $ wordlive insert --anchor-id heading:8 --text "New risk identified."
@@ -620,8 +621,9 @@ reverse-ordered storm of `insert` calls dodging positional-anchor renumbering.
 as either a plain string or an object `{text | runs, style?}`:
 
 - `text` carries a tiny inline **markdown**: `**bold**`, `*italic*`,
-  `***both***` (escape a literal asterisk as `\*`).
-- `runs` is the structured form — `[{text, bold?, italic?, underline?,
+  `***both***`, `` `code` `` (a monospace run). Escape a literal delimiter with
+  a backslash — `\*`, `` \` `` — for any character the Markdown export escapes.
+- `runs` is the structured form — `[{text, bold?, italic?, underline?, code?,
   style?}]` — for unambiguous control or a per-run character style.
 - `style` names the paragraph style for that item.
 
@@ -673,11 +675,17 @@ documented subset, not CommonMark:
   1..N over its own span).
 - a blank line separates paragraphs; consecutive plain lines join into one
   `Normal` paragraph.
-- inline `**bold**` / `*italic*` / `***both***` are honoured.
+- inline `**bold**` / `*italic*` / `***both***` / `` `code` `` are honoured. A
+  code span becomes a monospace run; `read markdown` emits it back as backticks.
 
-Out of scope in v1: code fences, nested lists, block quotes, tables — anything
-unrecognised becomes literal paragraph text. Multi-line input is easiest from
-stdin with `--markdown -`. Reports the spanning `range:START-END`.
+Out of scope in v1: code *fences* (the block form — inline `` `code` `` is
+supported), nested lists, block quotes, tables — anything unrecognised becomes
+literal paragraph text. Multi-line input is easiest from stdin with
+`--markdown -`. Reports the spanning `range:START-END`.
+
+Starting a document from blank? Lead with `insert-markdown` (or `insert-block` /
+`insert-section`): they reuse the blank document's lone empty paragraph. `append`
+promises a *new* final paragraph, so it strands that empty one above your text.
 
 ```bash
 $ printf '# Plan\n\nKick-off notes.\n\n- scope it\n- staff it\n' | \

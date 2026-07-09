@@ -207,7 +207,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `build_quarterly_report.py` — and adds the page to the nav with cross-links
   from Getting started and Examples.
 
+### Fixed
+- **Markdown round-trips no longer accrete backslashes (data corruption).** `to_markdown`
+  escaped ``\`` ` ``*{}[]#_`` on the way out, but `insert_markdown` only ever unescaped
+  `\*` and `\\`. The other five characters came back with their backslash attached, and
+  because `\` is itself escaped, every read-modify-write cycle added one more: ``use `x` ``
+  → ``use \`x\` `` → ``use \\`x\\` ``, without bound. `_runs.parse_markup` now unescapes
+  exactly the set `_export._escape_inline` emits (asserted by a test, so the two can't
+  drift), making the round-trip a fixed point.
+- **`word_read(command="find")` no longer fails when `mode` is omitted.** The MCP tool builds
+  its `params` dict with every key present, so an omitted `mode` arrived as an explicit
+  `None` and `.get("mode", "fuzzy")` never returned its default — the documented default was
+  never wired, and the very first `find` an agent made raised
+  `unknown find/replace mode None`. `read_text` had the identical bug with `view`. Both now
+  coalesce. (The CLI and `exec` paths were unaffected.)
+- **`word_exec` gives an actionable error when `ops` is a JSON-encoded string.** Previously
+  pydantic rejected it before the tool body ran, so the client got a raw `list_type` error
+  and an `errors.pydantic.dev` URL. `ops` is now typed `list[dict] | str`: a string that
+  decodes to an array of op objects is accepted outright, and anything else raises an
+  `OpError` naming the field, the actual problem, and the shape wanted.
+
+### Added
+- **Inline code spans in the Markdown subset.** `` `code` `` in `insert_markdown` /
+  `insert_block` item text (and `code: true` on a structured run) now becomes a real
+  monospace run — direct `Font.Name = "Consolas"` character formatting, the same choice
+  `**bold**` makes with `Font.Bold`, so the document's style gallery is never touched.
+  `to_markdown` detects a monospace run and emits the backticks back, sizing the fence to
+  contain literal backticks. Previously backticks landed in the document as literal
+  characters — a high-frequency papercut, since agents backtick every identifier, filename,
+  and command they describe. Code spans bind tighter than emphasis, and their content is
+  literal; because runs are flat, emphasis does not reach across a code span.
+
 ### Changed
+- **Docs — to start a document from blank, lead with `insert_*`, not `append`.** The
+  structural inserts (`insert_markdown` / `insert_block` / `insert_section`) reuse a blank
+  document's lone empty paragraph; `append` promises a *new* final paragraph and so leaves
+  that empty one stranded above your content. Working as designed — an `append` that
+  silently reused `para:1` would depend on invisible document state — but it surprised an
+  agent building a document top-down, so the CLI/MCP/Python guides now say which op to open
+  with. Noted in both bundled skills, `docs/cli.md`, `docs/mcp.md`, and `docs/python-api.md`.
 - **Internal — the four mega-modules are now packages (behavior-preserving).** No public
   API change: `wordlive.__all__`, every `Document`/`Anchor` member and signature, the
   anchor-id scheme, the CLI verbs and the MCP `word_*` tools are all byte-for-byte the
