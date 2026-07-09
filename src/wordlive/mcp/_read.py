@@ -43,7 +43,9 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 if text is None:
                     raise OpError("read command 'find' requires 'text'")
                 scope = doc.anchor_by_id(p["in_anchor"]) if p.get("in_anchor") else None
-                return doc.find(text, scope=scope, mode=p.get("mode", "fuzzy"))
+                # `params` always carries every key, so an omitted `mode` arrives
+                # as None and `.get`'s default never fires — coalesce instead.
+                return doc.find(text, scope=scope, mode=p.get("mode") or "fuzzy")
             if command == "read_bookmark":
                 return {"text": doc.bookmarks[_need(p, "name", command)].text}
             if command == "read_cc":
@@ -122,7 +124,7 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                 return doc.revisions.list()
             if command == "read_text":
                 anchor_id = _need(p, "anchor_id", command)
-                view = p.get("view", "raw")
+                view = p.get("view") or "raw"
                 anchor = doc.anchor_by_id(anchor_id)
                 if view == "segments":
                     return {"anchor_id": anchor_id, "segments": anchor.revision_segments()}

@@ -27,6 +27,7 @@ from wordlive.exceptions import (  # noqa: E402
     WordBusyError,
     WordNotRunningError,
 )
+from wordlive.mcp._exec import coerce_ops  # noqa: E402
 from wordlive.mcp._worker import ComWorker, InlineWorker  # noqa: E402
 from wordlive.mcp.server import (  # noqa: E402
     _error_payload,
@@ -396,6 +397,55 @@ class TestExecImpl:
         assert result["failure"]["type"] == "AnchorNotFoundError"
 
 
+class TestCoerceOps:
+    """A stringified `ops` used to surface a raw pydantic `list_type` error.
+
+    Double-encoding `ops` is an easy client-side mistake; the error an agent got
+    back named neither the field nor the fix.
+    """
+
+    def test_real_list_passes_through(self) -> None:
+        ops = [{"op": "append_paragraph", "text": "x"}]
+        assert coerce_ops(ops) == ops
+
+    def test_json_encoded_array_is_accepted(self) -> None:
+        # Postel: decode rather than punish a recoverable client mistake.
+        assert coerce_ops('[{"op": "append_paragraph", "text": "x"}]') == [
+            {"op": "append_paragraph", "text": "x"}
+        ]
+
+    def test_json_encoded_string_reaches_word(self, fake_word: Any) -> None:
+        ops = '[{"op": "write_bookmark", "name": "Address", "text": "A"}]'
+        result, exc = _exec_impl(W, ops, doc=None, label="t", tracked=False)
+        assert exc is None and result["ok"] is True and result["ops_run"] == 1
+
+    def test_unparseable_string_names_the_field_and_the_fix(self) -> None:
+        with pytest.raises(OpError) as ei:
+            coerce_ops("not json at all")
+        msg = str(ei.value)
+        assert "'ops' must be an array" in msg
+        assert "not valid JSON" in msg
+        assert '{"op":' in msg  # shows the shape wanted
+
+    def test_json_encoded_object_is_rejected(self) -> None:
+        with pytest.raises(OpError, match="JSON-encoded dict"):
+            coerce_ops('{"op": "append_paragraph"}')
+
+    def test_non_list_is_rejected(self) -> None:
+        with pytest.raises(OpError, match="received int"):
+            coerce_ops(7)
+
+    def test_non_object_element_is_located_by_index(self) -> None:
+        with pytest.raises(OpError, match=r"ops\[1\] is a str"):
+            coerce_ops([{"op": "append_paragraph", "text": "x"}, "oops"])
+
+    def test_bad_ops_raise_before_word_is_touched(self, no_word: Any) -> None:
+        # `no_word` patches attach() to raise: reaching Word would raise
+        # WordNotRunningError instead, proving validation happens first.
+        with pytest.raises(OpError):
+            _exec_impl(W, "not json", doc=None, label="t", tracked=False)
+
+
 # ---------------------------------------------------------------------------
 # Error mapping
 # ---------------------------------------------------------------------------
@@ -504,6 +554,56 @@ class TestSession:
         result = _call(go)
         assert result.isError is True
         assert "anchor_not_found" in _texts(result)
+
+    # `word_read` builds its `params` dict with *every* key unconditionally, so
+    # an omitted optional arrives as an explicit None and `.get(key, default)`
+    # never returns its default. These two must go through the real tool — a
+    # direct `_read_impl` call with the key absent papers over the bug.
+    def test_find_defaults_to_fuzzy_when_mode_omitted(self, fake_word: Any) -> None:
+        async def go() -> Any:
+            server = build_server(InlineWorker())._mcp_server
+            async with create_connected_server_and_client_session(server) as client:
+                return await client.call_tool("word_read", {"command": "find", "text": "Body"})
+
+        result = _call(go)
+        assert result.isError is False
+
+    def test_read_text_defaults_to_raw_when_view_omitted(self, fake_word: Any) -> None:
+        async def go() -> Any:
+            server = build_server(InlineWorker())._mcp_server
+            async with create_connected_server_and_client_session(server) as client:
+                return await client.call_tool(
+                    "word_read", {"command": "read_text", "anchor_id": "para:1"}
+                )
+
+        result = _call(go)
+        assert result.isError is False
+
+    def test_exec_accepts_a_json_encoded_ops_string(self, fake_word: Any) -> None:
+        # The `list[...] | str` annotation is what lets this reach the body at
+        # all; with the old `list[dict]` pydantic rejected it before `coerce_ops`.
+        async def go() -> Any:
+            server = build_server(InlineWorker())._mcp_server
+            async with create_connected_server_and_client_session(server) as client:
+                return await client.call_tool(
+                    "word_exec",
+                    {"ops": '[{"op": "write_bookmark", "name": "Address", "text": "A"}]'},
+                )
+
+        result = _call(go)
+        assert result.isError is False
+
+    def test_exec_bad_ops_string_gives_an_actionable_error(self, fake_word: Any) -> None:
+        async def go() -> Any:
+            server = build_server(InlineWorker())._mcp_server
+            async with create_connected_server_and_client_session(server) as client:
+                return await client.call_tool("word_exec", {"ops": "not json"})
+
+        result = _call(go)
+        text = _texts(result)
+        assert result.isError is True
+        assert "'ops' must be an array" in text
+        assert "pydantic.dev" not in text  # the old, useless surface
 
     def test_guide_resource(self, fake_word: Any) -> None:
         async def go() -> str:
