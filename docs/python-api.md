@@ -40,7 +40,8 @@ Get a `Word` handle and reach the open documents.
 
 ::: wordlive.Document
     options:
-      inherited_members: true
+      inherited_members: true   # Document is assembled from feature mixins
+      show_bases: false         # ...which are plumbing, not part of the API
 
 ::: wordlive.DocumentCollection
 
@@ -168,7 +169,8 @@ and view untouched), so page numbers are print-layout truth.
 
 ::: wordlive.Anchor
     options:
-      inherited_members: true
+      inherited_members: true   # Anchor is assembled from feature mixins
+      show_bases: false         # ...which are plumbing, not part of the API
 
 ::: wordlive.Bookmark
 
