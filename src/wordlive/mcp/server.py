@@ -565,7 +565,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         """Make one atomic-undo edit to the open Word document. Dispatch on `command`:
 
         insert {anchor_id, text|runs, [before,style,bind]} — text is literal; runs is
-            [{text,bold?,italic?,underline?,style?}] for inline-formatted spans;
+            [{text,bold?,italic?,underline?,code?,style?}] for inline-formatted spans;
             bind ("slug" or true) mints a durable pin on the new paragraph ·
         insert_block {anchor_id, items, [before,bind]} — a contiguous run of styled
             paragraphs in one op; each item is "plain text" or {text|runs, style?}
@@ -956,7 +956,10 @@ def build_server(worker: Worker | None = None) -> FastMCP:
 
     @mcp.tool()
     def word_exec(
-        ops: list[dict[str, Any]],
+        # `| str` keeps the array in the JSON schema (as an anyOf) while letting a
+        # JSON-encoded payload reach the body, where `coerce_ops` can answer with
+        # an actionable message instead of pydantic's raw `list_type` error.
+        ops: list[dict[str, Any]] | str,
         doc: str | None = None,
         label: str | None = None,
         tracked: bool = False,
@@ -982,7 +985,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         Ops (required fields → behaviour):
           write_bookmark {name,text} · write_cc {name,text} ·
           insert_paragraph {anchor_id, text|runs, [style,before]} — new paragraph by an anchor;
-            text is literal, runs is [{text,bold?,italic?,underline?,style?}] for inline spans ·
+            text is literal, runs is [{text,bold?,italic?,underline?,code?,style?}] for inline spans ·
           insert_block {anchor_id, items, [before]} — a contiguous run of styled paragraphs in one
             op; items are "plain text" or {text|runs, style?} (text takes **bold**/*italic*);
             returns the block's range:START-END in outputs ·
