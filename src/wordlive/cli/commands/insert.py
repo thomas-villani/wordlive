@@ -36,7 +36,7 @@ from ._common import (
     default=None,
     help='JSON array of inline runs (e.g. \'[{"text":"Fast","bold":true},'
     '{"text":" — quick"}]\'), or \'-\' to read it from stdin. Each run is '
-    "{text, bold?, italic?, underline?, style?}. Mutually exclusive with --text.",
+    "{text, bold?, italic?, underline?, code?, style?}. Mutually exclusive with --text.",
 )
 @click.option(
     "--before/--after",
@@ -119,7 +119,7 @@ def insert(
     help="JSON array of paragraphs, or '-' to read it from stdin. Each item is a "
     'string ("plain text") or an object {text|runs, style?}. `text` carries '
     "tiny inline markdown (**bold**, *italic*, ***both***; escape with \\*); "
-    "`runs` is [{text, bold?, italic?, underline?, style?}].",
+    "`runs` is [{text, bold?, italic?, underline?, code?, style?}].",
 )
 @click.option(
     "--before/--after",

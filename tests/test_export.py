@@ -8,7 +8,10 @@ emphasis/links/images, and blank-line collapse. The COM document-walk
 
 from __future__ import annotations
 
+import pytest
+
 from wordlive._export import (
+    _ALWAYS_ESCAPE,
     BULLET,
     HEADING,
     IMAGE,
@@ -18,18 +21,22 @@ from wordlive._export import (
     Block,
     Span,
     TableNode,
+    _code_span,
     _escape_inline,
     _escape_table_cell,
     _est_tokens,
     _font_bool,
+    _font_monospace,
     _font_underline,
     _heading_level,
     _md_target,
     _render_body_segment,
+    _render_spans,
     build_digest,
     render_html,
     render_markdown,
 )
+from wordlive._runs import _ESCAPABLE, parse_markup, runs_to_text
 
 
 class TestFontCoercion:
@@ -71,6 +78,96 @@ class TestEscaping:
 
     def test_table_cell_escapes_pipe_and_flattens(self) -> None:
         assert _escape_table_cell("a | b\nc") == "a \\| b c"
+
+
+class TestEscapeRoundTrip:
+    """`_escape_inline` (write-out) and `parse_markup` (read-in) must be inverses.
+
+    When they drifted, every `to_markdown` -> `insert_markdown` cycle added one
+    backslash per special character, without bound — silently corrupting any
+    read-modify-write of a document containing code, paths, or brackets.
+    """
+
+    CORPUS = [
+        "use `attach()` now",
+        "call `_app.py` and `x[0]`",
+        "a*b`c[d]e{f}g\\h",
+        "snake_case stays",
+        "_emph_ at boundaries",
+        "# title",
+        "C# is fine",
+        "literal \\* star",
+        "C:\\Users\\thomas",
+        "{braces} and [brackets]",
+        "",
+        "plain text",
+    ]
+
+    @pytest.mark.parametrize("src", CORPUS)
+    def test_escape_then_parse_is_identity(self, src: str) -> None:
+        assert runs_to_text(parse_markup(_escape_inline(src))) == src
+
+    @pytest.mark.parametrize("src", CORPUS)
+    def test_round_trip_is_a_fixed_point_not_a_ratchet(self, src: str) -> None:
+        # Three cycles must not grow the text by even one backslash.
+        text = src
+        for _ in range(3):
+            text = runs_to_text(parse_markup(_escape_inline(text)))
+        assert text == src
+
+    def test_escapable_set_matches_the_emitter(self) -> None:
+        # The lockstep invariant, asserted directly rather than inferred.
+        emitted = set(_ALWAYS_ESCAPE) | {"#", "_"}
+        assert set(_ESCAPABLE) == emitted
+
+    def test_escaped_backslash_leaves_following_delimiter_live(self) -> None:
+        # `\\*x*` is a literal backslash followed by an italic `x`.
+        runs = parse_markup("\\\\*x*")
+        assert [(r.text, r.italic) for r in runs] == [("\\", None), ("x", True)]
+
+
+class TestMonospaceDetection:
+    @pytest.mark.parametrize(
+        "name",
+        ["Consolas", "consolas", "Courier New", "Cascadia Mono", "DejaVu Sans Mono", "Roboto Mono"],
+    )
+    def test_monospace_families_detected(self, name: str) -> None:
+        assert _font_monospace(name) is True
+
+    @pytest.mark.parametrize("name", ["Calibri", "Times New Roman", "Monotype Corsiva", "", None])
+    def test_proportional_families_rejected(self, name: object) -> None:
+        # "Monotype Corsiva" is a script face — substring-matching "mono" would
+        # wrongly backtick it. Empty string is Word's "varies within the word".
+        assert _font_monospace(name) is False
+
+
+class TestCodeSpanRendering:
+    def test_code_span_wrapped_in_backticks(self) -> None:
+        md = render_markdown([Block(PARAGRAPH, spans=_t(Span("attach()", code=True)))])
+        assert md == "`attach()`"
+
+    def test_code_content_is_not_backslash_escaped(self) -> None:
+        # Escapes carry no meaning inside a code span; escaping would corrupt it.
+        md = render_markdown([Block(PARAGRAPH, spans=_t(Span("a_b[0]*", code=True)))])
+        assert md == "`a_b[0]*`"
+
+    def test_fence_grows_to_contain_backticks(self) -> None:
+        assert _code_span("a`b") == "``a`b``"
+        assert _code_span("a``b") == "```a``b```"
+
+    def test_backtick_edges_get_a_space_pad(self) -> None:
+        assert _code_span("`") == "`` ` ``"
+
+    def test_code_combines_with_emphasis(self) -> None:
+        md = render_markdown([Block(PARAGRAPH, spans=_t(Span("x", code=True, bold=True)))])
+        assert md == "**`x`**"
+
+    @pytest.mark.parametrize("text", ["attach()", "a`b", "`", "x[0]", "a_b", "C:\\Users"])
+    def test_code_span_round_trips(self, text: str) -> None:
+        md = _render_spans(_t(Span(text, code=True)))
+        runs = parse_markup(md)
+        assert runs_to_text(runs) == text
+        assert all(r.code for r in runs)
 
 
 class TestEstTokens:

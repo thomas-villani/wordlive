@@ -71,6 +71,55 @@ class TestParseMarkup:
         assert parse_markup("") == [Run(text="")]
 
 
+class TestParseCodeSpans:
+    """`` `code` `` — the span agents reach for on every identifier and path.
+
+    Before this existed, backticks landed in the document as literal characters
+    and `to_markdown` escaped them back out as ``\\```.
+    """
+
+    def test_code_span_becomes_a_code_run(self):
+        assert parse_markup("use `attach()` now") == [
+            Run(text="use "),
+            Run(text="attach()", code=True),
+            Run(text=" now"),
+        ]
+
+    def test_code_content_is_literal_not_emphasis(self):
+        # Code binds tighter than `*`, so the stars inside stay text.
+        assert parse_markup("`b*c`") == [Run(text="b*c", code=True)]
+
+    def test_emphasis_does_not_reach_across_a_code_span(self):
+        # Documented limitation of the flat run model: the asterisks land in
+        # different segments and stay literal.
+        assert parse_markup("*a `b` c*") == [
+            Run(text="*a "),
+            Run(text="b", code=True),
+            Run(text=" c*"),
+        ]
+
+    def test_code_coexists_with_emphasis_in_separate_segments(self):
+        assert parse_markup("`x` and **b**") == [
+            Run(text="x", code=True),
+            Run(text=" and "),
+            Run(text="b", bold=True),
+        ]
+
+    def test_longer_fence_embeds_a_backtick(self):
+        assert parse_markup("`` `x` ``") == [Run(text="`x`", code=True)]
+
+    def test_escaped_backtick_does_not_open_a_span(self):
+        assert parse_markup(r"escaped \`not code\`") == [Run(text="escaped `not code`")]
+
+    def test_unmatched_backtick_stays_literal(self):
+        assert parse_markup("a ` b") == [Run(text="a ` b")]
+
+    def test_code_run_is_formatted(self):
+        # Drives whether insert_block does a COM round-trip for the span at all.
+        assert Run(text="x", code=True).formatted() is True
+        assert Run(text="x").formatted() is False
+
+
 class TestRunsFromPayload:
     def test_text_parses_markdown(self):
         assert runs_from_payload(text="**hi**") == [Run(text="hi", bold=True)]

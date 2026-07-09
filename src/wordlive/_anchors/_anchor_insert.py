@@ -122,11 +122,12 @@ class AnchorInsertMixin(AnchorCore):
         - ``"some text"`` — sugar for ``{"text": "some text"}``.
         - ``{"text": "**Bold lead** — rest", "style": "List Bullet"}`` — `text`
           carries the tiny inline markdown (`**bold**`, `*italic*`,
-          `***both***`; escape a literal asterisk as ``\\*``), and `style` names
-          the paragraph style.
+          `***both***`, and `` `code` `` for a monospace run; escape a literal
+          delimiter with a backslash, ``\\*`` / ``\\```), and `style` names the
+          paragraph style.
         - ``{"runs": [{"text": "Bold lead", "bold": true}, {"text": " — rest"}],
           "style": "List Bullet"}`` — the structured form: each run is
-          ``{text, bold?, italic?, underline?, style?}`` (a per-run character
+          ``{text, bold?, italic?, underline?, code?, style?}`` (a per-run character
           style). Use it when markup is ambiguous or you need a run `style`.
 
         Returns a [`RangeAnchor`][wordlive.RangeAnchor] spanning the inserted
@@ -137,7 +138,7 @@ class AnchorInsertMixin(AnchorCore):
         `StyleNotFoundError` before any text is inserted. Wrap in `doc.edit(...)`
         for atomic undo. Raises `OpError` for a malformed `items` payload.
         """
-        from .._runs import normalize_block_items, runs_to_text
+        from .._runs import CODE_FONT, normalize_block_items, runs_to_text
 
         if where not in ("before", "after"):
             raise ValueError(f"where must be 'before' or 'after'; got {where!r}")
@@ -207,6 +208,12 @@ class AnchorInsertMixin(AnchorCore):
                             sub.Italic = bool(run.italic)
                         if run.underline is not None:
                             sub.Underline = 1 if run.underline else 0
+                        if run.code:
+                            # Direct font, not a character style — `**bold**`
+                            # sets Font.Bold rather than applying `Strong`, and a
+                            # code span follows suit. Set before `style` so an
+                            # explicit character style still wins.
+                            sub.Font.Name = CODE_FONT
                         if run.style:
                             sub.Style = run_styles[run.style].com
                     roff += rlen
