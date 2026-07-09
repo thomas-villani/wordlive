@@ -368,20 +368,37 @@ Decided 2026-07-08: cut **v1.0 after a short, deliberate list** — not the raw
 (the whole linter, checkpoint/diff, charts, shapes, markdown export, table/list
 polish); v1.0 **versions it and freezes the public API** under SemVer. The gate items:
 
-1. **Internal refactor — split the mega-modules (behavior-preserving).**
-   `cli/commands.py` (8.2k lines / 293 KB), `mcp/server.py` (2.3k / 108 KB), and the
-   two library giants `_anchors.py` (237 KB) and `_document.py` (100 KB). Do it
+1. **Internal refactor — split the mega-modules (behavior-preserving).** Do it
    **before 1.0** — while the unit + smoke + golden-e2e suite is strong and before
    external users pin import paths. It **must not change the public surface**
    (`__all__`, `from wordlive import …`, `doc.*`, the anchor-id scheme, CLI verbs, MCP
-   tools) — a pure restructure guarded by the test suite. `commands.py` splits cleanly
-   along its `register(group)` aggregator into a `cli/commands/` package by cluster
-   (read · write/insert · tables · lists · charts · shapes · references · linting ·
-   comments/revisions · persistence), formatters into `_formatters.py`; `server.py`
-   along the four `word_*` dispatch families; `_anchors.py` into an `_anchors/` package
-   by anchor family (watch the `anchor_by_id` resolver in `_document.py` for import
-   cycles). Sequence lowest-risk first (`commands`, then `server`), then the library
-   modules.
+   tools) — a pure restructure guarded by the test suite. Progress (branch
+   `refactor/split-mega-modules`):
+   - ✅ **`cli/commands.py`** (8.2k lines) → a `cli/commands/` package: `_common.py`
+     (formatters, anchor resolvers, option constants) + one module per cluster
+     (read · edit · insert · references · tables · styles · charts · shapes · lists ·
+     sections · revisions · comments · metadata · content_controls · images ·
+     equations · theme · snapshot · persistence · linting · document · meta), with
+     `__init__.py` keeping `register()` + the `_ops` re-exports. Split cleanly along
+     the `register(group)` aggregator. 1690 tests / mypy / ruff green.
+   - ✅ **`mcp/server.py`** (2.3k lines) → `build_server` + `main` only (~1.1k), with
+     the dispatch impls in sibling modules (`_common`/`_read`/`_write`/`_exec`/
+     `_snapshot`); `server.py` re-exports them via `__all__` so the test imports hold.
+   - ⏳ **`_document.py` (Document, 1935-line class) + `_anchors.py` (Anchor, 2238-line
+     base) — a dedicated follow-up pass.** These are **god-classes**, not flat function
+     collections, so the fix is **mixin decomposition** (a thin `Document(EditingMixin,
+     ReadingMixin, StructureMixin, PersistenceMixin, DocumentCore)`; likewise for
+     `Anchor`). The structural split is proven (script in hand: 1935 → max ~860-line
+     `_core.py`), but the codebase pervasively types collaborators
+     (`RevisionCollection`, `walk_blocks`, `run_lint`, anchor constructors) on the
+     **concrete `Document`**, and there are real cross-mixin calls (`outline` →
+     `pin_outline`), so the mixins need the **mypy mixin pattern**: `self: Document`
+     annotations (via a `TYPE_CHECKING` import) on the ~40 methods that touch that
+     surface. That's a deliberate, reviewable change — do `Document` and `Anchor`
+     together in one focused pass, not rushed alongside the mechanical splits.
+     `_anchors.py` also wants its ~1000 lines of module-level helpers extracted and its
+     ~21 peripheral classes rehomed in the same pass (`Anchor` references its own
+     subclasses + `Cell`/`Table`, so keep those references lazy to avoid a cycle).
 2. **`house_style` (linter §6).** The one linter item gated **pre-1.0** (decided
    2026-07-08): pin consistency-rule targets to named style values + fix via
    `set_style`. Also unlocks `document-properties-filled`'s fix and is the foundation
