@@ -208,6 +208,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from Getting started and Examples.
 
 ### Changed
+- **Internal — the four mega-modules are now packages (behavior-preserving).** No public
+  API change: `wordlive.__all__`, every `Document`/`Anchor` member and signature, the
+  anchor-id scheme, the CLI verbs and the MCP `word_*` tools are all byte-for-byte the
+  same. `cli/commands.py` (8.2k lines) → a `cli/commands/` package aggregated by
+  `register()`; `mcp/server.py` → `build_server`/`main` plus sibling dispatch modules;
+  `_document.py` → a `_document/` package (`DocumentCore` + editing/reading/structure/
+  persistence mixins); and `_anchors.py` (5.3k lines) → an `_anchors/` package of 20
+  modules, with the 2,232-line `Anchor` ABC split into `AnchorCore` + six feature mixins.
+  Only consumers reaching into *private* module paths are affected — e.g. the helper
+  once at `wordlive._document._new_pin_code` now lives in `wordlive._document._persistence`
+  (if you monkeypatch wordlive internals, patch the binding that uses it, not a re-export).
 - **New top-level docs page: [Linting & regularizing](docs/linting.md).** The linter
   gets its own guide — motivation (formatting normalization is slow, error-prone
   handwork), the two-verb mental model (`lint` reads → findings → `regularize` writes),

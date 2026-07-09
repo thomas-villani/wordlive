@@ -39,6 +39,8 @@ Get a `Word` handle and reach the open documents.
 ### Documents
 
 ::: wordlive.Document
+    options:
+      inherited_members: true
 
 ::: wordlive.DocumentCollection
 
@@ -165,6 +167,8 @@ is this on" without a snapshot. It repaginates first (content-neutral; selection
 and view untouched), so page numbers are print-layout truth.
 
 ::: wordlive.Anchor
+    options:
+      inherited_members: true
 
 ::: wordlive.Bookmark
 
