@@ -58,6 +58,9 @@ not forgotten.
 5. **Advanced / later** — the opt-in aggressive `Font.Reset()` strip-to-style fix
    (§7c); the `docx-plus` cascade-provenance hybrid (§7c); accessibility rules + the
    `prepare-for-sharing` product (§9); a custom-rule plugin API (only on a concrete need).
+   These three (accessibility, custom rules, and the new **exemplar-driven** "extract a
+   profile from / match against a reference document") are fleshed out in **§11 — Future
+   ideas (post-v1.0)**.
 
 > Audit a document for publishing-quality defects (`doc.lint()`), then autofix the
 > mechanical ones in one atomic-undo step (`doc.regularize()`). Pure composition
@@ -625,6 +628,80 @@ targeted strategy is the default.
 
 Steps 1–4 + wiring shipped as the foundation slice; the **v2 backlog (§5b)** then
 continued primitive-driven through Batch 5 (§B heading structure), followed by the
-cross-cutting `adds_content` gate (§8) — see the **Progress** table up top for the
-full shipped/remaining status. With the gate now in place, **wiring the individual
-content/repair fixes** (remaining item 1) is next.
+cross-cutting `adds_content` gate (§8) and Batch 6 (its first content fixes) — see the
+**Progress** table up top for the full shipped/remaining status. With the gate now in
+place, **closing out the remaining report-only rules** (remaining item 1) and the
+`house_style` half of §6 are next.
+
+## 11. Future ideas (post-v1.0)
+
+Three directions raised 2026-07-08, all **post-v1.0** (none blocks the release). They
+share the same engine — `Rule.check(doc, span, profile)` dispatch + fixes-as-exec-ops —
+so each is an extension, not a new subsystem.
+
+### 11a. Exemplar-driven rules — extract a profile from / match against a reference
+
+"Make this document look like *that* one." Two composable modes over one new reader:
+
+- **Extract (`doc.derive_profile()` → `wordlive.lint.json`).** Read a *good* reference
+  document and infer an implicit house style from it: the dominant `Normal` / heading
+  font · size · spacing · alignment, list templates, table styles, margins/section
+  setup. Emits the §6 `house_style` block (plus policy targets — justification, line
+  spacing) so the output is a ready-to-check profile.
+- **Match (`doc.lint(profile=derived)`).** Lint document A against the profile derived
+  from document B — the exemplar becomes the policy. Pure composition once Extract
+  exists: `lint`/`regularize` already take a `profile`.
+
+**Dependency: this is the payoff of `house_style` (§6).** Extract produces a
+`house_style`; Match consumes it. So it lands *after* the pre-v1.0 `house_style` work,
+and is largely a **profile-inference reader** (dominant-value statistics over
+`format_info()` across the reference doc) rather than new rules. Surfaces: Python
+`derive_profile`, CLI `derive-profile REF.docx [-o profile.json]`, MCP `word_read`.
+**Probe:** how to pick the "dominant" value per field (mode vs. the applied-style
+baseline) and how much section/page setup to capture without over-fitting.
+
+### 11b. Accessibility cluster (`accessibility` tag)
+
+A coherent tag feeding **prepare-for-sharing** (Part II Priority 6). Mostly composes
+*existing* reads — no new COM surface for the cheap ones:
+
+| id | kind | detect (existing read) | fix | default |
+|---|---|---|---|---|
+| `image-missing-alt-text` | structural | `image:N` / `shape:N` `AlternativeText` empty | report → `set_alt_text` (needs a value → `adds_content`) | on (report) |
+| `table-missing-header-row` | structural | a table with no designated header row (`set_heading_row`) | `set_heading_row(1)` | on |
+| `link-text-not-descriptive` | consistency | link label is `click here` / a bare URL (overlaps `hyperlink-display-is-raw-url`) | report | off (tag) |
+| `complex-merged-table` | structural | non-uniform table (`Table.is_uniform == False`) — screen-reader hostile | report | off (tag) |
+| `heading-level-skip` | structural | **already shipped** — retag `accessibility` | report | on |
+| `default-language-set` | structural | `Document`/style language unset | report | off (tag) |
+
+Deferred (need real work): colour-contrast (colour math on effective run colour vs.
+shading) and reading-order (floating-shape z-order vs. logical flow). The alt-text fix
+is the one that needs a *value* — same shape as `document-properties-filled`, so it
+rides the `adds_content` gate and (ideally) an alt-text suggestion the caller supplies.
+
+### 11c. Custom rule definitions — declarative first, plugin later
+
+Two tiers; the first is the "relatively straightforward" one and needs **no plugin API**:
+
+- **Declarative rules in the profile (ship first).** A profile block lets a user define
+  a rule from data — a `find` pattern (`literal`/`regex`, reusing the shipped
+  `find_replace` modes), `severity`, `message`, `tags`, and an optional `fix` (a
+  `find_replace` replacement). The engine already dispatches `Rule.check(doc, span,
+  profile)` and runs fixes through `apply_op`, so a declarative rule is a thin
+  parameterized `Rule` — a text-pattern rule authored in JSON, no code. Covers the bulk
+  of "flag our forbidden phrase / enforce our term" asks (`"utilize"→"use"`, banned
+  words, required boilerplate) safely.
+
+  ```jsonc
+  // in wordlive.lint.json
+  "custom_rules": [
+    { "id": "no-utilize", "find": "\\butiliz(e|es|ing|ed)\\b", "mode": "regex",
+      "severity": "info", "message": "Prefer 'use'.", "tags": ["house"],
+      "fix": { "replace": "use" } }
+  ]
+  ```
+
+- **Programmatic `Rule` plugins (defer to concrete need).** Register a Python callable
+  (entry-point / import path) implementing the `Rule` protocol for rules a pattern can't
+  express. This is a code-loading surface (trust/sandboxing questions), so it stays
+  gated on a real need — the declarative tier likely absorbs most demand first.

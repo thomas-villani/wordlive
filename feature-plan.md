@@ -73,7 +73,8 @@ Quick index (capability → real release):
 | Linter Batch 4b — §I hyperlink rules (3 rules in `_linting_hyperlinks.py` over `doc.hyperlinks`, no new read surface: `hyperlink-broken-internal` on/tag `hyperlinks`, `hyperlink-bare-for-print` + `hyperlink-display-is-raw-url` off/tags `hyperlinks`+`print`; all report-only) | Unreleased |
 | Linter Batch 4c — §H layout/document-level rules (5 rules in `_linting_layout.py`, all off/report-only: `header-footer-consistent`, `draft-watermark-present`, `document-properties-filled` on tag `layout`; profile-driven `confidentiality-notice`/`copyright-notice` on tag `notices`) + new `doc.watermark()` read (`WatermarkInfo`; mirror of set/remove_watermark; Python/CLI `read watermark`/MCP) | Unreleased |
 | Linter Batch 5 — §B heading & document-structure rules (6 rules in `_linting_headings.py` over `doc.outline()`, no new read surface: `heading-level-skip` + `empty-heading` on; `adjacent-headings`, `heading-numbering-manual`, `heading-trailing-period` (fixable, in-place strip), `toc-present-and-current` off/tags `headings`+`structure`) | Unreleased |
-| Linter `adds_content` gate (§8) — `Finding.adds_content` field + `regularize(allow_content=…)` / `--allow-content`; content-changing fixes withheld into a new `deferred` report bucket by default; wired Python/CLI/exec/MCP. Infrastructure for the deferred content/repair fixes (none wired yet) | Unreleased |
+| Linter `adds_content` gate (§8) — `Finding.adds_content` field + `regularize(allow_content=…)` / `--allow-content`; content-changing fixes withheld into a new `deferred` report bucket by default; wired Python/CLI/exec/MCP. Infrastructure for the deferred content/repair fixes | Unreleased |
+| Linter Batch 6 — first `adds_content` opt-in fixes (5 report-only rules wired fixable + 1 new rule, all `adds_content=True`, pure composition — no new COM write): `draft-watermark-present`→`remove_watermark`; `page-numbers-present`→`{ PAGE }` in `footer:1:primary`; `confidentiality-notice`/`copyright-notice`→notice into `footer:1:primary`; `hyperlink-bare-for-print`→fold URL into display text; **new** `stray-empty-paragraph` (off, `whitespace` tag)→`delete_paragraph` (deletes applied last, descending). Plus a golden e2e pinning the published `docs/linting.md` walkthrough against `examples/sample/messy-brief.docx` | Unreleased |
 | Floating-shape anchor model (`shape:N`: `doc.shapes`/`doc.text_boxes`; `ShapeAnchor` set_wrap/position/size/format/alt_text/text/replace_image/delete; `insert_text_box`+floating `insert_image` return it) | Unreleased |
 | Shape depth + inline restyle + `textbox:N` (`ShapeAnchor` set_rotation/set_z_order/set_text_frame; `doc.group_shapes`/`ungroup`; `ImageAnchor` set_alt_text/set_size; `textbox:N` alias) | Unreleased |
 | Checkpoint + diff (`doc.checkpoint`/`changes_since`/`diff`; `Checkpoint` token, `include=text/+style/+format`; content-aligned `replace`/`insert`/`delete`/`restyle`/`reformat` w/ current `para:N`; `doc_hash` fast-path) | Unreleased |
@@ -360,6 +361,45 @@ Everything here is **specced but not yet implemented**. Ordered by leverage. The
 indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 (2026-06-17) — follows them.
 
+## Road to v1.0 (the pre-release short list)
+
+Decided 2026-07-08: cut **v1.0 after a short, deliberate list** — not the raw
+`Unreleased` pile as-is. Everything since v0.16.0 is a large body of shipped work
+(the whole linter, checkpoint/diff, charts, shapes, markdown export, table/list
+polish); v1.0 **versions it and freezes the public API** under SemVer. The gate items:
+
+1. **Internal refactor — split the mega-modules (behavior-preserving).**
+   `cli/commands.py` (8.2k lines / 293 KB), `mcp/server.py` (2.3k / 108 KB), and the
+   two library giants `_anchors.py` (237 KB) and `_document.py` (100 KB). Do it
+   **before 1.0** — while the unit + smoke + golden-e2e suite is strong and before
+   external users pin import paths. It **must not change the public surface**
+   (`__all__`, `from wordlive import …`, `doc.*`, the anchor-id scheme, CLI verbs, MCP
+   tools) — a pure restructure guarded by the test suite. `commands.py` splits cleanly
+   along its `register(group)` aggregator into a `cli/commands/` package by cluster
+   (read · write/insert · tables · lists · charts · shapes · references · linting ·
+   comments/revisions · persistence), formatters into `_formatters.py`; `server.py`
+   along the four `word_*` dispatch families; `_anchors.py` into an `_anchors/` package
+   by anchor family (watch the `anchor_by_id` resolver in `_document.py` for import
+   cycles). Sequence lowest-risk first (`commands`, then `server`), then the library
+   modules.
+2. **`house_style` (linter §6).** The one linter item gated **pre-1.0** (decided
+   2026-07-08): pin consistency-rule targets to named style values + fix via
+   `set_style`. Also unlocks `document-properties-filled`'s fix and is the foundation
+   the post-1.0 exemplar idea (`spec-linter.md` §11a) builds on.
+3. **Public-API stability audit.** A deliberate pass over everything SemVer will
+   freeze — `__all__`, the anchor-id taxonomy, `lint`/`regularize` signatures + the new
+   `deferred` bucket shape, the MCP `word_*` dispatch shape, CLI verb names — to make
+   any wanted renames *now*, before 1.0 commits us to them. Cheap; the last chance.
+4. **Cut 1.0.** `bump-my-version` to `1.0.0`, a CHANGELOG `[1.0.0]` section rolling up
+   the Unreleased pile, an API-stability note in the README. Docs were refreshed in the
+   2026-07-08 pass.
+
+**Explicitly post-1.0** (the big rocks — unchanged priority order below): `doc.watch()`
+/ events (Priority 7), compare/merge (Priority 5), mail-merge / templating (Priority 5),
+prepare-for-sharing (Priority 6), and the three new linter directions (`spec-linter.md`
+§11). The linter's **report/audit surface is 1.0-complete**; beyond `house_style`, the
+rest of its Remaining list (`spec-linter.md`) is post-1.0.
+
 > **Durable handles & stale-anchor diagnostics — ✅ shipped (Unreleased).** All
 > five pieces landed: `doc.pin`/`stamp` + the `pin:` anchor, `doc.pin_outline` /
 > `outline(pin=True)`, insert-op `bind:"name"`, `$ops[N].field` references, and
@@ -503,20 +543,40 @@ indexed in Part I); the live backlog — the **post-polish brainstorm wave**
 > `adds_content: bool`; `regularize` withholds any fix flagged `adds_content` by default and reports
 > it in a new `deferred` bucket (`{applied, skipped, deferred, findings}`), applying it only when the
 > caller passes `allow_content=True` / `--allow-content` / `allow_content: true` (Python / CLI / exec
-> op + MCP). Pure formatting fixes are unaffected and still apply by default. No content fixes are
-> wired yet — this is the gate they'll plug into (the next step of remaining item 1).
+> op + MCP). Pure formatting fixes are unaffected and still apply by default. The individual content
+> fixes are wired rule-by-rule on top of this — the first six landed in Batch 6 (below).
+>
+> **Batch 6 — first `adds_content` opt-in fixes ✅ shipped (Unreleased, 2026-07-08).** The gate's
+> first consumers: five report-only rules wired fixable + one new rule, all `adds_content=True` and
+> pure composition over shipped verbs (**no new COM write surface**), so `regularize` reports them in
+> `deferred` by default and applies them under `allow_content=True` (`--allow-content`).
+> `draft-watermark-present` → `remove_watermark`; `page-numbers-present` → a `{ PAGE }` field in
+> `footer:1:primary`; `confidentiality-notice` / `copyright-notice` → the notice text into
+> `footer:1:primary`; `hyperlink-bare-for-print` → fold the URL into the display text as `label (url)`
+> (targeting the link by positional index); and a **new** `stray-empty-paragraph` (structural, off by
+> default behind the new `whitespace` tag) → `delete_paragraph`. `regularize` applies paragraph
+> deletions last and in descending document order, so a multi-blank pass never invalidates an earlier
+> fix's anchor. Live-probed against Word 16 (messy doc → clean, second pass a no-op). A companion
+> **golden e2e** (`tests/test_e2e_cli.py`) now pins the exact findings `docs/linting.md` publishes
+> against the committed `examples/sample/messy-brief.docx`. **Still deferred for cause:**
+> `document-properties-filled` (the fix needs a *value* — waits on `house_style`),
+> `caption-manual-numbering` (fragile in-place `SEQ` rebuild), `figure-caption-present` (rule not yet
+> written — needs an image/table-adjacency walk), `broken-cross-reference` / `xref-as-literal-text`
+> (a `REF` repair needs a human-chosen target).
 >
 > **Still open (a follow-up pass):** the `house_style` half of profiles; the opt-in
-> `Font.Reset()` strip-to-style fix; the content-adding fixes themselves
-> (`stray-empty-paragraph`, `figure-caption-present`, strip-watermark, fill-property, insert-notice,
-> … — now that the `adds_content` gate exists, each just flags `adds_content=True`); the
-> `header-footer-consistent` *format* comparison (text-only shipped); and the `docx-plus`
-> cascade-provenance hybrid. A **v2 rule backlog** (~40 more rules for publishing/academia,
+> `Font.Reset()` strip-to-style fix; the remaining deferred content/repair fixes (the five listed
+> just above, each blocked for a concrete reason); the §D citations cluster + §E/§F detection
+> remainders; the `header-footer-consistent` *format* comparison (text-only shipped); and the
+> `docx-plus` cascade-provenance hybrid. A **v2 rule backlog** (~40 more rules for publishing/academia,
 > primitive-driven batches: Batch 2 finalization ✅ · Batch 3 field-code backbone ✅ · Batch 3b
 > heuristic xref-as-literal-text ✅ · Batch 4a profile loader + policy rules ✅ · Batch 4b §I
 > hyperlinks ✅ · Batch 4c §H layout/notices ✅ · Batch 5 §B heading structure ✅ · `adds_content` gate ✅ ·
-> later citations + accessibility) — see
-> `spec-linter.md` **§5b**. See also `spec-linter.md` (§6, §7c, §9) and `CHANGELOG.md`.
+> Batch 6 first content fixes ✅ · later citations + accessibility) — see
+> `spec-linter.md` **§5b**. Three **post-v1.0** linter directions — exemplar-driven
+"match this to that reference doc" (the payoff of `house_style`), an accessibility
+cluster (feeds prepare-for-sharing), and declarative custom rules in the profile — are
+specced in `spec-linter.md` **§11**. See also `spec-linter.md` (§6, §7c, §9) and `CHANGELOG.md`.
 
 The highest-utility next feature: a declarative rule set that **audits** a document
 for publishing-quality defects and **autofixes** the mechanical ones. Pure
