@@ -15,13 +15,15 @@ Supported, on its own line:
 - ``1. `` (one-or-more digits, a dot, a space) → a numbered list item.
 - a blank line separates paragraphs; consecutive plain lines join into one
   `Normal` paragraph (a soft wrap, CommonMark-style).
-- inline spans (`**bold**`, `*italic*`, `***both***`) are left intact in the
-  block text — `insert_block` runs them through `_runs.parse_markup` downstream.
+- inline spans (`**bold**`, `*italic*`, `***both***`, `` `code` ``) are left
+  intact in the block text — `insert_block` runs them through
+  `_runs.parse_markup` downstream.
 
-Explicitly **out of scope** in v1 (deferred until asked): code fences, nested /
-mixed lists, block quotes, tables, links, images. Anything that isn't a heading,
-list item, or blank line is plain paragraph text — so a stray ``> quote`` or
-```` ``` ```` fence lands as literal text rather than being silently dropped.
+Explicitly **out of scope** in v1 (deferred until asked): code *fences* (the
+block form; inline `` `code` `` is supported), nested / mixed lists, block
+quotes, tables, links, images. Anything that isn't a heading, list item, or
+blank line is plain paragraph text — so a stray ``> quote`` or ```` ``` ````
+fence lands as literal text rather than being silently dropped.
 
 This module is pure and COM-free so the parser is unit-testable off-Windows,
 mirroring `_runs.py`.

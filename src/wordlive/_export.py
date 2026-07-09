@@ -61,8 +61,9 @@ _ALWAYS_ESCAPE = frozenset("\\`*{}[]")
 class Span:
     """One inline span of a block plus its character formatting.
 
-    `bold`/`italic`/`underline` are plain booleans (the read side knows the
-    effective value, unlike the tri-state write `Run`). `href` makes the span a
+    `bold`/`italic`/`underline`/`code` are plain booleans (the read side knows
+    the effective value, unlike the tri-state write `Run`). `code` marks a
+    monospace-font span, rendered as a `` `code` `` span. `href` makes the span a
     hyperlink (`[text](href)`); `image_ref` makes it an inline image
     (`![text](image_ref)`, with `text` the alt text) and wins over the rest.
     """
@@ -73,6 +74,7 @@ class Span:
     underline: bool = False
     href: str | None = None
     image_ref: str | None = None
+    code: bool = False
 
 
 @dataclass(frozen=True)
@@ -127,8 +129,12 @@ def _escape_inline(text: str) -> str:
 
     Always escapes ``\\`` ` ``*{}[]``; escapes ``#`` only at the very start (where
     it would start a heading) and ``_`` only at word boundaries (so ``snake_case``
-    survives). Ported from all2md. The escapes ``\\*`` and ``\\\\`` round-trip back
-    through `_runs.parse_markup` on re-import.
+    survives). Ported from all2md.
+
+    Every escape emitted here is undone by `_runs.parse_markup` on re-import (its
+    `_ESCAPABLE` is this function's character set), which is what makes
+    `to_markdown` -> `insert_markdown` a fixed point rather than a backslash
+    ratchet. Widen one set and you must widen the other.
     """
     out: list[str] = []
     last = len(text) - 1
@@ -168,6 +174,21 @@ def _md_target(target: str) -> str:
     return target
 
 
+def _code_span(text: str) -> str:
+    """Wrap `text` in a backtick fence long enough to contain it.
+
+    CommonMark closes a code span on the first run of backticks matching the
+    opening fence, so a span containing ``` `` ``` needs a fence of three. Content
+    is emitted verbatim — backslash escapes are not recognised inside a code span,
+    so escaping it would be a corruption, not a safety measure. A content edge
+    that is itself a backtick gets a space pad, which the reader strips.
+    """
+    longest = max((len(m) for m in re.findall(r"`+", text)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
+
+
 def _render_spans(spans: tuple[Span, ...]) -> str:
     """Render inline spans to Markdown (emphasis, links, inline images).
 
@@ -181,7 +202,7 @@ def _render_spans(spans: tuple[Span, ...]) -> str:
         if s.image_ref is not None:
             out.append(f"![{_escape_inline(s.text)}]({_md_target(s.image_ref)})")
             continue
-        decorated = s.href is not None or s.bold or s.italic
+        decorated = s.href is not None or s.bold or s.italic or s.code
         if not decorated:
             out.append(_escape_inline(s.text))
             continue
@@ -192,7 +213,10 @@ def _render_spans(spans: tuple[Span, ...]) -> str:
             continue
         lead = s.text[: len(s.text) - len(s.text.lstrip())]
         trail = s.text[len(s.text.rstrip()) :]
-        text = _escape_inline(core)
+        # A code span's content is literal — backslash escapes carry no meaning
+        # inside it, so `_escape_inline` must not run. `_code_span` sizes the
+        # fence instead, which is how a literal backtick survives.
+        text = _code_span(core) if s.code else _escape_inline(core)
         if s.href is not None:
             text = f"[{text}]({_md_target(s.href)})"
         # Underline has no Markdown markup in wordlive's dialect (write side only
@@ -438,6 +462,47 @@ def _font_underline(value: Any) -> bool:
     return v not in (0, _WD_UNDEFINED)
 
 
+# Monospace families a `code` span may have been written in. `_runs.CODE_FONT`
+# (what wordlive itself writes) leads; the rest let a human-authored document
+# round-trip its code spans too. Word returns "" when the font varies within a
+# word, which reads as not-monospace — the safe default.
+_MONOSPACE_FONTS = frozenset(
+    {
+        "consolas",
+        "courier",
+        "courier new",
+        "cascadia code",
+        "cascadia mono",
+        "lucida console",
+        "lucida sans typewriter",
+        "menlo",
+        "monaco",
+        "inconsolata",
+        "hack",
+        "fira code",
+        "source code pro",
+        "jetbrains mono",
+        "andale mono",
+        "anonymous pro",
+    }
+)
+
+
+def _font_monospace(name: Any) -> bool:
+    """Whether a ``Font.Name`` read names a monospace family (→ a code span).
+
+    Matches the allowlist, or any family carrying ``Mono`` as a whole word
+    (``DejaVu Sans Mono``, ``Roboto Mono``). Token-matched, not substring-matched:
+    ``Monotype Corsiva`` is a script face, not a code font.
+    """
+    text = str(name or "").strip().lower()
+    if not text:
+        return False  # "" == varies within the word → don't guess
+    if text in _MONOSPACE_FONTS:
+        return True
+    return "mono" in re.split(r"[^a-z0-9]+", text)
+
+
 def _href_of(hyperlink: Any) -> str | None:
     """The Markdown target for a hyperlink — external address or ``#bookmark``."""
     addr = str(hyperlink.Address or "")
@@ -460,10 +525,11 @@ def _coalesce_spans(raw: list[Span]) -> tuple[Span, ...]:
     for s in raw:
         if out and s.image_ref is None and out[-1].image_ref is None:
             prev = out[-1]
-            same_fmt = (s.bold, s.italic, s.underline, s.href) == (
+            same_fmt = (s.bold, s.italic, s.underline, s.code, s.href) == (
                 prev.bold,
                 prev.italic,
                 prev.underline,
+                prev.code,
                 prev.href,
             )
             same_link = s.href is not None and s.href == prev.href
@@ -517,6 +583,7 @@ def _paragraph_spans(
                 bold=_font_bool(font.Bold),
                 italic=_font_bool(font.Italic),
                 underline=_font_underline(font.Underline),
+                code=_font_monospace(font.Name),
                 href=href,
             )
         )

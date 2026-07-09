@@ -8,9 +8,11 @@ this module, and both normalise to a `list[Run]`:
 - **Structured** — `runs: [{"text": "Fast", "bold": true}, {"text": " — quick"}]`.
   Unambiguous, supports a per-run character `style`. The canonical form.
 - **Markdown sugar** — a plain `text` string with a deliberately tiny markup:
-  `**bold**`, `*italic*`, `***bold italic***`, with `\\*` / `\\\\` escapes. The
-  LLM-native path for the common "bold lead-in" bullet; it desugars to the same
-  `Run` list. Capped at bold/italic on purpose — anything richer wants `runs`.
+  `**bold**`, `*italic*`, `***bold italic***`, `` `code` ``, with a backslash
+  escape before any character `to_markdown` escapes. The LLM-native path for the
+  common "bold lead-in" bullet, and for the identifiers and paths an agent
+  backticks by reflex; it desugars to the same `Run` list. Capped at
+  bold/italic/code on purpose — anything richer wants `runs`.
 
 This module is COM-free and pure so the parser and validation are unit-testable
 off-Windows; the actual character formatting is applied in `_anchors.insert_block`.
@@ -27,16 +29,22 @@ from .exceptions import OpError
 # Run fields an LLM/CLI payload may set. `text` is mandatory; the rest are
 # tri-state (None = "leave as inherited", not False) so a run only touches the
 # attributes it names.
-_RUN_KEYS = ("text", "bold", "italic", "underline", "style")
+_RUN_KEYS = ("text", "bold", "italic", "underline", "code", "style")
+
+# The font a `` `code` `` span is rendered in. Direct character formatting, not a
+# character style — the same choice `**bold**` makes (`Font.Bold`, not `Strong`),
+# so `insert_markdown` never mutates the document's style gallery.
+CODE_FONT = "Consolas"
 
 
 @dataclass(frozen=True)
 class Run:
     """One inline span of a paragraph plus its character formatting.
 
-    `bold`/`italic`/`underline` are tri-state: ``None`` leaves the attribute as
-    inherited, ``True``/``False`` set it explicitly. `style` names a (character)
-    style applied to the span.
+    `bold`/`italic`/`underline`/`code` are tri-state: ``None`` leaves the
+    attribute as inherited, ``True``/``False`` set it explicitly. `code` renders
+    the span in `CODE_FONT`. `style` names a (character) style applied to the
+    span.
     """
 
     text: str
@@ -44,16 +52,30 @@ class Run:
     italic: bool | None = None
     underline: bool | None = None
     style: str | None = None
+    code: bool | None = None
 
     def formatted(self) -> bool:
         """Whether this run carries any formatting worth a COM round-trip."""
-        return any(v is not None for v in (self.bold, self.italic, self.underline, self.style))
+        return any(
+            v is not None for v in (self.bold, self.italic, self.underline, self.style, self.code)
+        )
 
+
+# The characters `_export._escape_inline` backslash-escapes on the way out, and
+# so exactly the ones this parser must unescape on the way back in. The two sets
+# must stay in lockstep: that is what makes `to_markdown` -> `insert_markdown` a
+# fixed point. While they were out of step (only `*` and `\` were unescaped) each
+# round-trip accreted one backslash per special character, without bound.
+_ESCAPABLE = "\\`*{}[]#_"
 
 # Escaped characters are lifted to private-use sentinels *before* the delimiter
 # scan, so `\*` never reads as emphasis and is restored to a literal `*` after.
-_ESC_STAR = ""
-_ESC_BACKSLASH = ""
+_ESC_SENTINEL = {ch: chr(0xE000 + i) for i, ch in enumerate(_ESCAPABLE)}
+_ESC_RESTORE = {v: k for k, v in _ESC_SENTINEL.items()}
+
+# One left-to-right pass, so a `\\` consumes its own backslash and leaves a
+# following delimiter live: `\\*x*` is a literal backslash then an italic `x`.
+_ESC_RX = re.compile(r"\\([" + re.escape(_ESCAPABLE) + r"])")
 
 # Matched-pair patterns, longest delimiter first so `***x***` wins over `**`/`*`
 # at the same position. `.+?` is non-greedy and crosses no newline by default,
@@ -64,22 +86,33 @@ _EMPHASIS = (
     (re.compile(r"\*(.+?)\*"), False, True),
 )
 
+# A code span: a backtick fence, the shortest content that reaches a matching
+# fence of the same length, and the closing fence. The variable fence (`` ` ``
+# vs ```` `` ````) is what lets a span contain literal backticks. Code binds
+# tighter than emphasis (as in CommonMark), so the scan splits on these first
+# and only emphasis-parses what falls between — otherwise `*a `b` c*` would let
+# the italic swallow the span and strand its backticks as literal text.
+_CODE = re.compile(r"(`+)(.+?)\1")
+
 
 def _restore(s: str) -> str:
-    return s.replace(_ESC_STAR, "*").replace(_ESC_BACKSLASH, "\\")
+    return "".join(_ESC_RESTORE.get(ch, ch) for ch in s)
 
 
-def parse_markup(text: str) -> list[Run]:
-    """Desugar the tiny inline markdown into a `list[Run]`.
+def _strip_code_pad(content: str) -> str:
+    """Undo the one-space pad a fence uses to hold backtick-edged content.
 
-    Supports `**bold**`, `*italic*`, `***bold italic***`, and the escapes `\\*`
-    (literal asterisk) and `\\\\` (literal backslash). Unmatched delimiters stay
-    literal — `"a * b"` is one plain run, not a dangling emphasis. Plain text
-    with no markup returns a single unformatted run, so routing every insert
-    through this parser is behaviour-preserving for ordinary text.
+    CommonMark: if a code span's content both begins and ends with a space and is
+    not all spaces, one space is stripped from each end. That is what lets
+    ``` `` `x` `` ``` mean ``` `x` ```. The inverse of `_export._code_span`'s pad.
     """
-    # Lift escapes out of the way so the scan never sees an escaped delimiter.
-    work = text.replace("\\\\", _ESC_BACKSLASH).replace("\\*", _ESC_STAR)
+    if len(content) >= 2 and content[0] == " " and content[-1] == " " and content.strip():
+        return content[1:-1]
+    return content
+
+
+def _parse_emphasis(work: str) -> list[Run]:
+    """Scan one code-free segment for `*` emphasis. `work` has escapes lifted."""
     runs: list[Run] = []
 
     def emit(span: str, bold: bool, italic: bool) -> None:
@@ -103,6 +136,42 @@ def parse_markup(text: str) -> list[Run]:
             emit(work[pos : m.start()], False, False)
         emit(m.group(1), bold, italic)
         pos = m.end()
+    return runs
+
+
+def parse_markup(text: str) -> list[Run]:
+    """Desugar the tiny inline markdown into a `list[Run]`.
+
+    Supports `**bold**`, `*italic*`, `***bold italic***`, `` `code` `` (rendered
+    in `CODE_FONT`), and a backslash escape before any of ``\\`` ` ``*{}[]#_`` —
+    the exact set `to_markdown` emits, so a read/write round-trip is a fixed
+    point.
+
+    Code spans bind tighter than emphasis and their content is literal, so
+    ``` `b*c` ``` is one code run reading ``b*c``, not an italic. Use a longer
+    fence to embed a backtick (```` ``a `b` c`` ````). Because runs are flat,
+    emphasis does **not** reach across a code span: in ``` *a `b` c* ``` the
+    asterisks stay literal (they land in different segments). Wrap the emphasis
+    inside the code-free part, or use structured `runs`, if you need both.
+
+    Unmatched delimiters stay literal — `"a * b"` is one plain run, not a
+    dangling emphasis. Plain text with no markup returns a single unformatted
+    run, so routing every insert through this parser is behaviour-preserving for
+    ordinary text.
+    """
+    # Lift escapes out of the way so the scan never sees an escaped delimiter.
+    # An escaped backtick is now a sentinel, so it can't open a code span either.
+    work = _ESC_RX.sub(lambda m: _ESC_SENTINEL[m.group(1)], text)
+    runs: list[Run] = []
+    pos = 0
+    for m in _CODE.finditer(work):
+        if m.start() > pos:
+            runs.extend(_parse_emphasis(work[pos : m.start()]))
+        # Code content is literal — no emphasis scan, only escape restoration.
+        runs.append(Run(text=_restore(_strip_code_pad(m.group(2))), code=True))
+        pos = m.end()
+    if pos < len(work):
+        runs.extend(_parse_emphasis(work[pos:]))
     if not runs:
         # All-empty input (or "") — emit one empty-text run so callers always get
         # a paragraph, matching insert_paragraph("") semantics.
@@ -122,7 +191,7 @@ def _run_from_dict(raw: Any, where: str) -> Run:
         )
     if "text" not in raw or not isinstance(raw["text"], str):
         raise OpError(f"{where}: each run requires a string 'text'")
-    for flag in ("bold", "italic", "underline"):
+    for flag in ("bold", "italic", "underline", "code"):
         if flag in raw and not isinstance(raw[flag], bool):
             raise OpError(f"{where}: run '{flag}' must be a boolean")
     if "style" in raw and raw["style"] is not None and not isinstance(raw["style"], str):
@@ -132,6 +201,7 @@ def _run_from_dict(raw: Any, where: str) -> Run:
         bold=raw.get("bold"),
         italic=raw.get("italic"),
         underline=raw.get("underline"),
+        code=raw.get("code"),
         style=raw.get("style"),
     )
 
