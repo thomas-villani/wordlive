@@ -144,7 +144,16 @@ class _FakeContentControls:
 
 
 class _FakeParagraphs:
+    """Mimics ActiveDocument.Paragraphs.
+
+    `walks` counts full-collection enumerations. In real Word each step is a
+    cross-process COM call, so a rule that resolves `para:N` (which rescans)
+    once per paragraph is quadratic; a test can assert the walk count stays
+    bounded rather than scaling with the paragraph count.
+    """
+
     def __init__(self, paragraphs: list[dict[str, Any]]) -> None:
+        self.walks = 0
         self._items = []
         for p in paragraphs:
             mock = MagicMock(name=f"Para[{p.get('text', '?')[:20]}]")
@@ -168,6 +177,7 @@ class _FakeParagraphs:
             self._items.append(mock)
 
     def __iter__(self) -> Iterable[Any]:
+        self.walks += 1
         return iter(self._items)
 
 
@@ -1327,6 +1337,7 @@ class _FakeTable:
         title: str = "",
         *,
         start: int = 0,
+        end: int | None = None,
         owner: Any | None = None,
         style: str | None = None,
     ) -> None:
@@ -1340,6 +1351,7 @@ class _FakeTable:
         else:
             self.Style = None
         self._start = start
+        self._end = start if end is None else end
         self._owner = owner
         self._rows = [[self._mk_cell_range(text) for text in row] for row in grid]
         self._range_mock: Any | None = None
@@ -1387,10 +1399,11 @@ class _FakeTable:
             rng.Start = self._start
             # The fake models a table as a standalone object, not via in-document
             # cell-paragraphs, so its range carries no document paragraphs — an
-            # empty [Start, End) interval (End defaults to a MagicMock that ints
-            # to 1, which would otherwise swallow the paragraph at offset Start in
-            # _export's table-interleave walk).
-            rng.End = self._start
+            # empty [Start, End) interval by default (End defaults to a MagicMock
+            # that ints to 1, which would otherwise swallow the paragraph at offset
+            # Start in _export's table-interleave walk). Pass `end=` to give the
+            # table a real span, so a rule that skips cells by offset can be tested.
+            rng.End = self._end
             self._range_mock = rng
         return self._range_mock
 
@@ -2346,7 +2359,16 @@ def _make_document(
     doc.Paragraphs = _FakeParagraphs(paragraphs or [])
     doc.Styles = _FakeStyles(styles if styles is not None else _DEFAULT_STYLES)
     doc.Tables = _FakeTablesCollection(
-        [_FakeTable(t["grid"], t.get("title", ""), style=t.get("style")) for t in (tables or [])]
+        [
+            _FakeTable(
+                t["grid"],
+                t.get("title", ""),
+                start=t.get("start", 0),
+                end=t.get("end"),
+                style=t.get("style"),
+            )
+            for t in (tables or [])
+        ]
     )
     doc.Comments = _FakeComments()
     doc.Revisions = _FakeRevisions(revisions or [])
@@ -2358,18 +2380,28 @@ def _make_document(
     # `Range(start, end)` returns a range whose `.Text` can be set/read by the
     # caller. Cache by (start, end) so a write through one handle is visible on
     # the next lookup of the same span — needed for RangeAnchor round-trips.
+    #
+    # Seed the cache with each paragraph's own span. In real Word a range built
+    # from a paragraph's offsets *is* that paragraph's range, so its font/style
+    # reads agree; without this the fake hands back a bare mock and a rule that
+    # resolves a paragraph by offset (rather than by rescanning `Paragraphs`)
+    # silently sees no formatting. Keep them the same object.
     _range_cache: dict[tuple[int, int], MagicMock] = {}
+    for _para in doc.Paragraphs:
+        _pr = _para.Range
+        _range_cache.setdefault((int(_pr.Start), int(_pr.End)), _pr)
 
     def _range_factory(start: int, end: int) -> MagicMock:
         key = (int(start), int(end))
         rng = _range_cache.get(key)
         if rng is None:
             rng = _make_range(start, end)
+            _range_cache[key] = rng
+        if getattr(rng.InlineShapes, "_doc_shapes", None) is None:
             # Wire the range's InlineShapes so a ConvertToShape() (floating
             # insert_image) lands the picture in this document's body Shapes.
             rng.InlineShapes._doc_shapes = doc.Shapes
             rng.InlineShapes._anchor_start = int(start)
-            _range_cache[key] = rng
         return rng
 
     doc.Range.side_effect = _range_factory

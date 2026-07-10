@@ -29,7 +29,17 @@ import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from ._linting import Finding, Rule, Span, _overlaps, _register_rule
+from ._linting import (
+    Finding,
+    Rule,
+    Span,
+    _in_table,
+    _overlaps,
+    _paragraph_rows,
+    _register_rule,
+    _row_format_info,
+    _table_spans,
+)
 from .exceptions import ComError
 
 if TYPE_CHECKING:
@@ -61,29 +71,16 @@ def _iter_body_paragraphs(doc: Document, span: Span | None) -> Iterator[dict[str
     (`table-numeric-right-align`), and justifying a numeric cell would fight it — a
     non-idempotent tug-of-war. So body prose means paragraphs not inside any table."""
     tables = _table_spans(doc)
-    for row in doc.paragraphs.list():
+    for row in _paragraph_rows(doc):
         if row.get("is_heading") or row.get("style") not in _BODY_STYLES:
             continue
         if not str(row.get("text") or "").strip():
             continue  # empty paragraph — no visible alignment / spacing to police
-        start, end = int(row["start"]), int(row["end"])
-        if any(ts <= start < te for ts, te in tables):
+        if _in_table(row, tables):
             continue  # inside a table cell — not body prose
-        if not _overlaps(span, start, end):
+        if not _overlaps(span, int(row["start"]), int(row["end"])):
             continue
         yield row
-
-
-def _table_spans(doc: Document) -> list[tuple[int, int]]:
-    """The character ranges of every table, so the body-prose walk can skip cells."""
-    spans: list[tuple[int, int]] = []
-    try:
-        for table in doc.tables:
-            rng = table.com.Range
-            spans.append((int(rng.Start), int(rng.End)))
-    except ComError:
-        return spans
-    return spans
 
 
 def _check_body_justified(doc: Document, span: Span | None, profile: Profile) -> Iterator[Finding]:
@@ -96,7 +93,7 @@ def _check_body_justified(doc: Document, span: Span | None, profile: Profile) ->
     for row in rows:
         anchor_id = row["anchor_id"]
         try:
-            align = doc.anchor_by_id(anchor_id).format_info()["paragraph"]["alignment"]["value"]
+            align = _row_format_info(doc, row)["paragraph"]["alignment"]["value"]
         except ComError:
             continue
         if align == "justify":
@@ -131,9 +128,7 @@ def _check_body_line_spacing(
     for row in rows:
         anchor_id = row["anchor_id"]
         try:
-            spacing = doc.anchor_by_id(anchor_id).format_info()["paragraph"]["line_spacing"][
-                "value"
-            ]
+            spacing = _row_format_info(doc, row)["paragraph"]["line_spacing"]["value"]
         except ComError:
             continue
         if spacing is None or spacing == target:

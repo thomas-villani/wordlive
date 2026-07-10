@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from ._base import Anchor
 from ._helpers import (
     paragraph_text,
+    range_text,
 )
 from ._refs import (
     _stale_anchor_hint,
@@ -151,15 +152,18 @@ class ParagraphCollection:
         out: list[dict[str, Any]] = []
         with _com.translate_com_errors():
             for idx, para in enumerate(self._doc.com.Paragraphs, start=1):
+                # Fetch `para.Range` once. Each access mints a fresh COM object that
+                # pywin32 must wrap (a QueryInterface + type lookup), which dominates
+                # this walk — three fetches per paragraph made it ~3x its true cost.
+                rng = para.Range
                 try:
                     level = int(para.OutlineLevel)
                 except Exception:
                     level = 10
                 try:
-                    style: str | None = str(para.Range.Style.NameLocal)
+                    style: str | None = str(rng.Style.NameLocal)
                 except Exception:
                     style = None
-                rng = para.Range
                 out.append(
                     {
                         "index": idx,
@@ -169,7 +173,7 @@ class ParagraphCollection:
                         "is_heading": level < 10,
                         "start": int(rng.Start),
                         "end": int(rng.End),
-                        "text": paragraph_text(para),
+                        "text": range_text(rng).rstrip("\r\n\x07"),
                     }
                 )
         return out

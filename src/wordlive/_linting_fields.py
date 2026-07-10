@@ -34,7 +34,7 @@ import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from ._linting import Finding, Rule, Span, _overlaps, _register_rule
+from ._linting import Finding, Rule, Span, _overlaps, _paragraph_rows, _register_rule
 from .constants import WdFieldType
 from .exceptions import ComError
 
@@ -123,7 +123,7 @@ def _check_caption_manual_numbering(
     field — it won't renumber when figures are added/reordered. Report-only: rebuilding
     the number as a SEQ field adds content (an opt-in fix, deferred)."""
     try:
-        paras = doc.paragraphs.list()
+        paras = _paragraph_rows(doc)
         fields = doc.fields.list()
     except ComError:
         return
@@ -171,7 +171,7 @@ def _check_xref_as_literal_text(
     plain "Table 2" in prose can be legitimate), so off by default. Report-only: an
     auto-fix would have to guess which caption the mention points at."""
     try:
-        paras = doc.paragraphs.list()
+        paras = _paragraph_rows(doc)
         fields = doc.fields.list()
     except ComError:
         return

@@ -359,7 +359,7 @@ OP_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "insert_field": ("text", *_WHERE_FIELDS),
     "set_page_setup": _PAGE_SETUP_FIELDS,
     "update_fields": (),
-    "regularize": ("rules", "within", "profile", "dry_run"),
+    "regularize": ("rules", "within", "profile", "dry_run", "allow_content"),
     "insert_footnote": _WHERE_FIELDS,
     "insert_endnote": _WHERE_FIELDS,
     "insert_toc": ("levels", "use_heading_styles", "hyperlinks", *_WHERE_FIELDS),

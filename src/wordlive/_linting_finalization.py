@@ -29,7 +29,15 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from ._linting import Finding, Rule, Span, _overlaps, _register_rule
+from ._linting import (
+    Finding,
+    Rule,
+    Span,
+    _overlaps,
+    _paragraph_rows,
+    _register_rule,
+    _row_format_info,
+)
 from .exceptions import ComError
 
 if TYPE_CHECKING:
@@ -50,7 +58,7 @@ def _in_span(span: Span | None, row: dict[str, Any]) -> bool:
 
 
 def _iter_paras(doc: Document, span: Span | None) -> Iterator[dict[str, Any]]:
-    for row in doc.paragraphs.list():
+    for row in _paragraph_rows(doc):
         if _in_span(span, row):
             yield row
 
@@ -205,7 +213,7 @@ def _check_hidden_text_present(
     """Hidden-text runs left in the document (they print/export invisibly). Report-
     only — whether to reveal or delete hidden text is a content decision."""
     for row in _iter_paras(doc, span):
-        font = doc.anchor_by_id(row["anchor_id"]).format_info()["font"]
+        font = _row_format_info(doc, row)["font"]
         if font["hidden"]["value"] is True or "hidden" in font["mixed"]:
             yield Finding(
                 rule="hidden-text-present",
@@ -224,7 +232,7 @@ def _check_leftover_highlight(
     """Highlighter colour left on body text. Fix: clear it (idempotent — clearing an
     already-unhighlighted paragraph is a no-op)."""
     for row in _iter_paras(doc, span):
-        font = doc.anchor_by_id(row["anchor_id"]).format_info()["font"]
+        font = _row_format_info(doc, row)["font"]
         value = font["highlight"]["value"]
         if (value is not None and value != "none") or "highlight" in font["mixed"]:
             yield Finding(
