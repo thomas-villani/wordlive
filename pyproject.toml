@@ -195,3 +195,11 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["mcp.*"]
 ignore_missing_imports = true
+
+# pydantic arrives only as a transitive dependency of the `mcp` extra, so it is
+# likewise absent from the lint environment. `server.py` imports `Field` at module
+# level (guarded by try/except) to annotate the `command` params — FastMCP resolves
+# annotations against module globals, so it cannot be a deferred import.
+[[tool.mypy.overrides]]
+module = ["pydantic"]
+ignore_missing_imports = true
