@@ -278,6 +278,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `OpError` naming the field, the actual problem, and the shape wanted.
 
 ### Changed
+- **`body-font-consistent` now audits size and weight, not just the font face.** It flagged only a
+  hand-set font *name*, while `heading-font-consistent` has always checked name/size/bold — so a
+  body paragraph bumped to 16pt or bolded drifted from its style unnoticed (the trial's `para:8`
+  observation). It now audits all three, each with the same targeted style-value fix. One carve-out
+  keeps it honest: a *short, emphasized, non-sentence* paragraph is what `manual-heading-formatting`
+  flags as a missing heading style, so its size/bold are left alone here — otherwise `regularize`
+  would strip the very emphasis that points at the real defect, and the paragraph would stop
+  tripping either rule. The two rules now share one predicate so they can't disagree. The font name
+  is always audited (never a heading signal). No change to the default finding set on documents
+  without size/bold body overrides.
 - **`insert_block` / `insert_section` body items now default to the `Normal` style instead of
   inheriting the insertion point's.** An item that named no `style` used to inherit whatever
   paragraph it was inserted after. Because `insert_section` writes its heading *first*, and its

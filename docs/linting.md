@@ -258,7 +258,7 @@ someone hand-applied that the style would otherwise have supplied.
 
 | rule | what it catches | on | fix | tags |
 |---|---|:-:|:-:|---|
-| `body-font-consistent` | A body paragraph whose font name is hand-set, overriding its style's font. Table cells are skipped — see `table-style-consistent`. | ✅ | ✎ | fonts |
+| `body-font-consistent` | A body paragraph whose font name, size, or bold is hand-set, overriding its style. Table cells are skipped — see `table-style-consistent`. A short, emphasized, non-sentence paragraph is exempt from the size/bold check — that's what `manual-heading-formatting` flags — so a fix here can't strip the emphasis that points at a missing heading style. | ✅ | ✎ | fonts |
 | `heading-font-consistent` | A heading whose font name, size, or bold is hand-set, overriding its heading style. | ✅ | ✎ | headings, fonts |
 | `heading-spacing-consistent` | A heading whose space-before / space-after is overridden away from its style. | ✅ | ✎ | headings, spacing |
 | `mixed-run-format` | A heading whose font varies run-to-run — part of it was separately restyled. | ✅ | · | headings, fonts |

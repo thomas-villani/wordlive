@@ -287,7 +287,8 @@ def test_lint_within_scopes_consistency_rule(fake_word):
 
 def test_lint_body_font_consistent_positive(fake_word):
     # LINT-6: a body paragraph whose font face drifts from its style is flagged,
-    # with a targeted style-value fix.
+    # with a targeted style-value fix. (para:2 is "Body text here." — sentence-
+    # like, so it isn't treated as a faux heading; all three fields audit.)
     fake_word.ActiveDocument.Paragraphs._items[1].Range.Font.Name = "Comic Sans MS"
     with wordlive.attach() as word:
         findings = word.documents.active.lint(rules=["body-font-consistent"])
@@ -295,6 +296,45 @@ def test_lint_body_font_consistent_positive(fake_word):
     f = findings[0]
     assert f["anchor_id"] == "para:2" and f["rule"] == "body-font-consistent"
     assert f["fix"]["op"] == "format_run" and f["fix"]["font"] == "Aptos"
+
+
+def test_lint_body_font_consistent_flags_size_and_bold(fake_word):
+    # The widened rule audits size and weight too, not just the face — each with a
+    # targeted style-value fix, matching heading-font-consistent.
+    body = fake_word.ActiveDocument.Paragraphs._items[1].Range.Font  # para:2
+    body.Size = 15.0
+    body.Bold = True
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["body-font-consistent"])
+    by_field = {f["observed"].split("=")[0]: f for f in findings}
+    assert set(by_field) == {"size", "bold"}
+    assert by_field["size"]["fix"] == {
+        "op": "format_run",
+        "anchor_id": "para:2",
+        "size": 12.0,
+    }
+    assert by_field["bold"]["fix"] == {
+        "op": "format_run",
+        "anchor_id": "para:2",
+        "bold": False,
+    }
+
+
+def test_lint_body_font_consistent_spares_faux_heading_emphasis(monkeypatch):
+    # A short, bold, non-sentence body paragraph is what manual-heading-formatting
+    # points at ("this should be a heading"). body-font-consistent must NOT offer to
+    # strip that bold — regularize would erase the very signal — so it audits only
+    # the font face on such a paragraph, never size/bold.
+    app = _typo_app(
+        monkeypatch, [{"text": "Overview", "start": 0, "end": 9, "level": 10, "style": "Normal"}]
+    )
+    font = app.ActiveDocument.Paragraphs._items[0].Range.Font
+    font.Bold = True  # the emphasis that makes it read as a heading
+    font.Name = "Comic Sans MS"  # a genuine face drift, still fixable
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["body-font-consistent"])
+    assert [f["observed"].split("=")[0] for f in findings] == ["name"]
+    assert findings[0]["fix"] == {"op": "format_run", "anchor_id": "para:1", "font": "Aptos"}
 
 
 def test_regularize_multiple_rules_ride_one_undo(fake_word):

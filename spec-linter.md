@@ -182,7 +182,7 @@ and how it's **fixed** (the wordlive verb / exec op). All fixes are idempotent
 | id | kind | detect | fix |
 |---|---|---|---|
 | `heading-font-consistent` | consistency | same-style headings whose `Font.Name`/`Size`/`Bold` carry direct overrides deviating from the style | re-apply style value / clear override (§7) |
-| `body-font-consistent` | consistency | body paragraphs with a directly-set font face differing from the `Normal`/body style | clear override |
+| `body-font-consistent` | consistency | body paragraphs with a directly-set `Font.Name`/`Size`/`Bold` differing from the `Normal`/body style (size/bold exempt on a short, emphasized, non-sentence paragraph — `manual-heading-formatting`'s territory) | clear override |
 | `mixed-run-format` | consistency | a paragraph whose `Font.Size`/`Name` reads `wdUndefined` (mixed runs) where uniformity is expected | report-only (which run is the outlier needs run-walk; fix is opt-in) |
 
 ### Alignment & justification (policy) — ✅ shipped Batch 4a (with `body-line-spacing`)
