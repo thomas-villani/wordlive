@@ -30,10 +30,11 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
             unknown_value_message("read command", command, READ_COMMANDS, fallback=_GUIDE_POINTER)
         )
     if command == "guide":
-        # The full agent guide — the same text served by the wordlive://guide
-        # resource, but reachable as a tool call (resources aren't surfaced by
-        # every MCP client). Needs neither Word nor the worker thread.
-        return {"guide": skill_body()}
+        # The MCP-native agent guide (not the CLI one) — the same text served by
+        # the wordlive://guide resource, but reachable as a tool call (resources
+        # aren't surfaced by every MCP client). Needs neither Word nor the worker
+        # thread.
+        return {"guide": skill_body("mcp")}
 
     def job() -> Any:
         with attach() as word:

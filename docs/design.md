@@ -125,12 +125,12 @@ models ([`Document.snapshot`](python-api.md#snapshots), via the optional
 `snapshot` extra). On the read/agent-ergonomics side it ships **Markdown / HTML
 export** and a **token-budgeted whole-document read** (`doc.read(budget=…)`),
 **checkpoint + diff** ("what changed this session"), and a **document linter +
-regularizer** (`doc.lint` / `doc.regularize`). wordlive also ships two LLM-facing
+regularizer** (`doc.lint` / `doc.regularize`). wordlive also ships LLM-facing
 **agent skills** — a CLI guide and an `import wordlive as wl` Python guide that
 `wordlive install-skill` drops into `.agents/skills/` — and an **MCP server**
 (`wordlive-mcp`, registered with `wordlive install-mcp` or the one-click `.mcpb`
-bundle) that exposes the same surface as a handful of dispatch tools (see
-[MCP](mcp.md)). Still ahead: a co-editing / change-watch surface built on event
+bundle) that exposes the same surface as a handful of dispatch tools and serves
+its own MCP-native guide via `word_read(command="guide")` (see [MCP](mcp.md)). Still ahead: a co-editing / change-watch surface built on event
 sinks (`WindowSelectionChange`, `DocumentBeforeSave`) and an async wrapper
 around the sync core.
 

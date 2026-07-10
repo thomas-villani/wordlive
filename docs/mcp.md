@@ -106,10 +106,13 @@ The anchor model (`heading:N`, `para:N`, `bookmark:NAME`, `pin:CODE`, `cc:NAME`,
 `table:N:col:C`, `range:START-END`,
 `header:S:WHICH` / `footer:S:WHICH`, `start` /
 `end`) and the full `word_exec` op vocabulary are documented in the one-page
-guide. Fetch it as a tool call with **`word_read(command="guide")`** (it needs
-neither Word nor a document) — the most reliable path, since not every MCP
-client surfaces resources. The same text is also the **`wordlive://guide`**
-resource and `wordlive llm-help`. See also [CLI](cli.md) for each op's fields.
+**MCP guide** — written for these four `word_*` tools, with a CLI→MCP name
+crosswalk and the house-style `profile` schema. Fetch it as a tool call with
+**`word_read(command="guide")`** (it needs neither Word nor a document) — the most
+reliable path, since not every MCP client surfaces resources. The same text is
+also the **`wordlive://guide`** resource. (The CLI-facing guide, `wordlive
+llm-help`, teaches the command-line workflow instead.) See also [CLI](cli.md) for
+each op's fields.
 
 `heading:N` / `para:N` are **positional** and renumber when a structural edit
 shifts the document, so re-read `outline` / `paragraphs` after an insert before

@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A dedicated MCP agent guide — the server now teaches its own tools.** `word_read(command=
+  "guide")` and the `wordlive://guide` resource previously returned the **CLI** skill, so an agent
+  driving the four `word_*` dispatch tools was taught `wordlive outline`, `--anchor-id`, and exit
+  codes it can't use — the single biggest gap the Claude Desktop trial found. A new
+  `wordlive-mcp` skill teaches the tool surface natively (dispatch on `command` / `op` / `action`,
+  the anchor model, `word_exec` batch mechanics) and carries the two things the CLI guide never
+  did: a **CLI→MCP name crosswalk** (`read format`→`format_info`, `apply_list`→`list`+`action`,
+  `--within`→`within`, `--profile PATH`→`profile` (which over MCP also takes an inline object)),
+  and the house-style **`profile` JSON schema**. Both MCP guide surfaces now serve it; the CLI /
+  Python guides (`wordlive llm-help`, `install-skill`) are unchanged. Drift tests pin the new
+  skill's op list, its write-dispatcher actions, and every crosswalk command name to the code.
+- **Clearer lint cluster wording + two `word_exec` docstring nits.** The CLI skill's `layout` /
+  `structure` clusters now say naming the tag *enables* their off-by-default members (matching
+  `typography`'s parenthetical), instead of a bare "all off by default" that read as "stays off".
+  And the `word_exec` tool docstring now spells out that "atomic" is one **undo entry**, not a
+  transaction (a mid-batch failure leaves the successful prefix applied), and that each op resolves
+  its `anchor_id` fresh — so positional ids shift with edits earlier **in the same batch**, not
+  only between calls.
 - **Docs — two new guides plus a prominent one-click agent install.** A new
   [Advanced](docs/advanced.md) page walks the power features in one continuous session
   (token-budgeted `read` digests + `to_markdown` drill, durable `pin`/`pin_outline` handles,
