@@ -32,6 +32,7 @@ from ._linting import (
     Finding,
     Rule,
     Span,
+    _emphasized_like_heading,
     _in_table,
     _overlaps,
     _paragraph_rows,
@@ -140,7 +141,15 @@ def _check_heading_spacing_consistent(
 def _check_body_font_consistent(
     doc: Document, span: Span | None, profile: Profile
 ) -> Iterator[Finding]:
-    """A body paragraph whose font face drifts from its applied style.
+    """A body paragraph whose font drifts from its applied style — face, size, or weight.
+
+    Audits the same three fields as `heading-font-consistent`, with one carve-out.
+    A *short, emphasized, non-sentence* paragraph is what `manual-heading-formatting`
+    flags as a heading someone bolded instead of styling; fixing its `size`/`bold`
+    back to the `Normal` baseline would strip exactly the emphasis that rule points
+    at, and the paragraph would then stop tripping it. So those two fields are
+    skipped there (see `_emphasized_like_heading`) and only `name` is audited — the
+    font face is never a heading signal.
 
     Table cells are skipped. A cell's font is the table's business — a table style
     sets it and `table-style-consistent` polices that — so auditing cells here buries
@@ -153,11 +162,13 @@ def _check_body_font_consistent(
         if row["is_heading"] or _in_table(row, tables) or not _in_span(span, row):
             continue
         info = _row_format_info(doc, row)
-        finding = _font_finding(
-            "body-font-consistent", row["anchor_id"], "name", info, "Body paragraph"
-        )
-        if finding is not None:
-            yield finding
+        fields = ("name",) if _emphasized_like_heading(row, info) else ("name", "size", "bold")
+        for field in fields:
+            finding = _font_finding(
+                "body-font-consistent", row["anchor_id"], field, info, "Body paragraph"
+            )
+            if finding is not None:
+                yield finding
 
 
 def _check_mixed_run_format(

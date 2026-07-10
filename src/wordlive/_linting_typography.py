@@ -42,6 +42,8 @@ from ._linting import (
     Finding,
     Rule,
     Span,
+    _emphasized,
+    _heading_shaped,
     _in_table,
     _overlaps,
     _paragraph_rows,
@@ -318,8 +320,6 @@ def _check_manual_line_break(
 # structure heuristics
 # ---------------------------------------------------------------------------
 
-_SENTENCE_TAIL = ".!?:,;"
-
 
 def _check_manual_heading_formatting(
     doc: Document, span: Span | None, profile: Profile
@@ -329,6 +329,11 @@ def _check_manual_heading_formatting(
     Report-only: the right heading *level* is a judgment call, so we suggest rather
     than auto-apply `apply_style("Heading N")`.
 
+    The "short + not a sentence" (`_heading_shaped`) + "emphasized" (`_emphasized`)
+    test is shared with `body-font-consistent` — which exempts the same paragraphs'
+    size / bold from drift-fixing, so `regularize` can't strip the emphasis this
+    rule is pointing at.
+
     Table cells are skipped. A bold header row (`Rows(1).HeadingFormat`) is short,
     emphasized and `Normal`-styled, so it matches this heuristic exactly — but a
     cell must *not* become a heading, and a wide header row fired one finding per
@@ -337,20 +342,11 @@ def _check_manual_heading_formatting(
     for row in _iter_paras(doc, span):
         if row["is_heading"] or _is_verbatim(row) or _in_table(row, tables):
             continue
-        text = row["text"].strip()
-        if not text or len(text) > 80 or text[-1] in _SENTENCE_TAIL:
-            continue  # empty, long, or sentence-like — not a faux heading
+        if not _heading_shaped(row):
+            continue  # empty, long, or sentence-like — not a faux heading (cheap, no COM)
         info = _row_format_info(doc, row)
-        font = info["font"]
-        bold = font["bold"]["value"] is True  # True = uniformly bold (None = mixed)
-        size = font["size"]
-        enlarged = bool(
-            size["override"]
-            and size["value"]
-            and size["style"]
-            and size["value"] >= size["style"] * 1.2
-        )
-        if bold or enlarged:
+        if _emphasized(info):
+            text = row["text"].strip()
             yield Finding(
                 rule="manual-heading-formatting",
                 kind="structural",
