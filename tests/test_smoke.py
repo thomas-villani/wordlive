@@ -115,6 +115,24 @@ def test_add_table_at_document_end_no_boundary_crash(scratch_doc):
     assert len(doc.tables) == before + 1
 
 
+def test_insert_table_under_trailing_heading_leaves_no_stray_heading(scratch_doc):
+    """A table dropped under a Heading-2 that is the document's last paragraph
+    must not strand empty heading-styled paragraphs around it. The terminal
+    guard splits the heading's own mark and injects a trailing one; left as-is
+    both inherit `Heading 2` and clutter the navigation outline. The seeded
+    heading itself must survive."""
+    doc = scratch_doc
+    with doc.edit("seed heading"):
+        doc.append_paragraph("Risks", style="Heading 2")
+    with doc.edit("table under heading"):
+        doc.headings["Risks"].insert_table(2, 2, data=[["A", "B"], ["C", "D"]])
+    rows = doc.paragraphs.list()
+    strays = [r for r in rows if r["is_heading"] and not r["text"].strip()]
+    assert not strays, f"empty heading paragraphs stranded around the table: {strays}"
+    # Exactly the heading we asked for — no phantom outline entries.
+    assert [r["text"] for r in rows if r["is_heading"]] == ["Risks"]
+
+
 def test_whole_doc_replace_targets_correct_table_cell(scratch_doc):
     """Fix 2b: a whole-doc replace of a value inside one cell hits that cell,
     not a neighbour, and leaves the others intact."""

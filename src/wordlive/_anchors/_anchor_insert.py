@@ -403,8 +403,16 @@ class AnchorInsertMixin(AnchorCore):
         normal_obj = self._doc.styles["Normal"] if "Normal" in self._doc.styles else None
         with _com.translate_com_errors():
             doc_com = self._doc.com
+            normal_com = normal_obj.com if normal_obj is not None else None
             rng = self._range()
             pos = int(rng.Start) if where == "before" else int(rng.End)
+            # Track which empty separators we open so their paragraph style can
+            # be reset *after* the table exists (addressed relative to the table,
+            # since offsets shift as it's built). Like the new cells, an injected
+            # mark inherits the paragraph style at the insertion point — anchor a
+            # table under a `Heading 2` and, left as-is, these become empty
+            # heading paragraphs that clutter the navigation outline.
+            opened_before = opened_after = False
             # Word's final paragraph mark is undeletable and Tables.Add needs a
             # paragraph *after* the insertion point to anchor the table; at/after
             # that mark there is none, so the add raises COM 0x80020009. Push a
@@ -413,29 +421,56 @@ class AnchorInsertMixin(AnchorCore):
             doc_end = int(doc_com.Content.End)
             if pos >= doc_end - 1:
                 pos = max(0, doc_end - 1)
-                doc_com.Range(pos, pos).Text = "\r"
+                doc_com.Range(pos, pos).Text = "\r"  # lands after the table
+                opened_after = True
             # Word merges two tables that touch with no paragraph mark between
             # them, so a table appended at the end (or dropped next to another)
             # would silently fuse into its neighbour. Push a separator paragraph
             # onto whichever side abuts an existing table; untouched insertions
             # into ordinary text get no stray paragraph.
             if _within_table(doc_com, pos - 1, pos):
-                doc_com.Range(pos, pos).Text = "\r"
+                doc_com.Range(pos, pos).Text = "\r"  # lands before the table
                 pos += 1
+                opened_before = True
             if _within_table(doc_com, pos, pos + 1):
-                doc_com.Range(pos, pos).Text = "\r"
+                doc_com.Range(pos, pos).Text = "\r"  # lands after the table
+                opened_after = True
             insert_rng = doc_com.Range(pos, pos)
             table_com = doc_com.Tables.Add(insert_rng, rows, cols)
             if style_obj is not None:
                 table_com.Style = style_obj.com
-            if normal_obj is not None:
+            if normal_com is not None:
                 # Per-cell rather than table_com.Range.Style: a paragraph style
                 # set on the whole table range can bleed onto the paragraph that
                 # follows the table; the cell loop is contained and explicit.
-                normal_com = normal_obj.com
                 for r in range(1, rows + 1):
                     for c in range(1, cols + 1):
                         table_com.Cell(r, c).Range.Style = normal_com
+
+                def _reset_empty_run(at: int, forward: bool) -> None:
+                    # Walk the run of empty, non-table paragraphs abutting the
+                    # table and reset each to `Normal`, stopping at the first
+                    # non-empty paragraph, a table, or a document boundary. The
+                    # terminal guard leaves *two* stray marks (the injected one
+                    # plus the document's original final mark), so a single reset
+                    # isn't enough; the small guard count caps any runaway.
+                    limit = int(doc_com.Content.End)
+                    for _ in range(8):
+                        if not (0 <= at < limit if forward else 0 <= at):
+                            break
+                        para = doc_com.Range(at, at).Paragraphs(1).Range
+                        if para.Information(12):  # wdWithInTable
+                            break
+                        if str(para.Text or "").strip("\r\x07 \t"):
+                            break
+                        para.Style = normal_com
+                        at = int(para.End) if forward else int(para.Start) - 1
+
+                t_rng = table_com.Range
+                if opened_after:
+                    _reset_empty_run(int(t_rng.End), forward=True)
+                if opened_before:
+                    _reset_empty_run(int(t_rng.Start) - 1, forward=False)
             if grid:
                 for r, row in enumerate(grid, start=1):
                     for c, val in enumerate(row, start=1):

@@ -226,6 +226,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from Getting started and Examples.
 
 ### Fixed
+- **A table dropped under a heading no longer strands empty heading paragraphs.** `insert_table`
+  reset the new *cells* to `Normal` but not the separator/trailing paragraph marks it injects (the
+  one it opens so a table can't end the document, and the ones that keep abutting tables from
+  merging). Anchored under a `Heading 2` at the end of a document those marks inherited the
+  heading style, leaving one or two empty `Heading 2` paragraphs after the table that showed up as
+  phantom entries in the navigation outline. They're now reset to `Normal` — addressed relative to
+  the finished table and walked as a run, since the terminal case leaves *two* stray marks (the
+  injected one plus the document's original final mark) — while the anchor heading itself and any
+  real content around the table are left untouched. A live-Word smoke test pins the behaviour.
 - **Dispatch errors now suggest instead of reciting the vocabulary.** A wrong `command`
   used to fail pydantic's `Literal` check and dump all 45 (`word_read`) or 93 (`word_write`)
   alternatives, suggesting none — the miss never even reached wordlive's code. `command` is
