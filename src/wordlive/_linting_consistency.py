@@ -28,7 +28,15 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from ._linting import Finding, Rule, Span, _overlaps, _register_rule
+from ._linting import (
+    Finding,
+    Rule,
+    Span,
+    _overlaps,
+    _paragraph_rows,
+    _register_rule,
+    _row_format_info,
+)
 
 if TYPE_CHECKING:
     from ._document import Document
@@ -102,10 +110,10 @@ def _spacing_finding(
 def _check_heading_font_consistent(
     doc: Document, span: Span | None, profile: Profile
 ) -> Iterator[Finding]:
-    for row in doc.paragraphs.list():
+    for row in _paragraph_rows(doc):
         if not row["is_heading"] or not _in_span(span, row):
             continue
-        info = doc.anchor_by_id(row["anchor_id"]).format_info()
+        info = _row_format_info(doc, row)
         for field in ("name", "size", "bold"):
             finding = _font_finding(
                 "heading-font-consistent", row["anchor_id"], field, info, "Heading"
@@ -117,10 +125,10 @@ def _check_heading_font_consistent(
 def _check_heading_spacing_consistent(
     doc: Document, span: Span | None, profile: Profile
 ) -> Iterator[Finding]:
-    for row in doc.paragraphs.list():
+    for row in _paragraph_rows(doc):
         if not row["is_heading"] or not _in_span(span, row):
             continue
-        info = doc.anchor_by_id(row["anchor_id"]).format_info()
+        info = _row_format_info(doc, row)
         for field in ("space_before", "space_after"):
             finding = _spacing_finding(row["anchor_id"], field, info, "Heading")
             if finding is not None:
@@ -130,10 +138,10 @@ def _check_heading_spacing_consistent(
 def _check_body_font_consistent(
     doc: Document, span: Span | None, profile: Profile
 ) -> Iterator[Finding]:
-    for row in doc.paragraphs.list():
+    for row in _paragraph_rows(doc):
         if row["is_heading"] or not _in_span(span, row):
             continue
-        info = doc.anchor_by_id(row["anchor_id"]).format_info()
+        info = _row_format_info(doc, row)
         finding = _font_finding(
             "body-font-consistent", row["anchor_id"], "name", info, "Body paragraph"
         )
@@ -148,10 +156,10 @@ def _check_mixed_run_format(
     are normally a uniform run, so a mixed one is often an accidental stray
     override — but pinpointing the outlier run needs a run-walk, so this is
     **report-only** (no fix)."""
-    for row in doc.paragraphs.list():
+    for row in _paragraph_rows(doc):
         if not row["is_heading"] or not _in_span(span, row):
             continue
-        mixed = doc.anchor_by_id(row["anchor_id"]).format_info()["font"]["mixed"]
+        mixed = _row_format_info(doc, row)["font"]["mixed"]
         if mixed:
             yield Finding(
                 rule="mixed-run-format",

@@ -327,3 +327,20 @@ def test_exec_regularize_profile(monkeypatch):
         assert exc is None and result.get("ops_run", 0) >= 1
         # The profile threaded through the exec op → the fix applied → re-lint is clean.
         assert [f for f in doc.lint(profile=profile) if f["rule"] == "body-justified"] == []
+
+
+def test_exec_regularize_allow_content_is_not_warned_as_unused(monkeypatch):
+    # `regularize` honours `allow_content`, so the batch must not warn that it was
+    # ignored — a phantom warning on a field that demonstrably works undermines
+    # the whole `warnings` channel.
+    from wordlive._ops import run_batch, unexpected_fields
+
+    assert unexpected_fields({"op": "regularize", "allow_content": True}, "regularize") == []
+
+    app = _make_app(paragraphs=[{"text": "Body.", "start": 0, "end": 5}])
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        result, exc = run_batch(doc, [{"op": "regularize", "allow_content": True}], label="t")
+    assert exc is None
+    assert "warnings" not in result, result.get("warnings")

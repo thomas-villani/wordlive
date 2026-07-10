@@ -38,7 +38,17 @@ from collections import Counter
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from ._linting import Finding, Rule, Span, _overlaps, _register_rule
+from ._linting import (
+    Finding,
+    Rule,
+    Span,
+    _in_table,
+    _overlaps,
+    _paragraph_rows,
+    _register_rule,
+    _row_format_info,
+    _table_spans,
+)
 from .exceptions import ComError
 
 if TYPE_CHECKING:
@@ -82,7 +92,7 @@ def _regex_fix(anchor_id: str, pattern: str, replace: str) -> dict[str, Any]:
 
 
 def _iter_paras(doc: Document, span: Span | None) -> Iterator[dict[str, Any]]:
-    for row in doc.paragraphs.list():
+    for row in _paragraph_rows(doc):
         if _in_span(span, row):
             yield row
 
@@ -193,7 +203,7 @@ def _check_stray_empty_paragraph(
     heading is `empty-heading`'s job, and an empty styled paragraph elsewhere is too
     ambiguous to touch. Deletions are ordered by `regularize` (descending, so earlier
     `para:N` anchors stay valid across a multi-blank pass)."""
-    rows = doc.paragraphs.list()
+    rows = _paragraph_rows(doc)
     # Does real (non-empty) content follow index i? One reverse pass, so the forward
     # scan below is O(n) rather than O(n²).
     content_after = [False] * len(rows)
@@ -317,14 +327,20 @@ def _check_manual_heading_formatting(
     """A short, fully-bold (or enlarged) body paragraph that reads like a heading
     but was never given a heading style — so it's invisible to the outline / TOC.
     Report-only: the right heading *level* is a judgment call, so we suggest rather
-    than auto-apply `apply_style("Heading N")`."""
+    than auto-apply `apply_style("Heading N")`.
+
+    Table cells are skipped. A bold header row (`Rows(1).HeadingFormat`) is short,
+    emphasized and `Normal`-styled, so it matches this heuristic exactly — but a
+    cell must *not* become a heading, and a wide header row fired one finding per
+    cell. Table headers are `table-repeat-header`'s domain."""
+    tables = _table_spans(doc)
     for row in _iter_paras(doc, span):
-        if row["is_heading"] or _is_verbatim(row):
+        if row["is_heading"] or _is_verbatim(row) or _in_table(row, tables):
             continue
         text = row["text"].strip()
         if not text or len(text) > 80 or text[-1] in _SENTENCE_TAIL:
             continue  # empty, long, or sentence-like — not a faux heading
-        info = doc.anchor_by_id(row["anchor_id"]).format_info()
+        info = _row_format_info(doc, row)
         font = info["font"]
         bold = font["bold"]["value"] is True  # True = uniformly bold (None = mixed)
         size = font["size"]

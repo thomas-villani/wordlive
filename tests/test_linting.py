@@ -474,6 +474,86 @@ def test_lint_manual_heading_skips_sentences(monkeypatch):
     assert findings == []
 
 
+def test_lint_manual_heading_skips_bold_table_header_cells(monkeypatch):
+    # A bold table header row is short, emphasized and Normal-styled, so it used
+    # to trip the faux-heading heuristic once per cell. Cells aren't headings.
+    app = _make_app(
+        paragraphs=[
+            {"text": "Header 1", "start": 0, "end": 9, "style": "Normal"},
+            {"text": "Header 2", "start": 9, "end": 18, "style": "Normal"},
+            {"text": "Overview", "start": 30, "end": 39, "style": "Normal"},
+        ],
+        tables=[{"grid": [["Header 1", "Header 2"]], "start": 0, "end": 20}],
+    )
+    for para in app.ActiveDocument.Paragraphs._items:
+        para.Range.Font.Bold = True
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["manual-heading-formatting"])
+    # Only the bold body paragraph outside the table is a faux heading.
+    assert [f["anchor_id"] for f in findings] == ["para:3"]
+
+
+def test_lint_paragraph_walk_does_not_scale_with_paragraph_count(monkeypatch):
+    # Regression: resolving `para:N` rescans the whole Paragraphs collection, so
+    # doing it once per row made the per-paragraph rules quadratic — a big table
+    # (every cell is a paragraph) pushed a default lint past four minutes. The
+    # rules must resolve each row by its character offsets instead.
+    paras = [
+        {"text": f"Body {i}", "start": i * 10, "end": i * 10 + 9, "style": "Normal"}
+        for i in range(12)
+    ]
+    app = _typo_app(monkeypatch, paras)
+    fake_paras = app.ActiveDocument.Paragraphs
+    fake_paras.walks = 0
+    with wordlive.attach() as word:
+        word.documents.active.lint(rules=["body-font-consistent"])
+    # One bulk `paragraphs.list()` walk, not one rescan per paragraph.
+    assert fake_paras.walks <= 2, f"{fake_paras.walks} walks for {len(paras)} paragraphs"
+
+
+def _default_lint_walks(monkeypatch, body_paragraphs):
+    """How many times a default lint pass enumerates the Paragraphs collection."""
+    paras = [{"text": "A heading", "start": 0, "end": 10, "level": 1}]
+    for i in range(body_paragraphs):
+        off = 10 + i * 10
+        paras.append({"text": f"Body {i}", "start": off, "end": off + 9, "style": "Normal"})
+    app = _typo_app(monkeypatch, paras)
+    fake_paras = app.ActiveDocument.Paragraphs
+    fake_paras.walks = 0
+    with wordlive.attach() as word:
+        word.documents.active.lint()  # the full default rule set
+    return fake_paras.walks
+
+
+def test_lint_walks_the_document_a_bounded_number_of_times(monkeypatch):
+    # Regression: every rule rebuilt `paragraphs.list()` / `outline()` from scratch,
+    # so one default pass enumerated the whole Paragraphs collection 15 times over
+    # COM. Each walk is O(paragraphs) cross-process calls and every table cell is a
+    # paragraph, so a big table turned a lint into the reported 4-minute hang. The
+    # pass now memoises both walks: one `list()`, one `outline()`, plus a couple of
+    # `heading:N` anchor resolutions. Budget, not an exact count — but if this grows
+    # back toward 15, the redundancy has returned.
+    assert _default_lint_walks(monkeypatch, 6) <= 6
+
+    # And the count must not grow with the document: the walks are per-pass, not
+    # per-paragraph (a `para:N` resolve used to rescan the collection per row).
+    small = _default_lint_walks(monkeypatch, 2)
+    large = _default_lint_walks(monkeypatch, 20)
+    assert small == large, f"{small} walks for 2 body paragraphs, {large} for 20"
+
+
+def test_lint_walk_cache_does_not_leak_across_passes(monkeypatch):
+    # The cache is scoped to one pass, so an edit between passes is picked up.
+    app = _typo_app(monkeypatch, [{"text": "foo  ", "start": 0, "end": 6}])
+    _paras = app.ActiveDocument.Paragraphs
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert len(doc.lint(rules=["trailing-whitespace"])) == 1
+        _paras._items[0].Range.Text = "foo\r"  # the trailing space is gone
+        assert doc.lint(rules=["trailing-whitespace"]) == []
+
+
 def test_lint_table_style_consistent_flags_minority(monkeypatch):
     app = _make_app(
         tables=[

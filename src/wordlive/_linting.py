@@ -21,8 +21,10 @@ a `run_lint` entry that `Document.lint` delegates to).
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from . import _com
 from ._lint_profile import Profile
@@ -112,6 +114,83 @@ def _overlaps(span: Span | None, lo: int, hi: int) -> bool:
     return lo <= span[1] and hi >= span[0]
 
 
+_NO_PASS = object()  # distinguishes "no lint pass in flight" from "not yet filled"
+_ROW_CACHE: ContextVar[Any] = ContextVar("wordlive_lint_rows", default=_NO_PASS)
+_OUTLINE_CACHE: ContextVar[Any] = ContextVar("wordlive_lint_outline", default=_NO_PASS)
+
+
+@contextmanager
+def _document_walk_cache() -> Iterator[None]:
+    """Memoise the whole-document walks for the duration of one lint pass.
+
+    `paragraphs.list()` and `outline()` each enumerate every paragraph over COM,
+    and a default run has ~18 rules that between them asked for those walks ten
+    times over. A lint pass is a pure read, so one walk apiece is enough. Scoped
+    to the pass (not the `Document`) so any edit — a `regularize` fix, a user
+    keystroke — invalidates it by construction."""
+    rows = _ROW_CACHE.set(None)
+    outline = _OUTLINE_CACHE.set(None)
+    try:
+        yield
+    finally:
+        _OUTLINE_CACHE.reset(outline)
+        _ROW_CACHE.reset(rows)
+
+
+def _paragraph_rows(doc: Document) -> list[dict[str, Any]]:
+    """`doc.paragraphs.list()`, walked once per lint pass. Reads straight through
+    when no pass is in flight, so a rule stays callable on its own."""
+    cached = _ROW_CACHE.get()
+    if cached is _NO_PASS:
+        return doc.paragraphs.list()
+    if cached is None:
+        cached = doc.paragraphs.list()
+        _ROW_CACHE.set(cached)
+    return cast("list[dict[str, Any]]", cached)
+
+
+def _outline_rows(doc: Document) -> list[dict[str, Any]]:
+    """`doc.outline()`, walked once per lint pass. See `_paragraph_rows`."""
+    cached = _OUTLINE_CACHE.get()
+    if cached is _NO_PASS:
+        return doc.outline()
+    if cached is None:
+        cached = doc.outline()
+        _OUTLINE_CACHE.set(cached)
+    return cast("list[dict[str, Any]]", cached)
+
+
+def _row_format_info(doc: Document, row: dict[str, Any]) -> dict[str, Any]:
+    """`format_info()` for a `paragraphs.list()` row, resolved by character offset.
+
+    Never route this through `anchor_by_id(row["anchor_id"])`: resolving a `para:N`
+    re-walks the whole `Paragraphs` collection (one cross-process COM step each), so
+    calling it once per row makes a rule quadratic in paragraph count. Every table
+    cell is a paragraph, so a big table used to push a default lint past four
+    minutes. The row already carries `para.Range.Start/End`, and `doc.range(...)` is
+    a single `Range(start, end)` call, so this is O(1) and yields the identical
+    dict — bar its `anchor_id` key, which no caller reads (they report `row`'s)."""
+    return doc.range(int(row["start"]), int(row["end"])).format_info()
+
+
+def _table_spans(doc: Document) -> list[tuple[int, int]]:
+    """The character ranges of every table, so a body-prose walk can skip cells."""
+    spans: list[tuple[int, int]] = []
+    try:
+        for table in doc.tables:
+            rng = table.com.Range
+            spans.append((int(rng.Start), int(rng.End)))
+    except ComError:
+        return spans
+    return spans
+
+
+def _in_table(row: dict[str, Any], tables: list[tuple[int, int]]) -> bool:
+    """Whether a `paragraphs.list()` row sits inside one of `tables`' spans."""
+    start = int(row["start"])
+    return any(lo <= start < hi for lo, hi in tables)
+
+
 # ---------------------------------------------------------------------------
 # structural rules (no config; objective defects)
 # ---------------------------------------------------------------------------
@@ -122,7 +201,7 @@ def _check_heading_keep_with_next(
 ) -> Iterator[Finding]:
     """A heading paragraph with keep-with-next off can be stranded at a page foot,
     its body starting on the next page. Fix: turn keep-with-next on."""
-    for row in doc.outline():
+    for row in _outline_rows(doc):
         anchor_id = row["anchor_id"]
         anchor = doc.anchor_by_id(anchor_id)
         lo, hi = _anchor_span(anchor)
@@ -366,12 +445,13 @@ def run_lint(
     resolved = Profile.load(profile)
     span = _resolve_span(doc, within)
     findings: list[Finding] = []
-    for rule in _select_rules(rules, resolved):
-        for finding in rule.check(doc, span, resolved):
-            sev = resolved.severity_for(finding.rule)
-            if sev is not None and sev != finding.severity:
-                finding = replace(finding, severity=sev)
-            findings.append(finding)
+    with _document_walk_cache():
+        for rule in _select_rules(rules, resolved):
+            for finding in rule.check(doc, span, resolved):
+                sev = resolved.severity_for(finding.rule)
+                if sev is not None and sev != finding.severity:
+                    finding = replace(finding, severity=sev)
+                findings.append(finding)
     findings.sort(key=lambda f: _SEVERITY_RANK.get(f.severity, 9))
     return findings
 

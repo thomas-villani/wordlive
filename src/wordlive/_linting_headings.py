@@ -37,7 +37,7 @@ import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from ._linting import Finding, Rule, Span, _anchor_span, _overlaps, _register_rule
+from ._linting import Finding, Rule, Span, _anchor_span, _outline_rows, _overlaps, _register_rule
 from .exceptions import ComError
 
 if TYPE_CHECKING:
@@ -71,7 +71,7 @@ def _para_index(anchor_id: str) -> int | None:
 def _headings(doc: Document) -> list[dict[str, Any]]:
     """The document's headings (`doc.outline()`), or `[]` on a transient COM hiccup."""
     try:
-        return doc.outline()
+        return _outline_rows(doc)
     except ComError:
         return []
 
