@@ -51,13 +51,34 @@ class AnchorInsertMixin(AnchorCore):
             insert_rng = self._doc.com.Range(rng.End, rng.End)
             insert_rng.Text = text
 
+    def _resolve_insert_style(self, style: str | None) -> Any:
+        """Resolve the paragraph style for a newly inserted paragraph.
+
+        A named `style` must exist in the document (`StyleNotFoundError`
+        otherwise). With no `style`, default to ``Normal`` rather than letting
+        the paragraph inherit the anchor's style — an insert after a `Heading 2`
+        would otherwise silently produce another heading, corrupting the outline
+        and shifting every `heading:N` id. This matches `insert_block` /
+        `insert_section` / `insert_markdown` / `insert_break` / `insert_table`,
+        so the result never depends on where you anchor; pass `style` explicitly
+        to match the surroundings (e.g. to continue a list). Falls back to no
+        style only if the document somehow lacks a ``Normal`` style.
+        """
+        if style is not None:
+            return self._doc.styles[style]  # StyleNotFoundError (exit 2) if missing
+        if "Normal" in self._doc.styles:
+            return self._doc.styles["Normal"]
+        return None
+
     def insert_paragraph_before(self, text: str, style: str | None = None) -> None:
         """Insert a new paragraph immediately before this anchor's range.
 
-        If `style` is given it must name a style defined in the document;
-        otherwise `StyleNotFoundError` is raised before any text is inserted.
+        If `style` is given it must name a style defined in the document
+        (`StyleNotFoundError` otherwise, before any text is inserted); with no
+        `style` the new paragraph defaults to ``Normal`` rather than inheriting
+        the anchor's style.
         """
-        style_obj = self._doc.styles[style] if style is not None else None
+        style_obj = self._resolve_insert_style(style)
         with _com.translate_com_errors():
             doc_com = self._doc.com
             start = int(self._range().Start)
@@ -72,8 +93,10 @@ class AnchorInsertMixin(AnchorCore):
     def insert_paragraph_after(self, text: str, style: str | None = None) -> None:
         """Insert a new paragraph immediately after this anchor's range.
 
-        If `style` is given it must name a style defined in the document;
-        otherwise `StyleNotFoundError` is raised before any text is inserted.
+        If `style` is given it must name a style defined in the document
+        (`StyleNotFoundError` otherwise, before any text is inserted); with no
+        `style` the new paragraph defaults to ``Normal`` rather than inheriting
+        the anchor's style.
 
         When the anchor is (or ends at) the document's final paragraph there is
         no position *after* the terminal paragraph mark to write to — Word
@@ -83,7 +106,7 @@ class AnchorInsertMixin(AnchorCore):
         "build from scratch" case, where the only paragraph *is* the last one —
         just works.
         """
-        style_obj = self._doc.styles[style] if style is not None else None
+        style_obj = self._resolve_insert_style(style)
         with _com.translate_com_errors():
             doc_com = self._doc.com
             end = int(self._range().End)

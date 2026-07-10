@@ -133,6 +133,23 @@ def test_insert_table_under_trailing_heading_leaves_no_stray_heading(scratch_doc
     assert [r["text"] for r in rows if r["is_heading"]] == ["Risks"]
 
 
+def test_insert_paragraph_after_heading_defaults_to_normal(scratch_doc):
+    """A paragraph appended under a heading with no explicit style must come out
+    `Normal`, not inherit the heading (which would corrupt the outline). An
+    explicit `style` must still win."""
+    doc = scratch_doc
+    with doc.edit("seed heading"):
+        doc.append_paragraph("Risks", style="Heading 2")
+    with doc.edit("append body"):
+        doc.headings["Risks"].insert_paragraph_after("Body text.")
+    with doc.edit("append sub"):
+        doc.headings["Risks"].insert_paragraph_after("Sub", style="Heading 3")
+    rows = {r["text"]: r["style"] for r in doc.paragraphs.list()}
+    assert rows.get("Body text.") == "Normal"
+    assert rows.get("Sub") == "Heading 3"  # explicit style honoured
+    assert rows.get("Risks") == "Heading 2"  # anchor heading untouched
+
+
 def test_whole_doc_replace_targets_correct_table_cell(scratch_doc):
     """Fix 2b: a whole-doc replace of a value inside one cell hits that cell,
     not a neighbour, and leaves the others intact."""

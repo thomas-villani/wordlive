@@ -167,6 +167,30 @@ def test_insert_paragraph_after_terminal_paragraph_styles_inserted_text(fake_wor
     )
 
 
+def test_insert_paragraph_after_defaults_to_normal_style(fake_word):
+    """With no explicit style the new paragraph must default to Normal rather
+    than inherit the anchor heading's style (which would corrupt the outline
+    and shift every heading id)."""
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("append body"):
+            doc.heading("Introduction").insert_paragraph_after("Body text.")
+    # "Introduction" ends at 13; "Body text." is 10 UTF-16 units.
+    styled = fake_word.ActiveDocument.Range(13, 23).Style
+    assert styled is not None and styled.NameLocal == "Normal"
+
+
+def test_insert_paragraph_before_defaults_to_normal_style(fake_word):
+    """`insert_paragraph_before` gets the same Normal default as `_after`."""
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        with doc.edit("prepend body"):
+            doc.heading("Introduction").insert_paragraph_before("Lead in.")
+    # "Introduction" starts at 0 in the fixture; "Lead in." is 8 UTF-16 units.
+    styled = fake_word.ActiveDocument.Range(0, 8).Style
+    assert styled is not None and styled.NameLocal == "Normal"
+
+
 def test_content_control_missing_raises(fake_word):
     with wordlive.attach() as word:
         doc = word.documents.active
