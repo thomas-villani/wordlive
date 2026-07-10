@@ -58,8 +58,11 @@ central types are big enough to live in packages; everything else is one module.
   `register()`; `main.py` = exit-code boundary). `mcp/` — the `wordlive-mcp`
   dispatch-tool server (`server.py` builds it; `_read`/`_write`/`_exec`/
   `_snapshot` hold the impls).
-- `_skill/SKILL.md` — the bundled agent guide, surfaced by `llm-help` /
-  `install-skill` and the `wordlive://guide` MCP resource. `_guide.py` reads it.
+- `_skill/{wordlive-cli,wordlive-python,wordlive-mcp}/SKILL.md` — the three
+  bundled agent guides. The cli/python ones are surfaced by `llm-help` /
+  `install-skill`; the **mcp** one is what `word_read(command="guide")` and the
+  `wordlive://guide` resource serve (so an MCP agent is taught the `word_*` tools,
+  not CLI verbs). `_guide.py` reads them (`skill_body(kind)`).
 
 **Mixins and typing.** `DocumentCore`/`AnchorCore` expose a TYPE_CHECKING-only
 `_as_document` / `_as_anchor` property (`cast("Document", self)`) — use it when a

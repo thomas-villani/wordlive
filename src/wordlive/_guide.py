@@ -5,12 +5,19 @@ Shared by the CLI (`llm-help`, `install-skill`) and the MCP server (the
 `_skill` because the package already ships a `_skill/` data directory holding the
 Markdown files — a module of the same name can't coexist with it.
 
-wordlive ships **two** skills: a CLI-facing guide and a Python-API guide. Each
-lives in its own `.agents/skills/<name>/` directory when installed, so the
-bundled layout mirrors that:
+wordlive ships **three** skills: a CLI-facing guide, a Python-API guide, and an
+MCP-facing guide (the one the server surfaces). Each lives in its own
+`.agents/skills/<name>/` directory when installed, so the bundled layout mirrors
+that:
 
     _skill/wordlive-cli/SKILL.md
     _skill/wordlive-python/SKILL.md
+    _skill/wordlive-mcp/SKILL.md
+
+The MCP server serves the `mcp` guide (not the CLI one): `word_read(command=
+"guide")` and the `wordlive://guide` resource both return `skill_body("mcp")`, so
+an agent driving the four `word_*` dispatch tools is taught in their own terms —
+never CLI verbs it can't call.
 """
 
 from __future__ import annotations
@@ -21,6 +28,7 @@ from importlib.resources import files
 SKILLS: dict[str, str] = {
     "cli": "wordlive-cli",
     "python": "wordlive-python",
+    "mcp": "wordlive-mcp",
 }
 
 

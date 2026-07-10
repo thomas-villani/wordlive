@@ -102,9 +102,13 @@ class TestReadImpl:
 
     def test_guide_needs_no_word(self, no_word: Any) -> None:
         # The guide is fetchable as a tool call even when Word isn't running —
-        # it never touches COM.
+        # it never touches COM. It's the MCP-native guide (teaches the word_*
+        # dispatch tools), not the CLI one.
         out = _read_impl(W, "guide", {})
-        assert "guide" in out and "anchor" in out["guide"].lower()
+        body = out["guide"]
+        assert "anchor" in body.lower()
+        assert "word_read" in body and "word_write" in body and "word_exec" in body
+        assert "wordlive outline" not in body  # not the CLI guide's verbs
 
     def test_outline(self, fake_word: Any) -> None:
         items = _read_impl(W, "outline", {})
@@ -614,6 +618,8 @@ class TestSession:
 
         body = _call(go)
         assert "anchor" in body.lower()
+        # The resource serves the MCP-native guide, matching command="guide".
+        assert "word_read" in body and "word_exec" in body
 
     def test_snapshot_returns_image_content(
         self, fake_word: Any, monkeypatch: pytest.MonkeyPatch

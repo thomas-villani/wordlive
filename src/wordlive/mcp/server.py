@@ -864,17 +864,26 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         {"op":"write_bookmark","name":"Addr","text":"…"},
         {"op":"insert_paragraph","anchor_id":"heading:2","text":"…","style":"Body Text"},
         {"op":"find_replace","find":"Q3","text":"Q4","all":true}. Set `tracked`
-        true to record the batch as tracked changes. Stops at the first failing
-        op and reports `failure` (its `index`, `error`, `type`). Fields an op
-        doesn't use are reported in `warnings`, not silently dropped.
+        true to record the batch as tracked changes. Fields an op doesn't use are
+        reported in `warnings`, not silently dropped.
+
+        "Atomic" means ONE undo entry, not all-or-nothing: the batch stops at the
+        first failing op and reports `failure` (its `index`, `error`, `type`), but
+        the ops before it already ran and are NOT rolled back — they just share
+        the single undo step. So one Ctrl-Z reverts the whole intent; a mid-batch
+        failure still leaves the successful prefix applied.
 
         Anchor ids (the `anchor_id` of placement ops):
           heading:N · para:N (any paragraph) · bookmark:NAME · cc:NAME ·
           table:N:R:C (a cell) · range:START-END (what `find` emits — for
           replace/comments, NOT a placement target) · header:S:WHICH ·
-          footer:S:WHICH · start · end. heading:N / para:N are positional and
-          renumber on structural inserts — re-read outline/paragraphs after one.
-          bookmark:/cc: are name-based and survive edits.
+          footer:S:WHICH · start · end. heading:N / para:N are positional. Each op
+          resolves its anchor_id FRESH the moment it runs — there is no pre-batch
+          snapshot — so a positional id sees the shifts EARLIER ops IN THIS BATCH
+          made, not just edits from before the call (insert several after one
+          fixed anchor in reverse order, or anchor each to the previous insert).
+          Re-read outline/paragraphs after a structural insert; bookmark:/cc: are
+          name-based and stay stable across the batch.
 
         Ops (required fields → behaviour):
           write_bookmark {name,text} · write_cc {name,text} ·
@@ -1021,8 +1030,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
 
     @mcp.resource("wordlive://guide", mime_type="text/markdown")
     def guide() -> str:
-        """The full wordlive agent guide: anchor model, every verb, the op vocabulary."""
-        return skill_body()
+        """The full wordlive agent guide: anchor model, every verb, the op vocabulary.
+
+        The MCP-native guide (`skill_body("mcp")`), so it teaches the four `word_*`
+        dispatch tools — not the CLI verbs an MCP agent can't call."""
+        return skill_body("mcp")
 
     return mcp
 
