@@ -17,6 +17,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ._suggest import unknown_value_message
 from .exceptions import AmbiguousMatchError, OpError, WordliveError
 
 if TYPE_CHECKING:
@@ -620,7 +621,14 @@ def validate_op(op: dict[str, Any]) -> str:
     if kind is None:
         raise OpError("op is missing the 'op' field")
     if kind not in OP_REQUIRED_FIELDS:
-        raise OpError(f"unknown op: {kind!r}")
+        raise OpError(
+            unknown_value_message(
+                "op",
+                str(kind),
+                tuple(OP_REQUIRED_FIELDS),
+                fallback="the full op vocabulary is in the guide (`wordlive llm-help`)",
+            )
+        )
     missing = [k for k in OP_REQUIRED_FIELDS[kind] if k not in op]
     if missing:
         raise OpError(

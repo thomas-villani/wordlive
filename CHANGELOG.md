@@ -208,6 +208,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from Getting started and Examples.
 
 ### Fixed
+- **Dispatch errors now suggest instead of reciting the vocabulary.** A wrong `command`
+  used to fail pydantic's `Literal` check and dump all 45 (`word_read`) or 93 (`word_write`)
+  alternatives, suggesting none — the miss never even reached wordlive's code. `command` is
+  now typed `str` (the enum is still published in each tool's JSON schema, so nothing is lost
+  on the happy path) and the dispatchers answer with `did you mean 'format_info'?`, validated
+  *before* attaching to Word. The same treatment covers unknown `word_exec` ops and
+  `list`/`comment`/`revision`/`table` actions. Matching is deliberately not plain `difflib`,
+  which ranks `read_format` nearest `read_image` on the shared `read_` prefix: a new
+  `_suggest` module blends character similarity with IDF-weighted token overlap, so the rare
+  `format` token outweighs the common `read` one. A name with no near neighbour gets **no**
+  suggestion — a confident wrong answer is worse than none.
+- **An `exec` op name passed as a `word_write` command is answered exactly.** `add_row`,
+  `apply_list`, `add_comment`, `accept_all_revisions` and 26 others are reached through a
+  sub-dispatcher, and no string metric recovers `table` from `delete_row`. The error now
+  names the pair outright: *"it is the `add_row` action of command `table` — call
+  `word_write(command='table', action='add_row')`"*.
+- **A missing or misspelled `action` now names the valid ones.** `command 'list' requires
+  'action'` was true but unhelpful; it now lists `apply`, `remove`, `restart`, `indent`,
+  `outdent`, `format` (and likewise for `comment` / `revision` / `table`).
+- **`table:2` explains itself.** Addressing a whole table raised `table cell not found:
+  'table:2'` while the guidance sat unread in `anchor_by_id`'s docstring. The error now
+  carries a hint naming `table:2:R:C`, `table:2:row:R`, `table:2:col:C`, and `table_read`.
+  A misspelled anchor *kind* (`tabel:1:1:1`) likewise gets a `did you mean 'table'?`.
 - **`lint` no longer hangs on a document with a large table (a hard 4-minute lock).** Every
   table cell is a paragraph, so a big table inflated the paragraph count — and two things then
   went badly wrong. First, eight per-paragraph rules read formatting via
