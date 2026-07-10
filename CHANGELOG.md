@@ -225,6 +225,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `build_quarterly_report.py` — and adds the page to the nav with cross-links
   from Getting started and Examples.
 
+### Changed
+- **`insert_paragraph_before` / `insert_paragraph_after` now default to `Normal` instead of
+  inheriting the anchor's style.** *(Behaviour change.)* Given no `style`, a paragraph inserted
+  after a `Heading 2` used to come out as another heading — corrupting the navigation outline and
+  shifting every `heading:N` id. Both now pin `Normal` when no `style` is named, so the result no
+  longer depends on where you anchor. This closes out the same style-inheritance trap already fixed
+  for `insert_block` / `insert_section` / `insert_markdown` / `insert_break` / `insert_table`; the
+  low-level paragraph inserters were the last holdout. Pass `style` explicitly to match the
+  surroundings (e.g. to continue a list — a paragraph's current style is in
+  `doc.paragraphs.list()[i]["style"]`).
+
 ### Fixed
 - **A table dropped under a heading no longer strands empty heading paragraphs.** `insert_table`
   reset the new *cells* to `Normal` but not the separator/trailing paragraph marks it injects (the
@@ -323,8 +334,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after a `Heading 1` had the same effect. Both now pin `Normal`, matching `insert_markdown`
   (which already did, deliberately) and `insert_break`. The result no longer depends on where
   you anchor. To match the surroundings instead, pass `style` explicitly — a paragraph's current
-  style is in `doc.paragraphs.list()[i]["style"]`. The low-level `insert_paragraph_before/after`
-  still inherit when given no `style`.
+  style is in `doc.paragraphs.list()[i]["style"]`. (The low-level `insert_paragraph_before/after`
+  followed in the Unreleased release above.)
 - **`body-font-consistent` no longer audits table cells.** A cell's font is the table's business
   (a table style sets it, and `table-style-consistent` polices that), so auditing cells here
   double-reported and buried the real prose findings under one finding per cell — a wide table

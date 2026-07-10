@@ -46,7 +46,10 @@ from ._common import (
     help="Insert the new paragraph before the anchor instead of after it.",
 )
 @click.option(
-    "--style", "style", default=None, help="Optional Word style name for the new paragraph."
+    "--style",
+    "style",
+    default=None,
+    help="Word style for the new paragraph; defaults to Normal (not the anchor's style) when omitted.",
 )
 @click.pass_context
 def insert(
