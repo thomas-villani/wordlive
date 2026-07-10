@@ -195,6 +195,52 @@ def _in_table(row: dict[str, Any], tables: list[tuple[int, int]]) -> bool:
     return any(lo <= start < hi for lo, hi in tables)
 
 
+# A trailing sentence mark means prose, not a heading.
+_SENTENCE_TAIL = ".!?:,;"
+_FAUX_HEADING_MAX_CHARS = 80
+_ENLARGED_RATIO = 1.2
+
+
+def _heading_shaped(row: dict[str, Any]) -> bool:
+    """Cheap text-only half of the faux-heading test: short, and not a sentence.
+
+    Kept separate so a caller can gate on it *before* paying for `_row_format_info`
+    (one COM round-trip per row — the cost that a default lint is dominated by)."""
+    text = str(row["text"]).strip()
+    return bool(text) and len(text) <= _FAUX_HEADING_MAX_CHARS and text[-1] not in _SENTENCE_TAIL
+
+
+def _emphasized(info: dict[str, Any]) -> bool:
+    """Uniformly bold, or set ≥20% larger than its style — the emphasis half."""
+    font = info["font"]
+    if font["bold"]["value"] is True:  # True = uniformly bold (None = mixed runs)
+        return True
+    size = font["size"]
+    return bool(
+        size["override"]
+        and size["value"]
+        and size["style"]
+        and size["value"] >= size["style"] * _ENLARGED_RATIO
+    )
+
+
+def _emphasized_like_heading(row: dict[str, Any], info: dict[str, Any]) -> bool:
+    """Whether a body paragraph is short + emphasized enough to read as a heading.
+
+    Shared by two rules that must agree about the same paragraph.
+    `manual-heading-formatting` *reports* one of these (suggesting a real heading
+    style); `body-font-consistent` must not *fix* the very emphasis that makes it
+    detectable — regularize would strip the bold, and the paragraph would then
+    stop matching this predicate, silently erasing the finding. So the emphasis
+    fields (`size` / `bold`) are exempt from drift-fixing there, while the font
+    `name` — never a heading signal — stays audited.
+
+    Callers apply their own pre-filters (table cells, verbatim styles); this is
+    only the shape-and-emphasis test. Where `info` isn't already in hand, gate on
+    `_heading_shaped(row)` first — it's free, and this isn't."""
+    return _heading_shaped(row) and _emphasized(info)
+
+
 # ---------------------------------------------------------------------------
 # structural rules (no config; objective defects)
 # ---------------------------------------------------------------------------
