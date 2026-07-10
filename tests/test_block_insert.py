@@ -47,6 +47,34 @@ class TestInsertBlockApi:
             # 3 paragraphs of 3/3/5 chars joined by 2 CRs -> span = 3+1+3+1+5 = 13.
             assert rng.end - rng.start == len("one") + 1 + len("two") + 1 + len("three")
 
+    def test_unstyled_item_is_pinned_to_normal_not_inherited(self, fake_word: Any) -> None:
+        # An item with no `style` must not inherit the insertion point's style —
+        # anchored after a heading it would otherwise come out as a heading itself.
+        # (`insert_break` resets to Normal for the same reason.)
+        text = "plain body"
+        with wordlive.attach() as word:
+            doc = word.documents.active
+            with doc.edit("block"):
+                block = doc.headings["Introduction"].insert_block([text])
+        rng = fake_word.ActiveDocument.Range(block.start, block.start + len(text))
+        style = rng.Paragraphs(1).Range.Style
+        assert style is not None and style.NameLocal == "Normal"
+
+    def test_insert_section_body_is_normal_not_the_heading(self, fake_word: Any) -> None:
+        # insert_section writes its heading first, so an inheriting body paragraph
+        # would come out as a *heading* — corrupting the outline.
+        heading, body = "Sub", "body para"
+        with wordlive.attach() as word:
+            doc = word.documents.active
+            with doc.edit("section"):
+                sec = doc.headings["Introduction"].insert_section(heading, [body], level=2)
+        doc_com = fake_word.ActiveDocument
+        h_rng = doc_com.Range(sec.start, sec.start + len(heading))
+        assert h_rng.Paragraphs(1).Range.Style.NameLocal == "Heading 2"
+        b_start = sec.start + len(heading) + 1  # past the heading's paragraph mark
+        b_rng = doc_com.Range(b_start, b_start + len(body))
+        assert b_rng.Paragraphs(1).Range.Style.NameLocal == "Normal"
+
     def test_unknown_paragraph_style_raises_before_mutation(self, fake_word: Any) -> None:
         with wordlive.attach() as word:
             doc = word.documents.active

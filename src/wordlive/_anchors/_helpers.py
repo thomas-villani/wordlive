@@ -50,7 +50,7 @@ def _utf16_len(s: str) -> int:
     return len(s.encode("utf-16-le")) // 2
 
 
-def range_text(rng: Any) -> str:
+def range_text(rng: Any, *, may_have_shapes: bool = True) -> str:
     """Read a COM range's text with inline shapes surfaced as ``[image]`` tokens.
 
     Word represents each inline shape (embedded picture / OLE object) as a single
@@ -61,8 +61,15 @@ def range_text(rng: Any) -> str:
     ``InlineShapes`` collection and swap only the character at each shape's own
     position, leaving real text untouched. A range with no inline shapes returns
     its raw text unchanged.
+
+    Pass ``may_have_shapes=False`` when the caller already knows the document holds
+    no inline shapes. Reaching for ``rng.InlineShapes`` mints a COM object pywin32
+    must wrap, and a bulk paragraph walk pays that per paragraph just to learn the
+    count is zero.
     """
     raw = str(rng.Text or "")
+    if not may_have_shapes:
+        return raw
     try:
         shapes = rng.InlineShapes
         count = int(shapes.Count)

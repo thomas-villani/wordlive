@@ -352,7 +352,9 @@ last / first paragraph and take `text` only — no `style`. `insert_paragraph`
 takes `text` **or** `runs` (`[{text,bold?,italic?,underline?,code?,style?}]`) for
 inline formatting; `insert_block` takes `anchor_id` + `items` (each a string or
 `{text|runs, style?}`, item `text` carrying `**bold**`/`*italic*` markdown) and
-returns the block's `range:START-END` in `outputs`. `insert_section` takes
+returns the block's `range:START-END` in `outputs`. An item with no `style` gets
+**`Normal`**, not the anchor's style — so a body paragraph never comes out as a
+heading; pass `style` to match the surroundings. `insert_section` takes
 `anchor_id` + `heading` + `body` (items shape) + optional `level`;
 `insert_markdown` takes `anchor_id` + `markdown` (the constrained block subset);
 `replace_section` takes a heading `anchor_id` + one of `body`/`markdown` and keeps

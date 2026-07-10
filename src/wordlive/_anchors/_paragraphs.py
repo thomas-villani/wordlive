@@ -151,6 +151,14 @@ class ParagraphCollection:
         """
         out: list[dict[str, Any]] = []
         with _com.translate_com_errors():
+            # Ask the document once whether any inline shape exists. If none does, no
+            # paragraph range can hold one, and each row's text read skips fetching
+            # (and wrapping) a per-paragraph `InlineShapes` collection. On failure,
+            # assume they may exist and let the per-range probe decide.
+            try:
+                may_have_shapes = int(self._doc.com.InlineShapes.Count) > 0
+            except Exception:
+                may_have_shapes = True
             for idx, para in enumerate(self._doc.com.Paragraphs, start=1):
                 # Fetch `para.Range` once. Each access mints a fresh COM object that
                 # pywin32 must wrap (a QueryInterface + type lookup), which dominates
@@ -173,7 +181,7 @@ class ParagraphCollection:
                         "is_heading": level < 10,
                         "start": int(rng.Start),
                         "end": int(rng.End),
-                        "text": range_text(rng).rstrip("\r\n\x07"),
+                        "text": range_text(rng, may_have_shapes=may_have_shapes).rstrip("\r\n\x07"),
                     }
                 )
         return out

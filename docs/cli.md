@@ -2832,13 +2832,15 @@ the document's `Saved` state untouched.
 
 Foundation rules — structural: `heading-keep-with-next`, `table-repeat-header`,
 `list-numbering-continuity`; consistency: `heading-font-consistent`,
-`heading-spacing-consistent`, `body-font-consistent`, and `mixed-run-format`
+`heading-spacing-consistent`, `body-font-consistent` (body prose only — table
+cells belong to `table-style-consistent`), and `mixed-run-format`
 (report-only, not fixable).
 
 Typography rules (tag `typography`) — **on by default:** `trailing-whitespace`,
 `leading-whitespace`, `space-before-punctuation`, `double-space`,
 `manual-heading-formatting` (report-only — a short bold/enlarged `Normal`
-paragraph that reads like a heading but isn't styled), `table-style-consistent`
+paragraph that reads like a heading but isn't styled; table cells are skipped, so
+a bold header row isn't flagged), `table-style-consistent`
 (restyle the minority tables onto the dominant table style). **Off by default**
 (name them or use `--rule typography`): `hyphen-as-range` (→ en-dash),
 `em-dash-usage`, `tabs-for-layout`, `manual-line-break` (the last three are
