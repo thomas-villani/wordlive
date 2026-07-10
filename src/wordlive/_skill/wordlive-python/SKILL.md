@@ -122,7 +122,9 @@ a.insert_block([                         # contiguous styled paragraphs in one o
     {"runs": [{"text": "Atomic undo", "bold": True}, {"text": " — one Ctrl-Z."}], "style": "List Bullet"},
     "Plain third bullet.",
 ])                                       # → feed rng.anchor_id to apply_list("bulleted")
+# An item with no "style" gets Normal — it never inherits the anchor's style.
 a.insert_section("Results", ["Body para.", "Another."], level=2)  # heading + body in one op → RangeAnchor
+# ...so the body stays Normal even anchored after a Heading 1 (it won't join the outline).
 a.insert_markdown("# Title\n\nIntro.\n\n- Call `attach()`\n- bullet two\n\n1. step")  # constrained MD → Word structure
 # `code` spans become monospace (Consolas) runs, and to_markdown() emits them back as backticks.
 # Starting a blank doc? Lead with insert_markdown/insert_block/insert_section — they reuse the

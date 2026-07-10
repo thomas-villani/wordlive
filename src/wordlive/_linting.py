@@ -27,6 +27,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import TYPE_CHECKING, Any, cast
 
 from . import _com
+from ._anchors._anchor_format import style_baseline_cache
 from ._lint_profile import Profile
 from .exceptions import ComError
 
@@ -125,13 +126,16 @@ def _document_walk_cache() -> Iterator[None]:
 
     `paragraphs.list()` and `outline()` each enumerate every paragraph over COM,
     and a default run has ~18 rules that between them asked for those walks ten
-    times over. A lint pass is a pure read, so one walk apiece is enough. Scoped
-    to the pass (not the `Document`) so any edit — a `regularize` fix, a user
-    keystroke — invalidates it by construction."""
+    times over. A lint pass is a pure read, so one walk apiece is enough — as is
+    one read of each *style's* baseline, which `format_info` otherwise re-reads
+    (~25 COM properties) for every same-styled paragraph. Scoped to the pass (not
+    the `Document`) so any edit — a `regularize` fix, a user keystroke —
+    invalidates it by construction."""
     rows = _ROW_CACHE.set(None)
     outline = _OUTLINE_CACHE.set(None)
     try:
-        yield
+        with style_baseline_cache():
+            yield
     finally:
         _OUTLINE_CACHE.reset(outline)
         _ROW_CACHE.reset(rows)

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
 from .. import _com
@@ -33,6 +36,43 @@ if TYPE_CHECKING:
     pass
 
 from ._anchor_core import AnchorCore
+
+# A style's own paragraph/font values — the baseline `format_info` diffs each range
+# against to decide what is a direct override. Reading it costs ~25 COM properties
+# and two object wraps, yet it depends only on the style, so a bulk reader (the
+# linter, walking hundreds of same-styled paragraphs) can memoise it. A Word style
+# is document-global, so the style's name is a sufficient key.
+_StyleBaseline = tuple[dict[str, Any], dict[str, Any]]
+_BASELINE_CACHE: ContextVar[dict[str, _StyleBaseline] | None] = ContextVar(
+    "wordlive_style_baseline", default=None
+)
+
+
+@contextmanager
+def style_baseline_cache() -> Iterator[None]:
+    """Memoise style baselines for the duration of one bulk read.
+
+    Only safe while nothing edits a *style definition*; direct formatting on a range
+    is read fresh either way. Scoped to the `with` block, never to a `Document`.
+    """
+    token = _BASELINE_CACHE.set({})
+    try:
+        yield
+    finally:
+        _BASELINE_CACHE.reset(token)
+
+
+def _style_baseline(style: Any, style_name: str) -> _StyleBaseline:
+    cache = _BASELINE_CACHE.get()
+    if cache is not None and style_name in cache:
+        return cache[style_name]
+    baseline: _StyleBaseline = (
+        _read_paragraph_format(style.ParagraphFormat),
+        _read_font(style.Font)[0],
+    )
+    if cache is not None:
+        cache[style_name] = baseline
+    return baseline
 
 
 class AnchorFormatMixin(AnchorCore):
@@ -249,12 +289,11 @@ class AnchorFormatMixin(AnchorCore):
         with _com.translate_com_errors():
             rng = self._range()
             style = rng.ParagraphStyle
-            eff_para = _read_paragraph_format(rng.ParagraphFormat)
-            sty_para = _read_paragraph_format(style.ParagraphFormat)
-            eff_font, mixed = _read_font(rng.Font)
-            sty_font, _ = _read_font(style.Font)
-            highlight = _read_highlight(rng.HighlightColorIndex)
             style_name = str(style.NameLocal)
+            eff_para = _read_paragraph_format(rng.ParagraphFormat)
+            eff_font, mixed = _read_font(rng.Font)
+            highlight = _read_highlight(rng.HighlightColorIndex)
+            sty_para, sty_font = _style_baseline(style, style_name)
 
         def _annotate(eff: dict[str, Any], sty: dict[str, Any]) -> dict[str, Any]:
             return {

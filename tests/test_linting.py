@@ -474,6 +474,24 @@ def test_lint_manual_heading_skips_sentences(monkeypatch):
     assert findings == []
 
 
+def test_lint_body_font_consistent_skips_table_cells(monkeypatch):
+    # A cell's font is the table's business (`table-style-consistent`); auditing it
+    # here emitted one finding per cell and made a big table's lint crawl.
+    app = _make_app(
+        paragraphs=[
+            {"text": "Cell text", "start": 0, "end": 10, "style": "Normal"},
+            {"text": "Body prose", "start": 30, "end": 41, "style": "Normal"},
+        ],
+        tables=[{"grid": [["Cell text"]], "start": 0, "end": 20}],
+    )
+    for para in app.ActiveDocument.Paragraphs._items:
+        para.Range.Font.Name = "Comic Sans MS"  # drifts from the style baseline
+    _attach(monkeypatch, app)
+    with wordlive.attach() as word:
+        findings = word.documents.active.lint(rules=["body-font-consistent"])
+    assert [f["anchor_id"] for f in findings] == ["para:2"]
+
+
 def test_lint_manual_heading_skips_bold_table_header_cells(monkeypatch):
     # A bold table header row is short, emphasized and Normal-styled, so it used
     # to trip the faux-heading heuristic once per cell. Cells aren't headings.
@@ -541,6 +559,29 @@ def test_lint_walks_the_document_a_bounded_number_of_times(monkeypatch):
     small = _default_lint_walks(monkeypatch, 2)
     large = _default_lint_walks(monkeypatch, 20)
     assert small == large, f"{small} walks for 2 body paragraphs, {large} for 20"
+
+
+def test_style_baseline_cache_does_not_leak_across_passes(monkeypatch):
+    # The baseline is memoised per pass, keyed by style name. Redefining the style
+    # between passes must be picked up — and within a pass, two same-styled
+    # paragraphs must still be diffed against their own effective values.
+    app = _typo_app(
+        monkeypatch,
+        [
+            {"text": "One", "start": 0, "end": 4, "style": "Normal"},
+            {"text": "Two", "start": 4, "end": 8, "style": "Normal"},
+        ],
+    )
+    paras = app.ActiveDocument.Paragraphs._items
+    paras[0].Range.Font.Name = "Comic Sans MS"  # drifts; para:2 matches the style
+    with wordlive.attach() as word:
+        doc = word.documents.active
+        assert [f["anchor_id"] for f in doc.lint(rules=["body-font-consistent"])] == ["para:1"]
+        # Redefine the style itself to the drifted face: now para:1 conforms and
+        # para:2 is the outlier. A leaked baseline would report the old answer.
+        for p in paras:
+            p.Range.ParagraphStyle.Font.Name = "Comic Sans MS"
+        assert [f["anchor_id"] for f in doc.lint(rules=["body-font-consistent"])] == ["para:2"]
 
 
 def test_lint_walk_cache_does_not_leak_across_passes(monkeypatch):

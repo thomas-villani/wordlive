@@ -32,10 +32,12 @@ from ._linting import (
     Finding,
     Rule,
     Span,
+    _in_table,
     _overlaps,
     _paragraph_rows,
     _register_rule,
     _row_format_info,
+    _table_spans,
 )
 
 if TYPE_CHECKING:
@@ -138,8 +140,17 @@ def _check_heading_spacing_consistent(
 def _check_body_font_consistent(
     doc: Document, span: Span | None, profile: Profile
 ) -> Iterator[Finding]:
+    """A body paragraph whose font face drifts from its applied style.
+
+    Table cells are skipped. A cell's font is the table's business — a table style
+    sets it and `table-style-consistent` polices that — so auditing cells here buries
+    the real prose findings under one finding per cell (a wide table yields hundreds),
+    and it matches how the policy rules already define "body prose". Cells are the
+    expensive ones too: every cell is a paragraph, so this is what kept a lint on a
+    large table slow even once the walk itself was linear."""
+    tables = _table_spans(doc)
     for row in _paragraph_rows(doc):
-        if row["is_heading"] or not _in_span(span, row):
+        if row["is_heading"] or _in_table(row, tables) or not _in_span(span, row):
             continue
         info = _row_format_info(doc, row)
         finding = _font_finding(

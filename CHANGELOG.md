@@ -208,6 +208,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from Getting started and Examples.
 
 ### Fixed
+- **`lint` no longer hangs on a document with a large table (a hard 4-minute lock).** Every
+  table cell is a paragraph, so a big table inflated the paragraph count — and two things then
+  went badly wrong. First, eight per-paragraph rules read formatting via
+  `anchor_by_id(row["anchor_id"]).format_info()`; resolving a `para:N` re-walks the whole
+  `Paragraphs` collection over COM, so doing it once per row was **quadratic** (against live
+  Word, a 1.98× bigger document made `body-font-consistent` 3.53× slower — a clean quadratic
+  is 3.93×). Rows already carry the paragraph's offsets, so the range is now rebuilt with one
+  `Range(start, end)` call. Second, each rule rebuilt `paragraphs.list()` / `outline()` from
+  scratch: **15 full document enumerations per default pass**, now memoised to one apiece for
+  the duration of the pass (scoped to the pass, so any edit invalidates it). Two COM-level
+  wastes went with them: `paragraphs.list()` fetched `para.Range` three times per paragraph
+  (each fetch mints an object pywin32 must wrap — the profile's dominant cost), and it probed a
+  per-paragraph `InlineShapes` collection just to learn the document had none. A default `lint`
+  on a 61-paragraph table document went **110.7s → 5.2s**, and now scales linearly
+  (~0.08s/paragraph) instead of quadratically. The `table-repeat-header` rule — the suspected
+  culprit — was innocent all along, at 0.23s.
+- **`regularize` no longer warns that `allow_content` "was ignored" while honouring it.** The op
+  read the field but never declared it in the batch's optional-field registry, so every
+  successful `allow_content` run also emitted `op 'regularize' does not use field
+  'allow_content'; it was ignored`. A phantom warning on a field that demonstrably works
+  discredits the whole `warnings` channel. An AST audit of `apply_op` against the registry
+  confirms this was the only field affected.
+- **`manual-heading-formatting` no longer fires on every cell of a bold table header row.** The
+  cells of a `heading_row` are short, emphasized and `Normal`-styled, so they matched the
+  faux-heading heuristic exactly — a wide header row produced one spurious finding per cell. The
+  rule now skips paragraphs inside tables; repeating table headers are `table-repeat-header`'s
+  domain.
 - **Markdown round-trips no longer accrete backslashes (data corruption).** `to_markdown`
   escaped ``\`` ` ``*{}[]#_`` on the way out, but `insert_markdown` only ever unescaped
   `\*` and `\\`. The other five characters came back with their backslash attached, and
@@ -226,6 +253,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an `errors.pydantic.dev` URL. `ops` is now typed `list[dict] | str`: a string that
   decodes to an array of op objects is accepted outright, and anything else raises an
   `OpError` naming the field, the actual problem, and the shape wanted.
+
+### Changed
+- **`insert_block` / `insert_section` body items now default to the `Normal` style instead of
+  inheriting the insertion point's.** An item that named no `style` used to inherit whatever
+  paragraph it was inserted after. Because `insert_section` writes its heading *first*, and its
+  natural anchor is a heading, the body of a section reliably came out as a **heading** —
+  silently corrupting the outline and shifting every `heading:N` id. Anchoring an `insert_block`
+  after a `Heading 1` had the same effect. Both now pin `Normal`, matching `insert_markdown`
+  (which already did, deliberately) and `insert_break`. The result no longer depends on where
+  you anchor. To match the surroundings instead, pass `style` explicitly — a paragraph's current
+  style is in `doc.paragraphs.list()[i]["style"]`. The low-level `insert_paragraph_before/after`
+  still inherit when given no `style`.
+- **`body-font-consistent` no longer audits table cells.** A cell's font is the table's business
+  (a table style sets it, and `table-style-consistent` polices that), so auditing cells here
+  double-reported and buried the real prose findings under one finding per cell — a wide table
+  could emit hundreds. This also matches how the policy rules already define "body prose", and
+  it is what kept a lint on a large table slow even after the walk was made linear.
 
 ### Added
 - **Inline code spans in the Markdown subset.** `` `code` `` in `insert_markdown` /

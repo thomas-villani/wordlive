@@ -842,10 +842,11 @@ repaginate content-neutrally, leaving selection, scroll, and `Saved` untouched.
 
 Foundation rules — structural: `heading-keep-with-next`, `table-repeat-header`,
 `list-numbering-continuity`; consistency: `heading-font-consistent`,
-`heading-spacing-consistent`, `body-font-consistent`, and `mixed-run-format`
+`heading-spacing-consistent`, `body-font-consistent` (body prose only — table cells
+belong to `table-style-consistent`), and `mixed-run-format`
 (report-only). Typography rules (tag `typography`) — on by default:
 `trailing-whitespace`, `leading-whitespace`, `space-before-punctuation`,
-`double-space`, `manual-heading-formatting` (report-only),
+`double-space`, `manual-heading-formatting` (report-only; skips table cells),
 `table-style-consistent`; off by default: `hyphen-as-range`, `em-dash-usage`,
 `tabs-for-layout`, `manual-line-break`. The fixable typography rules write via
 `find_replace`'s `regex` mode scoped to the offending paragraph, so they stay

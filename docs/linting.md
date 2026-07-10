@@ -258,7 +258,7 @@ someone hand-applied that the style would otherwise have supplied.
 
 | rule | what it catches | on | fix | tags |
 |---|---|:-:|:-:|---|
-| `body-font-consistent` | A body paragraph whose font name is hand-set, overriding its style's font. | ✅ | ✎ | fonts |
+| `body-font-consistent` | A body paragraph whose font name is hand-set, overriding its style's font. Table cells are skipped — see `table-style-consistent`. | ✅ | ✎ | fonts |
 | `heading-font-consistent` | A heading whose font name, size, or bold is hand-set, overriding its heading style. | ✅ | ✎ | headings, fonts |
 | `heading-spacing-consistent` | A heading whose space-before / space-after is overridden away from its style. | ✅ | ✎ | headings, spacing |
 | `mixed-run-format` | A heading whose font varies run-to-run — part of it was separately restyled. | ✅ | · | headings, fonts |
@@ -286,7 +286,7 @@ in layout, numbering, or hand-off.
 | `trailing-whitespace` | A paragraph that ends in spaces or tabs. | ✅ | ✎ | typography |
 | `leading-whitespace` | A paragraph that starts with literal spaces or tabs (use a paragraph indent). | ✅ | ✎ | typography |
 | `stray-empty-paragraph` | An empty `Normal` paragraph between content blocks — a leftover blank line. | — | ✎⊕ | typography, whitespace |
-| `manual-heading-formatting` | A short, all-bold or enlarged body paragraph that reads like a heading but was never styled as one. | ✅ | · | typography, headings |
+| `manual-heading-formatting` | A short, all-bold or enlarged body paragraph that reads like a heading but was never styled as one. Table cells are skipped — a bold header row is not a heading. | ✅ | · | typography, headings |
 | `heading-level-skip` | An outline that jumps a level — an H1 followed by an H3 with no H2 between them. | ✅ | · | headings, structure |
 | `empty-heading` | A heading paragraph with no text — a stray styled blank line that pollutes the outline. | ✅ | · | headings, structure |
 | `adjacent-headings` | Two headings in a row with no body text between them (often a heading whose body was deleted). | — | · | headings, structure |

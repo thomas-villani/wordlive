@@ -130,6 +130,10 @@ class AnchorInsertMixin(AnchorCore):
           ``{text, bold?, italic?, underline?, code?, style?}`` (a per-run character
           style). Use it when markup is ambiguous or you need a run `style`.
 
+        An item that names no `style` gets **`Normal`** — not the insertion point's
+        style. Pass `style` explicitly to match the surroundings (a paragraph's
+        current style is in `doc.paragraphs.list()[i]["style"]`).
+
         Returns a [`RangeAnchor`][wordlive.RangeAnchor] spanning the inserted
         block (`range:START-END`), so a follow-up op can target the whole run —
         e.g. `apply_list` it into a bulleted section, or comment on it. `where`
@@ -145,8 +149,13 @@ class AnchorInsertMixin(AnchorCore):
         norm = normalize_block_items(items)
         # Resolve every paragraph + run style before touching the document, so a
         # bad name fails the whole block cleanly rather than leaving a partial,
-        # half-styled run behind.
-        para_styles = [self._doc.styles[s] if s else None for _, s in norm]
+        # half-styled run behind. An item with no `style` is pinned to `Normal`
+        # rather than left to inherit the insertion point's style: `insert_section`
+        # writes its heading first, so an inheriting body paragraph would come out
+        # as a *heading* — silently corrupting the outline and shifting every
+        # `heading:N`. Same reasoning (and the same pin) as `insert_markdown`.
+        default_style = self._doc.styles["Normal"]
+        para_styles = [self._doc.styles[s] if s else default_style for _, s in norm]
         run_styles: dict[str, Any] = {}
         for runs, _ in norm:
             for r in runs:
@@ -235,6 +244,10 @@ class AnchorInsertMixin(AnchorCore):
         (a bare string is sugar for a one-paragraph body). `level` is 1–9 and
         selects the built-in ``Heading {level}`` style (validated before any
         mutation; an absent style raises `StyleNotFoundError` via `insert_block`).
+
+        A body item that names no `style` gets **`Normal`** (see `insert_block`) —
+        it does not inherit the heading just written above it, nor the anchor's own
+        style. Give an item an explicit `style` to override that.
 
         Returns the section's spanning [`RangeAnchor`][wordlive.RangeAnchor]
         (`range:START-END`). Wrap in `doc.edit(...)` for atomic undo.
