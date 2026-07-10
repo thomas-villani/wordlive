@@ -12,12 +12,23 @@ from .._guide import skill_body
 from .._ops import (
     pick_doc,
 )
+from .._suggest import unknown_value_message
 from ..exceptions import OpError
+from ._commands import READ_COMMANDS
 from ._common import _need
 from ._worker import Worker
 
+_GUIDE_POINTER = 'call word_read(command="guide")'
+
 
 def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
+    # Validate before the worker attaches to Word: a mistyped command should cost
+    # a suggestion, not a COM round-trip. (`command` is a plain `str` on the tool
+    # signature precisely so a near-miss lands here rather than in pydantic.)
+    if command not in READ_COMMANDS:
+        raise OpError(
+            unknown_value_message("read command", command, READ_COMMANDS, fallback=_GUIDE_POINTER)
+        )
     if command == "guide":
         # The full agent guide — the same text served by the wordlive://guide
         # resource, but reachable as a tool call (resources aren't surfaced by
@@ -204,6 +215,8 @@ def _read_impl(worker: Worker, command: str, p: dict[str, Any]) -> Any:
                     "bytes": len(data),
                     "base64": base64.b64encode(data).decode("ascii"),
                 }
-            raise OpError(f"unknown read command: {command!r}")
+            # Unreachable via the guard above: this fires only if a name is added
+            # to READ_COMMANDS without a branch here. `test_dispatch_errors` pins it.
+            raise OpError(f"read command {command!r} is declared but not implemented")
 
     return worker.run_on_word(job)

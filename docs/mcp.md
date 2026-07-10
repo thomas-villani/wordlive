@@ -207,6 +207,30 @@ A failed tool call comes back flagged as an error whose message is a JSON object
 | `path_not_allowed` | a save/image path was outside the whitelist (or saving is off) | no — configure `WORDLIVE_SAVE_DIRS` / use a local image |
 | `error` | bad input / other | no — fix the request |
 
+### Misspelled a command, op, or action?
+
+Errors suggest, rather than reciting the vocabulary back at you. A near-miss on a
+`command`, a `word_exec` op, or a sub-dispatcher `action` names the likely target:
+
+```json
+{"error": "unknown read command 'read_format'; did you mean 'format_info', 'read_bookmark', or 'read_image'? (45 valid — call word_read(command=\"guide\"))", "code": "error"}
+```
+
+Three cases are worth knowing:
+
+- **A `word_exec` op used as a `word_write` command** is answered exactly, not
+  guessed — `add_row`, `apply_list`, `add_comment` and friends are reached through
+  a sub-dispatcher, so the error names it: *"it is the `add_row` action of command
+  `table` — call `word_write(command='table', action='add_row')`"*.
+- **A missing or wrong `action`** on `list` / `comment` / `revision` / `table`
+  lists every valid action for that command.
+- **`table:2`** is a whole table, which is a collection rather than a single
+  anchor. The error points at `table:2:R:C`, `table:2:row:R`, `table:2:col:C`, and
+  `table_read`.
+
+A name with no near neighbour gets no suggestion at all — a confident-looking
+wrong answer is worse than none — just a count and a pointer to the guide.
+
 ## How it works
 
 All Word access funnels through a single dedicated, COM-initialised worker thread,

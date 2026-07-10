@@ -40,6 +40,7 @@ from .._sections import SectionCollection
 from .._selection import Selection
 from .._sources import SourceCollection
 from .._styles import StyleCollection
+from .._suggest import did_you_mean, or_list
 from .._tables import TableCollection
 from .._themes import DocumentTheme
 from .._variables import VariableCollection
@@ -64,6 +65,51 @@ def _markup_flag(markup: str) -> bool:
     if value in ("all", "on", "true"):
         return True
     raise OpError(f"markup must be 'none' or 'all', got {markup!r}")
+
+
+# The `kind` half of every `kind:value` anchor id, plus the two bare keywords.
+# Ordered as `anchor_by_id`'s docstring introduces them.
+_ANCHOR_KINDS: tuple[str, ...] = (
+    "start",
+    "end",
+    "heading",
+    "para",
+    "bookmark",
+    "pin",
+    "cc",
+    "footnote",
+    "endnote",
+    "image",
+    "equation",
+    "chart",
+    "shape",
+    "textbox",
+    "table",
+    "range",
+    "header",
+    "footer",
+)
+
+
+def _table_anchor_hint(value: str) -> str:
+    """Recovery hint for a `table:` id that doesn't name a cell, row, or column.
+
+    `value` is the part after `table:`. A bare numeric one (`table:2`) is the
+    common case — a whole table, which is a collection rather than a single
+    range — so the hint is written around that index. Anything else is malformed
+    and gets the generic shape.
+    """
+    n = value if value.isdigit() else "N"
+    forms = (
+        f"`table:{n}:R:C` for a cell, `table:{n}:row:R` or `table:{n}:col:C` "
+        "for a whole row or column"
+    )
+    if value.isdigit():
+        return (
+            f"a whole table is a collection, not a single anchor — use {forms}, "
+            f"or read the table itself (`table_read` / `doc.tables[{n}]`)"
+        )
+    return f"expected {forms}"
 
 
 def _resolve_level_band(levels: int | tuple[int, int] | None) -> tuple[int, int]:
@@ -581,8 +627,11 @@ class DocumentCore:
         if kind == "table":
             parts = value.split(":")
             if len(parts) != 3:
-                # `table:N` (whole table) isn't a single-range anchor.
-                raise AnchorNotFoundError("table cell", anchor_id)
+                # `table:N` (whole table) isn't a single-range anchor. It's the most
+                # common table miss by far, so name the three forms that do resolve
+                # rather than echoing the id back — the guidance used to live only in
+                # this method's docstring, where a failing caller never sees it.
+                raise AnchorNotFoundError("table cell", anchor_id, hint=_table_anchor_hint(value))
             # `table:N:row:R` / `table:N:col:C` address a whole row / column;
             # `table:N:R:C` (all numeric) addresses a single cell.
             selector = parts[1].lower()
@@ -632,13 +681,15 @@ class DocumentCore:
             except ValueError as e:
                 # Unknown WHICH (primary/first/even) — surface as a missing anchor.
                 raise AnchorNotFoundError(kind, anchor_id) from e
+        near = did_you_mean(kind, _ANCHOR_KINDS, limit=2)
         raise AnchorNotFoundError(
             "anchor",
             anchor_id,
             hint=(
-                f"unknown anchor type {kind!r}; expected one of "
-                "start/end/heading/para/bookmark/pin/cc/footnote/endnote/image/equation/"
-                "chart/shape/textbox/table/range/header/footer"
+                f"unknown anchor type {kind!r}"
+                + (f"; did you mean {or_list(near)}?" if near else "")
+                + "; expected one of "
+                + "/".join(_ANCHOR_KINDS)
             ),
         )
 

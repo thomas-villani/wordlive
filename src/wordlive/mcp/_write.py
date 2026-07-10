@@ -14,13 +14,65 @@ from .._ops import (
     run_batch,
 )
 from .._paths import PathPolicy
+from .._suggest import or_list, unknown_value_message
 from ..exceptions import OpError
+from ._commands import WRITE_ACTION_ALIASES, WRITE_ACTIONS, WRITE_COMMANDS
 from ._common import _need
 from ._worker import Worker
+
+_GUIDE_POINTER = 'call word_read(command="guide")'
+
+
+def _check_write_command(command: str) -> None:
+    """Raise a helpful `OpError` if `command` isn't a `word_write` command.
+
+    A caller fluent in the `exec` op vocabulary naturally reaches for
+    `word_write(command="add_row")`, but table/list/comment/revision ops are
+    reached through a sub-dispatcher. Answer those exactly instead of guessing:
+    no string metric recovers `table` from `delete_row`.
+    """
+    if command in WRITE_COMMANDS:
+        return
+    alias = WRITE_ACTION_ALIASES.get(command)
+    if alias is not None:
+        parent, action = alias
+        raise OpError(
+            f"unknown write command {command!r}: it is the {action!r} action of "
+            f"command {parent!r} — call word_write(command={parent!r}, action={action!r})"
+        )
+    raise OpError(
+        unknown_value_message("write command", command, WRITE_COMMANDS, fallback=_GUIDE_POINTER)
+    )
+
+
+def _undeclared(command: str, action: str) -> str:
+    """Message for an action listed in `WRITE_ACTIONS` but not handled below.
+
+    Unreachable while the two agree; `test_dispatch_errors` asserts they do. It
+    stays an `OpError` (not an assert) so a drift degrades to a clean tool error
+    rather than an unhandled crash in a long-lived server.
+    """
+    return f"{command} action {action!r} is declared but not implemented"
+
+
+def _need_action(p: dict[str, Any], command: str) -> str:
+    """Fetch a sub-dispatcher's `action`, naming the valid ones either way.
+
+    Both the missing case and the mistyped case enumerate the actions — the set
+    is small enough to list in full, and it's the one thing the caller needs.
+    """
+    actions = WRITE_ACTIONS[command]
+    action = p.get("action")
+    if action is None:
+        raise OpError(f"command {command!r} requires 'action': one of {or_list(actions)}")
+    if action not in actions:
+        raise OpError(unknown_value_message(f"{command} action", str(action), actions))
+    return str(action)
 
 
 def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
     """Translate a `word_write` command + params into a single `apply_op` op dict."""
+    _check_write_command(command)
 
     def need(key: str) -> Any:
         return _need(p, key, command)
@@ -453,7 +505,7 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
                 op[k] = p[k]
         return op
     if command == "list":
-        action = need("action")
+        action = _need_action(p, command)
         if action == "format":
             op = {
                 "op": "apply_list_format",
@@ -463,6 +515,8 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get("continue_previous") is not None:
                 op["continue_previous"] = bool(p["continue_previous"])
             return op
+        # `_need_action` already rejected anything outside WRITE_ACTIONS["list"],
+        # and "format" returned above, so this lookup cannot miss.
         mapping = {
             "apply": "apply_list",
             "remove": "remove_list",
@@ -470,14 +524,12 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             "indent": "indent_list",
             "outdent": "outdent_list",
         }
-        if action not in mapping:
-            raise OpError(f"unknown list action: {action!r}")
         op = {"op": mapping[action], "anchor_id": need("anchor_id")}
         if action == "apply" and p.get("type") is not None:
             op["type"] = p["type"]
         return op
     if command == "comment":
-        action = need("action")
+        action = _need_action(p, command)
         if action == "add":
             op = {"op": "add_comment", "anchor_id": need("anchor_id"), "text": need("text")}
             if p.get("author") is not None:
@@ -487,9 +539,9 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             return {"op": "resolve_comment", "index": need("index")}
         if action == "delete":
             return {"op": "delete_comment", "index": need("index")}
-        raise OpError(f"unknown comment action: {action!r}")
+        raise OpError(_undeclared("comment", action))
     if command == "revision":
-        action = need("action")
+        action = _need_action(p, command)
         if action == "accept":
             return {"op": "accept_revision", "index": need("index")}
         if action == "reject":
@@ -499,7 +551,7 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
             if p.get("anchor_id") is not None:
                 op["anchor_id"] = p["anchor_id"]
             return op
-        raise OpError(f"unknown revision action: {action!r}")
+        raise OpError(_undeclared("revision", action))
     if command == "watermark":
         if p.get("remove"):
             return {"op": "remove_watermark"}
@@ -528,7 +580,7 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
                 op[k] = p[k]
         return op
     if command == "table":
-        action = need("action")
+        action = _need_action(p, command)
         if action == "set_cell":
             return {
                 "op": "set_cell",
@@ -643,7 +695,7 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
                 if p.get(key) is not None:
                     op[key] = bool(p[key])
             return op
-        raise OpError(f"unknown table action: {action!r}")
+        raise OpError(_undeclared("table", action))
     if command == "header":
         return {
             "op": "write_header",
@@ -779,12 +831,18 @@ def _build_write_op(command: str, p: dict[str, Any]) -> dict[str, Any]:
         else:
             op["path"] = p["path"]
         return op
-    raise OpError(f"unknown write command: {command!r}")
+    # `save` / `save_as` / `export_pdf` / `track` are handled by `_write_impl` and
+    # never reach here; anything else means WRITE_COMMANDS gained a name without a
+    # branch. `_check_write_command` above already rejected genuinely bad input.
+    raise OpError(f"write command {command!r} is declared but not implemented")
 
 
 def _write_impl(
     worker: Worker, command: str, p: dict[str, Any], *, policy: PathPolicy | None = None
 ) -> dict[str, Any]:
+    # Reject an unknown command (with a suggestion) before the worker attaches to
+    # Word — `_build_write_op` runs inside the job, too late to stay cheap.
+    _check_write_command(command)
     # Default to a deny-all policy: saving is off and non-local image paths are
     # rejected unless the caller (build_server) supplies a configured policy.
     policy = policy if policy is not None else PathPolicy()

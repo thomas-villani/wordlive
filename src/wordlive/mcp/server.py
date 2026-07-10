@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import base64
 import json
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any
 
 from .._guide import skill_body
 from .._paths import PathPolicy
 from ..exceptions import WordliveError
+from ._commands import READ_COMMANDS, WRITE_COMMANDS
 from ._common import _INSTRUCTIONS, _error_payload, _image_format, _tool_error
 from ._exec import _exec_impl
 from ._read import _read_impl
@@ -37,6 +38,39 @@ from ._write import _build_write_op, _write_impl
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
+
+try:
+    from pydantic import Field as _Field
+except ImportError:  # pragma: no cover — only reachable without the `mcp` extra
+
+    def _Field(**_kwargs: Any) -> Any:  # type: ignore[no-redef]
+        """Stand-in so this module still imports without the `mcp` extra.
+
+        `build_server` raises a helpful RuntimeError before FastMCP ever resolves
+        the annotations below, so the stub's value is never inspected.
+        """
+        return None
+
+
+# `command` is typed `str`, not `Literal[...]`, on purpose. The enum still reaches
+# the client — it is published in the JSON schema below — but pydantic no longer
+# rejects a near-miss before our code runs. A `literal_error` names all 45 (or 93)
+# alternatives and suggests none of them; the dispatchers instead raise
+# `did you mean 'format_info'?`. See `_read_impl` / `_write_impl`.
+ReadCommand = Annotated[
+    str,
+    _Field(
+        description="The read to perform. See word_read(command='guide').",
+        json_schema_extra={"enum": list(READ_COMMANDS)},
+    ),
+]
+WriteCommand = Annotated[
+    str,
+    _Field(
+        description="The write to perform. See word_read(command='guide').",
+        json_schema_extra={"enum": list(WRITE_COMMANDS)},
+    ),
+]
 
 __all__ = [
     "build_server",
@@ -72,53 +106,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
 
     @mcp.tool()
     def word_read(
-        command: Literal[
-            "status",
-            "guide",
-            "outline",
-            "paragraphs",
-            "find",
-            "read_bookmark",
-            "read_cc",
-            "read_section",
-            "to_markdown",
-            "to_html",
-            "digest",
-            "between",
-            "nearest_heading",
-            "find_paragraphs",
-            "table_list",
-            "table_read",
-            "table_records",
-            "styles",
-            "comments",
-            "revisions",
-            "read_text",
-            "track",
-            "sections",
-            "footnotes",
-            "endnotes",
-            "images",
-            "read_image",
-            "equations",
-            "charts",
-            "shapes",
-            "hyperlinks",
-            "fields",
-            "properties",
-            "watermark",
-            "variables",
-            "proofing",
-            "lint",
-            "checkpoint",
-            "diff",
-            "format_info",
-            "list_levels",
-            "location",
-            "stats",
-            "theme",
-            "themes",
-        ],
+        command: ReadCommand,
         doc: str | None = None,
         name: str | None = None,
         text: str | None = None,
@@ -280,101 +268,7 @@ def build_server(worker: Worker | None = None) -> FastMCP:
 
     @mcp.tool()
     def word_write(
-        command: Literal[
-            "insert",
-            "insert_block",
-            "insert_section",
-            "insert_markdown",
-            "replace_section",
-            "delete_paragraph",
-            "append",
-            "prepend",
-            "replace",
-            "write_bookmark",
-            "write_cc",
-            "apply_style",
-            "format_paragraph",
-            "format_run",
-            "set_shading",
-            "set_borders",
-            "cell_valign",
-            "drop_cap",
-            "add_tab_stop",
-            "add_style",
-            "set_style",
-            "list",
-            "comment",
-            "revision",
-            "table",
-            "header",
-            "footer",
-            "track",
-            "watermark",
-            "text_box",
-            "insert_image",
-            "insert_equation",
-            "insert_chart",
-            "format_chart",
-            "format_axis",
-            "add_trendline",
-            "set_series_color",
-            "format_series",
-            "add_error_bars",
-            "set_shape_wrap",
-            "set_shape_crop",
-            "set_shape_position",
-            "set_shape_size",
-            "format_shape",
-            "set_shape_alt_text",
-            "set_shape_text",
-            "set_shape_rotation",
-            "set_shape_z_order",
-            "set_shape_text_frame",
-            "replace_shape_image",
-            "delete_shape",
-            "group_shapes",
-            "ungroup_shape",
-            "set_image_alt_text",
-            "set_image_size",
-            "set_image_crop",
-            "insert_break",
-            "insert_field",
-            "update_fields",
-            "regularize",
-            "set_property",
-            "delete_property",
-            "set_variable",
-            "delete_variable",
-            "insert_footnote",
-            "insert_endnote",
-            "insert_toc",
-            "add_bookmark",
-            "pin",
-            "pin_outline",
-            "add_hyperlink",
-            "set_hyperlink",
-            "insert_cross_reference",
-            "insert_caption",
-            "create_content_control",
-            "set_cc_properties",
-            "set_cc_items",
-            "mark_index_entry",
-            "insert_index",
-            "insert_table_of_figures",
-            "set_bibliography_style",
-            "add_source",
-            "insert_citation",
-            "insert_bibliography",
-            "mark_citation",
-            "insert_table_of_authorities",
-            "apply_theme",
-            "set_theme_colors",
-            "set_theme_fonts",
-            "page_setup",
-            "save",
-            "save_as",
-            "export_pdf",
-        ],
+        command: WriteCommand,
         doc: str | None = None,
         anchor_id: str | None = None,
         text: str | None = None,
