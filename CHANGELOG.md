@@ -224,6 +224,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `examples/sample/quarterly-report.docx` plus its committed, reviewable builder
   `build_quarterly_report.py` — and adds the page to the nav with cross-links
   from Getting started and Examples.
+- **Inline code spans in the Markdown subset.** `` `code` `` in `insert_markdown` /
+  `insert_block` item text (and `code: true` on a structured run) now becomes a real
+  monospace run — direct `Font.Name = "Consolas"` character formatting, the same choice
+  `**bold**` makes with `Font.Bold`, so the document's style gallery is never touched.
+  `to_markdown` detects a monospace run and emits the backticks back, sizing the fence to
+  contain literal backticks. Previously backticks landed in the document as literal
+  characters — a high-frequency papercut, since agents backtick every identifier, filename,
+  and command they describe. Code spans bind tighter than emphasis, and their content is
+  literal; because runs are flat, emphasis does not reach across a code span.
 
 ### Changed
 - **`insert_paragraph_before` / `insert_paragraph_after` now default to `Normal` instead of
@@ -235,6 +244,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   low-level paragraph inserters were the last holdout. Pass `style` explicitly to match the
   surroundings (e.g. to continue a list — a paragraph's current style is in
   `doc.paragraphs.list()[i]["style"]`).
+- **`body-font-consistent` now audits size and weight, not just the font face.** It flagged only a
+  hand-set font *name*, while `heading-font-consistent` has always checked name/size/bold — so a
+  body paragraph bumped to 16pt or bolded drifted from its style unnoticed (the trial's `para:8`
+  observation). It now audits all three, each with the same targeted style-value fix. One carve-out
+  keeps it honest: a *short, emphasized, non-sentence* paragraph is what `manual-heading-formatting`
+  flags as a missing heading style, so its size/bold are left alone here — otherwise `regularize`
+  would strip the very emphasis that points at the real defect, and the paragraph would stop
+  tripping either rule. The two rules now share one predicate so they can't disagree. The font name
+  is always audited (never a heading signal). No change to the default finding set on documents
+  without size/bold body overrides.
+- **`insert_block` / `insert_section` body items now default to the `Normal` style instead of
+  inheriting the insertion point's.** An item that named no `style` used to inherit whatever
+  paragraph it was inserted after. Because `insert_section` writes its heading *first*, and its
+  natural anchor is a heading, the body of a section reliably came out as a **heading** —
+  silently corrupting the outline and shifting every `heading:N` id. Anchoring an `insert_block`
+  after a `Heading 1` had the same effect. Both now pin `Normal`, matching `insert_markdown`
+  (which already did, deliberately) and `insert_break`. The result no longer depends on where
+  you anchor. To match the surroundings instead, pass `style` explicitly — a paragraph's current
+  style is in `doc.paragraphs.list()[i]["style"]`. (The low-level `insert_paragraph_before/after`
+  followed in the Unreleased release above.)
+- **`body-font-consistent` no longer audits table cells.** A cell's font is the table's business
+  (a table style sets it, and `table-style-consistent` polices that), so auditing cells here
+  double-reported and buried the real prose findings under one finding per cell — a wide table
+  could emit hundreds. This also matches how the policy rules already define "body prose", and
+  it is what kept a lint on a large table slow even after the walk was made linear.
+- **Docs — to start a document from blank, lead with `insert_*`, not `append`.** The
+  structural inserts (`insert_markdown` / `insert_block` / `insert_section`) reuse a blank
+  document's lone empty paragraph; `append` promises a *new* final paragraph and so leaves
+  that empty one stranded above your content. Working as designed — an `append` that
+  silently reused `para:1` would depend on invisible document state — but it surprised an
+  agent building a document top-down, so the CLI/MCP/Python guides now say which op to open
+  with. Noted in both bundled skills, `docs/cli.md`, `docs/mcp.md`, and `docs/python-api.md`.
+- **Internal — the four mega-modules are now packages (behavior-preserving).** No public
+  API change: `wordlive.__all__`, every `Document`/`Anchor` member and signature, the
+  anchor-id scheme, the CLI verbs and the MCP `word_*` tools are all byte-for-byte the
+  same. `cli/commands.py` (8.2k lines) → a `cli/commands/` package aggregated by
+  `register()`; `mcp/server.py` → `build_server`/`main` plus sibling dispatch modules;
+  `_document.py` → a `_document/` package (`DocumentCore` + editing/reading/structure/
+  persistence mixins); and `_anchors.py` (5.3k lines) → an `_anchors/` package of 20
+  modules, with the 2,232-line `Anchor` ABC split into `AnchorCore` + six feature mixins.
+  Only consumers reaching into *private* module paths are affected — e.g. the helper
+  once at `wordlive._document._new_pin_code` now lives in `wordlive._document._persistence`
+  (if you monkeypatch wordlive internals, patch the binding that uses it, not a re-export).
+- **New top-level docs page: [Linting & regularizing](docs/linting.md).** The linter
+  gets its own guide — motivation (formatting normalization is slow, error-prone
+  handwork), the two-verb mental model (`lint` reads → findings → `regularize` writes),
+  the anatomy of a finding, a guided walkthrough on a deliberately-messy sample
+  (`examples/sample/messy-brief.docx` + `build_messy_brief.py` + a `wordlive.lint.json`
+  house-style profile), the full 45-rule catalog (one canonical table: kind · default ·
+  fixable · tags), rule selection, and house-style profiles. Linked from the home page,
+  the nav (after Tutorial), and the Python/CLI reference sections. Corrected the
+  `regularize` JSON example in `docs/cli.md` (`applied`/`skipped` are lists of findings,
+  not counts — the counts are the `--text` summary). Docs/sample only; no code change.
+- **Docs reorganised into browsable sections.** The CLI reference
+  (`docs/cli.md`) was a flat list of 130 `##` command headings; it's now grouped
+  into 23 thematic `##` sections (Inspecting · Reading · Editing · Formatting ·
+  Tables · Citations · …) with each command demoted to `###` under its category.
+  The Python API reference (`docs/python-api.md`) gained an 8-Part `##` layer over
+  its 25 sections (now `###`), with mkdocstrings `heading_level` bumped 2→3 so the
+  generated class docs nest one level deeper to match. Pure reorganisation — no
+  command, op, or API surface changed, and all heading anchors are preserved
+  (only heading *levels* changed), so existing cross-references still resolve.
 
 ### Fixed
 - **A table dropped under a heading no longer strands empty heading paragraphs.** `insert_table`
@@ -314,83 +385,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an `errors.pydantic.dev` URL. `ops` is now typed `list[dict] | str`: a string that
   decodes to an array of op objects is accepted outright, and anything else raises an
   `OpError` naming the field, the actual problem, and the shape wanted.
-
-### Changed
-- **`body-font-consistent` now audits size and weight, not just the font face.** It flagged only a
-  hand-set font *name*, while `heading-font-consistent` has always checked name/size/bold — so a
-  body paragraph bumped to 16pt or bolded drifted from its style unnoticed (the trial's `para:8`
-  observation). It now audits all three, each with the same targeted style-value fix. One carve-out
-  keeps it honest: a *short, emphasized, non-sentence* paragraph is what `manual-heading-formatting`
-  flags as a missing heading style, so its size/bold are left alone here — otherwise `regularize`
-  would strip the very emphasis that points at the real defect, and the paragraph would stop
-  tripping either rule. The two rules now share one predicate so they can't disagree. The font name
-  is always audited (never a heading signal). No change to the default finding set on documents
-  without size/bold body overrides.
-- **`insert_block` / `insert_section` body items now default to the `Normal` style instead of
-  inheriting the insertion point's.** An item that named no `style` used to inherit whatever
-  paragraph it was inserted after. Because `insert_section` writes its heading *first*, and its
-  natural anchor is a heading, the body of a section reliably came out as a **heading** —
-  silently corrupting the outline and shifting every `heading:N` id. Anchoring an `insert_block`
-  after a `Heading 1` had the same effect. Both now pin `Normal`, matching `insert_markdown`
-  (which already did, deliberately) and `insert_break`. The result no longer depends on where
-  you anchor. To match the surroundings instead, pass `style` explicitly — a paragraph's current
-  style is in `doc.paragraphs.list()[i]["style"]`. (The low-level `insert_paragraph_before/after`
-  followed in the Unreleased release above.)
-- **`body-font-consistent` no longer audits table cells.** A cell's font is the table's business
-  (a table style sets it, and `table-style-consistent` polices that), so auditing cells here
-  double-reported and buried the real prose findings under one finding per cell — a wide table
-  could emit hundreds. This also matches how the policy rules already define "body prose", and
-  it is what kept a lint on a large table slow even after the walk was made linear.
-
-### Added
-- **Inline code spans in the Markdown subset.** `` `code` `` in `insert_markdown` /
-  `insert_block` item text (and `code: true` on a structured run) now becomes a real
-  monospace run — direct `Font.Name = "Consolas"` character formatting, the same choice
-  `**bold**` makes with `Font.Bold`, so the document's style gallery is never touched.
-  `to_markdown` detects a monospace run and emits the backticks back, sizing the fence to
-  contain literal backticks. Previously backticks landed in the document as literal
-  characters — a high-frequency papercut, since agents backtick every identifier, filename,
-  and command they describe. Code spans bind tighter than emphasis, and their content is
-  literal; because runs are flat, emphasis does not reach across a code span.
-
-### Changed
-- **Docs — to start a document from blank, lead with `insert_*`, not `append`.** The
-  structural inserts (`insert_markdown` / `insert_block` / `insert_section`) reuse a blank
-  document's lone empty paragraph; `append` promises a *new* final paragraph and so leaves
-  that empty one stranded above your content. Working as designed — an `append` that
-  silently reused `para:1` would depend on invisible document state — but it surprised an
-  agent building a document top-down, so the CLI/MCP/Python guides now say which op to open
-  with. Noted in both bundled skills, `docs/cli.md`, `docs/mcp.md`, and `docs/python-api.md`.
-- **Internal — the four mega-modules are now packages (behavior-preserving).** No public
-  API change: `wordlive.__all__`, every `Document`/`Anchor` member and signature, the
-  anchor-id scheme, the CLI verbs and the MCP `word_*` tools are all byte-for-byte the
-  same. `cli/commands.py` (8.2k lines) → a `cli/commands/` package aggregated by
-  `register()`; `mcp/server.py` → `build_server`/`main` plus sibling dispatch modules;
-  `_document.py` → a `_document/` package (`DocumentCore` + editing/reading/structure/
-  persistence mixins); and `_anchors.py` (5.3k lines) → an `_anchors/` package of 20
-  modules, with the 2,232-line `Anchor` ABC split into `AnchorCore` + six feature mixins.
-  Only consumers reaching into *private* module paths are affected — e.g. the helper
-  once at `wordlive._document._new_pin_code` now lives in `wordlive._document._persistence`
-  (if you monkeypatch wordlive internals, patch the binding that uses it, not a re-export).
-- **New top-level docs page: [Linting & regularizing](docs/linting.md).** The linter
-  gets its own guide — motivation (formatting normalization is slow, error-prone
-  handwork), the two-verb mental model (`lint` reads → findings → `regularize` writes),
-  the anatomy of a finding, a guided walkthrough on a deliberately-messy sample
-  (`examples/sample/messy-brief.docx` + `build_messy_brief.py` + a `wordlive.lint.json`
-  house-style profile), the full 30-rule catalog (one canonical table: kind · default ·
-  fixable · tags), rule selection, and house-style profiles. Linked from the home page,
-  the nav (after Tutorial), and the Python/CLI reference sections. Corrected the
-  `regularize` JSON example in `docs/cli.md` (`applied`/`skipped` are lists of findings,
-  not counts — the counts are the `--text` summary). Docs/sample only; no code change.
-- **Docs reorganised into browsable sections.** The CLI reference
-  (`docs/cli.md`) was a flat list of 130 `##` command headings; it's now grouped
-  into 23 thematic `##` sections (Inspecting · Reading · Editing · Formatting ·
-  Tables · Citations · …) with each command demoted to `###` under its category.
-  The Python API reference (`docs/python-api.md`) gained an 8-Part `##` layer over
-  its 25 sections (now `###`), with mkdocstrings `heading_level` bumped 2→3 so the
-  generated class docs nest one level deeper to match. Pure reorganisation — no
-  command, op, or API surface changed, and all heading anchors are preserved
-  (only heading *levels* changed), so existing cross-references still resolve.
 
 ## [0.18.0] - 2026-06-23
 
