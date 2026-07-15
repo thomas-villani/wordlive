@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-07-15
+
 ### Added
 - **A dedicated MCP agent guide — the server now teaches its own tools.** `word_read(command=
   "guide")` and the `wordlive://guide` resource previously returned the **CLI** skill, so an agent
@@ -1650,7 +1652,8 @@ v0–v0.8 development line bundled here:
   trusted-publishing on tag push.
 
 
-[Unreleased]: https://github.com/thomas-villani/wordlive/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/thomas-villani/wordlive/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/thomas-villani/wordlive/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/thomas-villani/wordlive/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/thomas-villani/wordlive/compare/v0.16.1...v0.17.0
 [0.16.1]: https://github.com/thomas-villani/wordlive/compare/v0.16.0...v0.16.1
