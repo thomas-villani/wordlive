@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **README restructured for the first-time reader.** The old top-of-README was a
+  190-line CLI wall with the one-click MCPB path buried at the bottom — and its
+  download link pointed at the `mcpb/` *source tree*, not the release asset. The
+  intro now opens with a plain-English pitch (politeness + one-Ctrl-Z, before any
+  `xlwings` jargon), a **Pick your path** section routes the three audiences
+  (Claude Desktop no-code → `wordlive.mcpb` from the latest release; agent
+  builders → `llm-help`; Python) in the first screenful, and the CLI section is a
+  curated sampler linking to the full [CLI reference](docs/cli.md). The
+  linter/regularizer gets its own top-level showcase ("Tidy an entire document in
+  one command") instead of two uncommented lines mid-wall.
+
+### Added
+- **`examples/demos/` — screen-recordable demo choreography.** Two scripts that
+  drive a throwaway document through a repeatable story for the README demo
+  GIFs: `demo_regularize.py` (messy draft → `lint` → `regularize` → one Ctrl-Z
+  reverts the pass) and `demo_agent_showcase.py` (an agent builds a styled brief
+  and leaves a review comment). A folder README covers recording setup and
+  where the resulting GIFs land.
+
 ## [0.19.0] - 2026-07-15
 
 ### Added

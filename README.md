@@ -6,8 +6,40 @@
 [![CI](https://github.com/thomas-villani/wordlive/actions/workflows/ci.yml/badge.svg)](https://github.com/thomas-villani/wordlive/actions/workflows/ci.yml)
 [![Docs](https://github.com/thomas-villani/wordlive/actions/workflows/docs.yml/badge.svg)](https://thomas-villani.github.io/wordlive/)
 
-Drive a running Microsoft Word instance from Python — `xlwings`, but for Word.
-Built for both human scripting and LLM agents. Windows-only.
+**Let an AI assistant — or your own scripts — read and edit the Word document
+you already have open.** Politely: your cursor and scroll position never move,
+edits target the document's *structure* (headings, bookmarks, tables — never
+the live cursor), and every change is a single Ctrl-Z. Windows-only.
+
+For developers: wordlive drives a *running* Word instance over COM —
+"`xlwings`, but for Word" — with a Python API, a JSON-in/JSON-out CLI, and an
+MCP server that all share one anchor-based addressing scheme.
+
+<!-- TODO(demo): docs/assets/regularize.gif — messy doc → `wordlive regularize`
+     → clean → Ctrl-Z restores. Choreography: examples/demos/demo_regularize.py -->
+<!-- TODO(demo): docs/assets/agent-drive.gif — an LLM building a styled document
+     and leaving comments, live. Choreography: examples/demos/demo_agent_showcase.py -->
+
+## Pick your path
+
+**🖱️ "I use Claude Desktop — no code, please."**
+Install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) (one
+small installer), download **`wordlive.mcpb`** from the
+[latest release](https://github.com/thomas-villani/wordlive/releases/latest),
+and drag it onto Claude Desktop → **Settings → Extensions**. Open a document in
+Word and try: *"Lint my document and fix what's safe."* Details under
+[MCP server](#mcp-server-claude-desktop--other-agents) below.
+
+**🤖 "I'm wiring up an agent (CLI · MCP · skills)."**
+`uv tool install wordlive`, then `wordlive llm-help` prints the whole LLM-ready
+guide to stdout — no install step in the loop, no Word needed to read it.
+Copy-paste setup for Claude Code, Cursor, and friends lives in
+[Agents & LLM tools](https://thomas-villani.github.io/wordlive/agents/).
+
+**🐍 "I write Python."**
+`pip install wordlive` (or `uv add wordlive`) → the
+[quickstart below](#python) and the
+[Python API reference](https://thomas-villani.github.io/wordlive/python-api/).
 
 ## Install
 
@@ -24,12 +56,45 @@ uv tool install wordlive
 (Requires Python 3.10+ and `pywin32` on Windows.)
 
 Rendering pages to PNG (`snapshot`) needs the optional `snapshot` extra, which
-pulls in PyMuPDF:
+pulls in PyMuPDF; the MCP server is the `mcp` extra:
 
 ```
 pip install "wordlive[snapshot]"
-uv add "wordlive[snapshot]"
+uv add "wordlive[mcp,snapshot]"
 ```
+
+## Tidy an entire document in one command
+
+Normalizing a document's formatting is one of the most tedious jobs in office
+work: the paragraph someone left double-spaced, the heading hand-set in Arial
+16 instead of the style, the stray space before a period. Done by hand it's an
+afternoon of scrolling and clicking. wordlive turns it into two calls:
+
+```
+wordlive lint          # pure read — severity-ranked findings, each with an anchor id
+wordlive regularize    # apply the *fixable* ones — one atomic undo (--dry-run to preview)
+```
+
+Every finding says what's off, where, and how it would fix it:
+
+```json
+{
+  "rule": "space-before-punctuation",
+  "severity": "info",
+  "anchor_id": "para:4",
+  "message": "Whitespace before punctuation.",
+  "fixable": true,
+  "observed": "space before , . ; : )",
+  "expected": "no space before punctuation"
+}
+```
+
+It's a power tool for both audiences: an LLM agent can `lint`, reason over the
+structured findings, and apply exactly the fixes it wants; a human can run
+`wordlive regularize` and reclaim the afternoon. `lint` never touches the
+document, `regularize` never moves your cursor, and **one Ctrl-Z reverts the
+whole pass**. House styles are configurable via `--profile`. The guided tour is
+in [Linting & regularizing](https://thomas-villani.github.io/wordlive/linting/).
 
 ## Python
 
@@ -59,213 +124,55 @@ with wl.attach() as word:
 
 ## CLI
 
-JSON in, JSON out — designed to drop straight into an LLM tool-use loop:
+JSON in, JSON out — designed to drop straight into an LLM tool-use loop. A
+taste of the surface:
 
 ```
-wordlive status
-wordlive outline                  # heading structure (heading:N)
-wordlive outline --all            # every paragraph (para:N) — alias of `paragraphs`
-wordlive paragraphs               # same: para:N, level, offsets, text
-wordlive read bookmark Address
-wordlive write bookmark Address --text "123 Main St"
-
-# Navigate & locate by structure (read-only):
-wordlive read section "Introduction"                          # body under a heading
-wordlive read markdown --within heading:3                      # serialise to clean Markdown (read mirror of insert-markdown)
-wordlive read between --start heading:1 --end heading:3        # block between two headings
-wordlive read nearest-heading --anchor-id para:42             # the section a paragraph sits in
-wordlive find --text "exact phrase"                            # exact (normalized) → range:S-E
-wordlive find-paragraph --text "roughly remembered text"       # FUZZY → ranked para:N + scores
-
-# Insert a new paragraph relative to ANY anchor (heading, paragraph, bookmark, …):
-wordlive insert --anchor-id heading:1 --text "..."          # after (default)
-wordlive insert --anchor-id para:3 --text "..." --before
-wordlive insert --anchor-id end --runs '[{"text":"Bold lead","bold":true},{"text":" — rest"}]'
-
-# Drop a whole styled section in ONE op (item text takes **bold**/*italic*/`code` markdown):
-wordlive insert-block --anchor-id heading:1 --items \
-    '[{"text":"**Politeness** first.","style":"List Bullet"},"Atomic undo."]'
-#   → reports range:START-END; then: wordlive list apply --anchor-id range:… --type bulleted
-
-# Or hand it constrained Markdown and get real headings/lists/paragraphs (a subset, not CommonMark):
-printf '# Plan\n\nKick-off.\n\n- scope it\n- staff it\n' | wordlive insert-markdown --anchor-id end --markdown -
-#   insert-section adds a heading + body in one op; replace-section --anchor-id heading:N rewrites a section's body
-
-# Append / prepend at the very end / start of the document (no anchor needed):
-wordlive append  --text "Closing note."                     # new final paragraph
-wordlive prepend --text "DRAFT" --inline                    # join the first paragraph
-
-# Address anchors by ID (the IDs `outline`/`paragraphs` emit — `heading:N`, `para:N`, `bookmark:NAME`, `cc:NAME`):
+wordlive status                                   # is Word up? which document?
+wordlive outline                                  # heading structure → heading:N ids
+wordlive read section "Introduction"              # the body under a heading
+wordlive find-paragraph --text "roughly remembered text"    # fuzzy locate → ranked para:N
 wordlive replace --anchor-id heading:3 --text "Updated section text"
-wordlive go-to --anchor-id bookmark:Address
-
-# Durable handles — positional para:N/heading:N renumber under edits; pin for a stable id:
-wordlive pin heading:3 --name methods             # -> {"pin": "pin:methods", ...}
-wordlive replace --anchor-id pin:methods --text "Survives later inserts"
-
-# Explicit cursor surface (the non-preferred mode — deliberately moves the cursor):
-wordlive cursor read                              # where is the cursor? which para:N?
-wordlive cursor write --text "inserted here"      # type at the cursor
-
-# Styles + paragraph formatting (atomic-undo):
-wordlive style list
-wordlive style apply --anchor-id heading:3 --name "Heading 2"
-wordlive format-paragraph --anchor-id heading:3 --alignment center --space-before 6
-
-# Tables (cells are anchors: table:N:R:C):
-wordlive table list
-wordlive table read 1
-wordlive table records 1                                   # body rows as {header: value} dicts
-wordlive replace --anchor-id table:1:2:2 --text "$450"
-wordlive table add-row --table 1 --values '["Lodging", "$600"]'
-wordlive table append-record --table 1 --record '{"Item":"Lodging","Cost":"$600"}'  # by header name
-wordlive table update-row --table 1 --key Travel --values '{"Cost":"$450"}'         # match a row by content
-wordlive table create --anchor-id end --data '[["Item","Cost"],["Travel","$400"]]' --header
-wordlive table create --anchor-id end \
-    --data '[{"Item":"Travel","Cost":"$400"}]'             # records → keys are a header row
-#   --rows/--cols are inferred from --data (give them only to pad larger)
-wordlive table autofit --table 1 --mode content            # fit columns to cells (or window/fixed)
-wordlive table set-style --table 1 --style "Grid Table 4 - Accent 1"   # restyle an existing table
-wordlive table set-alignment --table 1 --alignment center  # the whole table across the page
-wordlive table set-borders --table 1 --sides box,horizontal,vertical   # the whole grid in one call
-wordlive table set-banding --table 1 --first-row --banded-rows         # Table Style Options
-wordlive shading --anchor-id table:1:row:1 --fill "#2E86C1"  # style a whole row (table:N:row:R)
-wordlive format-run --anchor-id table:1:col:2 --bold        # …or a whole column (table:N:col:C)
-wordlive cell-valign --anchor-id table:1:2:2 --align bottom # a cell's vertical alignment
-wordlive table delete 2
-
-# Page / column / section breaks (explicit one-off mark; for a style use --page-break-before):
-wordlive insert-break --anchor-id heading:3 --kind page
-wordlive format-paragraph --anchor-id heading:3 --page-break-before
-
-# Collaboration: comments + track changes (the polite, non-destructive surface):
+printf '# Plan\n\n- scope it\n- staff it\n' | wordlive insert-markdown --anchor-id end --markdown -
+wordlive table records 1                          # body rows as {header: value} dicts
+wordlive table update-row --table 1 --key Travel --values '{"Cost":"$450"}'
 wordlive comment add --anchor-id heading:3 --text "Please expand this." --author Bot
-wordlive comment list
-wordlive comment resolve --index 1
-wordlive track on            # record edits as revisions; `track off` to stop
-wordlive revisions           # read the tracked changes back (type/author/text/range)
-wordlive revision accept --index 1          # …or accept / reject them
-wordlive revision accept-all --anchor-id heading:3   # accept every change in one section
-wordlive read text --anchor-id para:5 --view original  # text as if changes were rejected
-# …and `wordlive snapshot --markup all` renders those changes as visible marks.
-
-# Non-visual layout introspection (reason about pages without a snapshot):
-wordlive stats               # pages/words/…/tables/images/comments + saved, one read
-wordlive locate --anchor-id heading:8   # {page, end_page, line, column, in_table}
-wordlive proofing            # spelling/grammar errors + readability (Flesch, …)
-wordlive read format --anchor-id heading:3   # effective style/paragraph/font, with override flags
-wordlive lint                # audit formatting/structure: severity-ranked findings (some fixable)
-wordlive regularize          # apply the fixable lint findings in one atomic-undo (--dry-run to preview)
-
-# Checkpoint + diff — "what changed in session" (Word fires no content-change event):
-wordlive checkpoint --out cp.json   # fingerprint structure now → a stored token
-# … agent or user edits …
-wordlive diff --since cp.json       # content-aligned change list (replace/insert/delete/restyle), each w/ current para:N
-
-# Document metadata, variables, and the read mirrors of link / insert-field:
-wordlive properties list                         # built-in + custom document properties
-wordlive properties set --name Title --value "Q3 Report"
-wordlive variables set --name ClientName --value "Acme"   # invisible DOCVARIABLE storage
-wordlive hyperlinks          # every link: text, destination, range:START-END id
-wordlive fields              # every field: kind (PAGE/REF/TOC), code, rendered result
-
-# Citations & bibliography (source → cite → build), and a legal table of authorities:
-wordlive bibliography-style --style APA
-wordlive add-source --type book --author "Smith, Jane" --title "On Risk" --year 2020   # → tag
-wordlive insert-citation --anchor-id range:120-140 --tag Smith2020 --pages 15
-wordlive insert-bibliography                       # works-cited block (update-fields to fill it)
-wordlive mark-citation --anchor-id range:200-240 --long "Brown v. Board, 347 U.S. 483 (1954)" --category cases
-wordlive table-of-authorities --category cases     # build TOA from the marks (update-fields for pages)
-
-# Document themes / branding (apply a theme, then set brand colours & fonts):
-wordlive apply-theme --theme Facet                 # a built-in theme or a .thmx path (list-themes for names)
-wordlive set-theme-colors --accent1 "#1A73E8" --accent2 "#34A853"
-wordlive set-theme-fonts --major Arial --minor Calibri
-wordlive theme                                      # read back the 12 brand colours + major/minor fonts
-
-# Lists & numbering (any anchor's paragraphs):
-wordlive list apply --anchor-id heading:6 --type numbered
-wordlive list restart --anchor-id heading:6
-
-# Sections, headers & footers (header:S:WHICH / footer:S:WHICH):
-wordlive sections
-wordlive header write --section 1 --text "ACME Corporation"
-wordlive footer read --section 1
-
-# Images — from a file or base64 (--wrap is required: inline | auto | square | …):
-wordlive insert-image --anchor-id heading:3 --path diagram.png --wrap auto
-base64 logo.png | wordlive insert-image --anchor-id bookmark:Logo --base64 - --wrap inline --width 96
-
-# …and read embedded pictures back out (image:N ids; for a vision model):
-wordlive images                                            # list every embedded picture
-wordlive read-image --anchor-id image:1 --out logo.png     # extract bytes + mime
-
-# Floating-shape flourishes — a watermark behind every page, a pull-quote box:
-wordlive watermark --text DRAFT                            # …or --remove
-wordlive insert-text-box --anchor-id heading:2 --text "Key takeaway" --width 2.5in  # → shape:N
-
-# …then restyle any floating shape in place (text box, floating image, WordArt) by shape:N:
-wordlive shapes                                            # list shape:N ids, kind, size, rotation, z-order, wrap
-wordlive set-shape-size --anchor-id shape:1 --width 3in --no-lock-aspect
-wordlive format-shape --anchor-id shape:1 --fill navy --border-color white
-wordlive set-shape-rotation --anchor-id shape:1 --degrees 15   # rotate; set-shape-z-order restacks
-wordlive set-shape-wrap --anchor-id shape:1 --side left --distance-top 0.1in   # which sides text flows past + standoff
-wordlive set-shape-crop --anchor-id shape:2 --left 0.2in --bottom 6   # trim a picture shape in from its edges
-wordlive replace-shape-image --anchor-id shape:2 --path v2.png   # swap a floating picture in place
-wordlive group-shapes --anchor-id shape:1 --anchor-id shape:2   # group → one shape:N (ungroup-shape reverses)
-wordlive set-image-size --anchor-id image:1 --width 3in         # resize an inline picture (no floating)
-wordlive set-image-crop --anchor-id image:1 --right 0.1in       # crop an inline picture in from its edges
-
-# Equations — UnicodeMath (native), LaTeX (needs the `latex` extra), or MathML:
-wordlive insert-equation --anchor-id heading:3 --unicodemath "x=(-b±√(b^2-4ac))/(2a)"
-wordlive insert-equation --anchor-id heading:3 --latex "\frac{-b}{2a}"   # pip install "wordlive[latex]"
-wordlive equations                                         # list equation:N ids, type, preview
-
-# Charts — Excel-backed (needs Excel installed; data becomes static):
-wordlive insert-chart --anchor-id end --kind bar --data '{"Q1": 10, "Q2": 25, "Q3": 18}' --title "Quarterly"
-echo '[[1.2, 3.4], [2.5, 6.1]]' | wordlive insert-chart --anchor-id end --kind scatter --data -
-wordlive charts                                            # list chart:N ids, kind, title
-# Format & design an existing chart (no Excel needed; tri-state):
-wordlive format-chart --anchor-id chart:1 --chart-style 240 --legend --title "Quarterly"
-wordlive format-axis --anchor-id chart:1 --which value --scale log --title "USD (M)"
-wordlive add-trendline --anchor-id chart:1 --kind power --display-equation   # law of best fit
-wordlive set-series-color --anchor-id chart:1 --color "#2E86C1" --point 2
-wordlive format-series --anchor-id chart:1 --marker circle --marker-size 8 --smooth   # markers + smoothed line
-wordlive add-error-bars --anchor-id chart:1 --kind percent --amount 5        # ± error bars
-
-# Snapshot — render page(s) to PNG so a vision model can SEE the layout
-# (needs the `snapshot` extra: pip install "wordlive[snapshot]"):
-wordlive snapshot --anchor-id heading:3 --out section.png   # the section's page(s)
-wordlive snapshot --page 2 --out p2.png                     # one page
-wordlive snapshot --pages 1-3                               # base64 PNGs inline (JSON)
-wordlive snapshot --max-dim 1000                            # whole doc, low-res layout check
-
-# Batch multiple ops in a single Ctrl-Z:
-wordlive exec --script ops.json
-
-# Save / hand back a deliverable — GATED behind a directory whitelist
-# (--save-dir or WORDLIVE_SAVE_DIRS; with none set, saving is off):
-wordlive --save-dir C:\out save-as C:\out\report.docx
-wordlive --save-dir C:\out export-pdf C:\out\report.pdf    # pixel-faithful PDF
+wordlive track on                                 # record edits as revisions; `revisions` reads them back
+wordlive lint                                     # audit formatting/structure
+wordlive regularize                               # …fix the safe findings, one Ctrl-Z
+wordlive snapshot --page 2 --out p2.png           # render a page for a vision model
+wordlive exec --script ops.json                   # batch N ops in a single undo
+wordlive --save-dir C:\out export-pdf C:\out\report.pdf   # saving is gated by a whitelist
 ```
 
-Where `ops.json` looks like:
+That's a sample, not the surface: tables, images, charts, equations, citations
+& bibliographies, themes, floating shapes, headers/footers, lists, sections,
+breaks, document properties & variables, checkpoint/diff, proofing stats, and
+more are covered verb-by-verb in the
+[CLI reference](https://thomas-villani.github.io/wordlive/cli/) — or run
+`wordlive llm-help` for the one-page agent guide.
+
+Anchor ids are the addressing scheme everywhere: `heading:N`, `para:N`,
+`bookmark:NAME`, `cc:NAME`, `table:N:R:C`, `range:START-END`, `start`, `end`, …
+Positional ids renumber under edits; `wordlive pin heading:3 --name methods`
+mints a durable `pin:methods`.
+
+An `exec` script batches many ops into one Ctrl-Z:
 
 ```json
 {
   "label": "Update report",
   "ops": [
     {"op": "write_bookmark", "name": "Address", "text": "123 Main St"},
-    {"op": "write_cc", "name": "Signatory", "text": "Jane Doe"},
     {"op": "insert_paragraph", "anchor_id": "heading:3", "text": "New risk paragraph."},
-    {"op": "replace", "anchor_id": "heading:3", "text": "Updated section text"},
-    {"op": "apply_style", "anchor_id": "heading:3", "name": "Heading 2"},
-    {"op": "format_paragraph", "anchor_id": "heading:3", "alignment": "center", "space_before": 6}
+    {"op": "apply_style", "anchor_id": "heading:3", "name": "Heading 2"}
   ]
 }
 ```
 
-Exit codes: `0` ok, `1` other, `2` anchor-not-found, `3` Word-busy, `4` Word-not-running, `5` ambiguous-match (`replace --find` hit several), `6` Excel-not-available (`insert-chart`).
+Exit codes: `0` ok, `1` other, `2` anchor-not-found, `3` Word-busy, `4`
+Word-not-running, `5` ambiguous-match (`replace --find` hit several), `6`
+Excel-not-available (`insert-chart`).
 
 ## Agent skills
 
@@ -297,12 +204,16 @@ wordlive install-skill --system   # into ~/.agents/skills/ instead
 
 ## MCP server (Claude Desktop & other agents)
 
-Prefer MCP? `wordlive` ships a server so Claude Desktop and other MCP clients can
-drive your open document directly. Three ways to set it up, easiest first:
+Prefer MCP? `wordlive` ships a server so Claude Desktop and other MCP clients
+can drive your open document directly. Three ways to set it up, easiest first:
 
-**1. One-click bundle.** Download `wordlive.mcpb` (built from
-[`mcpb/`](https://github.com/thomas-villani/wordlive/tree/main/mcpb)) and drop it
-onto Claude Desktop → **Settings → Extensions**.
+**1. One-click bundle.** Download `wordlive.mcpb` from the
+[latest release](https://github.com/thomas-villani/wordlive/releases/latest)
+and drop it onto Claude Desktop → **Settings → Extensions**. It needs
+[`uv`](https://docs.astral.sh/uv/getting-started/installation/) on your PATH —
+the bundle resolves the published package at load time, so there's nothing else
+to install. (The bundle's source lives in
+[`mcpb/`](https://github.com/thomas-villani/wordlive/tree/main/mcpb).)
 
 **2. `install-mcp`.** Register the server in your client's config in one command
 (it uses `uvx`, so there's no separate install step):
@@ -323,7 +234,7 @@ the vision tool), then add to `claude_desktop_config.json`:
 Or, if you prefer `uvx`:
 
 ```json
-{ "mcpServers": { "wordlive": { "command": "uvx wordlive[mcp,snapshot]" } } } 
+{ "mcpServers": { "wordlive": { "command": "uvx wordlive[mcp,snapshot]" } } }
 ```
 
 It exposes four dispatch tools — `word_read`, `word_write`, `word_exec`, and
@@ -339,7 +250,8 @@ Runnable, out-of-the-box scripts live in
 [`examples/`](https://github.com/thomas-villani/wordlive/tree/main/examples) — Python
 (using the library) and PowerShell (driving the CLI). Each attaches to the
 document you already have open; the read-only and append-only ones are safe to
-try on a real document.
+try on a real document. (`examples/demos/` holds the scripted walk-throughs
+behind the demo GIFs — they run against a throwaway document.)
 
 ```bash
 python examples/python/read_outline.py            # read-only: print the outline
