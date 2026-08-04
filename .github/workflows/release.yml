@@ -116,3 +116,68 @@ jobs:
           --title "$GITHUB_REF_NAME"
           --generate-notes
           dist/* mcpb-dist/wordlive.mcpb
+
+  # Publish the server *metadata* to the official MCP registry
+  # (https://registry.modelcontextprotocol.io). The registry hosts no artifacts —
+  # it points at the PyPI release and the .mcpb asset from the GitHub Release, so
+  # this runs last, after both exist.
+  mcp-registry:
+    needs: [pypi-publish, github-release]
+    runs-on: ubuntu-latest
+    permissions:
+      # OIDC is how `mcp-publisher login github-oidc` proves we own the
+      # `io.github.thomas-villani/*` namespace. No secret required.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: mcpb
+          path: mcpb-dist/
+
+      # The registry re-fetches the PyPI JSON API to verify the `mcp-name:`
+      # marker in our README. Publishing to PyPI is not instantly visible there,
+      # so give it a moment rather than failing the whole release on a race.
+      - name: Wait for the release to appear on PyPI
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for attempt in $(seq 1 20); do
+            if curl -sfo /dev/null "https://pypi.org/pypi/wordlive/$version/json"; then
+              echo "wordlive $version is live on PyPI (attempt $attempt)."
+              exit 0
+            fi
+            echo "Not on PyPI yet (attempt $attempt); retrying in 15s…"
+            sleep 15
+          done
+          echo "::error::wordlive $version never showed up on PyPI; not publishing to the MCP registry."
+          exit 1
+
+      # server.json is committed with the *previous* release's mcpb hash — the
+      # hash can't be known until the bundle is built. Recompute it here, and
+      # repoint the download URL and versions at the tag being released.
+      - name: Pin server.json to this release
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sha="$(sha256sum mcpb-dist/wordlive.mcpb | cut -d' ' -f1)"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/wordlive.mcpb"
+          jq --arg v "$version" --arg sha "$sha" --arg url "$url" '
+            .version = $v
+            | .packages |= map(
+                if .registryType == "pypi" then .version = $v
+                elif .registryType == "mcpb" then .version = $v | .identifier = $url | .fileSha256 = $sha
+                else . end
+              )
+          ' server.json > server.json.tmp && mv server.json.tmp server.json
+          cat server.json
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to the MCP registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server.json
+        run: ./mcp-publisher publish

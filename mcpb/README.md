@@ -27,6 +27,16 @@ Prefer to wire it up by hand? `wordlive install-mcp` writes the same
 `mcpServers` entry into your client config — see the
 [MCP docs](https://thomas-villani.github.io/wordlive/mcp/).
 
+## Privacy Policy
+
+The bundle collects no data, sends nothing anywhere, and has no telemetry: it
+runs `wordlive-mcp` locally and drives the Word instance already open on your
+machine over COM. Your documents stay on that machine. What your MCP client
+does with the content it reads is governed by that client's own policy.
+
+Full text: <https://thomas-villani.github.io/wordlive/privacy/> (also declared as
+`privacy_policies` in `manifest.json`).
+
 ## Build / repack
 
 ```bash

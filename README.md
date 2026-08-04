@@ -1,3 +1,9 @@
+<!-- Ownership marker for the official MCP registry: it verifies that whoever
+     publishes `io.github.thomas-villani/wordlive` also controls the `wordlive`
+     PyPI project, by looking for this exact string in the published README.
+     Must match `name` in server.json. Do not remove or reflow. -->
+<!-- mcp-name: io.github.thomas-villani/wordlive -->
+
 # wordlive
 
 [![PyPI](https://img.shields.io/pypi/v/wordlive.svg)](https://pypi.org/project/wordlive/)
@@ -231,11 +237,23 @@ the vision tool), then add to `claude_desktop_config.json`:
 { "mcpServers": { "wordlive": { "command": "wordlive-mcp" } } }
 ```
 
-Or, if you prefer `uvx`:
+Or, if you prefer `uvx` (no install step — `--from` is required because
+`wordlive-mcp` is a console script *inside* the `wordlive` distribution):
 
 ```json
-{ "mcpServers": { "wordlive": { "command": "uvx wordlive[mcp,snapshot]" } } }
+{
+  "mcpServers": {
+    "wordlive": {
+      "command": "uvx",
+      "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]
+    }
+  }
+}
 ```
+
+wordlive is also listed on the [official MCP registry](https://registry.modelcontextprotocol.io)
+as `io.github.thomas-villani/wordlive`, so registry-aware clients and the
+directories that mirror it can install it without any of the above.
 
 It exposes four dispatch tools — `word_read`, `word_write`, `word_exec`, and
 `word_snapshot` (which returns a rendered page as an image). The full op
@@ -275,6 +293,18 @@ python examples/python/append_note.py "Reviewed." # append one paragraph (atomic
   you're never blocked by missing coverage.
 
 See [`spec.md`](https://github.com/thomas-villani/wordlive/blob/main/spec.md) for the full design.
+
+## Privacy Policy
+
+wordlive collects nothing, sends nothing, and stores nothing about you. It has
+no account, no server, no telemetry, and no network calls — it drives a copy of
+Word already running on your machine, over Windows COM. The documents it touches
+never leave that machine.
+
+Two things *around* wordlive can move your data, and are worth knowing about:
+Word's own cloud features (OneDrive autosave and friends), and whichever AI
+assistant you point at wordlive, which sees the parts of the document it reads.
+Full text: [Privacy policy](https://thomas-villani.github.io/wordlive/privacy/).
 
 ## Contributing & security
 
