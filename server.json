@@ -1,0 +1,55 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.thomas-villani/wordlive",
+  "title": "wordlive (Microsoft Word, live)",
+  "description": "Read and edit the Microsoft Word document you have open right now, live, over COM.",
+  "version": "0.19.0",
+  "websiteUrl": "https://thomas-villani.github.io/wordlive/",
+  "repository": {
+    "url": "https://github.com/thomas-villani/wordlive",
+    "source": "github",
+    "id": "1243953892"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "wordlive",
+      "version": "0.19.0",
+      "runtimeHint": "uvx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--from",
+          "value": "wordlive[mcp,snapshot]",
+          "description": "wordlive-mcp is a console script inside the `wordlive` distribution, so uv needs --from to know which package provides it. The mcp extra pulls in the MCP SDK; snapshot adds PyMuPDF for the page-rendering tool."
+        },
+        {
+          "type": "positional",
+          "valueHint": "command",
+          "value": "wordlive-mcp",
+          "description": "The stdio MCP server entry point."
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      }
+    },
+    {
+      "registryType": "mcpb",
+      "registryBaseUrl": "https://github.com",
+      "identifier": "https://github.com/thomas-villani/wordlive/releases/download/v0.19.0/wordlive.mcpb",
+      "version": "0.19.0",
+      "fileSha256": "2554d0fc9117a3575a38a1c682446e103d56bd6b24d354710a5c3ed5445904ef",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "platforms": ["win32"],
+      "requires": "A running Microsoft Word (Windows). The server drives the live instance over COM; it does not open or convert .docx files on its own."
+    }
+  }
+}

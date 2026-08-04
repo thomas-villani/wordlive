@@ -16,6 +16,7 @@
     "url": "https://github.com/thomas-villani/wordlive"
   },
   "license": "MIT",
+  "privacy_policies": ["https://thomas-villani.github.io/wordlive/privacy/"],
   "keywords": ["word", "docx", "com-automation", "documents", "wordlive"],
   "server": {
     "type": "uv",

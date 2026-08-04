@@ -20,12 +20,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one command") instead of two uncommented lines mid-wall.
 
 ### Added
+- **Listed on the official MCP registry.** A root `server.json`
+  (`io.github.thomas-villani/wordlive`) describes both install routes — the
+  `.mcpb` bundle from the GitHub release and the PyPI package via
+  `uvx --from "wordlive[mcp,snapshot]" wordlive-mcp` — and the release workflow
+  now republishes it on every tag: it recomputes the bundle's SHA-256, repoints
+  the download URL at the new tag, and authenticates to the registry with GitHub
+  OIDC (no secret). Namespace ownership is proven by an `mcp-name:` marker in
+  the README, which is what PyPI serves as the project description.
+- **Privacy policy** (`docs/privacy.md`, published at
+  <https://thomas-villani.github.io/wordlive/privacy/>), summarised in a
+  "Privacy Policy" section in `README.md` and `mcpb/README.md` and declared as
+  `privacy_policies` in `mcpb/manifest.json`. wordlive makes no network calls and
+  keeps no data; saying so explicitly is also a hard gate for Anthropic's
+  connector-directory review, which is where the `.mcpb` bundle wants to end up.
 - **`examples/demos/` — screen-recordable demo choreography.** Two scripts that
   drive a throwaway document through a repeatable story for the README demo
   GIFs: `demo_regularize.py` (messy draft → `lint` → `regularize` → one Ctrl-Z
   reverts the pass) and `demo_agent_showcase.py` (an agent builds a styled brief
   and leaves a review comment). A folder README covers recording setup and
   where the resulting GIFs land.
+
+### Fixed
+- **README's `uvx` MCP snippet was not runnable.** It showed
+  `{"command": "uvx wordlive[mcp,snapshot]"}` — a command and its argument
+  crammed into one field, and pointing at the `wordlive` CLI rather than the
+  server. Corrected to the `command` / `args` split that `install-mcp` actually
+  writes: `uvx --from "wordlive[mcp,snapshot]" wordlive-mcp`.
 
 ## [0.19.0] - 2026-07-15
 

@@ -141,6 +141,22 @@ regex = true
 search = 'wordlive\[mcp,snapshot\]>={current_version}'
 replace = 'wordlive[mcp,snapshot]>={new_version}'
 
+# server.json (official MCP registry). Three `"version"` keys — the server's own,
+# the pypi package's, and the mcpb package's — all track the release, and
+# bump-my-version replaces every occurrence, so one entry covers all three.
+[[tool.bumpversion.files]]
+filename = "server.json"
+search = '"version": "{current_version}"'
+replace = '"version": "{new_version}"'
+
+# …and the mcpb download URL, which embeds the tag. The `fileSha256` alongside it
+# can't be precomputed (the bundle doesn't exist yet); release.yml recomputes it
+# from the built artifact before publishing.
+[[tool.bumpversion.files]]
+filename = "server.json"
+search = '/download/v{current_version}/wordlive.mcpb'
+replace = '/download/v{new_version}/wordlive.mcpb'
+
 # Keep uv.lock's own `wordlive` package version in lock-step with the bump.
 # bump-my-version only string-substitutes the files listed here, so without this
 # entry a release leaves uv.lock pinning the old version and the next PR fails CI

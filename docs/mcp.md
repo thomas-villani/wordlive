@@ -14,6 +14,12 @@ write is a single Ctrl-Z), and failures come back with a stable error `code` and
 Three ways, easiest first. All three end with the same `word_*` tools in your
 client — pick whichever fits.
 
+wordlive is also listed in the [official MCP registry](https://registry.modelcontextprotocol.io)
+as **`io.github.thomas-villani/wordlive`**, so clients that browse the registry
+(and the directories that mirror it) can find and install it without any of the
+below. The registry entry offers both the `.mcpb` bundle and the PyPI package;
+the listing is republished automatically on every release.
+
 ### 1. One-click bundle (`.mcpb`)
 
 The repo ships an **MCP bundle** in
