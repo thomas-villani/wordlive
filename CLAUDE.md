@@ -24,6 +24,11 @@ almost certainly wrong:
    (Pre-2010 Word silently falls back to N undo entries.)
 4. **Structured I/O.** Reads return dataclasses/dicts; the CLI emits exactly one
    JSON object per invocation; exit codes are deterministic. No string scraping.
+   *One deliberate exception:* `wordlive mcp` hands stdout to the MCP transport,
+   so it emits protocol frames and nothing else — never `emit()`/`click.echo` on
+   that path, and the global `--json/--text` / `--doc` flags are ignored there.
+   Launcher verbs (`mcp`, `install-mcp`, `install-skill`, `llm-help`) are the
+   only commands that aren't document operations.
 
 Underlying all four: the **`.com` escape hatch** — every wrapper exposes the raw
 pywin32 object via `.com`. Prefer extending the high-level API, but never block
@@ -57,7 +62,11 @@ central types are big enough to live in packages; everything else is one module.
 - `cli/` — Click CLI (`commands/` = one module per verb cluster, aggregated by
   `register()`; `main.py` = exit-code boundary). `mcp/` — the `wordlive-mcp`
   dispatch-tool server (`server.py` builds it; `_read`/`_write`/`_exec`/
-  `_snapshot` hold the impls).
+  `_snapshot` hold the impls). The server has three equivalent entry points —
+  the `wordlive-mcp` console script, `python -m wordlive.mcp`, and the
+  `wordlive mcp` CLI verb; the verb exists so `uvx "wordlive[mcp,snapshot]" mcp`
+  works (uv takes the command name from the package name), and it is the only
+  one that can pass a `PathPolicy` built from flags into `build_server()`.
 - `_skill/{wordlive-cli,wordlive-python,wordlive-mcp}/SKILL.md` — the three
   bundled agent guides. The cli/python ones are surfaced by `llm-help` /
   `install-skill`; the **mcp** one is what `word_read(command="guide")` and the

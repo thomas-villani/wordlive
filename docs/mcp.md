@@ -43,9 +43,9 @@ wordlive install-mcp --print               # just print the JSON snippet
 wordlive install-mcp --directory .         # dev: run a local checkout via uv run
 ```
 
-It merges an `mcpServers.wordlive` entry (using `uvx --from "wordlive[mcp,snapshot]"
-wordlive-mcp`) into the target config, refusing to clobber an existing entry
-without `--force`. Offline — it never touches Word. Restart the client afterward.
+It merges an `mcpServers.wordlive` entry (using `uvx "wordlive[mcp,snapshot]"
+mcp`) into the target config, refusing to clobber an existing entry without
+`--force`. Offline — it never touches Word. Restart the client afterward.
 
 ### 3. By hand
 
@@ -85,14 +85,48 @@ Claude Desktop, open a `.docx` in Word, and the `word_*` tools appear.
 
 ## Run
 
+Three equivalent entry points — the same server either way:
+
 ```
-wordlive-mcp            # console script (stdio transport)
-python -m wordlive.mcp  # equivalent
+wordlive mcp            # CLI subcommand (takes --save-dir / --image-dir)
+wordlive-mcp            # console script
+python -m wordlive.mcp  # module form
+```
+
+The subcommand is what makes the conventional `uvx` invocation work, since uv
+derives the command name from the package name:
+
+```
+uvx "wordlive[mcp,snapshot]" mcp
 ```
 
 The server speaks MCP over **stdio** — the transport Claude Desktop spawns. Word
 must already be running on the same machine (wordlive *attaches*; it never launches
 or closes Word).
+
+### Configuring the filesystem gate
+
+The server's save/export tools are **default-deny**: with no directory
+whitelisted they refuse. Whitelist one with `WORDLIVE_SAVE_DIRS` (an
+`os.pathsep`-separated list, honoured by all three entry points), or — with
+`wordlive mcp` — on the launch line itself:
+
+```json
+{
+  "mcpServers": {
+    "wordlive": {
+      "command": "uvx",
+      "args": [
+        "wordlive[mcp,snapshot]", "mcp",
+        "--save-dir", "C:\\Users\\you\\Documents"
+      ]
+    }
+  }
+}
+```
+
+`--image-dir` works the same way for image-source paths. Both flags merge with
+the environment rather than replacing it. See [path policy](cli.md#global-flags).
 
 ## Tools
 
@@ -192,6 +226,11 @@ LLM-supplied images. Configure both in the client's server entry:
   }
 }
 ```
+
+If you launch via `wordlive mcp`, the `--save-dir` / `--image-dir` flags do the
+same job as `args` instead of `env` — see
+[Configuring the filesystem gate](#configuring-the-filesystem-gate). Flags and
+environment merge, so you can use either or both.
 
 ## Errors
 

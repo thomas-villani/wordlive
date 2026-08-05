@@ -86,9 +86,16 @@ __all__ = [
 ]
 
 
-def build_server(worker: Worker | None = None) -> FastMCP:
+def build_server(worker: Worker | None = None, policy: PathPolicy | None = None) -> FastMCP:
     """Build the FastMCP server. `worker` is injectable for tests (defaults to a
-    real COM worker thread). Importing the `mcp` extra is deferred to here."""
+    real COM worker thread). Importing the `mcp` extra is deferred to here.
+
+    `policy` is the filesystem gate. It defaults to the environment
+    (`WORDLIVE_SAVE_DIRS` / `WORDLIVE_IMAGE_DIRS`), which is how the
+    `wordlive-mcp` console script and Claude Desktop's bundle configure it. The
+    `wordlive mcp` CLI verb passes one built from its flags *and* the
+    environment, so `--save-dir` works on the launch line as well.
+    """
     try:
         from mcp.server.fastmcp import FastMCP, Image
         from mcp.types import TextContent
@@ -99,9 +106,11 @@ def build_server(worker: Worker | None = None) -> FastMCP:
         ) from e
 
     w: Worker = worker if worker is not None else ComWorker()
-    # Saving is default-deny: the operator opts in by configuring WORDLIVE_SAVE_DIRS
-    # at launch (image-source paths optionally restricted via WORDLIVE_IMAGE_DIRS).
-    policy = PathPolicy.from_env()
+    # Saving is default-deny: with no save directory configured (by flag or by
+    # WORDLIVE_SAVE_DIRS at launch), saving is off. Image-source paths are
+    # optionally restricted the same way via --image-dir / WORDLIVE_IMAGE_DIRS.
+    if policy is None:
+        policy = PathPolicy.from_env()
     mcp = FastMCP("wordlive", instructions=_INSTRUCTIONS)
 
     @mcp.tool()
@@ -1039,6 +1048,6 @@ def build_server(worker: Worker | None = None) -> FastMCP:
     return mcp
 
 
-def main() -> None:
+def main(policy: PathPolicy | None = None) -> None:
     """Launch the server over stdio (the transport Claude Desktop spawns)."""
-    build_server().run()
+    build_server(policy=policy).run()
