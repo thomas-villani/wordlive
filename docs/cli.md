@@ -3696,15 +3696,15 @@ wordlive install-mcp [--client claude-desktop|claude-code] [--name NAME]
 Register wordlive's [MCP server](mcp.md) in an agent's config so a client can
 drive your open document. It merges an `mcpServers.<name>` entry (default name
 `wordlive`) that launches the stdio server with
-`uvx --from "wordlive[mcp,snapshot]" wordlive-mcp` — no separate install step,
-and the `snapshot` extra enables the vision tool. Offline: it only edits config,
-never touches Word — restart the client to load the change.
+`uvx "wordlive[mcp,snapshot]" mcp` — no separate install step, and the
+`snapshot` extra enables the vision tool. Offline: it only edits config, never
+touches Word — restart the client to load the change.
 
 - `--client claude-desktop` (default) writes the OS-specific
   `claude_desktop_config.json`; `--client claude-code` writes a project-local
   `./.mcp.json`.
 - `--directory DIR` registers a **local checkout** via
-  `uv run --directory DIR wordlive-mcp` (for development) instead of the PyPI
+  `uv run --directory DIR wordlive mcp` (for development) instead of the PyPI
   `uvx` form.
 - `--config PATH` targets a specific config file; `--print` just emits the JSON
   snippet (writing nothing) so you can paste it into any client.
@@ -3716,19 +3716,51 @@ $ wordlive install-mcp --print
   "mcpServers": {
     "wordlive": {
       "command": "uvx",
-      "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]
+      "args": ["wordlive[mcp,snapshot]", "mcp"]
     }
   }
 }
 
 $ wordlive install-mcp
 {"ok": true, "client": "claude-desktop", "path": ".../Claude/claude_desktop_config.json",
- "server": "wordlive", "action": "created", "entry": {"command": "uvx", "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]}}
+ "server": "wordlive", "action": "created", "entry": {"command": "uvx", "args": ["wordlive[mcp,snapshot]", "mcp"]}}
 ```
 
 Failures: `1` if the config can't be read/written, isn't a JSON object, or the
 server entry already exists without `--force`. For the bundle (`.mcpb`) and a
 full tool reference, see the [MCP server page](mcp.md).
+
+### `mcp`
+
+```
+wordlive mcp [--save-dir DIR]... [--image-dir DIR]...
+```
+
+Run the [MCP server](mcp.md) on stdio. Requires the `mcp` extra; identical to
+the `wordlive-mcp` console script, and the reason the conventional `uvx` form
+works — uv derives the command name from the package name, so the extras go in
+the command position and no `--from` is needed:
+
+```bash
+uvx "wordlive[mcp,snapshot]" mcp
+uvx "wordlive[mcp,snapshot]" mcp --save-dir C:\Users\you\Documents
+```
+
+`--save-dir` / `--image-dir` configure the server's [path
+policy](#global-flags) on the launch line, which is otherwise reachable only
+through `WORDLIVE_SAVE_DIRS` / `WORDLIVE_IMAGE_DIRS`. They accept the same
+values as the global flags, merge with them and with the environment, and are
+accepted on either side of the subcommand. Default-deny still applies: with no
+save directory configured, the server's save tools refuse.
+
+!!! note "The one command that doesn't emit JSON"
+
+    Every other verb writes exactly one JSON object to stdout. Here stdout *is*
+    the MCP transport and carries nothing but protocol frames, so the global
+    `--json/--text` and `--doc` flags are ignored (each MCP tool takes its own
+    `doc` argument). The command runs until the client disconnects.
+
+Failures: `1` if the `mcp` extra isn't installed (the error names the extra).
 
 ### LLM tool-use example
 

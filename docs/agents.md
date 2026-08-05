@@ -66,7 +66,7 @@ client launches it the same way — this is the entry to register:
   "mcpServers": {
     "wordlive": {
       "command": "uvx",
-      "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]
+      "args": ["wordlive[mcp,snapshot]", "mcp"]
     }
   }
 }
@@ -74,12 +74,18 @@ client launches it the same way — this is the entry to register:
 
 `uvx` runs the published package straight from PyPI — no separate install — and
 the `snapshot` extra enables the `word_snapshot` vision tool (renders a page to
-an image the model can *see*). Two variants on the launch command:
+an image the model can *see*). `mcp` is a `wordlive` subcommand, which is why uv
+needs no `--from` here — it takes the command name from the package name.
+Variants on the launch command:
 
 - **Pinned install:** `pip install "wordlive[mcp,snapshot]"`, then use
-  `"command": "wordlive-mcp"` with no `args`.
+  `"command": "wordlive"`, `"args": ["mcp"]` (or the `wordlive-mcp` console
+  script with no `args` — same server).
 - **Local checkout (dev):** `"command": "uv"`, `"args": ["run", "--directory",
-  "C:\\path\\to\\wordlive", "wordlive-mcp"]`.
+  "C:\\path\\to\\wordlive", "wordlive", "mcp"]`.
+- **Let it save:** append `"--save-dir", "C:\\Users\\you\\Documents"` to `args`
+  (or set `WORDLIVE_SAVE_DIRS` in `env`). Saving is default-deny until some
+  directory is whitelisted.
 
 `wordlive install-mcp` writes this entry for you (Claude Desktop / Claude Code);
 `wordlive install-mcp --print` emits the snippet to paste anywhere else. **Restart
@@ -105,7 +111,7 @@ the `mcpServers` entry above.
 ```bash
 # Built-in CLI — user scope, so it's available in every project:
 claude mcp add --scope user --transport stdio wordlive \
-    -- uvx --from "wordlive[mcp,snapshot]" wordlive-mcp
+    -- uvx "wordlive[mcp,snapshot]" mcp
 
 # …or a committable project-local .mcp.json:
 wordlive install-mcp --client claude-code
@@ -135,7 +141,7 @@ VS Code uses a **different shape**: a top-level `servers` key plus an explicit
     "wordlive": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]
+      "args": ["wordlive[mcp,snapshot]", "mcp"]
     }
   }
 }

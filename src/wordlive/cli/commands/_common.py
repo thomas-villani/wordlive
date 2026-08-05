@@ -559,12 +559,15 @@ def _mcp_server_entry(directory: str | None) -> dict[str, Any]:
     """The `mcpServers` entry that launches the wordlive stdio server.
 
     Default (repo-less) form runs the published package straight from PyPI with
-    `uvx` — `wordlive-mcp` is a console script *inside* `wordlive`, so it needs
-    `--from "wordlive[mcp,snapshot]"` to tell uv which package provides it (and
-    the `snapshot` extra enables the vision tool). With `--directory` (a local
-    checkout) wordlive *is* the project, so a plain `uv run wordlive-mcp`
-    resolves it without `--from`.
+    `uvx`. Because `wordlive mcp` is a *subcommand*, uv derives the command name
+    from the package name and the bracketed extras go in the command position —
+    no `--from` needed (`mcp` pulls in the MCP SDK, `snapshot` the vision tool).
+    With `--directory` (a local checkout) wordlive *is* the project, so
+    `uv run wordlive mcp` resolves it there.
+
+    The `wordlive-mcp` console script remains an equivalent entry point; this
+    form is preferred only because it is one uv convention instead of two.
     """
     if directory:
-        return {"command": "uv", "args": ["run", "--directory", directory, "wordlive-mcp"]}
-    return {"command": "uvx", "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]}
+        return {"command": "uv", "args": ["run", "--directory", directory, "wordlive", "mcp"]}
+    return {"command": "uvx", "args": ["wordlive[mcp,snapshot]", "mcp"]}

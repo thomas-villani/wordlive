@@ -22,13 +22,15 @@
           "type": "named",
           "name": "--from",
           "value": "wordlive[mcp,snapshot]",
-          "description": "wordlive-mcp is a console script inside the `wordlive` distribution, so uv needs --from to know which package provides it. The mcp extra pulls in the MCP SDK; snapshot adds PyMuPDF for the page-rendering tool."
-        },
+          "description": "Selects the optional extras: `mcp` pulls in the MCP SDK, `snapshot` adds PyMuPDF for the page-rendering tool. Equivalently, `uvx \"wordlive[mcp,snapshot]\" mcp`."
+        }
+      ],
+      "packageArguments": [
         {
           "type": "positional",
-          "valueHint": "command",
-          "value": "wordlive-mcp",
-          "description": "The stdio MCP server entry point."
+          "valueHint": "subcommand",
+          "value": "mcp",
+          "description": "Runs the stdio MCP server. Same server as the `wordlive-mcp` console script; accepts --save-dir / --image-dir to configure the filesystem gate on the launch line."
         }
       ],
       "transport": {

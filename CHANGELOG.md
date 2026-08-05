@@ -20,14 +20,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one command") instead of two uncommented lines mid-wall.
 
 ### Added
+- **`wordlive mcp` — the stdio MCP server as a CLI subcommand.** Identical to
+  the `wordlive-mcp` console script (which stays), but because uv derives a
+  command name from the *package* name, having it as a subcommand is what makes
+  the conventional one-liner work: `uvx "wordlive[mcp,snapshot]" mcp`, no
+  `--from`. It also takes `--save-dir` / `--image-dir`, so the server's
+  default-deny filesystem gate is configurable on the launch line instead of
+  only through `WORDLIVE_SAVE_DIRS` / `WORDLIVE_IMAGE_DIRS`; flags given before
+  or after the subcommand merge with each other and with the environment.
+  `build_server()` / `main()` now accept an explicit `policy`.
+
+  This is the one command that does not emit a JSON object — stdout is the MCP
+  transport — so the global `--json/--text` and `--doc` flags are ignored there.
+  `install-mcp` now writes the subcommand form (`uvx "wordlive[mcp,snapshot]"
+  mcp`); existing configs using `wordlive-mcp` keep working unchanged.
 - **Listed on the official MCP registry.** A root `server.json`
   (`io.github.thomas-villani/wordlive`) describes both install routes — the
   `.mcpb` bundle from the GitHub release and the PyPI package via
-  `uvx --from "wordlive[mcp,snapshot]" wordlive-mcp` — and the release workflow
+  `uvx "wordlive[mcp,snapshot]" mcp` — and the release workflow
   now republishes it on every tag: it recomputes the bundle's SHA-256, repoints
   the download URL at the new tag, and authenticates to the registry with GitHub
   OIDC (no secret). Namespace ownership is proven by an `mcp-name:` marker in
-  the README, which is what PyPI serves as the project description.
+  the README, which is what PyPI serves as the project description. The PyPI
+  entry's `identifier` sits in its natural position (`wordlive`) with `mcp` as a
+  package argument, so a client that builds `uvx {runtimeArgs} {identifier}
+  {packageArgs}` gets a working command line.
 - **Privacy policy** (`docs/privacy.md`, published at
   <https://thomas-villani.github.io/wordlive/privacy/>), summarised in a
   "Privacy Policy" section in `README.md` and `mcpb/README.md` and declared as

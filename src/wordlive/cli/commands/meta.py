@@ -14,6 +14,7 @@ from ..._guide import skill_body as _skill_body
 from ..._guide import skill_name as _skill_name
 from ..._ops import pick_doc as _pick_doc
 from ..._ops import run_batch as _run_batch
+from ..._paths import PathPolicy
 from ..main import _run, emit
 from ._common import (
     _claude_desktop_config_path,
@@ -263,7 +264,7 @@ def install_skill_cmd(
     "--directory",
     "directory",
     default=None,
-    help="Register a local checkout via `uv run --directory DIR` (dev), instead of the default `uvx --from wordlive[mcp,snapshot]`.",
+    help="Register a local checkout via `uv run --directory DIR` (dev), instead of the default `uvx wordlive[mcp,snapshot] mcp`.",
 )
 @click.option(
     "--config",
@@ -297,10 +298,10 @@ def install_mcp_cmd(
     Merges an `mcpServers.<name>` entry into Claude Desktop's
     `claude_desktop_config.json` (default) or a Claude Code `.mcp.json`
     (`--client claude-code`, project-local). The entry launches the stdio server
-    with `uvx --from "wordlive[mcp,snapshot]" wordlive-mcp` (no separate install
-    needed), or `uv run --directory DIR wordlive-mcp` for a local checkout. Use
-    `--print` to just emit the snippet for any client. Offline — never touches
-    Word; restart the client to pick up the change.
+    with `uvx "wordlive[mcp,snapshot]" mcp` (no separate install needed), or
+    `uv run --directory DIR wordlive mcp` for a local checkout. Use `--print` to
+    just emit the snippet for any client. Offline — never touches Word; restart
+    the client to pick up the change.
     """
     entry = _mcp_server_entry(directory)
 
@@ -357,3 +358,56 @@ def install_mcp_cmd(
         as_text=not ctx.obj["as_json"],
         text=f"{action} server '{server_name}' → {target}\n(restart {client} to load it)",
     )
+
+
+@click.command(name="mcp")
+@click.option(
+    "--save-dir",
+    "save_dirs",
+    multiple=True,
+    metavar="DIR",
+    help="Allow the server's save/save-as/export-pdf tools to write under DIR "
+    "(repeatable; adds to any --save-dir given before the subcommand and to "
+    "WORDLIVE_SAVE_DIRS). Default-deny: with none configured, saving is off.",
+)
+@click.option(
+    "--image-dir",
+    "image_dirs",
+    multiple=True,
+    metavar="DIR",
+    help="Restrict the server's image-source paths to files under DIR "
+    "(repeatable; adds to WORDLIVE_IMAGE_DIRS). Non-local paths (UNC, URLs) "
+    "are always rejected.",
+)
+@click.pass_context
+def mcp_cmd(ctx: click.Context, save_dirs: tuple[str, ...], image_dirs: tuple[str, ...]) -> None:
+    r"""Run the wordlive MCP server on stdio (needs the `mcp` extra).
+
+    Identical to the `wordlive-mcp` console script, as a subcommand — which is
+    what lets the conventional `uvx` form work, since uv derives the command
+    name from the package name:
+
+        uvx "wordlive[mcp,snapshot]" mcp --save-dir C:\Users\you\Documents
+
+    Unlike every other verb, this one does **not** emit a JSON object: stdout is
+    the MCP transport and must carry nothing but protocol frames. The global
+    `--json/--text` and `--doc` options are therefore ignored (each MCP tool
+    takes its own `doc` argument). Runs until the client disconnects.
+    """
+    # Merge this command's flags on top of the group-level policy (which already
+    # folded in WORDLIVE_SAVE_DIRS / WORDLIVE_IMAGE_DIRS and any pre-subcommand
+    # flags), so `--save-dir` works on either side of `mcp`.
+    base: PathPolicy = ctx.obj["policy"]
+    policy = PathPolicy(
+        save_dirs=[*base.save_dirs, *save_dirs],
+        image_dirs=[*base.image_dirs, *image_dirs],
+    )
+
+    # Deferred: importing the server pulls in the optional `mcp` extra (and
+    # pydantic), which no other verb needs.
+    from ...mcp.server import main as _serve
+
+    try:
+        _serve(policy=policy)
+    except RuntimeError as e:  # the `mcp` extra is missing — exit 1, not a traceback
+        raise click.ClickException(str(e)) from e

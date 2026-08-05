@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from click.testing import CliRunner
 
@@ -2053,16 +2054,18 @@ def test_install_mcp_print_emits_pypi_snippet():
     data = json.loads(out)
     entry = data["mcpServers"]["wordlive"]
     assert entry["command"] == "uvx"
-    assert entry["args"] == ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]
+    # Extras in the command position: uv derives the command from the package
+    # name, so the `mcp` subcommand needs no `--from`.
+    assert entry["args"] == ["wordlive[mcp,snapshot]", "mcp"]
 
 
 def test_install_mcp_print_directory_uses_local_checkout():
-    """`--directory` switches to `uv run --directory DIR wordlive-mcp` (dev)."""
+    """`--directory` switches to `uv run --directory DIR wordlive mcp` (dev)."""
     code, out, _ = _invoke(["install-mcp", "--print", "--directory", "C:/checkout"])
     assert code == EXIT_OK
     entry = json.loads(out)["mcpServers"]["wordlive"]
     assert entry["command"] == "uv"
-    assert entry["args"] == ["run", "--directory", "C:/checkout", "wordlive-mcp"]
+    assert entry["args"] == ["run", "--directory", "C:/checkout", "wordlive", "mcp"]
 
 
 def test_install_mcp_writes_config(tmp_path: Path):
@@ -2105,3 +2108,88 @@ def test_install_mcp_force_updates(tmp_path: Path):
     code, out, _ = _invoke(["install-mcp", "--config", str(cfg), "--force"])
     assert code == EXIT_OK
     assert json.loads(out)["action"] == "updated"
+
+
+# ---------------------------------------------------------------------------
+# `wordlive mcp` — the stdio server as a subcommand (offline; the server itself
+# is stubbed, so these assert the wiring, not the protocol).
+# ---------------------------------------------------------------------------
+
+
+def _stub_serve(monkeypatch) -> list[Any]:
+    """Replace the MCP server entry point; return the list it records into."""
+    import wordlive.mcp.server as server_mod
+
+    seen: list[Any] = []
+    monkeypatch.setattr(server_mod, "main", lambda policy=None: seen.append(policy))
+    return seen
+
+
+def test_mcp_command_runs_the_server_and_prints_nothing(monkeypatch):
+    """stdout is the MCP transport — the verb must not emit its usual JSON."""
+    seen = _stub_serve(monkeypatch)
+    code, out, _ = _invoke(["mcp"])
+    assert code == EXIT_OK
+    assert out == ""
+    assert len(seen) == 1
+
+
+def test_mcp_command_passes_save_dir_flag_through(tmp_path: Path, monkeypatch):
+    seen = _stub_serve(monkeypatch)
+    code, _, _ = _invoke(["mcp", "--save-dir", str(tmp_path)])
+    assert code == EXIT_OK
+    policy = seen[0]
+    assert policy is not None
+    assert policy.saving_enabled
+    assert policy.save_dirs == (tmp_path.resolve(),)
+
+
+def test_mcp_command_accepts_flags_before_the_subcommand(tmp_path: Path, monkeypatch):
+    """`wordlive --save-dir X mcp` and `wordlive mcp --save-dir X` agree."""
+    seen = _stub_serve(monkeypatch)
+    code, _, _ = _invoke(["--save-dir", str(tmp_path), "mcp"])
+    assert code == EXIT_OK
+    assert seen[0].save_dirs == (tmp_path.resolve(),)
+
+
+def test_mcp_command_merges_group_flags_env_and_subcommand_flags(tmp_path: Path, monkeypatch):
+    """All three sources contribute; none clobbers the others."""
+    env_dir, group_dir, cmd_dir = (tmp_path / n for n in ("env", "group", "cmd"))
+    for d in (env_dir, group_dir, cmd_dir):
+        d.mkdir()
+    monkeypatch.setenv("WORDLIVE_SAVE_DIRS", str(env_dir))
+    seen = _stub_serve(monkeypatch)
+    code, _, _ = _invoke(
+        ["--save-dir", str(group_dir), "mcp", "--save-dir", str(cmd_dir)],
+    )
+    assert code == EXIT_OK
+    assert set(seen[0].save_dirs) == {env_dir.resolve(), group_dir.resolve(), cmd_dir.resolve()}
+
+
+def test_mcp_command_image_dir_flag_reaches_the_policy(tmp_path: Path, monkeypatch):
+    seen = _stub_serve(monkeypatch)
+    code, _, _ = _invoke(["mcp", "--image-dir", str(tmp_path)])
+    assert code == EXIT_OK
+    assert seen[0].image_dirs == (tmp_path.resolve(),)
+
+
+def test_mcp_command_defaults_to_saving_disabled(monkeypatch):
+    monkeypatch.delenv("WORDLIVE_SAVE_DIRS", raising=False)
+    seen = _stub_serve(monkeypatch)
+    code, _, _ = _invoke(["mcp"])
+    assert code == EXIT_OK
+    assert seen[0].saving_enabled is False
+
+
+def test_mcp_command_without_the_extra_exits_one(monkeypatch):
+    """A missing `mcp` extra is a clean error on stderr, not a traceback."""
+    import wordlive.mcp.server as server_mod
+
+    def _boom(policy=None):
+        raise RuntimeError("the wordlive MCP server requires the 'mcp' extra: ...")
+
+    monkeypatch.setattr(server_mod, "main", _boom)
+    code, out, err = _invoke(["mcp"])
+    assert code == EXIT_OTHER
+    assert out == ""
+    assert "mcp" in err.lower() and "extra" in err.lower()

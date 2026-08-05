@@ -58,7 +58,7 @@ from .insert import (
 )
 from .linting import lint_cmd, proofing_cmd, regularize_cmd
 from .lists import list_cmd
-from .meta import exec_, install_mcp_cmd, install_skill_cmd, llm_help_cmd
+from .meta import exec_, install_mcp_cmd, install_skill_cmd, llm_help_cmd, mcp_cmd
 from .metadata import properties, variables
 from .persistence import export_pdf_cmd, save_as_cmd, save_cmd
 from .read import read
@@ -246,6 +246,7 @@ def register(group: click.Group) -> None:
     group.add_command(llm_help_cmd)
     group.add_command(install_skill_cmd)
     group.add_command(install_mcp_cmd)
+    group.add_command(mcp_cmd)
 
 
 # ---------------------------------------------------------------------------

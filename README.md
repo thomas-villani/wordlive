@@ -237,19 +237,22 @@ the vision tool), then add to `claude_desktop_config.json`:
 { "mcpServers": { "wordlive": { "command": "wordlive-mcp" } } }
 ```
 
-Or, if you prefer `uvx` (no install step — `--from` is required because
-`wordlive-mcp` is a console script *inside* the `wordlive` distribution):
+Or, if you prefer `uvx` — no install step at all:
 
 ```json
 {
   "mcpServers": {
     "wordlive": {
       "command": "uvx",
-      "args": ["--from", "wordlive[mcp,snapshot]", "wordlive-mcp"]
+      "args": ["wordlive[mcp,snapshot]", "mcp"]
     }
   }
 }
 ```
+
+which is just the JSON spelling of `uvx "wordlive[mcp,snapshot]" mcp`. Add
+`"--save-dir", "C:\\Users\\you\\Documents"` to that `args` list to let the
+server save (it's default-deny).
 
 wordlive is also listed on the [official MCP registry](https://registry.modelcontextprotocol.io)
 as `io.github.thomas-villani/wordlive`, so registry-aware clients and the
